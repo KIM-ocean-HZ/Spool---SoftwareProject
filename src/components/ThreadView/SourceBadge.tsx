@@ -5,6 +5,8 @@ import { useBlocksStore } from '@/stores/blocksStore';
 
 interface Props {
   block: Block;
+  // Digest view renders blocks read-only — the badge becomes a static label.
+  readOnly?: boolean;
 }
 
 // Editable provenance badge (PLAN_EN.md §Phase 5: "Editable source"). The badge sits
@@ -12,7 +14,7 @@ interface Props {
 // Enter or blur commits, Esc cancels. When the block has no source yet, the badge is
 // hidden by default and surfaces on hover of the parent block ("+ 来源") so the user
 // can label captures whose foreground-app detection missed.
-export default function SourceBadge({ block }: Props) {
+export default function SourceBadge({ block, readOnly }: Props) {
   const setSource = useBlocksStore((s) => s.setSource);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(block.source ?? '');
@@ -45,6 +47,18 @@ export default function SourceBadge({ block }: Props) {
     setValue(block.source ?? '');
     setEditing(false);
   };
+
+  // Digest read-mode (§11.2): the badge is a static label, no click-to-edit.
+  if (readOnly) {
+    if (!block.source) return null;
+    const Icon = sourceIcon(block.source);
+    return (
+      <span className="inline-flex items-center gap-1 px-1 text-[10px] text-muted">
+        <Icon size={12} className="flex-none" />
+        {block.source}
+      </span>
+    );
+  }
 
   if (editing) {
     return (

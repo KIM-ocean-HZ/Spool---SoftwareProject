@@ -4,7 +4,8 @@ import { openTarget } from '@/lib/utils/openTarget';
 
 interface Props {
   attachments: readonly Attachment[];
-  onDetach: (attachmentId: string) => void;
+  // Omitted in read-only contexts (the digest view) — without it no detach control renders.
+  onDetach?: (attachmentId: string) => void;
 }
 
 // Per PLAN_EN.md §9.6: an attachment renders as a chip on its block. Icon picked by
@@ -36,19 +37,23 @@ export default function BlockAttachments({ attachments, onDetach }: Props) {
               type="button"
               onClick={() => void handleOpen(a)}
               title={a.target}
-              className="flex max-w-[260px] items-center gap-1 rounded-full border border-line bg-paper-2/60 py-0.5 pl-1.5 pr-5 font-ui text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
+              className={`flex max-w-[260px] items-center gap-1 rounded-full border border-line bg-paper-2/60 py-0.5 pl-1.5 font-ui text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent ${
+                onDetach ? 'pr-5' : 'pr-2.5'
+              }`}
             >
               <Icon size={10} className="flex-none" />
               <span className="truncate">{label}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => onDetach(a.id)}
-              title="移除附件"
-              className="absolute right-0.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted opacity-0 transition-opacity hover:text-accent group-hover/chip:opacity-100"
-            >
-              <X size={9} />
-            </button>
+            {onDetach && (
+              <button
+                type="button"
+                onClick={() => onDetach(a.id)}
+                title="移除附件"
+                className="absolute right-0.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted opacity-0 transition-opacity hover:text-accent group-hover/chip:opacity-100"
+              >
+                <X size={9} />
+              </button>
+            )}
           </li>
         );
       })}

@@ -14,9 +14,11 @@ interface Props {
   attachments: readonly Attachment[];
   // True briefly after a search result navigated here — drives the flash highlight.
   highlight?: boolean;
-  onTogglePin: () => void;
-  onCopy: () => void;
-  onDelete: () => void;
+  // Digest view renders blocks read-only: no hover action bar, no inline edit (§11.2).
+  readOnly?: boolean;
+  onTogglePin?: () => void;
+  onCopy?: () => void;
+  onDelete?: () => void;
 }
 
 // Collapsed line cap for smart truncation (PLAN_EN.md §9.3 / §Phase 6). 6 lines is
@@ -32,6 +34,7 @@ export default function BlockItem({
   block,
   attachments,
   highlight,
+  readOnly,
   onTogglePin,
   onCopy,
   onDelete,
@@ -189,8 +192,8 @@ export default function BlockItem({
   return (
     <article
       data-block-id={block.id}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={readOnly ? undefined : () => setHovered(true)}
+      onMouseLeave={readOnly ? undefined : () => setHovered(false)}
       className={`group relative rounded-md border bg-paper/40 px-3.5 py-2.5 transition-shadow ${
         block.pinned ? 'pl-4' : ''
       } ${
@@ -205,18 +208,20 @@ export default function BlockItem({
 
       <div className="mb-1 flex items-center gap-2 text-[10px] text-muted">
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>
-        <SourceBadge block={block} />
-        <BlockActions
-          visible={hovered}
-          pinned={block.pinned}
-          onTogglePin={onTogglePin}
-          onEdit={() => setEditingContent(true)}
-          onAttachFile={() => void handleAttachFile()}
-          onAttachUrl={() => setAttachingUrl((v) => !v)}
-          onAnnotate={() => setEditingAnnotation(true)}
-          onCopy={onCopy}
-          onDelete={onDelete}
-        />
+        <SourceBadge block={block} readOnly={readOnly} />
+        {!readOnly && (
+          <BlockActions
+            visible={hovered}
+            pinned={block.pinned}
+            onTogglePin={() => onTogglePin?.()}
+            onEdit={() => setEditingContent(true)}
+            onAttachFile={() => void handleAttachFile()}
+            onAttachUrl={() => setAttachingUrl((v) => !v)}
+            onAnnotate={() => setEditingAnnotation(true)}
+            onCopy={() => onCopy?.()}
+            onDelete={() => onDelete?.()}
+          />
+        )}
       </div>
 
       {editingContent ? (
@@ -239,8 +244,8 @@ export default function BlockItem({
         <>
           <div
             ref={measureRef}
-            onDoubleClick={() => setEditingContent(true)}
-            title="双击编辑"
+            onDoubleClick={readOnly ? undefined : () => setEditingContent(true)}
+            title={readOnly ? undefined : '双击编辑'}
             style={
               collapsed
                 ? {
@@ -324,7 +329,7 @@ export default function BlockItem({
 
       <BlockAttachments
         attachments={attachments}
-        onDetach={(aid) => void detach(aid, block.id)}
+        onDetach={readOnly ? undefined : (aid) => void detach(aid, block.id)}
       />
     </article>
   );

@@ -5,8 +5,10 @@ import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
+import CompleteThreadPanel from './CompleteThreadPanel';
+import DigestView from './DigestView';
 import LogView from './LogView';
-import ThreadHeader from './ThreadHeader';
+import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
 
 const EMPTY: readonly Block[] = [];
 
@@ -14,6 +16,7 @@ export default function ThreadView() {
   const activeId = useThreadsStore((s) => s.activeId);
   const thread = useThreadsStore(selectThreadById(activeId));
   const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const patch = useThreadsStore((s) => s.patch);
 
   const blocks = useBlocksStore((s) =>
     activeId ? s.byThread[activeId] ?? EMPTY : EMPTY,
@@ -35,6 +38,14 @@ export default function ThreadView() {
   }, [blocks, attachmentsByBlock]);
 
   const [packOpen, setPackOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  // For `done` threads the user can flip to LogView within a session; the override
+  // resets to null on thread switch so reopens default back to DigestView (§9.9).
+  const [viewOverride, setViewOverride] = useState<ThreadViewMode | null>(null);
+  useEffect(() => {
+    setViewOverride(null);
+    setCompleteOpen(false);
+  }, [activeId]);
 
   // Pack uses ref blocks' refThreadId to look up the *current* title — that's the whole
   // point of @-mention (Phase 9). Build the lookup from the loaded threads so the
@@ -69,14 +80,36 @@ export default function ThreadView() {
     );
   }
 
+  const viewMode: ThreadViewMode =
+    thread.status === 'done' ? viewOverride ?? 'digest' : 'log';
+
+  const handleReopen = (): void => {
+    void patch(thread.id, { status: 'active', completedAt: null, digest: null });
+    setViewOverride(null);
+  };
+
   return (
     <div className="relative flex h-full flex-col">
       <ThreadHeader
         thread={thread}
         workspaces={workspaces}
         onPack={() => setPackOpen(true)}
+        onComplete={() => setCompleteOpen(true)}
+        onReopen={handleReopen}
+        viewMode={viewMode}
+        onSetViewMode={setViewOverride}
       />
-      <LogView key={thread.id} threadId={thread.id} />
+      {viewMode === 'digest' ? (
+        <DigestView
+          key={thread.id}
+          thread={thread}
+          blocks={blocks}
+          attachmentsByBlock={attachmentsByBlock}
+          onShowLog={() => setViewOverride('log')}
+        />
+      ) : (
+        <LogView key={thread.id} threadId={thread.id} />
+      )}
 
       {packOpen && (
         <PackDialog
@@ -86,6 +119,10 @@ export default function ThreadView() {
           refTitles={refTitles}
           onClose={() => setPackOpen(false)}
         />
+      )}
+
+      {completeOpen && (
+        <CompleteThreadPanel thread={thread} onClose={() => setCompleteOpen(false)} />
       )}
     </div>
   );
