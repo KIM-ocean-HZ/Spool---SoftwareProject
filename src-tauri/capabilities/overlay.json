@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "Capability for the capture overlay window. Needs SQL for the Redirect picker (its own connection per PLAN_EN.md §Phase 5) and core:default for Tauri events + custom invoke commands.",
+  "windows": ["overlay"],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select"
+  ]
+}

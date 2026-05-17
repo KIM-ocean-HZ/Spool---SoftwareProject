@@ -1,0 +1,52 @@
+@import './tokens.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.paper-bg {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(180, 83, 9, 0.04), transparent 40%),
+    radial-gradient(circle at 100% 100%, rgba(180, 83, 9, 0.03), transparent 35%),
+    var(--paper);
+}
+
+@keyframes flash {
+  0%   { background-color: rgba(251, 191, 36, 0.18); }
+  100% { background-color: transparent; }
+}
+
+.flash {
+  animation: flash 900ms ease-out;
+}
+
+@keyframes chipIn {
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.chip-in {
+  animation: chipIn 220ms ease-out both;
+}
+
+@keyframes pulseDim {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1; }
+}
+
+.pulse-dim {
+  animation: pulseDim 1.2s ease-in-out infinite;
+}

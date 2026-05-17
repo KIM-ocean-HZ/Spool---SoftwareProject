@@ -1,0 +1,45 @@
+:root {
+  /* paper & ink */
+  --paper:        #faf7f0;
+  --paper-2:      #f3eee2;
+  --paper-edge:   #ebe4d2;
+  --ink:          #1c1a16;
+  --ink-2:        #4a463d;
+  --muted:        #8c8576;
+
+  /* lines */
+  --line:         #e6dfcc;
+  --line-strong:  #d6cdb3;
+
+  /* accent (amber family) */
+  --accent:       #b45309;
+  --accent-2:     #92400e;
+  --accent-soft:  #fef3c7;
+  --highlight:    #fbbf24;
+  --selection:    #fef9c3;
+
+  /* status colors */
+  --status-active:   #6b7c5a;
+  --status-parked:   #a8632c;
+  --status-done:     #8c8576;
+  --urgent:          #b3402f;
+
+  /* spacing */
+  --pad-page-x:   2.5rem;
+  --pad-page-y:   1.75rem;
+
+  /* fonts */
+  --font-ui:    'Geist', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Instrument Serif', 'Songti SC', 'STSong', serif;
+  --font-mono:  'Geist Mono', ui-monospace, monospace;
+
+  /* radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* shadows */
+  --shadow-card:  0 4px 12px -6px rgba(120, 80, 20, 0.15);
+  --shadow-toast: 0 8px 24px -8px rgba(60, 40, 10, 0.25);
+}
