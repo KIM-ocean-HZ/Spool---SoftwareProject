@@ -1,17 +1,71 @@
-// PLAN_EN.md §Phase 5 ("Settings/shortcut review"): the capture shortcut
-// (⌘/Ctrl+Shift+C) is registered on the Rust side during setup (src-tauri/src/lib.rs
-// → tauri_plugin_global_shortcut). For Phase 5 it stays hardcoded — the user-facing
-// recorder UX lives in §9.12 / Phase 12 (Polish, Settings, Packaging).
+// Shortcut accelerators (PLAN_EN.md §9.12 / §19.1). The two global shortcuts —
+// capture (⌘⇧C) and search (⌘⇧F) — are user-configurable from the Settings panel.
 //
-// Review outcome: the path to Phase 12 is clean —
-//   • tauri-plugin-global-shortcut exposes `unregister` + `register`, so swapping the
-//     accelerator at runtime needs no rebuild.
-//   • `capture::capture_accelerator()` is the one Rust call site; replacing it with a
-//     lookup from the (future) settings store is a one-function change.
-//   • A double-tap-modifier trigger is explicitly **not** added (PLAN §10.4 / §17 —
-//     deferred; the shortcut staying user-configurable is the chosen solution).
-//
-// The label constants below are read by §11.5 / §12 settings UI to render the default.
+// An accelerator is a string in this module's own grammar: lowercase modifier tokens
+// (`meta` `control` `alt` `shift`) joined with `+`, then the W3C `KeyboardEvent.code`
+// of the main key, e.g. `meta+shift+KeyC`. The Rust `set_shortcuts` command parses the
+// same grammar — keeping the format simple and shared avoids a brittle dependency on
+// the global-shortcut crate's own accelerator parser.
 
-export const DEFAULT_CAPTURE_SHORTCUT_LABEL = '⌘⇧C';
-export const DEFAULT_SEARCH_SHORTCUT_LABEL = '⌘⇧F';
+const isMac =
+  typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
+
+// Defaults — must match Rust's capture_accelerator() / search_accelerator().
+export const DEFAULT_CAPTURE_ACCEL = isMac ? 'meta+shift+KeyC' : 'control+shift+KeyC';
+export const DEFAULT_SEARCH_ACCEL = isMac ? 'meta+shift+KeyF' : 'control+shift+KeyF';
+
+// Build an accelerator from a keydown. Returns null for an unusable chord: the key
+// itself is a bare modifier, or there is no "real" modifier (a shift-only global
+// shortcut would hijack every capital letter). Modifiers are pushed in a fixed order
+// so two recordings of the same chord always produce the identical string.
+export function eventToAccelerator(e: KeyboardEvent): string | null {
+  const code = e.code;
+  if (!code || /^(Meta|Control|Alt|Shift)(Left|Right)$/.test(code)) return null;
+  if (!e.metaKey && !e.ctrlKey && !e.altKey) return null;
+  const mods: string[] = [];
+  if (e.metaKey) mods.push('meta');
+  if (e.ctrlKey) mods.push('control');
+  if (e.altKey) mods.push('alt');
+  if (e.shiftKey) mods.push('shift');
+  return [...mods, code].join('+');
+}
+
+const MOD_SYMBOL: Record<string, string> = {
+  meta: '⌘',
+  control: '⌃',
+  alt: '⌥',
+  shift: '⇧',
+};
+
+const ARROW: Record<string, string> = { Up: '↑', Down: '↓', Left: '←', Right: '→' };
+const NAMED_KEY: Record<string, string> = {
+  Space: 'Space',
+  Enter: '↵',
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+};
+
+const formatKey = (code: string): string => {
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return code.slice(6);
+  if (code.startsWith('Arrow')) return ARROW[code.slice(5)] ?? code;
+  return NAMED_KEY[code] ?? code; // F1–F12, Tab, Escape, … pass through
+};
+
+// Render an accelerator as a human label, e.g. `meta+shift+KeyC` → `⌘⇧C`.
+export function formatAccelerator(accel: string): string {
+  const parts = accel.split('+');
+  const key = parts[parts.length - 1] ?? '';
+  const mods = parts.slice(0, -1).map((m) => MOD_SYMBOL[m] ?? m);
+  return mods.join('') + formatKey(key);
+}

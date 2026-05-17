@@ -1,7 +1,10 @@
 import { Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useSearchStore } from '@/stores/searchStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
+import FocusSection from './FocusSection';
+import SidebarSummary from './SidebarSummary';
 import WorkspaceGroup from './WorkspaceGroup';
 
 export default function Sidebar() {
@@ -10,6 +13,7 @@ export default function Sidebar() {
   const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
   const openSearch = useSearchStore((s) => s.openSearch);
+  const openSettings = useSettingsStore((s) => s.openPanel);
 
   return (
     <aside className="flex h-full w-[280px] flex-none flex-col border-r border-line bg-paper-2/40">
@@ -20,7 +24,10 @@ export default function Sidebar() {
         </h1>
       </header>
 
+      <SidebarSummary />
+
       <div className="flex-1 overflow-y-auto px-2 pb-4">
+        <FocusSection />
         {workspaces.length === 0 ? (
           <div className="px-3 py-12 text-center">
             <p className="font-serif text-xl italic text-muted">empty</p>
@@ -56,9 +63,9 @@ export default function Sidebar() {
             <Search size={14} />
           </button>
           <button
+            onClick={openSettings}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-            title="设置（Phase 12）"
-            disabled
+            title="设置 (⌘,)"
           >
             <SettingsIcon size={14} />
           </button>

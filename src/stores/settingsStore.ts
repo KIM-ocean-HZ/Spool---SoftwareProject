@@ -1,5 +1,20 @@
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
+import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
+
+// Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
+// `searchShortcut` are accelerator strings (lib/capture/shortcut.ts); the rest are
+// Phase 11/12 AI settings, already present so the store shape is stable.
+type PersistableKey =
+  | 'groqKey'
+  | 'geminiKey'
+  | 'ollamaEndpoint'
+  | 'ollamaModel'
+  | 'privacyMode'
+  | 'captureShortcut'
+  | 'searchShortcut';
+
+type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
 interface SettingsState {
   groqKey: string;
@@ -7,9 +22,14 @@ interface SettingsState {
   ollamaEndpoint: string;
   ollamaModel: string;
   privacyMode: boolean;
+  captureShortcut: string;
+  searchShortcut: string;
   loaded: boolean;
+  panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   load: () => Promise<void>;
-  update: (patch: Partial<Omit<SettingsState, 'loaded' | 'load' | 'update'>>) => Promise<void>;
+  update: (patch: PersistablePatch) => Promise<void>;
+  openPanel: () => void;
+  closePanel: () => void;
 }
 
 let storePromise: Promise<Store> | null = null;
@@ -18,13 +38,15 @@ const getStore = (): Promise<Store> => {
   return storePromise;
 };
 
-const KEYS = [
+const KEYS: PersistableKey[] = [
   'groqKey',
   'geminiKey',
   'ollamaEndpoint',
   'ollamaModel',
   'privacyMode',
-] as const;
+  'captureShortcut',
+  'searchShortcut',
+];
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   groqKey: '',
@@ -32,7 +54,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   ollamaEndpoint: 'http://localhost:11434',
   ollamaModel: 'qwen3:8b',
   privacyMode: false,
+  captureShortcut: DEFAULT_CAPTURE_ACCEL,
+  searchShortcut: DEFAULT_SEARCH_ACCEL,
   loaded: false,
+  panelOpen: false,
 
   load: async () => {
     try {
@@ -61,4 +86,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       console.warn('settings save failed', e);
     }
   },
+
+  openPanel: () => set({ panelOpen: true }),
+  closePanel: () => set({ panelOpen: false }),
 }));

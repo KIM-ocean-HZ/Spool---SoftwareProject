@@ -23,6 +23,7 @@
   --status-parked:   #a8632c;
   --status-done:     #8c8576;
   --urgent:          #b3402f;
+  --urgent-strong:   #8a2e22;
 
   /* spacing */
   --pad-page-x:   2.5rem;

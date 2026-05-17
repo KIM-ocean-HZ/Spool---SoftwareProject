@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -53,8 +54,9 @@ export function useTrayMenu(): void {
                   .find((t) => t.id === activeId)?.workspaceId
               : undefined) ?? useWorkspacesStore.getState().workspaces[0]?.id;
           if (wsId) void useThreadsStore.getState().create(wsId);
+        } else if (p.kind === 'settings') {
+          useSettingsStore.getState().openPanel();
         }
-        // "settings" is wired in Phase 12 (settings panel).
       });
       if (cancelled) {
         dispose();

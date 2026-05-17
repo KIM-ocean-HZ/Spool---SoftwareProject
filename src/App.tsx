@@ -1,5 +1,7 @@
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect } from 'react';
 import SearchOverlay from '@/components/Search/SearchOverlay';
+import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import { useCapture } from '@/hooks/useCapture';
@@ -7,6 +9,7 @@ import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -26,6 +29,8 @@ export default function App() {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const select = useThreadsStore((s) => s.select);
   const createThread = useThreadsStore((s) => s.create);
+  const loadSettings = useSettingsStore((s) => s.load);
+  const openSettings = useSettingsStore((s) => s.openPanel);
 
   useCapture();
   useTrayMenu();
@@ -50,11 +55,29 @@ export default function App() {
         e.preventDefault();
         const wsId = activeThread?.workspaceId ?? workspaces[0]?.id ?? null;
         if (wsId) void createThread(wsId);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        openSettings();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeThread, workspaces, createThread]);
+  }, [activeThread, workspaces, createThread, openSettings]);
+
+  // Load persisted settings, then push the saved shortcuts to Rust so a user's
+  // re-bound capture/search keys take effect (§19.1). Rust registered the defaults at
+  // setup(); set_shortcuts no-ops when the persisted pair already equals the defaults.
+  useEffect(() => {
+    void (async () => {
+      await loadSettings();
+      const { captureShortcut, searchShortcut } = useSettingsStore.getState();
+      try {
+        await invoke('set_shortcuts', { capture: captureShortcut, search: searchShortcut });
+      } catch (e) {
+        console.warn('[shortcuts] applying persisted shortcuts failed', e);
+      }
+    })();
+  }, [loadSettings]);
 
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__spool = {
@@ -169,6 +192,7 @@ export default function App() {
         </main>
       </div>
       <SearchOverlay />
+      <Settings />
     </>
   );
 }

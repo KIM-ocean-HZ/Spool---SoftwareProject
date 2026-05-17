@@ -23,6 +23,7 @@ pub fn run() {
             capture::resize_capture_overlay,
             capture::update_overlay_source,
             capture::show_capture_notice,
+            capture::set_shortcuts,
         ]);
 
     #[cfg(desktop)]
@@ -33,7 +34,16 @@ pub fn run() {
         builder = builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if shortcut == &capture::capture_accelerator() {
+                    // Match against the *currently registered* accelerators (§19.1),
+                    // which the user can re-bind at runtime — not the hard-coded
+                    // defaults. try_state can only be None before setup() runs, which
+                    // is before any shortcut is registered, so a press can't reach here.
+                    let Some(cfg) = app.try_state::<capture::ShortcutConfig>() else {
+                        return;
+                    };
+                    let capture_acc = *cfg.capture.lock().unwrap();
+                    let search_acc = *cfg.search.lock().unwrap();
+                    if shortcut == &capture_acc {
                         // Log every state change (Pressed AND Released) so a missing
                         // capture can be triaged: if stderr shows neither, macOS dropped
                         // the keypress before us; if it shows Pressed but JS doesn't see
@@ -42,7 +52,7 @@ pub fn run() {
                         if event.state() == ShortcutState::Pressed {
                             let _ = app.emit("capture-trigger", ());
                         }
-                    } else if shortcut == &capture::search_accelerator() {
+                    } else if shortcut == &search_acc {
                         eprintln!("[shortcut] search state={:?}", event.state());
                         if event.state() == ShortcutState::Pressed {
                             // ⌘⇧F is system-global, so the main window may be hidden —
@@ -76,15 +86,18 @@ pub fn run() {
                         use tauri_plugin_global_shortcut::GlobalShortcutExt;
                         let app = window.app_handle();
                         let gs = app.global_shortcut();
-                        for acc in [
-                            capture::capture_accelerator(),
-                            capture::search_accelerator(),
-                        ] {
-                            if !gs.is_registered(acc.clone()) {
-                                if let Err(e) = gs.register(acc) {
-                                    eprintln!("[shortcut] re-register on focus failed: {e}");
-                                } else {
-                                    eprintln!("[shortcut] re-registered on focus");
+                        if let Some(cfg) = app.try_state::<capture::ShortcutConfig>() {
+                            for acc in
+                                [*cfg.capture.lock().unwrap(), *cfg.search.lock().unwrap()]
+                            {
+                                if !gs.is_registered(acc) {
+                                    if let Err(e) = gs.register(acc) {
+                                        eprintln!(
+                                            "[shortcut] re-register on focus failed: {e}"
+                                        );
+                                    } else {
+                                        eprintln!("[shortcut] re-registered on focus");
+                                    }
                                 }
                             }
                         }
@@ -122,9 +135,16 @@ pub fn run() {
                     })
                     .build(app)?;
 
-                // Default capture shortcut. Re-binding from the frontend (settings) is a
-                // Phase 12 feature. Kept registered even with double-tap ⌥ active —
-                // serves as the fallback when CGEventTap permissions are missing.
+                // Live shortcut config (§19.1): starts at the platform defaults; the
+                // frontend re-applies any persisted overrides via `set_shortcuts` once
+                // settings load. Registering here means the capture shortcut works from
+                // the first launch instant, before the webview is even ready. Kept
+                // registered even with double-tap ⌥ active — it is the fallback when
+                // CGEventTap permissions are missing.
+                app.manage(capture::ShortcutConfig {
+                    capture: std::sync::Mutex::new(capture::capture_accelerator()),
+                    search: std::sync::Mutex::new(capture::search_accelerator()),
+                });
                 if let Err(e) = app
                     .global_shortcut()
                     .register(capture::capture_accelerator())

@@ -1155,7 +1155,9 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 - [ ] The global shortcut `Cmd/Ctrl+Shift+F` opens it; clicking a result navigates to the corresponding thread and scrolls to the block, which briefly highlights
 - **Acceptance**: searching a keyword finds blocks (by content or annotation) in any thread of any workspace; **each result shows context around the keyword (not an isolated snippet)**; clicking a result navigates accurately and highlights the target; search makes zero network requests.
 
-### Phase 8 — Progress, Deadline, Status & Sidebar Structure (~3.5 h)
+### Phase 8 — Progress, Deadline, Status & Sidebar Structure ✅ COMPLETE (~3.5 h)
+
+> Delivered the planned surface (deadline, progress, parked + next_step, three-section sidebar, drag-between-workspaces). Two backlog items were folded in as planned: §19.1 (shortcut configuration UI) shipped with two recorders + conflict detection, Rust-side runtime shortcut swap with rollback on registration failure, persisted via `tauri-plugin-store`, wired to the gear button / ⌘, / tray menu. §19.5 (FTS sync verification) shipped as Vitest cases using Node's built-in `node:sqlite` (no new dependency) against the real `schema.sql` triggers — INSERT, content edit, and annotation edit all sync to the FTS index; no bugs in the Phase 1 triggers. Runtime verification of the shortcut re-binding behavior under `npm run tauri dev` is pending — `cargo check` only proves compilation.
 
 - [ ] `ThreadHeader`: add a deadline date picker, a progress drag slider, the `active|parked|done` status toggle, and the editable one-line `next_step` field (shown prominently — it is the re-entry cue)
 - [ ] `ui/ProgressRing.tsx` / `ui/CountdownBadge.tsx`; `hooks/useCountdown.ts` updates in real time
@@ -1344,13 +1346,13 @@ Not in v1 scope, but the architecture must be able to accommodate them. Claude C
 
 > Items identified during the v2.4 → v2.5 retrospective. Each was assessed against §2.7 (the filter). Everything here either tightens the v1 surface or pays down engineering debt — none adds a new feature. Items are tagged with a target phase; "opportunistic" means *fold in when you're already in that file*.
 
-### 19.1 Shortcut configuration UI is overdue — Target: **Phase 8 or a mini-phase before Phase 9**
+### 19.1 ✅ Shortcut configuration UI is overdue — DONE in Phase 8 (folded in as a sidecar; no separate mini-phase needed)
 
 The capture trigger has churned through Phases 3 → 5 → 7: `⌘⇧C` → +double-tap `⌘C` → +double-tap `⌥`. All values are hardcoded. §9.12 and §10.4 both promised "user-configurable shortcut"; the promise is unfulfilled. Any further trigger experiment without settings UI compounds debt.
 
 **Action**: pull the shortcut-recorder UI (originally Phase 12 §9.12) forward — either into Phase 8 as a sidecar, or as a small "Settings UI v0" phase between Phase 8 and Phase 9. Scope is just the two shortcut recorders + conflict check; API keys and quota display can stay in Phase 12.
 
-### 19.2 Initialize git before continuing — Target: **before Phase 8**
+### 19.2 ✅ Initialize git before continuing — DONE before Phase 8 (baseline at `v0.7.0-phase7`)
 
 §18 rule 1 says "each phase is an independent git commit." The repo wasn't git-initialized through Phase 7; Phases 1–7 exist as one snapshot. This violates our own constitution and forfeits rollback safety.
 
@@ -1370,7 +1372,7 @@ When macOS sends `kCGEventTapDisabledByTimeout` or `…ByUserInput`, the handler
 
 **Action**: on a disable event, attempt to recreate the tap once; if that fails, surface a one-time overlay notice ("Capture monitoring stopped — please restart Spool to re-enable double-tap"). Do not silently degrade without telling the user.
 
-### 19.5 Verify FTS5 stays in sync after inline edits & annotation edits — Target: **Phase 8 quick check**
+### 19.5 ✅ Verify FTS5 stays in sync after inline edits & annotation edits — DONE in Phase 8 via `query.test.ts` using `node:sqlite`; no bugs found
 
 Phase 6 added inline `content` editing and `annotation` editing. The FTS5 triggers from Phase 1 cover INSERT/UPDATE/DELETE on `blocks` — on paper they handle this — but the path was never explicitly tested after Phase 6 landed. §9.10 (search over `content` AND `annotation`) is meaningless if edits don't reach the index.
 

@@ -281,6 +281,103 @@ pub fn search_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
     Shortcut::new(Some(mods), Code::KeyF)
 }
 
+// =============================================================================
+// Runtime-configurable shortcuts (PLAN_EN.md §19.1)
+// =============================================================================
+//
+// The capture/search accelerators are user-configurable from the Settings panel.
+// `ShortcutConfig` is Tauri managed state holding the *currently registered* pair —
+// the global-shortcut handler matches presses against it (not the hard-coded
+// `*_accelerator()` defaults), and `set_shortcuts` swaps the registration at runtime.
+
+#[cfg(desktop)]
+pub struct ShortcutConfig {
+    pub capture: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
+    pub search: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
+}
+
+// Parse an accelerator in the frontend's grammar (see src/lib/capture/shortcut.ts):
+// `+`-joined lowercase modifier tokens then a W3C KeyboardEvent.code, e.g.
+// "meta+shift+KeyC". Kept deliberately small — we control both ends of this string.
+#[cfg(desktop)]
+fn parse_shortcut(spec: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, String> {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+    let mut mods = Modifiers::empty();
+    let mut code: Option<Code> = None;
+    for tok in spec.split('+').map(str::trim).filter(|t| !t.is_empty()) {
+        match tok.to_ascii_lowercase().as_str() {
+            "meta" | "super" | "cmd" | "command" => mods |= Modifiers::SUPER,
+            "control" | "ctrl" => mods |= Modifiers::CONTROL,
+            "alt" | "option" => mods |= Modifiers::ALT,
+            "shift" => mods |= Modifiers::SHIFT,
+            _ => {
+                if code.is_some() {
+                    return Err(format!("shortcut has more than one key: {spec}"));
+                }
+                // Code::from_str is case-sensitive — pass the original-case token.
+                code = Some(Code::from_str(tok).map_err(|_| format!("unknown key: {tok}"))?);
+            }
+        }
+    }
+    let code = code.ok_or_else(|| format!("shortcut has no key: {spec}"))?;
+    if mods.is_empty() {
+        return Err(format!("shortcut needs a modifier: {spec}"));
+    }
+    Ok(Shortcut::new(Some(mods), code))
+}
+
+// Re-register the global capture/search shortcuts at runtime (§19.1). Unregisters the
+// current pair and installs the new one; on any failure the old pair is restored, so a
+// rejected accelerator never leaves the user without a working capture shortcut. The
+// frontend persists the value only after this returns Ok.
+#[tauri::command]
+pub fn set_shortcuts<R: Runtime>(
+    app: AppHandle<R>,
+    capture: String,
+    search: String,
+) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let new_capture = parse_shortcut(&capture)?;
+        let new_search = parse_shortcut(&search)?;
+        if new_capture == new_search {
+            return Err("两个快捷键不能相同".into());
+        }
+        let cfg = app.state::<ShortcutConfig>();
+        let old_capture = *cfg.capture.lock().unwrap();
+        let old_search = *cfg.search.lock().unwrap();
+        if new_capture == old_capture && new_search == old_search {
+            return Ok(());
+        }
+        let gs = app.global_shortcut();
+        // Drop both, then install both — handles the case where only one changed and
+        // the case where the two were swapped, without a transient double-registration.
+        let _ = gs.unregister(old_capture);
+        let _ = gs.unregister(old_search);
+        if let Err(e) = gs.register(new_capture) {
+            let _ = gs.register(old_capture);
+            let _ = gs.register(old_search);
+            return Err(format!("无法注册捕捉快捷键：{e}"));
+        }
+        if let Err(e) = gs.register(new_search) {
+            let _ = gs.unregister(new_capture);
+            let _ = gs.register(old_capture);
+            let _ = gs.register(old_search);
+            return Err(format!("无法注册搜索快捷键：{e}"));
+        }
+        *cfg.capture.lock().unwrap() = new_capture;
+        *cfg.search.lock().unwrap() = new_search;
+        Ok(())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, capture, search);
+        Err("global shortcuts are desktop-only".into())
+    }
+}
+
 // Classify a dropped filesystem path as `file` or `folder` so the frontend can pick
 // the right attachment kind and the right icon. Used by the drag-drop bridge in
 // LogView (Phase 6). Returns `file` when the path doesn't exist — the caller will

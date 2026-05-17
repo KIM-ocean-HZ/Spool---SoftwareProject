@@ -20,6 +20,15 @@ const TABLES_TO_DROP = ['blocks_fts', 'attachments', 'blocks', 'threads', 'works
 
 let dbPromise: Promise<Database> | null = null;
 
+// Test-only seam (PLAN_EN.md §19.5). When set, getDb() yields this instead of
+// opening sqlite:spool.db — letting the node:sqlite-backed Vitest cases drive the
+// real query/CRUD modules against schema.sql's FTS triggers without the Tauri
+// runtime. Never set outside tests.
+let testDb: Database | null = null;
+export const __setTestDb = (db: Database | null): void => {
+  testDb = db;
+};
+
 const splitStatements = (sql: string): string[] => {
   // Strip line comments first, then split top-level statements by `;` followed by a blank
   // line. Trigger bodies (BEGIN ... END;) survive intact because the inner `;` is
@@ -99,6 +108,7 @@ const initDb = async (): Promise<Database> => {
 };
 
 export const getDb = (): Promise<Database> => {
+  if (testDb) return Promise.resolve(testDb);
   if (!dbPromise) {
     dbPromise = initDb().catch((e) => {
       // Reset so the next caller can retry after the user fixes the underlying issue
