@@ -9,7 +9,8 @@
 - **Claude Code**: Implement phase by phase, in the order given in §15. After completing each phase, STOP and wait for Ocean to review before starting the next. **Do not work on multiple phases in parallel. Do not pre-implement anything outside the current phase.**
 - **When you hit any ambiguity, or feel tempted to add a feature**: First re-read §2 (Product Constitution) — especially §2.5 (design principles), §2.6 (rejected ideas), and §2.7 (the feature filter). Most ambiguity is resolved there. If still unresolved, STOP and ask Ocean. Do not improvise.
 - **This document is written in English deliberately** — it is used directly as a prompt for Claude Code, and English yields more reliable instruction-following. All user-facing UI copy in the product itself, however, must be in Simplified Chinese (see §18, rule 11).
-- **Version 2.5 (this revision)** is a post-Phase-7 retrospective. Phases 1–7 are complete in code. v2.5 (a) documents three Phase 5/6/7 deliveries that exceeded the v2.4 plan with Ocean's approval — the double-tap ⌥ capture trigger (§10.4), the browser tab-title source detection (§10.5), and the trigram-tokenizer FTS5 (§9.10); (b) lifts the §18.1 rule that forbade Claude Code from running build/test/dev commands; and (c) adds §19, an Improvement Backlog that consolidates the engineering debt accumulated through Phase 7 into concrete items targeted at Phases 8+ and Phase 12. **The Product Constitution (§2), the core loop (§3), the two-tier structure, and Phases 8–13 are unchanged.**
+- **Version 2.6 (this revision)** is a post-Phase-8 design correction. Three features that survived earlier reviews but failed Ocean's dogfooding are removed: (a) the manual `next_step` per-thread note (§3.3, §9.9) — its job is naturally done by scrolling to the bottom of an append-only feed; (b) the manual `0-100` `progress` slider (§9.9) — notorious theater; replaced by the existing `active|parked|done` status (rendered as a small status dot in the sidebar); (c) the never-shipped proposal of color-coded blocks by source — superseded by source-category icons + date dividers (§9.3), both of which uphold "quiet visuals" (§9.9 spirit). This revision forces the first additive `ALTER TABLE` migration (SCHEMA_VERSION 2→3, dropping two `threads` columns) — partial credit on §19.3. **The Product Constitution (§2), the core loop (§3), the two-tier structure, the AI orchestration strategy, and Phases 9–13 are unchanged in intent.**
+- **Version 2.5** was a post-Phase-7 retrospective. Phases 1–7 marked complete; double-tap ⌥ trigger and browser tab-title source detection promoted from v1.5 into v1; FTS5 trigram tokenizer documented; §18.1 rule 4 lifted; Improvement Backlog added as §19; §18 rule 13 added (no Claude/Anthropic attribution).
 - **Version 2.4** was a roadmap amendment that inserted Phase 5 Capture Hardening and Phase 6 Block Workbench, and dissolved the old "File Anchors" phase into Phase 6 — see §9.6 for the reasoning.
 
 > Context: This product went through one real pivot (a notes app → a context hub). That pivot is settled. Everything since has been completing and hardening that direction — not changing it. Do not re-litigate the direction.
@@ -73,7 +74,7 @@ Knowledge workers running several "cross-tool, cross-day" workstreams at once: r
 3. **A thread is a log, not a chat.** Append-only, time-ordered, quiet. No "send," no read receipts, no real-time. It is an append-only timeline, not an instant messenger. (Editing or annotating a block you own does not violate this — "append-only" governs the sequence of blocks, not the immutability of a block's text.)
 4. **Retrieval is deterministic.** The core "pack" operation is pure string assembly: instant, reliable, with AI never in the hot path. AI compression is an optional enhancement, never a dependency.
 5. **AI is a librarian, not an author.** It summarizes, classifies, compresses. It never writes content for you, and never decides "what is related" for you. **AI output is always disposable decoration, never a structural element of any view — when AI is absent, every part of the product must remain fully intact.**
-6. **Exactly two tiers of structure; progress hangs on context.** Workspace → Thread, and no deeper. No infinite nesting. Each thread may carry a deadline and a progress value, aggregated in the sidebar. No separate dashboard — the sidebar is the dashboard. (Block-level properties — attachments, annotations, source — are not a third tier; they are payload on a block.)
+6. **Exactly two tiers of structure; deadlines hang on threads.** Workspace → Thread, and no deeper. No infinite nesting. Each thread may carry a deadline, aggregated in the sidebar. No separate dashboard — the sidebar is the dashboard. (Block-level properties — attachments, annotations, source — are not a third tier; they are payload on a block.)
 
 ### 2.6 Explicit Non-Goals & Rejected Ideas
 
@@ -94,6 +95,9 @@ Knowledge workers running several "cross-tool, cross-day" workstreams at once: r
 | **Collapse every block to a chip by default** | Looks tidy; seems to fight "information overload" | It optimizes capture-side tidiness but taxes the North Star — on re-entry, rehydrating context now costs one click *per block*, making the exact moment we measure slower | Smart truncation: a long block shows its first ~6 lines + a "show more" toggle (§9.3). Manual, user-initiated collapse is fine; collapse-*by-default* is not |
 | **Horizontal node-graph / "chain of thought" view of a thread** | Looks impressive | Visually loud (violates "quiet"); needs a layout engine + custom interaction; and linear chronological reading is already the fastest re-entry path — a graph *adds* navigation cost | Keep the linear feed. Optional sort-by-source is the only reordering. Revisit only with real demand (→ §17) |
 | **Per-block AI summary** | "AI on tap" for every block | A block is already a small unit; summarizing it has low payoff, and the local-model dependency adds setup + reliability variance that fights "quiet / frictionless" | AI summarization stays at the *thread* level — the §9.11 status summary is the "catch me up" surface |
+| **Manual 0–100 progress slider (rolled back in v2.6)** | Looks like a "% done" dashboard signal | Notorious theater — users either set it once and never update, or pick round numbers without thought. The slider produces a number to *maintain*, not a signal to *trust*. Linear, GitHub Issues, Things all reject continuous manual progress for the same reason; the pattern's failure is well-documented | Use `active \| parked \| done` status as the only completion signal (rendered as a status dot in the sidebar), `deadline` (data the user gives once) for urgency, and `updated_at` (system-tracked) for freshness. Nothing the user has to "remember to update" |
+| **Manual `next_step` per-thread note (rolled back in v2.6)** | "Write down where you left off" sounds like the perfect re-entry aid | Negative dogfooding result. Requires past-Ocean to predict future-Ocean's needs; cognitive cost at write time, frequently stale by re-entry time. Violates the spirit of Principle 1 (zero-friction) on the *exit* side — Spool's promise is that exit needs no ceremony either | Append-only feeds naturally surface "where you left off" — the newest blocks at the bottom ARE the re-entry cue. Default behavior: scroll to bottom on thread open. If a real gap surfaces in future dogfooding, cross-session scroll memory (one column: `threads.last_scroll_block_id`) is the cheap architectural fix (§17) |
+| **Color-coded blocks by source** | Sounds like instant visual sorting in long threads | Violates "visuals must stay quiet" (§9.9 spirit). `source` is free-text and user-editable — no clean mapping for "ChatGPT" vs "Gemini" vs "面试笔记". 5–10 source colors turn a long feed into a color-block collage, making review *worse*, not better. The product's whole palette is paper + ink + amber + urgent on purpose | Source-category **icons** (single mono lucide-react glyph per source family) at the head of the source badge + **date dividers** between days. Visual rhythm without color-noise palette explosion (§9.3) |
 
 ### 2.7 The Filter: Should This Feature Be Built?
 
@@ -151,7 +155,7 @@ Workspace   ← Big topic. e.g. "COMP3074", "AI-music grad apps", "Dissertation"
 
 A thread has wildly different value density at different stages, so it has two shapes (full design in §11):
 
-- **Active or Parked (status `active` / `parked`)**: The thread is a **workbench**. `active` = in progress; `parked` = consciously set aside (waiting on something, or just not now). A full timeline feed; every block is useful. Both use the `LogView`. Each thread also carries an optional `next_step` note — a free-text line for "where I left off / what's next," which is the single most useful thing to see on re-entry.
+- **Active or Parked (status `active` / `parked`)**: The thread is a **workbench**. `active` = in progress; `parked` = consciously set aside (waiting on something, or just not now). A full timeline feed; every block is useful. Both use the `LogView`. On thread open the feed **auto-scrolls to the bottom** — the newest blocks ARE "where you left off." (The earlier manual `next_step` note was rolled back in v2.6 — §2.6.)
 - **Done (status `done`)**: The thread is an **archive**. 90% of the blocks are process noise; only a few are conclusions. Completing a thread triggers a one-time "wrap-up action," and the thread switches by default to the "digest view" — showing only pinned blocks, their attachments, and an (optional) conclusion summary. The raw feed is still one click away.
 
 This transition is the core noise-reduction mechanism, and it **requires no extra organizing from the user**: pinning is something they do during work anyway; the conclusion summary is a single optional sentence at completion time.
@@ -292,11 +296,11 @@ spool/
 │   │   │   ├── SidebarSummary.tsx     # top aggregate line
 │   │   │   ├── FocusSection.tsx       # threads near deadline, across all workspaces
 │   │   │   ├── WorkspaceGroup.tsx     # collapsible workspace group, drag-and-drop target
-│   │   │   ├── ThreadListItem.tsx     # title + progress ring + countdown; draggable
+│   │   │   ├── ThreadListItem.tsx     # title + status dot + countdown; draggable
 │   │   │   └── NewWorkspaceButton.tsx
 │   │   ├── ThreadView/
 │   │   │   ├── index.tsx              # picks Log / Digest view by status
-│   │   │   ├── ThreadHeader.tsx       # title, status, next-step, progress, deadline, pack, view toggle
+│   │   │   ├── ThreadHeader.tsx       # title, status, deadline, pack, complete, view toggle
 │   │   │   ├── LogView.tsx            # active/parked: full timeline
 │   │   │   ├── DigestView.tsx         # done: pinned blocks + attachments + conclusion summary
 │   │   │   ├── BlockFeed.tsx          # timeline, virtual scrolling
@@ -322,7 +326,7 @@ spool/
 │   │   └── ui/
 │   │       ├── Pill.tsx
 │   │       ├── IconButton.tsx
-│   │       ├── ProgressRing.tsx
+│   │       ├── StatusDot.tsx
 │   │       └── CountdownBadge.tsx
 │   ├── lib/
 │   │   ├── capture/
@@ -392,15 +396,15 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 -- Thread: small project.
+-- v2.6 rollback: dropped `progress` (manual % theater) and `next_step` (manual note that
+-- failed dogfooding) — see §2.6. Schema migrates via ALTER TABLE DROP COLUMN (SQLite 3.35+).
 CREATE TABLE IF NOT EXISTS threads (
   id                 TEXT PRIMARY KEY,
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title              TEXT NOT NULL DEFAULT '',
   summary            TEXT,                        -- active-stage AI status summary (optional)
   digest             TEXT,                        -- conclusion summary at completion (optional, may be empty)
-  next_step          TEXT,                        -- free-text "where I left off / what's next"; shown on re-entry
   deadline           INTEGER,                     -- optional, ms epoch
-  progress           INTEGER NOT NULL DEFAULT 0,  -- 0-100, manual
   status             TEXT NOT NULL DEFAULT 'active', -- active | parked | done
   is_capture_target  INTEGER NOT NULL DEFAULT 0,  -- exactly one row globally may be 1
   created_at         INTEGER NOT NULL,
@@ -456,7 +460,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
 
 **Capture-target uniqueness**: `threads.ts`'s `setCaptureTarget(id)` uses a transaction to zero all rows first, then set one.
 
-**Schema version & migration policy.** `SCHEMA_VERSION` is held in `client.ts` and currently equals `2` (bumped in Phase 7 for the trigram tokenizer). On version mismatch, the database is **dropped and recreated** — acceptable for an unreleased personal tool (§5), but item §19.3 flags this as the single thing that must be replaced with additive migrations before any preview build is handed to anyone else.
+**Schema version & migration policy.** `SCHEMA_VERSION` is held in `client.ts` and currently equals `3` (bumped in v2.6 to drop `threads.progress` and `threads.next_step`).
+
+- For v0 → current: run `schema.sql` fresh.
+- For v1 → v2: the trigram tokenizer change (still a DROP+recreate of the `blocks_fts` virtual table only; user data untouched).
+- For v2 → v3: **additive migration**, the first true ALTER TABLE in this project's history:
+  ```sql
+  ALTER TABLE threads DROP COLUMN progress;
+  ALTER TABLE threads DROP COLUMN next_step;
+  PRAGMA user_version = 3;
+  ```
+  SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`; Tauri's `plugin-sql` ships a modern SQLite, so this is portable.
+
+§19.3 is partially closed by this migration — the pattern is proven; a fuller migration framework (named scripts, transaction-wrapped, dry-run preview) is still TBD before any real preview release.
 
 **Note on `blocks.source` semantics.** The column stays TEXT, but as of Phase 6 Round 2 the auto-filled value is **the browser's active-tab title** for Safari / Chrome / Edge / Brave / Arc, and the **foreground app name** for everything else. Either way the user can edit it freely (§9.3). See §10.5 for the permission model.
 
@@ -481,9 +497,7 @@ export interface Thread {
   title: string;
   summary: string | null;     // active-stage status summary
   digest: string | null;      // conclusion summary at completion; may be empty
-  nextStep: string | null;    // where the user left off / what's next
   deadline: number | null;
-  progress: number;           // 0-100
   status: ThreadStatus;
   isCaptureTarget: boolean;
   createdAt: number;
@@ -544,7 +558,7 @@ A block is written to the database the moment it is created (capture, composer, 
 | Create | "+" within a workspace group / Cmd+N (in the current workspace) | Create an empty thread, focus the title |
 | Select | Click a sidebar thread item | Load the block feed |
 | Move to another workspace | Drag the thread item in the sidebar / right-click menu | Update `workspace_id` |
-| Edit metadata | Header controls | Title, status, next-step, progress, deadline — debounced write |
+| Edit metadata | Header controls | Title, status, deadline — debounced write |
 | Set as capture target | Header pin / tray menu | Transactionally toggle `is_capture_target` |
 | Complete | Header "Complete project" button | See §9.8 |
 | Delete | Header menu, with confirmation | Soft-delete; the Inbox's "Unsorted" is undeletable |
@@ -552,10 +566,21 @@ A block is written to the database the moment it is created (capture, composer, 
 ### 9.3 Thread View (Active / Parked: LogView)
 
 - Shape: a vertical timeline, oldest to newest. **A read-only card stream + a bottom composer.** It is not a chat — no "send" animation, no left/right bubbles.
+- **On open: auto-scroll to the bottom.** The newest blocks ARE "where you left off" (§3.3). The user never has to remember a manual location.
 - `BlockItem`, two kinds:
   - `text`: the block's content (plain text / Markdown source, not rendered in v1), a timestamp, an **editable source badge** (if any), an optional **annotation** (the user's own note, rendered visually distinct from the captured content), and zero or more **attachment chips** (§9.6).
   - `ref`: a reference icon + the referenced thread's title; click to navigate there.
   - A pinned block has an amber vertical bar on its left.
+- **Source-category icon on the source badge** (new in v2.6 — what we do instead of color-coding, §2.6). A single mono lucide-react glyph at the head of the source badge, chosen from a small lookup table by source-string match. Initial mapping (extend opportunistically as new sources show up in dogfooding):
+  - Browsers (Safari / Chrome / Edge / Brave / Arc, or sources that look like URLs / page titles) → `Globe`
+  - AI tools (ChatGPT / Gemini / Claude / Copilot / "AI助手" / etc.) → `Sparkles`
+  - Files & PDFs (Preview / Word / PDF apps / typeset readers) → `FileText`
+  - Code editors (VS Code / Xcode / JetBrains) → `Code2`
+  - Mail / messaging (Mail / WeChat / Slack / Messages / Discord) → `MessageSquare`
+  - Terminal / shell → `Terminal`
+  - Unknown / no match → a small filled dot (`Circle` 4px, muted)
+  Mapping is **case-insensitive contains-match** on a small in-memory list. No colors — visual rhythm comes from shape, not hue.
+- **Date dividers between days.** When the next block's `created_at` falls on a different calendar day from the previous, render a thin horizontal divider with the date in small monospace type ("5月17日" / "5月17日 周六"). 1px `var(--line)`, label centered, no background fill. This is the dominant scanning aid for long threads.
 - **Smart truncation**: a `text` block whose content exceeds ~6 lines is truncated, with a "show more / show less" toggle. (Collapsing every block to a chip by default is rejected — §2.6.)
 - **Hover actions** (`BlockActions`, revealed on hover — no always-on side panel, which would violate "quiet"):
   - 📌 pin
@@ -565,7 +590,7 @@ A block is written to the database the moment it is created (capture, composer, 
   - copy
   - delete
 - `Composer`: a persistent input at the bottom; Enter appends a `text` block, Shift+Enter for a newline. Typing `@` triggers mention (see §9.7).
-- **Feed sort**: by default chronological (oldest to newest). A "by source" toggle reorders the same linear feed grouped by `source`, with sourceless blocks at the end. **This is a reordering of the one feed, not a new view** — growing it into grouping headers, filters, or a separate pane would be a new view and is rejected under §2.6 (§19.10).
+- **Feed sort**: by default chronological (oldest to newest). A "by source" toggle reorders the same linear feed grouped by `source`, with sourceless blocks at the end. **This is a reordering of the one feed, not a new view** — growing it into grouping headers, filters, or a separate pane would be a new view and is rejected under §2.6 (§19.10). In source-sort mode the date dividers are hidden (they're meaningless when blocks aren't time-ordered) — the source icon does the work instead.
 - Virtual scrolling: enabled when blocks > 200.
 
 ### 9.4 Global Shortcut Capture (Core — full design in §10)
@@ -602,9 +627,6 @@ A "Pack context" button on the thread header (Cmd+Shift+P).
   ```
   # Project: <title>
   Context as of <date>, <N> entries total.
-
-  ## Next step
-  <thread.next_step>
 
   ## Key Information
   - <pinned block content>
@@ -656,15 +678,16 @@ In the pack output (§9.5), a block's attachments are listed inline beneath it, 
   - On confirm: `status = done`, `completed_at = now`, `digest` written (possibly empty).
 - A `done` thread shows `DigestView` by default; `active/parked` threads have only `LogView`. `ThreadHeader` has a view toggle; a `done` thread can flip back to `LogView` to see the full process with one click.
 
-### 9.9 Progress, Deadline, Status & Sidebar Structure
+### 9.9 Deadline, Status & Sidebar Structure
 
-- Each thread optionally sets: `deadline` (date picker), `progress` (0-100 drag slider, manual), `status` (active / parked / done), and `next_step` (a one-line free-text note).
-- `next_step` is shown prominently in `ThreadHeader` — on re-entry it is the first thing that answers "where was I?" For a `parked` thread it may also show as a one-line subtitle in the sidebar `ThreadListItem` ("waiting on…").
+- Each thread optionally sets: `deadline` (date picker) and `status` (`active` / `parked` / `done`). **No manual progress slider** (rolled back in v2.6 — §2.6). **No `next_step` field** (rolled back in v2.6 — §2.6).
+- `ThreadHeader` carries: title (inline edit), status toggle, deadline picker, the "Pack context" button (§9.5), the "Complete project" button (§9.8), and the LogView/DigestView toggle (only meaningful for `done` threads).
 - The sidebar, top to bottom, has three sections:
-  1. **`SidebarSummary`**: a one-line aggregate "X active · Y due this week · Z parked." This is the presentation of "global progress."
+  1. **`SidebarSummary`**: a one-line aggregate "X active · Y due this week · Z parked." This is the presentation of "global state."
   2. **`FocusSection`**: **across all workspaces**, all threads with a deadline and not done, sorted ascending by countdown, showing ~5 at most. Threads <48h from deadline are marked red, overdue ones dark red. It answers "what is on fire."
   3. **The workspace tree**: a list of `WorkspaceGroup`s, each collapsible. Thread ordering within a group: active/parked on top (those with a deadline sorted by urgency, the rest by `updated_at`), done threads at the bottom and dimmed. It answers "where is everything." Threads can be dragged between groups (§9.2).
-- Right side of `ThreadListItem`: a `ProgressRing` (thin ring showing progress) + a `CountdownBadge` ("3 days left" / "due today" / "2 days overdue").
+- Right side of `ThreadListItem`: a small **`StatusDot`** (4px filled circle: `--status-active` moss green / `--status-parked` ochre / `--status-done` gray) + a `CountdownBadge` ("3 days left" / "due today" / "2 days overdue") if there's a deadline. The dot replaces the v2.5 `ProgressRing`.
+- **Why no progress visualization at all**: continuous progress is theater (§2.6). Discrete status + deadline countdown carry the signal you can actually trust. `updated_at` ordering carries "what's recently active." Nothing in this sidebar requires the user to maintain a field.
 - **The sidebar has hierarchy, but its visuals must stay quiet**: handle levels with collapsing, indentation, and dimming — not with a pile of colors and borders.
 
 ### 9.10 Full-Text Search (how "no information lost across projects" is delivered)
@@ -959,7 +982,7 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 
 - **Pill**: `padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line)`. (Attachment chips and the source badge are Pill-based.)
 - **IconButton**: `padding: 5px 10px; border-radius: 6px`.
-- **ProgressRing**: SVG thin ring, `stroke-width: 2.5`, 16px diameter, color follows status.
+- **StatusDot**: a 4px filled circle. `--status-active` / `--status-parked` / `--status-done` per the thread's status. Replaces the v2.5 ProgressRing — discrete signal, no manual maintenance.
 - **CountdownBadge**: small text + a dot; near/overdue uses `--urgent`.
 - **Card** (block / toast / dialog): `border: 1px solid var(--line-strong); border-radius: 8px`.
 - **CaptureToast**: in the overlay window, `--shadow-toast`, 220ms slide-in, fade out after ~2.5s (paused while hovered). The overlay window's body background is transparent.
@@ -1074,7 +1097,7 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 - [ ] `src-tauri/src/main.rs` registers the sql / store plugins
 - [ ] `src/lib/db/schema.sql` copies §8.1 **in full** — workspaces, threads, blocks, attachments, and the FTS5 table over `content` + `annotation` with its sync triggers
 - [ ] `src/lib/db/client.ts`: `Database.load("sqlite:spool.db")`, run the schema on startup; **on first launch create the "Inbox" workspace + "Unsorted" thread and set it as the capture target**
-- [ ] `workspaces.ts` / `threads.ts` / `blocks.ts`: three-tier CRUD, all parameterized queries; `threads.ts` includes `setCaptureTarget` (transactional) and covers `next_step` + the `active|parked|done` status; `blocks.ts` covers `annotation` + `source`. (`attachments.ts` CRUD is built in Phase 6.)
+- [ ] `workspaces.ts` / `threads.ts` / `blocks.ts`: three-tier CRUD, all parameterized queries; `threads.ts` includes `setCaptureTarget` (transactional) and covers the `active|parked|done` status; `blocks.ts` covers `annotation` + `source`. (`attachments.ts` CRUD is built in Phase 6.)
 - [ ] `workspacesStore` / `threadsStore` / `blocksStore` / `captureStore` (Zustand)
 - [ ] App startup `useEffect` loads workspaces and threads
 - **Acceptance**: manually calling store actions from the console can create workspaces, threads, blocks, move threads, set the capture target; data persists across restart; the Inbox and "Unsorted" are undeletable.
@@ -1104,10 +1127,10 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 ### Phase 4 — Context Packer (the crown, ~2 h)
 
 - [ ] `lib/pack/templates.ts`: the Markdown template (§9.5)
-- [ ] `lib/pack/assemble.ts`: a **pure function**, thread + blocks → Markdown; the thread's `next_step` near the top; pinned blocks go into "Key Information"; refs rendered as reference lines; `source` annotated inline. (Attachments + annotations are wired into `assemble.ts` in Phase 6.)
+- [ ] `lib/pack/assemble.ts`: a **pure function**, thread + blocks → Markdown; pinned blocks go into "Key Information"; refs rendered as reference lines; `source` annotated inline. (Attachments + annotations are wired into `assemble.ts` in Phase 6.)
 - [ ] `Pack/PackDialog.tsx`: show the assembled full text + a "Copy to clipboard" button + a toast
 - [ ] `ThreadHeader` wires up the "Pack context" button + Cmd+Shift+P
-- [ ] Write Vitest for `assemble.ts`: empty thread, plain text, with pinned, with refs, with `next_step` — several cases
+- [ ] Write Vitest for `assemble.ts`: empty thread, plain text, with pinned, with refs — several cases
 - **Acceptance**: clicking "Pack" on a thread with several blocks pops a clean Markdown briefing; after copying it pastes straight into Claude/ChatGPT; the pack process makes zero network requests.
 
 ### Phase 5 — Capture Hardening ✅ COMPLETE (originally ~3 h, actual ~larger due to scope expansion)
@@ -1155,17 +1178,20 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 - [ ] The global shortcut `Cmd/Ctrl+Shift+F` opens it; clicking a result navigates to the corresponding thread and scrolls to the block, which briefly highlights
 - **Acceptance**: searching a keyword finds blocks (by content or annotation) in any thread of any workspace; **each result shows context around the keyword (not an isolated snippet)**; clicking a result navigates accurately and highlights the target; search makes zero network requests.
 
-### Phase 8 — Progress, Deadline, Status & Sidebar Structure ✅ COMPLETE (~3.5 h)
+### Phase 8 — Deadline, Status & Sidebar Structure ✅ COMPLETE (~3.5 h)
 
-> Delivered the planned surface (deadline, progress, parked + next_step, three-section sidebar, drag-between-workspaces). Two backlog items were folded in as planned: §19.1 (shortcut configuration UI) shipped with two recorders + conflict detection, Rust-side runtime shortcut swap with rollback on registration failure, persisted via `tauri-plugin-store`, wired to the gear button / ⌘, / tray menu. §19.5 (FTS sync verification) shipped as Vitest cases using Node's built-in `node:sqlite` (no new dependency) against the real `schema.sql` triggers — INSERT, content edit, and annotation edit all sync to the FTS index; no bugs in the Phase 1 triggers. Runtime verification of the shortcut re-binding behavior under `npm run tauri dev` is pending — `cargo check` only proves compilation.
+> **Delivered (v2.5)**: planned surface (deadline, progress, parked + next_step, three-section sidebar, drag-between-workspaces). Two backlog items were folded in as planned: §19.1 (shortcut configuration UI) shipped with two recorders + conflict detection, Rust-side runtime shortcut swap with rollback on registration failure, persisted via `tauri-plugin-store`, wired to the gear / ⌘, / tray. §19.5 (FTS sync verification) shipped as Vitest cases via `node:sqlite` — INSERT, content edit, annotation edit all sync to FTS; no bugs found.
+>
+> **v2.6 rollback (post-dogfooding)**: the manual `progress` slider and the manual `next_step` field are removed (§2.6). `ProgressRing` deleted from the UI and replaced with `StatusDot`. The ThreadHeader collapses to title + status + deadline + pack/complete/view-toggle. The sidebar `ThreadListItem` now shows just a `StatusDot` + `CountdownBadge` on the right. Schema migrates 2→3 via additive `ALTER TABLE DROP COLUMN` — first true additive migration, partial close on §19.3.
 
-- [ ] `ThreadHeader`: add a deadline date picker, a progress drag slider, the `active|parked|done` status toggle, and the editable one-line `next_step` field (shown prominently — it is the re-entry cue)
-- [ ] `ui/ProgressRing.tsx` / `ui/CountdownBadge.tsx`; `hooks/useCountdown.ts` updates in real time
-- [ ] `ThreadListItem` wires up the progress ring + countdown; for a `parked` thread it may show `next_step` as a one-line subtitle
-- [ ] **Sidebar drag-and-drop**: drag a `ThreadListItem` from one `WorkspaceGroup` to another → updates `workspace_id` (IDE-like); the right-click "move to workspace" stays as a fallback
-- [ ] `Sidebar` gets its full three-section structure: `SidebarSummary` (aggregate line: "X active · Y due this week · Z parked") + `FocusSection` (across workspaces, near deadline, ~5 max) + the workspace tree
-- [ ] Thread ordering within a workspace group: active/parked on top, done at the bottom and dimmed
-- **Acceptance**: after setting a deadline on a thread it appears in the Focus section sorted by urgency; near ones are red; the aggregate numbers at the sidebar top are correct; the progress ring reflects progress; a thread can be dragged between workspaces; a thread can be marked `parked` with a `next_step` note that is visible on re-entry.
+- [x] `ThreadHeader`: deadline date picker + `active|parked|done` status toggle (the v2.5 progress slider and `next_step` input are removed in v2.6)
+- [x] `ui/CountdownBadge.tsx`; `hooks/useCountdown.ts` updates in real time
+- [x] `ui/StatusDot.tsx` (replaces v2.5 `ProgressRing` in v2.6)
+- [x] `ThreadListItem` wires up `StatusDot` + `CountdownBadge`
+- [x] **Sidebar drag-and-drop**: drag a `ThreadListItem` from one `WorkspaceGroup` to another → updates `workspace_id`; the right-click "move to workspace" stays as a fallback
+- [x] `Sidebar` three-section structure: `SidebarSummary` ("X active · Y due this week · Z parked") + `FocusSection` (across workspaces, near deadline, ~5 max) + the workspace tree
+- [x] Thread ordering within a workspace group: active/parked on top, done at the bottom and dimmed
+- **Acceptance**: after setting a deadline on a thread it appears in the Focus section sorted by urgency; near ones are red; the aggregate numbers at the sidebar top are correct; the `StatusDot` reflects status; a thread can be dragged between workspaces.
 
 ### Phase 9 — Thread Lifecycle & the Digest View (~2.5 h)
 
@@ -1223,7 +1249,7 @@ After each phase, Ocean should be able to:
 - **Phase 5**: capture with the main window hidden and see a confirmation toast **on the source screen itself**, without focus being stolen; edit a block's source label.
 - **Phase 6**: attach files/folders/URLs to a block (and drop a file into empty space to anchor it as its own block); edit and annotate blocks; long blocks stay readable via "show more."
 - **Phase 7**: search a keyword and find some piece of info in any old project, **with context**.
-- **Phase 8**: see at a glance in the sidebar which projects are near deadline and what progress each is at; drag a thread between workspaces; park a thread with a next-step note.
+- **Phase 8**: see at a glance in the sidebar which projects are near deadline and which are parked / active / done; drag a thread between workspaces.
 - **Phase 9**: after completing a project, it auto-wraps into a one-page archive — **complete even without a written conclusion and with AI absent**.
 - **Phase 10**: reference another project under the same topic from within a project.
 - **Phase 11**: have AI help summarize status, generate conclusions, suggest classification — **with the product unharmed when AI fails**.
@@ -1249,6 +1275,7 @@ Not in v1 scope, but the architecture must be able to accommodate them. Claude C
 |---|---|---|
 | **Always-on desktop floating widget** (stronger capture presence + a seed for future quick actions) | **Explicit v1.5 candidate** | The capture overlay window (§9.4) already establishes multi-window + non-activating-window groundwork; the capture event bus exists — the widget is just another subscriber |
 | Pack range selector (pinned only / last N days) | v1.5 | `assemble.ts` takes a filter parameter |
+| Cross-session "where I was reading" scroll memory | v1.5 if dogfooding shows a real gap | Add one column `threads.last_scroll_block_id`; `LogView` reads it on mount and scrolls to that block. This is the cheap escape hatch for the v2.6 `next_step` rollback (§2.6) if "scroll to bottom on open" turns out to be insufficient |
 | AI pack compression | v1.5 | `router` is ready; add a compress prompt |
 | Auto-copy selection on capture | v1.5 | A settings option + a branch in `capture.rs` |
 | Source URL capture | v1.5 | Same AppleScript path as the tab-title detection that already ships; enrich `blocks.source` or add a column (the DB is drop-and-recreate, §5 — no migration cost) |
@@ -1276,7 +1303,7 @@ Not in v1 scope, but the architecture must be able to accommodate them. Claude C
 7. **No over-engineering**: no premature abstraction, no "might-need-it-later" utility libraries, no interfaces left "for the future." Every line of code serves the current phase.
 8. **The hot paths of capture, pack, and search must never contain an AI call or a network request** — this is a hard requirement of Principles 2 and 4; self-check repeatedly during implementation.
 9. **Always treat AI output as disposable decoration** — anywhere an AI summary is displayed, write the "AI absent / failed / slow / returned NO_DIGEST" degradation path first, then the normal path.
-10. **Testing**: v1 does not mandate full coverage, but `pack/assemble.ts` (a pure function, the crown feature — its cases must cover pinned blocks, refs, `next_step`, attachments, and annotations), `search/query.ts` (including the context-extraction logic), the fallback logic of `ai/router.ts`, and `ai/parseJson.ts` must have Vitest.
+10. **Testing**: v1 does not mandate full coverage, but `pack/assemble.ts` (a pure function, the crown feature — its cases must cover pinned blocks, refs, attachments, and annotations), `search/query.ts` (including the context-extraction logic), the fallback logic of `ai/router.ts`, and `ai/parseJson.ts` must have Vitest.
 11. **All user-facing UI copy is in Simplified Chinese**, and obeys "silence over noise" — if three words will do, do not use five. (This document and code comments are in English; the product's interface is in Chinese.)
 12. **After each phase, STOP and wait for Ocean to review.** Do not push through multiple phases in a row.
 
@@ -1342,9 +1369,9 @@ Not in v1 scope, but the architecture must be able to accommodate them. Claude C
 
 ---
 
-## 19. Improvement Backlog (post-Phase 7)
+## 19. Improvement Backlog (post-Phase 8 / v2.6)
 
-> Items identified during the v2.4 → v2.5 retrospective. Each was assessed against §2.7 (the filter). Everything here either tightens the v1 surface or pays down engineering debt — none adds a new feature. Items are tagged with a target phase; "opportunistic" means *fold in when you're already in that file*.
+> Items identified during the v2.4 → v2.5 → v2.6 retrospectives. Each was assessed against §2.7 (the filter). Everything here either tightens the v1 surface or pays down engineering debt — none adds a new feature. Items are tagged with a target phase; "opportunistic" means *fold in when you're already in that file*. ✅ marks items already addressed.
 
 ### 19.1 ✅ Shortcut configuration UI is overdue — DONE in Phase 8 (folded in as a sidecar; no separate mini-phase needed)
 
@@ -1360,11 +1387,16 @@ The capture trigger has churned through Phases 3 → 5 → 7: `⌘⇧C` → +dou
 
 **Every commit — including the baseline — must observe §18 rule 13**: no Claude / Anthropic / AI-tool attribution anywhere in git history, README, source comments, or commit message bodies. Git identity stays as Ocean's; `Co-Authored-By:` Claude lines and "Generated with Claude Code" footers are forbidden.
 
-### 19.3 Schema migration policy needs upgrading before any preview release — Target: **before Phase 12**
+### 19.3 🟡 Schema migration policy needs upgrading before any preview release — PARTIAL: first additive migration shipped in v2.6; full framework still TBD
 
-`client.ts` currently DROP+recreates the database on `SCHEMA_VERSION` mismatch. Already triggered once (1→2 for trigram). This is fine for an unreleased personal tool (§5), but the moment any friend installs a preview build, a v2→v3 wipes their data.
+v2.6's `ALTER TABLE threads DROP COLUMN progress; DROP COLUMN next_step;` is the first additive migration in this project's history — the pattern is proven (see §8.1 migration policy paragraph). What's still pending before any preview release:
 
-**Action**: replace the DROP path with additive migrations (`ALTER TABLE`, recreating only the FTS5 table when its tokenizer changes). Land this **before** Phase 12 packaging, so the v1.0 build can survive its first schema change.
+- A named, ordered migration registry (currently it's an if-else ladder in `client.ts`).
+- Transaction wrapping per migration (today's `ALTER TABLE` is auto-transactional, but multi-statement migrations won't be).
+- A no-op dry-run mode so we can preview what a migration would do before running it.
+- Migration tests against a v0 / v1 / v2 fixture database.
+
+**Action**: build the above before Phase 12 packaging. The full work is small (~half a day) and the v2.6 migration gives us a concrete first user of the framework.
 
 ### 19.4 CGEventTap auto-disable does not self-heal — Target: **Phase 12 polish**
 
@@ -1404,7 +1436,23 @@ The 2.5s auto-dismiss and 340px overlay width were picked on intuition. §10.3 s
 
 Phase 6 Round 1 added a "By time / By source" feed sort. §2.6 rejected "multi-views" outright. The sort passes §2.6 because it's the same linear feed reordered, not a new layout. But if anyone proposes "group by source with collapsible sections" or "filter to one source only," that becomes a view and must be rejected.
 
-**Action**: §9.3's `LogView` description now states explicitly: source-sort is a *reordering* of the one feed; growing it into grouping/filtering/separate-pane UI is rejected under §2.6. (Done in this v2.5 — see the "Feed sort" bullet in §9.3.)
+**Action**: §9.3's `LogView` description now states explicitly: source-sort is a *reordering* of the one feed; growing it into grouping/filtering/separate-pane UI is rejected under §2.6. (Done in v2.5 — see the "Feed sort" bullet in §9.3.)
+
+### 19.11 Source-category icon mapping needs tuning after dogfooding — Target: **opportunistic, after Phase 9**
+
+v2.6 introduces a small `source → lucide icon` lookup table at the head of the source badge (§9.3). The initial mapping covers browsers, AI tools, files/PDFs, code editors, mail/messaging, terminal, and a fallback dot. Real usage will reveal:
+
+- Which sources fall through to the fallback often enough that they deserve their own entry.
+- Whether `Globe` / `Sparkles` / `FileText` are visually distinct enough at the badge's small size (~14px), or whether the choice needs revisiting.
+- Whether the case-insensitive contains-match collides badly with any user-edited custom sources.
+
+**Action**: after a week of v2.6 dogfooding, audit the lookup table from real `blocks.source` data. Add or rename entries as needed. No urgency — fallback behavior is fine in the meantime.
+
+### 19.12 "Scroll to bottom on open" needs a real-use check — Target: **after Phase 9, opportunistic**
+
+v2.6 removed `next_step` on the bet that "the newest blocks at the bottom of an append-only feed are *naturally* where you left off." This is theory; it needs validation.
+
+**Action**: dogfood for a week. If a real gap shows up — specifically, if Ocean repeatedly finds himself scrolling away from the bottom to find "where I actually was" — add the cross-session scroll-position memory hooked in §17 (one column, ~30 lines of code). If no gap shows up, the rollback was correct and the architectural hook stays in §17 unused.
 
 ---
 
@@ -1413,5 +1461,5 @@ Phase 6 Round 1 added a "By time / By source" feed sort. §2.6 rejected "multi-v
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.5 (supersedes v2.4; change in this revision: post-Phase-7 retrospective — Phases 1–7 marked complete with actual-vs-planned notes, double-tap ⌥ trigger and browser tab-title source detection promoted from v1.5 into v1, FTS5 trigram tokenizer documented, §18.1 rule 4 lifted, Improvement Backlog added as §19)
-Last updated: 2026-05-17
+Version: 2.6 (supersedes v2.5; change in this revision: post-Phase-8 design correction — manual `progress` slider and manual `next_step` field rolled back; rejected proposal of color-coded blocks superseded by source-category icons + date dividers; first additive `ALTER TABLE` schema migration (SCHEMA_VERSION 2→3); §19 backlog markers updated to reality through Phase 8)
+Last updated: 2026-05-18

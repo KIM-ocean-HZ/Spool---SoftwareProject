@@ -11,15 +11,15 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 -- Thread: small project.
+-- v2.6 rollback: dropped `progress` (manual % theater) and `next_step` (manual note that
+-- failed dogfooding) — see §2.6. Schema migrates via ALTER TABLE DROP COLUMN (SQLite 3.35+).
 CREATE TABLE IF NOT EXISTS threads (
   id                 TEXT PRIMARY KEY,
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title              TEXT NOT NULL DEFAULT '',
   summary            TEXT,                        -- active-stage AI status summary (optional)
   digest             TEXT,                        -- conclusion summary at completion (optional, may be empty)
-  next_step          TEXT,                        -- free-text "where I left off / what's next"; shown on re-entry
   deadline           INTEGER,                     -- optional, ms epoch
-  progress           INTEGER NOT NULL DEFAULT 0,  -- 0-100, manual
   status             TEXT NOT NULL DEFAULT 'active', -- active | parked | done
   is_capture_target  INTEGER NOT NULL DEFAULT 0,  -- exactly one row globally may be 1
   created_at         INTEGER NOT NULL,

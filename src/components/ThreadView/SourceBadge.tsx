@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { sourceIcon } from '@/lib/blocks/sourceIcon';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 
@@ -70,13 +71,17 @@ export default function SourceBadge({ block }: Props) {
   }
 
   if (block.source) {
+    // Source-category icon at the head of the badge (PLAN_EN.md §9.3) — current text
+    // colour, no fill, the source label follows it.
+    const Icon = sourceIcon(block.source);
     return (
       <button
         onClick={() => setEditing(true)}
-        className="rounded px-1 py-0 text-[10px] text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+        className="inline-flex items-center gap-1 rounded px-1 py-0 text-[10px] text-muted transition-colors hover:bg-paper-2 hover:text-ink"
         title="点击编辑来源"
       >
-        · {block.source}
+        <Icon size={12} className="flex-none" />
+        {block.source}
       </button>
     );
   }

@@ -9,9 +9,7 @@ export interface Thread {
   title: string;
   summary: string | null;     // active-stage status summary
   digest: string | null;      // conclusion summary at completion; may be empty
-  nextStep: string | null;    // where the user left off / what's next
   deadline: number | null;
-  progress: number;
   status: ThreadStatus;
   isCaptureTarget: boolean;
   createdAt: number;
@@ -25,9 +23,7 @@ export type ThreadPatch = Partial<
     | 'title'
     | 'summary'
     | 'digest'
-    | 'nextStep'
     | 'deadline'
-    | 'progress'
     | 'status'
     | 'workspaceId'
     | 'completedAt'
@@ -40,9 +36,7 @@ interface Row {
   title: string;
   summary: string | null;
   digest: string | null;
-  next_step: string | null;
   deadline: number | null;
-  progress: number;
   status: ThreadStatus;
   is_capture_target: number;
   created_at: number;
@@ -56,9 +50,7 @@ const fromRow = (r: Row): Thread => ({
   title: r.title,
   summary: r.summary,
   digest: r.digest,
-  nextStep: r.next_step,
   deadline: r.deadline,
-  progress: r.progress,
   status: r.status,
   isCaptureTarget: r.is_capture_target === 1,
   createdAt: r.created_at,
@@ -67,7 +59,7 @@ const fromRow = (r: Row): Thread => ({
 });
 
 const SELECT_COLS =
-  'id, workspace_id, title, summary, digest, next_step, deadline, progress, status, is_capture_target, created_at, updated_at, completed_at';
+  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at';
 
 export const listAllThreads = async (): Promise<Thread[]> => {
   const db = await getDb();
@@ -103,9 +95,7 @@ export const createThread = async (workspaceId: string, title: string = ''): Pro
     title,
     summary: null,
     digest: null,
-    nextStep: null,
     deadline: null,
-    progress: 0,
     status: 'active',
     isCaptureTarget: false,
     createdAt: now,
@@ -113,8 +103,8 @@ export const createThread = async (workspaceId: string, title: string = ''): Pro
     completedAt: null,
   };
   await db.execute(
-    `INSERT INTO threads (id, workspace_id, title, status, progress, is_capture_target, created_at, updated_at)
-     VALUES ($1, $2, $3, 'active', 0, 0, $4, $5)`,
+    `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, created_at, updated_at)
+     VALUES ($1, $2, $3, 'active', 0, $4, $5)`,
     [t.id, t.workspaceId, t.title, t.createdAt, t.updatedAt],
   );
   return t;
@@ -129,9 +119,7 @@ export const updateThread = async (id: string, patch: ThreadPatch): Promise<numb
     title: 'title',
     summary: 'summary',
     digest: 'digest',
-    nextStep: 'next_step',
     deadline: 'deadline',
-    progress: 'progress',
     status: 'status',
     workspaceId: 'workspace_id',
     completedAt: 'completed_at',

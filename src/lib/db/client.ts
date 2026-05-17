@@ -5,13 +5,13 @@ import schemaSql from './schema.sql?raw';
 export const INBOX_WORKSPACE_TITLE = '收件箱';
 export const UNSORTED_THREAD_TITLE = '未分类';
 
-// Bump this whenever schema.sql changes. On startup, if the database's PRAGMA
-// user_version differs, every table is dropped and the schema is rebuilt from
-// scratch — Spool is an unreleased personal tool with no production data and
-// zero migration cost (PLAN_EN.md §5), so DROP-and-recreate is the policy.
-// This is what makes "the next launch rebuilds the DB" code-guaranteed instead
-// of depending on someone remembering to delete spool.db by hand.
-const SCHEMA_VERSION = 2;
+// Bump this whenever schema.sql changes. On startup the database's PRAGMA
+// user_version is compared against this. The v2 → v3 step runs an additive
+// ALTER TABLE migration (see migrateSchema) that preserves all user data; any
+// other mismatch falls back to DROP-and-recreate — acceptable for an unreleased
+// personal tool with no production data (PLAN_EN.md §5, §8.1). §19.3 tracks the
+// fuller migration framework still owed before any preview release.
+const SCHEMA_VERSION = 3;
 
 // Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
 // attachments → blocks → threads → workspaces. Indexes and the blocks_* FTS
@@ -55,10 +55,12 @@ const applySchema = async (db: Database): Promise<void> => {
   }
 };
 
-// DROP-and-recreate guard. If the on-disk schema version doesn't match
-// SCHEMA_VERSION, drop every table and rebuild from schema.sql, then stamp the
-// new version. A brand-new database reports user_version 0, which also triggers
-// the (no-op) drop and a clean build.
+// Schema migration. If the on-disk user_version matches SCHEMA_VERSION there is
+// nothing to do. The v2 → v3 step (the v2.6 design rollback) is an additive
+// ALTER TABLE migration that drops two `threads` columns while leaving every row
+// of user data intact. Any other mismatch — including a brand-new database at
+// user_version 0 — falls back to dropping every table and rebuilding from
+// schema.sql.
 const migrateSchema = async (db: Database): Promise<void> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
   const current = rows[0]?.user_version ?? 0;
@@ -66,6 +68,25 @@ const migrateSchema = async (db: Database): Promise<void> => {
     console.info(`[db] schema version ${current} matches; no rebuild`);
     return;
   }
+
+  // v2 → v3: drop `threads.progress` and `threads.next_step` (PLAN_EN.md §8.1).
+  // Each DROP COLUMN is guarded independently — on a fresh or already-migrated
+  // database a column may be absent, which is not an error.
+  if (current === 2) {
+    console.warn('[db] schema version 2 -> 3; additive ALTER TABLE migration');
+    for (const col of ['progress', 'next_step']) {
+      try {
+        await db.execute(`ALTER TABLE threads DROP COLUMN ${col}`);
+      } catch (e) {
+        console.info(`[db] v2->3: column threads.${col} not dropped (likely absent)`, e);
+      }
+    }
+    await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    const after = await db.select<{ user_version: number }[]>('PRAGMA user_version');
+    console.info(`[db] v2->3 migration complete; user_version now ${after[0]?.user_version}`);
+    return;
+  }
+
   console.warn(`[db] schema version ${current} != ${SCHEMA_VERSION}; rebuilding from scratch`);
   for (const t of TABLES_TO_DROP) {
     await db.execute(`DROP TABLE IF EXISTS ${t}`);
@@ -90,8 +111,8 @@ const seedDefaults = async (db: Database): Promise<void> => {
     [wsId, INBOX_WORKSPACE_TITLE, 0, now, now],
   );
   await db.execute(
-    `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, progress, created_at, updated_at)
-     VALUES ($1, $2, $3, 'active', 1, 0, $4, $5)`,
+    `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, created_at, updated_at)
+     VALUES ($1, $2, $3, 'active', 1, $4, $5)`,
     [tId, wsId, UNSORTED_THREAD_TITLE, now, now],
   );
 };

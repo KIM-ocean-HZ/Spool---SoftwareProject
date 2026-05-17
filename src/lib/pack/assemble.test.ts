@@ -13,9 +13,7 @@ const thread: Thread = {
   title: '论文文献综述',
   summary: null,
   digest: null,
-  nextStep: null,
   deadline: null,
-  progress: 0,
   status: 'active',
   isCaptureTarget: false,
   createdAt: T(0),
@@ -51,19 +49,10 @@ describe('assemble', () => {
     const out = assemble({ thread, blocks: [], now: NOW });
     expect(out).toContain('# 项目：论文文献综述');
     expect(out).toContain('共 0 条记录');
-    expect(out).toContain('## 下一步');
-    expect(out).toContain('（暂无下一步记录）');
     expect(out).toContain('（暂无置顶的关键信息）');
     expect(out).toContain('（暂无记录）');
+    expect(out).not.toContain('## 下一步');
     expect(out).not.toContain('## 相关文件与链接');
-  });
-
-  it('renders the thread next step when present', () => {
-    const out = assemble({ thread: { ...thread, nextStep: '继续读第三篇综述' }, blocks: [], now: NOW });
-    const lines = out.split('\n');
-    const idx = lines.indexOf('## 下一步');
-    expect(idx).toBeGreaterThan(-1);
-    expect(lines[idx + 1]).toBe('继续读第三篇综述');
   });
 
   it('renders plain text blocks with timestamps', () => {

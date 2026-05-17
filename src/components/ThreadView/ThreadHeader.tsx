@@ -1,4 +1,4 @@
-import { CalendarDays, CornerDownRight, Package, Pin, X } from 'lucide-react';
+import { CalendarDays, Package, Pin, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Thread, ThreadStatus } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
@@ -15,10 +15,10 @@ const STATUS_OPTIONS: { value: ThreadStatus; label: string; cls: string }[] = [
   { value: 'parked', label: '搁置', cls: 'text-[var(--status-parked)]' },
 ];
 
-// Local-state mirror of a thread field with a 200ms debounced write-back (§8.3). Three
-// header fields edit free-form (title, next_step, progress), so the debounce lives in
-// one place. While the user is typing the local value wins; `resetKey` (the thread id)
-// force-resyncs on a thread switch so a mid-edit switch can't carry text across.
+// Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
+// title is the one free-form header field. While the user is typing the local value
+// wins; `resetKey` (the thread id) force-resyncs on a thread switch so a mid-edit switch
+// can't carry text across.
 function useDebouncedField<T>(
   external: T,
   resetKey: string,
@@ -78,14 +78,6 @@ export default function ThreadHeader({ thread, workspaces, onPack }: Props) {
   const [title, setTitle] = useDebouncedField(thread.title, thread.id, (v) =>
     void patch(thread.id, { title: v }),
   );
-  const [nextStep, setNextStep] = useDebouncedField(
-    thread.nextStep ?? '',
-    thread.id,
-    (v) => void patch(thread.id, { nextStep: v.trim() ? v : null }),
-  );
-  const [progress, setProgress] = useDebouncedField(thread.progress, thread.id, (v) =>
-    void patch(thread.id, { progress: v }),
-  );
 
   return (
     <header className="flex-none border-b border-line px-6 py-3">
@@ -119,17 +111,6 @@ export default function ThreadHeader({ thread, workspaces, onPack }: Props) {
           <Pin size={11} />
           <span>{thread.isCaptureTarget ? '捕捉目标' : '设为目标'}</span>
         </button>
-      </div>
-
-      {/* next_step — the re-entry cue, shown prominently right under the title (§9.9) */}
-      <div className="mt-2 flex items-center gap-2">
-        <CornerDownRight size={13} className="flex-none text-accent" />
-        <input
-          value={nextStep}
-          onChange={(e) => setNextStep(e.target.value)}
-          placeholder="下一步…（离开前记一句，回来就知道从哪儿继续）"
-          className="min-w-0 flex-1 bg-transparent text-sm text-ink-2 outline-none placeholder:text-muted/60"
-        />
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
@@ -175,22 +156,6 @@ export default function ThreadHeader({ thread, workspaces, onPack }: Props) {
               <X size={11} />
             </button>
           )}
-        </div>
-
-        <div className="flex items-center gap-2 text-muted">
-          <span>进度</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={progress}
-            onChange={(e) => setProgress(Number(e.target.value))}
-            className="h-1 w-28 cursor-pointer"
-            style={{ accentColor: 'var(--accent)' }}
-          />
-          <span className="w-9 text-right font-mono text-[10.5px] tabular-nums text-ink-2">
-            {progress}%
-          </span>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 text-muted">

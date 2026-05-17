@@ -1,7 +1,7 @@
 import { Pin } from 'lucide-react';
 import type { DragEvent } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
-import ProgressRing from '@/components/ui/ProgressRing';
+import StatusDot from '@/components/ui/StatusDot';
 import type { Thread } from '@/lib/db/threads';
 import { useCaptureStore } from '@/stores/captureStore';
 
@@ -45,20 +45,11 @@ export default function ThreadListItem({ thread, active, onSelect }: Props) {
               <Pin size={11} className="flex-none text-accent" aria-label="捕捉目标" />
             )}
           </div>
-          {thread.status === 'parked' && thread.nextStep && (
-            <p className="mt-0.5 truncate text-[11px] text-muted" title={thread.nextStep}>
-              {thread.nextStep}
-            </p>
-          )}
         </div>
-        {(thread.deadline != null || thread.progress > 0) && (
-          <div className="flex flex-none items-center gap-1.5">
-            {thread.deadline != null && <CountdownBadge deadline={thread.deadline} />}
-            {thread.progress > 0 && (
-              <ProgressRing progress={thread.progress} status={thread.status} />
-            )}
-          </div>
-        )}
+        <div className="flex flex-none items-center gap-1.5">
+          <StatusDot status={thread.status} />
+          {thread.deadline != null && <CountdownBadge deadline={thread.deadline} />}
+        </div>
       </div>
     </li>
   );

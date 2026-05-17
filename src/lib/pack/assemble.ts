@@ -4,12 +4,10 @@ import type { Thread } from '@/lib/db/threads';
 import {
   EMPTY_DIGEST_LINE,
   EMPTY_LOG_LINE,
-  EMPTY_NEXT_STEP_LINE,
   PACK_HEADER,
   SECTION_FILES,
   SECTION_KEY,
   SECTION_LOG,
-  SECTION_NEXT_STEP,
 } from './templates';
 
 export interface AssembleArgs {
@@ -54,12 +52,6 @@ export function assemble({ thread, blocks, attachments, refTitles, now }: Assemb
   const out: string[] = [];
 
   out.push(PACK_HEADER(thread.title, dateStr, blocks.length));
-
-  // Next step: where the user left off. Shown right after the header so a re-entry
-  // briefing leads with what to do next.
-  out.push('');
-  out.push(SECTION_NEXT_STEP);
-  out.push(thread.nextStep?.trim() ? thread.nextStep.trim() : EMPTY_NEXT_STEP_LINE);
 
   // Key Information: pinned text blocks only. Attachments and refs aren't "key info" —
   // they have their own rendering.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -32,6 +32,30 @@ const sortBlocks = (blocks: readonly Block[], mode: SortMode): readonly Block[] 
     return sa.localeCompare(sb);
   });
 };
+
+// Two timestamps fall on the same local calendar day.
+const isSameDay = (a: number, b: number): boolean =>
+  new Date(a).toDateString() === new Date(b).toDateString();
+
+// "5月17日 周六" — the calendar date plus a short weekday, for divider labels.
+const formatDayLabel = (ts: number): string => {
+  const d = new Date(ts);
+  const md = d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  const wd = d.toLocaleDateString('zh-CN', { weekday: 'short' });
+  return `${md} ${wd}`;
+};
+
+// A thin 1px rule with the calendar date centred on it (PLAN_EN.md §9.3) — the
+// dominant scanning aid for long threads.
+function DateDivider({ ts }: { ts: number }) {
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span className="h-px flex-1 bg-line" />
+      <span className="font-mono text-[10px] text-muted">{formatDayLabel(ts)}</span>
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
+}
 
 export default function BlockFeed({ threadId }: Props) {
   const load = useBlocksStore((s) => s.load);
@@ -104,17 +128,27 @@ export default function BlockFeed({ threadId }: Props) {
         ))}
       </div>
       <div className="space-y-2">
-        {ordered.map((b) => (
-          <BlockItem
-            key={b.id}
-            block={b}
-            attachments={attachmentsByBlock[b.id] ?? EMPTY_ATTACHMENTS}
-            highlight={b.id === highlightBlockId}
-            onTogglePin={() => void togglePin(b.id)}
-            onCopy={() => handleCopy(b.content)}
-            onDelete={() => void remove(b.id)}
-          />
-        ))}
+        {ordered.map((b, i) => {
+          // Date divider above any block that opens a new calendar day — the first
+          // block always gets one. Skipped in "by source" mode, where the feed is
+          // not time-ordered (§9.3).
+          const showDivider =
+            sortMode === 'time' &&
+            (i === 0 || !isSameDay(ordered[i - 1]!.createdAt, b.createdAt));
+          return (
+            <Fragment key={b.id}>
+              {showDivider && <DateDivider ts={b.createdAt} />}
+              <BlockItem
+                block={b}
+                attachments={attachmentsByBlock[b.id] ?? EMPTY_ATTACHMENTS}
+                highlight={b.id === highlightBlockId}
+                onTogglePin={() => void togglePin(b.id)}
+                onCopy={() => handleCopy(b.content)}
+                onDelete={() => void remove(b.id)}
+              />
+            </Fragment>
+          );
+        })}
         {/* Explicit drop zone: when a Finder drag is over empty timeline space (not
             over a block), this names the outcome — a new block — instead of leaving
             the user guessing. */}
