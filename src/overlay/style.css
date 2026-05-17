@@ -1,0 +1,33 @@
+@import '../styles/tokens.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The overlay window is borderless and transparent. The HTML/body background must stay
+   fully transparent so only the toast card itself is visible over the user's source
+   screen. !important defeats Tailwind preflight's body background. */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* In-window animation. The window itself is .show()/.hide()-toggled by Rust, so this
+   only animates the card mounting, not the window appearing — that's instant. */
+@keyframes overlay-chip-in {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.overlay-in {
+  animation: overlay-chip-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}

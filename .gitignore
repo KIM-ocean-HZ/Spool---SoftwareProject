@@ -1,0 +1,30 @@
+# Build output (excluded per PLAN_EN.md §18.1 rule 1)
+src-tauri/target/
+src-tauri/gen/
+node_modules/
+dist/
+
+# Vite / TS
+.vite/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Local-only files
+CLAUDE.md
