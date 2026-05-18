@@ -16,6 +16,7 @@ interface ToastState {
   toasts: Toast[];
   push: (message: string, kind?: ToastKind) => void;
   dismiss: (id: number) => void;
+  clear: () => void;
 }
 
 let nextId = 1;
@@ -32,6 +33,7 @@ export const useToastStore = create<ToastState>((set, get) => ({
     setTimeout(() => get().dismiss(id), LIFETIME_MS[kind]);
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  clear: () => set({ toasts: [] }),
 }));
 
 // Convenience for non-component call sites (catch handlers, event listeners).

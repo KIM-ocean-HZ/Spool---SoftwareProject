@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useEffect } from 'react';
 import { useToastStore } from '@/stores/toastStore';
 
 // In-window toast rack (PLAN_EN.md §14.4). Rendered once at the App root; toasts
@@ -8,6 +9,18 @@ import { useToastStore } from '@/stores/toastStore';
 export default function ToastRack() {
   const toasts = useToastStore((s) => s.toasts);
   const dismiss = useToastStore((s) => s.dismiss);
+  const clear = useToastStore((s) => s.clear);
+
+  // Esc dismisses any showing toasts (§14.1). Listener is only mounted while a
+  // toast exists, so it never shadows other Esc handlers when the rack is empty.
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') clear();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toasts.length, clear]);
 
   if (toasts.length === 0) return null;
 

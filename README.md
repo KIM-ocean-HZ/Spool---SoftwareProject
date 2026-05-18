@@ -37,7 +37,7 @@ All twelve phases of the implementation roadmap are landed:
 | 5 | Capture hardening: always-on-top overlay window, double-tap ⌥ trigger, editable source badge, browser tab-title auto-detection |
 | 6 | Block workbench: file / folder / URL attachments, inline edit, annotations, smart truncation, drag-to-attach |
 | 7 | Full-text search: FTS5 trigram tokenizer (Chinese-correct) + short-query LIKE fallback, contextual three-line snippets |
-| 8 | Deadlines, parked-with-next-step status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
+| 8 | Deadlines, active / parked / done status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
 | 9 | Thread completion + digest view (conclusion · pinned blocks · files & links) |
 | 10 | @-mention references between threads in the same workspace |
 | 11 | Optional AI layer: status summaries, conclusion drafts, capture classification — silent degradation everywhere |
