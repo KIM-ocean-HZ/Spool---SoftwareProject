@@ -3,6 +3,7 @@ import { useEffect, type ReactNode } from 'react';
 import { DAILY_LIMITS, useQuotaStore } from '@/stores/quotaStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import AiConfig from './AiConfig';
+import BrowserAutomation from './BrowserAutomation';
 import GeneralConfig from './GeneralConfig';
 import ShortcutConfig from './ShortcutConfig';
 
@@ -86,6 +87,9 @@ export default function Settings() {
             <p className="mt-1.5 text-xs text-muted">
               本地 Ollama 不计用量;计数仅本次运行内有效。
             </p>
+          </Section>
+          <Section title="浏览器自动化权限">
+            <BrowserAutomation />
           </Section>
           <Section title="通用">
             <GeneralConfig />

@@ -22,11 +22,16 @@
 //! for Input Monitoring once the tap is created; if denied, tap creation returns Err
 //! and we fall back to the still-registered ⌘⇧C shortcut (see lib.rs).
 //!
-//! Failure modes documented at point of use; no auto-recovery for tap-disabled events
-//! in v1 (rare in normal use; a Spool restart re-installs the tap).
+//! Self-heal (PLAN_EN.md §19.4): when macOS delivers `TapDisabledByTimeout` or
+//! `TapDisabledByUserInput`, we re-enable the tap in place via `CGEventTapEnable`.
+//! If two consecutive disable events fire (the re-enable didn't stick), we emit a
+//! `capture-disabled` event so the UI can surface a one-time notice — the ⌘⇧C
+//! fallback keeps working in either case.
 
 #![cfg(target_os = "macos")]
 
+use core_foundation::base::TCFType;
+use core_foundation::mach_port::CFMachPortRef;
 use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
 use core_graphics::event::{
     CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
@@ -34,7 +39,7 @@ use core_graphics::event::{
 };
 use foreign_types::ForeignType;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::thread;
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -54,6 +59,16 @@ const NANOS_PER_MS: u64 = 1_000_000;
 // 0 means "no first tap yet"; a real CGEvent timestamp is never 0.
 static LAST_OPT_PRESS_NS: AtomicU64 = AtomicU64::new(0);
 
+// CFMachPortRef of the installed tap, stashed so the callback can re-enable in place
+// after macOS disables it (§19.4). Null until run_tap() finishes setup. Storing a
+// raw pointer is fine: the CFMachPort is held by the runloop source for the life of
+// the dedicated tap thread (which never exits), so the pointer never dangles.
+static TAP_PORT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+// True once we've notified the UI that the tap is permanently disabled — re-entry
+// guard so a flapping tap doesn't toast on every disable callback.
+static NOTIFIED_DISABLED: AtomicBool = AtomicBool::new(false);
+
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     // When the event physically occurred, in NANOSECONDS. Despite the "absolute time"
@@ -61,6 +76,11 @@ extern "C" {
     // mach_timebase_info scaling: on Apple Silicon that inflates every gap ~41x (125/3)
     // and no double-tap ever lands inside the window.
     fn CGEventGetTimestamp(event: *const c_void) -> u64;
+
+    // Re-enables an event tap macOS has disabled. The first argument is the same
+    // CFMachPortRef returned by CGEventTapCreate. Idempotent — calling on an already-
+    // enabled tap is a no-op.
+    fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
 }
 
 pub fn install<R: Runtime>(app: AppHandle<R>) {
@@ -70,24 +90,49 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
 fn run_tap<R: Runtime>(app: AppHandle<R>) {
     // Callback runs on the run-loop thread. Captures `app` (Clone + Send + Sync);
     // LAST_OPT_PRESS_NS is the only shared mutable state — atomic, no locks.
+    let app_for_cb = app.clone();
     let callback = move |_proxy: CGEventTapProxy,
                          ev_type: CGEventType,
                          event: &CGEvent|
           -> Option<CGEvent> {
         match ev_type {
-            CGEventType::TapDisabledByTimeout => {
-                eprintln!(
-                    "[double-tap] WARNING: macOS disabled the event tap (timeout). \
-                     ⌘⇧C still works; restart Spool to re-enable double-tap."
-                );
-            }
-            CGEventType::TapDisabledByUserInput => {
-                eprintln!(
-                    "[double-tap] WARNING: event tap disabled by user input. \
-                     ⌘⇧C still works; restart Spool to re-enable double-tap."
-                );
+            CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
+                let reason = match ev_type {
+                    CGEventType::TapDisabledByTimeout => "timeout",
+                    _ => "user input",
+                };
+                eprintln!("[double-tap] tap disabled ({reason}); attempting self-heal");
+                // Pull the tap's mach port we stashed at install-time and ask macOS to
+                // re-enable. If the port pointer is null, install hasn't completed yet —
+                // ignore (we'll never get a disable event before install anyway).
+                let port = TAP_PORT.load(Ordering::Acquire) as CFMachPortRef;
+                if !port.is_null() {
+                    unsafe { CGEventTapEnable(port, true) };
+                }
+                // If we're still disabled next time the callback fires for a disable
+                // event, notify the UI once. CFRunLoop continues to dispatch the
+                // single-shot disable events even when the tap is off.
+                if NOTIFIED_DISABLED
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    // First-disable path: try the re-enable above and reset the
+                    // double-tap counter so a stray ⌥ press from before doesn't pair
+                    // with the next one. We DON'T toast yet — the re-enable usually
+                    // works and a transient timeout shouldn't bother the user.
+                    LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                } else {
+                    // Second consecutive disable event with no clean press in between
+                    // means the self-heal didn't stick. Surface a single notice and
+                    // keep ⌘⇧C as the working fallback.
+                    let _ = app_for_cb.emit("capture-disabled", reason);
+                }
             }
             CGEventType::FlagsChanged => {
+                // Any clean event passing through means the tap is healthy again —
+                // clear the latched disable flag so a future disable can re-arm the
+                // self-heal notification path.
+                NOTIFIED_DISABLED.store(false, Ordering::Relaxed);
                 // FlagsChanged carries the key code of the modifier that changed.
                 let keycode =
                     event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
@@ -176,6 +221,13 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
         current.add_source(&source, kCFRunLoopCommonModes);
     }
     tap.enable();
+    // Stash the raw CFMachPortRef so the callback can re-enable the tap in place when
+    // macOS disables it. Safe because the runloop source above retains the mach port
+    // for as long as this thread (which never exits) keeps the runloop alive.
+    TAP_PORT.store(
+        tap.mach_port.as_concrete_TypeRef() as *mut c_void,
+        Ordering::Release,
+    );
     eprintln!(
         "[double-tap] installed — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture"
     );

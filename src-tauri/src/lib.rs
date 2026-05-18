@@ -24,6 +24,7 @@ pub fn run() {
             capture::update_overlay_source,
             capture::show_capture_notice,
             capture::set_shortcuts,
+            capture::probe_browser_automation,
         ]);
 
     #[cfg(desktop)]

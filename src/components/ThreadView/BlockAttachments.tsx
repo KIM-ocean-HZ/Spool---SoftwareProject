@@ -1,6 +1,7 @@
 import { File, Folder, Link as LinkIcon, X } from 'lucide-react';
 import type { Attachment } from '@/lib/db/attachments';
 import { openTarget } from '@/lib/utils/openTarget';
+import { toast } from '@/stores/toastStore';
 
 interface Props {
   attachments: readonly Attachment[];
@@ -10,8 +11,8 @@ interface Props {
 
 // Per PLAN_EN.md §9.6: an attachment renders as a chip on its block. Icon picked by
 // kind, click opens with the OS default app / Finder / browser via the Rust
-// `open_target` command; a missing target rejects and we surface that as a non-fatal
-// console warning (full toast routing is §14.4 / Phase 12).
+// `open_target` command; a missing target surfaces a toast (§14.4) instead of
+// crashing — the block and the attachment record are kept.
 export default function BlockAttachments({ attachments, onDetach }: Props) {
   if (attachments.length === 0) return null;
 
@@ -20,9 +21,7 @@ export default function BlockAttachments({ attachments, onDetach }: Props) {
       await openTarget(a.target);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // §14.4 says "missing target → toast, no crash". v1 logs; Phase 12 wires a real
-      // toast surface. The catch keeps the click handler from bubbling an exception.
-      console.warn('[attachment] open failed:', msg, 'target=', a.target);
+      toast.error(msg || '无法打开附件');
     }
   };
 

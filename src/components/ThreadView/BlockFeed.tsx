@@ -6,6 +6,15 @@ import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
 import BlockItem from './BlockItem';
 
+// Tail-window cap for large threads (PLAN_EN.md §15 / Phase 12 — "enable virtual
+// scrolling when blocks > 200"). Below the cap we render the whole feed unchanged;
+// at or above we keep only the most recent WINDOW_SIZE blocks mounted and expose a
+// "show earlier" affordance that grows the window in chunks. Trade-off: real
+// row-virtualization would need height tracking that fights smart-truncation and
+// date dividers; this pagination preserves the existing renderer while keeping the
+// DOM bounded for the long-thread case the budget actually targets.
+const WINDOW_SIZE = 200;
+
 interface Props {
   threadId: string;
 }
@@ -67,10 +76,29 @@ export default function BlockFeed({ threadId }: Props) {
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
 
   const [sortMode, setSortMode] = useState<SortMode>('time');
+  // Tail-window size for this thread. Reset on thread switch so a previously expanded
+  // history doesn't carry into a different (possibly tiny) thread.
+  const [windowSize, setWindowSize] = useState(WINDOW_SIZE);
+  useEffect(() => {
+    setWindowSize(WINDOW_SIZE);
+  }, [threadId]);
 
   useEffect(() => {
     void load(threadId);
   }, [threadId, load]);
+
+  const ordered = useMemo(() => sortBlocks(blocks, sortMode), [blocks, sortMode]);
+
+  // If a search result targets a block outside the current tail window, widen so it's
+  // mounted before the scrollIntoView below runs. Runs before the highlight effect so
+  // the DOM lookup hits a rendered node, not a virtualized one.
+  useEffect(() => {
+    if (!highlightBlockId) return;
+    const idx = ordered.findIndex((b) => b.id === highlightBlockId);
+    if (idx === -1) return;
+    const minWindow = ordered.length - idx;
+    if (minWindow > windowSize) setWindowSize(minWindow);
+  }, [highlightBlockId, ordered, windowSize]);
 
   // After a search result navigates here, scroll the target block into view. The
   // effect re-runs once `blocks` has loaded for the newly-selected thread; BlockItem
@@ -80,9 +108,7 @@ export default function BlockFeed({ threadId }: Props) {
     if (!blocks.some((b) => b.id === highlightBlockId)) return;
     const el = document.querySelector(`[data-block-id="${highlightBlockId}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [highlightBlockId, blocks]);
-
-  const ordered = useMemo(() => sortBlocks(blocks, sortMode), [blocks, sortMode]);
+  }, [highlightBlockId, blocks, windowSize]);
 
   const handleCopy = (text: string) => {
     void navigator.clipboard.writeText(text);
@@ -108,6 +134,12 @@ export default function BlockFeed({ threadId }: Props) {
     );
   }
 
+  // Tail window: keep only the most recent `windowSize` blocks mounted once the feed
+  // grows past WINDOW_SIZE. Older blocks stay one click away via the "show earlier"
+  // button below. visible/hiddenCount drive both the slice and the divider/index math.
+  const hiddenCount = Math.max(0, ordered.length - windowSize);
+  const visible = hiddenCount > 0 ? ordered.slice(hiddenCount) : ordered;
+
   return (
     <div className="px-6 py-3">
       <div className="mb-2 flex items-center justify-end gap-0.5 text-[11px]">
@@ -127,14 +159,28 @@ export default function BlockFeed({ threadId }: Props) {
           </button>
         ))}
       </div>
+      {hiddenCount > 0 && (
+        <div className="mb-2 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => setWindowSize((n) => n + WINDOW_SIZE)}
+            className="rounded-full border border-line bg-paper px-3 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent"
+          >
+            查看更早的 {hiddenCount} 条
+          </button>
+        </div>
+      )}
       <div className="space-y-2">
-        {ordered.map((b, i) => {
+        {visible.map((b, i) => {
           // Date divider above any block that opens a new calendar day — the first
-          // block always gets one. Skipped in "by source" mode, where the feed is
-          // not time-ordered (§9.3).
+          // visible block always gets one. Skipped in "by source" mode, where the feed
+          // is not time-ordered (§9.3). The previous-day comparison uses the full
+          // `ordered` array via the absolute index so the boundary stays correct
+          // across the tail-window cut.
+          const absIdx = hiddenCount + i;
           const showDivider =
             sortMode === 'time' &&
-            (i === 0 || !isSameDay(ordered[i - 1]!.createdAt, b.createdAt));
+            (i === 0 || !isSameDay(ordered[absIdx - 1]!.createdAt, b.createdAt));
           return (
             <Fragment key={b.id}>
               {showDivider && <DateDivider ts={b.createdAt} />}

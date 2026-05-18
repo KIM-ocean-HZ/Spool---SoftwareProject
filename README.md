@@ -24,9 +24,9 @@ Spool compresses "re-explaining" into "a single paste."
 
 ## Status
 
-Under active development. macOS primary; Windows/Linux feasible via Tauri (capture-trigger details differ). Not yet released.
+v1 feature-complete and packaged. macOS primary; Windows/Linux feasible via Tauri (capture-trigger details differ).
 
-Phases 1–8 of the implementation roadmap are complete:
+All twelve phases of the implementation roadmap are landed:
 
 | Phase | Surface |
 |---|---|
@@ -37,9 +37,11 @@ Phases 1–8 of the implementation roadmap are complete:
 | 5 | Capture hardening: always-on-top overlay window, double-tap ⌥ trigger, editable source badge, browser tab-title auto-detection |
 | 6 | Block workbench: file / folder / URL attachments, inline edit, annotations, smart truncation, drag-to-attach |
 | 7 | Full-text search: FTS5 trigram tokenizer (Chinese-correct) + short-query LIKE fallback, contextual three-line snippets |
-| 8 | Deadlines, progress, parked-with-next-step status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
-
-Phases 9–12 next: digest view, @-mention references, the optional AI layer, settings / packaging.
+| 8 | Deadlines, parked-with-next-step status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
+| 9 | Thread completion + digest view (conclusion · pinned blocks · files & links) |
+| 10 | @-mention references between threads in the same workspace |
+| 11 | Optional AI layer: status summaries, conclusion drafts, capture classification — silent degradation everywhere |
+| 12 | Settings panel (AI keys + test, Ollama, privacy, quotas, autostart, clear data), unified toast surface, tail-window for long threads, packaging |
 
 ## Design principles (non-negotiable)
 
@@ -72,7 +74,58 @@ npm run tauri build   # production .dmg / installer
 npm test              # vitest
 ```
 
-The macOS double-tap-⌥ capture trigger requires Input Monitoring permission (System Settings → Privacy & Security → Input Monitoring). The Cmd+Shift+C fallback works without it.
+The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). The ⌘⇧C fallback works without either. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+
+## AI keys (optional)
+
+Spool's AI features (status summaries, conclusion drafts, capture classification) are entirely optional. The product works without any AI configured — and it must, by design. When AI is configured, Spool routes calls through three tiers with automatic fallback, and any failure silently degrades — no error popups, no broken core features.
+
+Tiers, in fallback order:
+
+1. **Groq** (fast tier, free). Used for capture classification (fits the latency budget).
+2. **Gemini** (quality tier, free up to limits). Used for status and conclusion summaries.
+3. **Ollama** (local, no quota). Used in privacy mode, and as the offline fallback for both tiers.
+
+Configure under **Settings → AI 服务** (`⌘,`). Each online key has a "测试" button that runs a 1-token round-trip against the provider.
+
+### Groq
+
+1. Sign in at <https://console.groq.com>.
+2. Open **API Keys** → **Create API Key**.
+3. Paste the `gsk_…` string into the **Groq API Key** field, click **测试**.
+
+### Gemini
+
+1. Sign in at <https://aistudio.google.com/app/apikey>.
+2. **Create API key** (the free tier covers normal personal use).
+3. Paste the `AIza…` string into the **Gemini API Key** field, click **测试**.
+
+### Ollama (local, fully offline)
+
+1. Install Ollama from <https://ollama.com>.
+2. Pull a model — `ollama pull qwen3:8b` is the default Spool looks for; any chat model works.
+3. Make sure the daemon is running (`ollama serve` or the menu-bar app).
+4. Spool auto-detects the endpoint on startup. Adjust the URL or pick a different model under **Settings → Ollama**.
+
+### Privacy mode
+
+Toggle **隐私模式** under Settings to force every AI call through the local Ollama tier. With privacy mode on, online providers are never contacted regardless of which keys are saved. With no local model present, AI entry points are hidden entirely — the rest of the app is unaffected.
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| Double-tap ⌥ | Capture clipboard (macOS only, system-global) |
+| ⌘⇧C | Capture clipboard (system-global, all platforms) |
+| ⌘⇧F | Global search |
+| ⌘⇧P | Pack the active thread |
+| ⌘N | New thread in the current workspace |
+| ⌘, | Settings |
+| @ | Mention another thread inside the composer |
+| Enter / Shift+Enter | Send / newline in the composer |
+| Esc | Dismiss any overlay, modal, or inline edit |
+
+The two global shortcuts (capture and search) are user-rebindable under **Settings → 全局快捷键**.
 
 ## Project structure
 
@@ -80,15 +133,25 @@ The macOS double-tap-⌥ capture trigger requires Input Monitoring permission (S
 src-tauri/            # Tauri / Rust: capture, overlay window, system integration
 src/
   overlay/            # the capture overlay window (separate Vite entry)
-  components/         # Sidebar, ThreadView, Capture, Pack, Search, Settings
+  components/         # Sidebar, ThreadView, Capture, Pack, Search, Settings, ui
   lib/                # core logic (capture, pack, search, ai, db)
   hooks/              # React hooks
   stores/             # Zustand stores
   styles/             # design tokens + global styles
+scripts/              # one-off generators (e.g. the amber-S app icon)
 PLAN_EN.md            # the project blueprint and source of truth
 ```
 
 `PLAN_EN.md` defines what Spool is, what it isn't, the phase-by-phase roadmap, and the explicit non-goals. Read §2 (Product Constitution) before opening a PR or proposing a feature.
+
+## Screenshots
+
+Placeholder — populate after the first dogfooding pass:
+
+- `docs/screenshots/main.png` — main window: sidebar + active thread
+- `docs/screenshots/capture.png` — the corner overlay confirming a capture
+- `docs/screenshots/pack.png` — the pack dialog with assembled briefing
+- `docs/screenshots/digest.png` — a completed thread's digest view
 
 ## License
 

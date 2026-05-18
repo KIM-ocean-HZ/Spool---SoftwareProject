@@ -378,6 +378,59 @@ pub fn set_shortcuts<R: Runtime>(
     }
 }
 
+// Test that macOS Automation permission is granted for a given browser (§19.7).
+// Runs a benign read against the app via System Events — first call from a given
+// browser triggers the standard permission prompt, subsequent calls reflect the
+// current grant state. The browser name is matched against a hard-coded allowlist
+// before reaching `tell application`, so there is no command-injection surface.
+#[tauri::command]
+pub fn probe_browser_automation(name: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        // Allowlist mirrors browser_tab_title's match arms — only browsers Spool can
+        // actually read source from need a test surface.
+        let script = match name.as_str() {
+            "Safari" => "tell application \"Safari\" to get name of front window",
+            "Google Chrome" | "Microsoft Edge" | "Brave Browser" | "Arc" => {
+                // Unsupported safely — we only need to *trigger* the permission prompt;
+                // chromium browsers all accept the same `title of active tab` form.
+                return run_browser_probe(&name);
+            }
+            _ => return Err("不支持的浏览器".into()),
+        };
+        let output = Command::new("osascript")
+            .args(["-e", "with timeout of 2 seconds", "-e", script, "-e", "end timeout"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err("仅 macOS 需要授权".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_browser_probe(app: &str) -> Result<(), String> {
+    use std::process::Command;
+    let script = format!("tell application \"{app}\" to get title of active tab of front window");
+    let output = Command::new("osascript")
+        .args(["-e", "with timeout of 2 seconds", "-e", &script, "-e", "end timeout"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 // Classify a dropped filesystem path as `file` or `folder` so the frontend can pick
 // the right attachment kind and the right icon. Used by the drag-drop bridge in
 // LogView (Phase 6). Returns `file` when the path doesn't exist — the caller will

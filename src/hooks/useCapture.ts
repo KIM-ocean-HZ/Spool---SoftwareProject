@@ -20,6 +20,7 @@ import { updateBlockSource } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { buildPreview, useCaptureStore } from '@/stores/captureStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+import { toast } from '@/stores/toastStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
 // Max wait in the *hot path* for the parallel foreground-app query. If osascript hasn't
@@ -270,6 +271,25 @@ export function useCapture(): void {
     void (async () => {
       const dispose = await listen<OverlayAction>(OVERLAY_ACTION_EVENT, (e) => {
         applyOverlayAction(e.payload);
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  // §19.4: Rust emits `capture-disabled` when macOS has disabled the CGEventTap
+  // and the in-place self-heal didn't stick. Surface a one-time notice so the user
+  // knows to restart Spool; the ⌘⇧C fallback is still working in the meantime.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen('capture-disabled', () => {
+        toast.error('双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。');
       });
       if (cancelled) dispose();
       else unlisten = dispose;

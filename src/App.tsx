@@ -4,6 +4,7 @@ import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
+import ToastRack from '@/components/ui/Toast';
 import { useCapture } from '@/hooks/useCapture';
 import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
@@ -12,8 +13,6 @@ import { useCaptureStore } from '@/stores/captureStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
-
-const SHOW_DIAGNOSTIC = import.meta.env.DEV;
 
 export default function App() {
   const loadWorkspaces = useWorkspacesStore((s) => s.load);
@@ -93,102 +92,65 @@ export default function App() {
 
   const error = wsError ?? thError;
 
-  // Inline-styled because we want it visible no matter what happens to Tailwind /
-  // global.css. If you don't see this strip at the top, React itself didn't mount.
-  const diagnostic = SHOW_DIAGNOSTIC ? (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
-        padding: '4px 10px',
-        background: '#1c1a16',
-        color: '#faf7f0',
-        fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-        fontSize: '11px',
-        lineHeight: 1.5,
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-      }}
-    >
-      App OK · wsLoading={String(wsLoading)} · thLoading={String(thLoading)} · err=
-      {error ?? '—'} · ws={workspaces.length} · active={activeId?.slice(0, 6) ?? '—'} ·
-      target={captureTargetId?.slice(0, 6) ?? '—'}
-    </div>
-  ) : null;
-
   if (error) {
     return (
-      <>
-        {diagnostic}
-        <div
+      <div
+        style={{
+          minHeight: '100vh',
+          padding: '64px 32px 32px',
+          background: '#faf7f0',
+          color: '#1c1a16',
+          fontFamily: 'ui-monospace, monospace',
+        }}
+      >
+        <div style={{ fontSize: '18px', marginBottom: '12px', color: '#b3402f' }}>
+          数据库初始化失败
+        </div>
+        <pre
           style={{
-            minHeight: '100vh',
-            padding: '64px 32px 32px',
-            background: '#faf7f0',
-            color: '#1c1a16',
-            fontFamily: 'ui-monospace, monospace',
+            background: '#f3eee2',
+            border: '1px solid #d6cdb3',
+            borderRadius: '6px',
+            padding: '12px',
+            maxHeight: '50vh',
+            overflow: 'auto',
+            fontSize: '11px',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
           }}
         >
-          <div style={{ fontSize: '18px', marginBottom: '12px', color: '#b3402f' }}>
-            数据库初始化失败
-          </div>
-          <pre
-            style={{
-              background: '#f3eee2',
-              border: '1px solid #d6cdb3',
-              borderRadius: '6px',
-              padding: '12px',
-              maxHeight: '50vh',
-              overflow: 'auto',
-              fontSize: '11px',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {error}
-          </pre>
-          <div style={{ marginTop: '12px', fontSize: '12px', color: '#8c8576' }}>
-            打开 DevTools（右键 → Inspect）→ Console 看完整堆栈。
-          </div>
+          {error}
+        </pre>
+        <div style={{ marginTop: '12px', fontSize: '12px', color: '#8c8576' }}>
+          打开 DevTools（右键 → Inspect）→ Console 看完整堆栈。
         </div>
-      </>
+      </div>
     );
   }
 
   if (wsLoading || thLoading) {
     return (
-      <>
-        {diagnostic}
-        <div
-          style={{
-            minHeight: '100vh',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: '#faf7f0',
-            color: '#1c1a16',
-            fontFamily: 'Instrument Serif, Songti SC, serif',
-            fontSize: '28px',
-            fontStyle: 'italic',
-          }}
-        >
-          <span className="pulse-dim">加载中…</span>
-        </div>
-      </>
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#faf7f0',
+          color: '#1c1a16',
+          fontFamily: 'Instrument Serif, Songti SC, serif',
+          fontSize: '28px',
+          fontStyle: 'italic',
+        }}
+      >
+        <span className="pulse-dim">加载中…</span>
+      </div>
     );
   }
 
   return (
     <>
-      {diagnostic}
-      <div
-        className="paper-bg flex h-full w-full"
-        style={SHOW_DIAGNOSTIC ? { paddingTop: '22px' } : undefined}
-      >
+      <div className="paper-bg flex h-full w-full">
         <Sidebar />
         <main className="min-w-0 flex-1 overflow-hidden">
           <ThreadView />
@@ -196,6 +158,7 @@ export default function App() {
       </div>
       <SearchOverlay />
       <Settings />
+      <ToastRack />
     </>
   );
 }

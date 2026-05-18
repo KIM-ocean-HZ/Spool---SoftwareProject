@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
+import { toast } from '@/stores/toastStore';
 import { basename, pathIsDir } from '@/lib/utils/openTarget';
 import type { AttachmentKind } from '@/lib/db/attachments';
 
@@ -157,6 +158,7 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
         }
       } catch (e) {
         console.error('[drop] attach failed', e);
+        toast.error('附加失败：' + (e instanceof Error ? e.message : String(e)));
       }
     };
 

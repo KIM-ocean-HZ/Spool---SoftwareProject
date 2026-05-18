@@ -6,6 +6,7 @@ import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { openTarget } from '@/lib/utils/openTarget';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { toast } from '@/stores/toastStore';
 import BlockItem from './BlockItem';
 
 const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
@@ -68,8 +69,8 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
     try {
       await openTarget(target);
     } catch (e) {
-      // §14.4: a missing target is non-fatal; Phase 12 wires a real toast.
-      console.warn('[digest] open target failed:', e);
+      // §14.4: a missing target is non-fatal — surface a toast and keep going.
+      toast.error(e instanceof Error ? e.message : '无法打开附件');
     }
   };
 
