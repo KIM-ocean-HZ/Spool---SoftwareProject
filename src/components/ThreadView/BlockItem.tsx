@@ -7,6 +7,7 @@ import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import BlockActions from './BlockActions';
 import BlockAttachments from './BlockAttachments';
+import RefBlockItem from './RefBlockItem';
 import SourceBadge from './SourceBadge';
 
 interface Props {
@@ -30,7 +31,17 @@ const COLLAPSED_LINES = 6;
 
 const isUrl = (s: string): boolean => /^https?:\/\//i.test(s.trim());
 
-export default function BlockItem({
+// Phase 10: ref blocks have an entirely different UI (no edit, source, annotation,
+// attachments), so dispatch by kind rather than branching mid-component — keeps each
+// renderer's hook order unconditional.
+export default function BlockItem(props: Props) {
+  if (props.block.kind === 'ref') {
+    return <RefBlockItem block={props.block} readOnly={props.readOnly} onDelete={props.onDelete} />;
+  }
+  return <TextBlockItem {...props} />;
+}
+
+function TextBlockItem({
   block,
   attachments,
   highlight,
