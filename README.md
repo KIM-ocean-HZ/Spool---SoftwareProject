@@ -146,12 +146,15 @@ PLAN_EN.md            # the project blueprint and source of truth
 
 ## Screenshots
 
-Placeholder — populate after the first dogfooding pass:
 
-- `docs/screenshots/main.png` — main window: sidebar + active thread
-- `docs/screenshots/capture.png` — the corner overlay confirming a capture
-- `docs/screenshots/pack.png` — the pack dialog with assembled briefing
-- `docs/screenshots/digest.png` — a completed thread's digest view
+- Main window: sidebar + active thread
+![main window: sidebar + active thread](docs/screenshots/main.png)
+- The corner overlay confirming a capture
+![the corner overlay confirming a capture](docs/screenshots/capture.png)
+- The pack dialog with assembled briefing
+![The pack dialog with assembled briefing](docs/screenshots/pack.png)
+- A completed thread's digest view
+![A completed thread's digest view](docs/screenshots/digest.png)
 
 ## License
 
