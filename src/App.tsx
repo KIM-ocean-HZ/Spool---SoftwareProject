@@ -72,6 +72,7 @@ export default function App() {
       await loadSettings();
       // AI entry points gate on whether a local model exists; probe once at startup.
       void useSettingsStore.getState().detectOllama();
+      void useSettingsStore.getState().loadAutostart();
       const { captureShortcut, searchShortcut } = useSettingsStore.getState();
       try {
         await invoke('set_shortcuts', { capture: captureShortcut, search: searchShortcut });

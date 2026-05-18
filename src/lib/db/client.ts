@@ -141,3 +141,15 @@ export const getDb = (): Promise<Database> => {
   }
   return dbPromise;
 };
+
+// "Clear all data" danger action (§9.12). Wipes every user row in dependency order
+// (deleting blocks fires the FTS delete trigger, keeping blocks_fts in sync), then
+// re-seeds the empty Inbox so the app still has a capture target. The caller is
+// expected to reload the window afterwards so every store re-hydrates.
+export const clearAllData = async (): Promise<void> => {
+  const db = await getDb();
+  for (const t of ['attachments', 'blocks', 'threads', 'workspaces']) {
+    await db.execute(`DELETE FROM ${t}`);
+  }
+  await seedDefaults(db);
+};

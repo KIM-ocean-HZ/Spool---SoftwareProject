@@ -1,3 +1,4 @@
+import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { listOllamaModels } from '@/lib/ai/providers/ollama';
@@ -30,9 +31,16 @@ interface SettingsState {
   // True once a local Ollama model has been detected via /api/tags. Runtime-only —
   // re-probed on startup, never persisted.
   ollamaAvailable: boolean;
+  // Models reported by the Ollama endpoint — populates the model dropdown (§9.12).
+  ollamaModels: string[];
+  // Reflects the OS launch-agent registration; the OS is the source of truth, so
+  // this is read back from the autostart plugin rather than persisted here.
+  launchAtLogin: boolean;
   load: () => Promise<void>;
   update: (patch: PersistablePatch) => Promise<void>;
   detectOllama: () => Promise<void>;
+  loadAutostart: () => Promise<void>;
+  setLaunchAtLogin: (enabled: boolean) => Promise<void>;
   openPanel: () => void;
   closePanel: () => void;
 }
@@ -72,6 +80,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   loaded: false,
   panelOpen: false,
   ollamaAvailable: false,
+  ollamaModels: [],
+  launchAtLogin: false,
 
   load: async () => {
     try {
@@ -102,13 +112,31 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   // Probe the local Ollama endpoint for installed models. Pure local request; any
-  // failure (no Ollama, network error) just leaves ollamaAvailable false.
+  // failure (no Ollama, network error) just leaves it unavailable.
   detectOllama: async () => {
     try {
       const models = await listOllamaModels(useSettingsStore.getState().ollamaEndpoint);
-      set({ ollamaAvailable: models.length > 0 });
+      set({ ollamaAvailable: models.length > 0, ollamaModels: models });
     } catch {
-      set({ ollamaAvailable: false });
+      set({ ollamaAvailable: false, ollamaModels: [] });
+    }
+  },
+
+  loadAutostart: async () => {
+    try {
+      set({ launchAtLogin: await isEnabled() });
+    } catch (e) {
+      console.warn('autostart isEnabled failed', e);
+    }
+  },
+
+  setLaunchAtLogin: async (enabled) => {
+    try {
+      if (enabled) await enable();
+      else await disable();
+      set({ launchAtLogin: enabled });
+    } catch (e) {
+      console.warn('autostart toggle failed', e);
     }
   },
 

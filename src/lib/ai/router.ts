@@ -1,3 +1,4 @@
+import { useQuotaStore } from '@/stores/quotaStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { cacheGet, cacheSet } from './cache';
 import { createGeminiProvider } from './providers/gemini';
@@ -98,6 +99,7 @@ const route = async (
         opts.maxTokens,
       );
       if (opts.cache) await cacheSet(prompt, text, opts.ttlMs);
+      useQuotaStore.getState().record(tier);
       return { text, tier };
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError' && opts.signal?.aborted) {

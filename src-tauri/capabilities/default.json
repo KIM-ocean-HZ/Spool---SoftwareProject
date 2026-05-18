@@ -27,6 +27,10 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "autostart:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

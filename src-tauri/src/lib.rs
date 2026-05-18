@@ -31,6 +31,12 @@ pub fn run() {
         use tauri::Emitter;
         use tauri_plugin_global_shortcut::ShortcutState;
 
+        // Launch at login (§9.12). Desktop-only; the LaunchAgent backend on macOS.
+        builder = builder.plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ));
+
         builder = builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
