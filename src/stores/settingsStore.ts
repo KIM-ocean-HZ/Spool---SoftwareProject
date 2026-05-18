@@ -1,5 +1,6 @@
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
+import { listOllamaModels } from '@/lib/ai/providers/ollama';
 import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
@@ -26,11 +27,23 @@ interface SettingsState {
   searchShortcut: string;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
+  // True once a local Ollama model has been detected via /api/tags. Runtime-only —
+  // re-probed on startup, never persisted.
+  ollamaAvailable: boolean;
   load: () => Promise<void>;
   update: (patch: PersistablePatch) => Promise<void>;
+  detectOllama: () => Promise<void>;
   openPanel: () => void;
   closePanel: () => void;
 }
+
+// AI entry points are shown only when the AI can actually run (§6.4 rule 3, §11.6):
+// either a local model is present, or online keys are configured with privacy off.
+export const isAiAvailable = (s: SettingsState): boolean => {
+  if (s.ollamaAvailable) return true;
+  if (s.privacyMode) return false;
+  return Boolean(s.groqKey || s.geminiKey);
+};
 
 let storePromise: Promise<Store> | null = null;
 const getStore = (): Promise<Store> => {
@@ -58,6 +71,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   loaded: false,
   panelOpen: false,
+  ollamaAvailable: false,
 
   load: async () => {
     try {
@@ -84,6 +98,17 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       await store.save();
     } catch (e) {
       console.warn('settings save failed', e);
+    }
+  },
+
+  // Probe the local Ollama endpoint for installed models. Pure local request; any
+  // failure (no Ollama, network error) just leaves ollamaAvailable false.
+  detectOllama: async () => {
+    try {
+      const models = await listOllamaModels(useSettingsStore.getState().ollamaEndpoint);
+      set({ ollamaAvailable: models.length > 0 });
+    } catch {
+      set({ ollamaAvailable: false });
     }
   },
 

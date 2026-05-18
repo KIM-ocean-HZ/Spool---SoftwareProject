@@ -12,6 +12,7 @@ interface ThreadsState {
   loadWorkspace: (workspaceId: string) => Promise<void>;
   create: (workspaceId: string, title?: string) => Promise<Thread>;
   patch: (id: string, patch: ThreadPatch) => Promise<void>;
+  setSummary: (id: string, summary: string | null) => Promise<void>;
   setCaptureTarget: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
@@ -95,6 +96,11 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
       }
     }
     set({ threadsByWorkspace: groupByWorkspace(flat) });
+  },
+
+  // The AI status-summary write path (§11.3). User-triggered, so no debounce.
+  setSummary: async (id, summary) => {
+    await get().patch(id, { summary });
   },
 
   setCaptureTarget: async (id) => {

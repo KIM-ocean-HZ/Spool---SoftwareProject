@@ -70,6 +70,8 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await loadSettings();
+      // AI entry points gate on whether a local model exists; probe once at startup.
+      void useSettingsStore.getState().detectOllama();
       const { captureShortcut, searchShortcut } = useSettingsStore.getState();
       try {
         await invoke('set_shortcuts', { capture: captureShortcut, search: searchShortcut });

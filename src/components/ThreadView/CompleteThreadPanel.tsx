@@ -1,18 +1,31 @@
 import { useEffect, useState } from 'react';
+import { router } from '@/lib/ai/router';
+import { buildDigestPrompt } from '@/lib/ai/prompts/summarizeDigest';
+import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
+import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 interface Props {
   thread: Thread;
+  blocks: readonly Block[];
   onClose: () => void;
 }
 
 // Thread completion (PLAN_EN.md §9.8). A modal-style panel, not a full screen. The
-// handwritten one-line conclusion is the primary path; "让 AI 总结" is a Phase 11
-// placeholder. Completing with an empty conclusion is allowed — and correct (§9.8).
-export default function CompleteThreadPanel({ thread, onClose }: Props) {
+// handwritten one-line conclusion is the primary path; "让 AI 总结" is an optional
+// convenience that prefills a draft (§11.4). Completing with an empty conclusion is
+// allowed — and correct (§9.8). Completion must work whether the AI button is
+// disabled, never clicked, or failed.
+export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) {
   const patch = useThreadsStore((s) => s.patch);
+  const aiAvailable = useSettingsStore(isAiAvailable);
   const [conclusion, setConclusion] = useState('');
+  // 'failed' covers both an error and a NO_DIGEST response — both silently disable
+  // the button for this thread, with no popup (§11.4 + §12.4).
+  const [aiState, setAiState] = useState<'idle' | 'loading' | 'failed'>('idle');
+
+  const pinnedBlocks = blocks.filter((b) => b.pinned);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -30,6 +43,27 @@ export default function CompleteThreadPanel({ thread, onClose }: Props) {
     });
     onClose();
   };
+
+  // §6.3 / §18 rule 9: the degradation path comes first. Any failure — error,
+  // NO_DIGEST — silently disables the button; the handwritten path stays primary.
+  const handleAiSummary = async (): Promise<void> => {
+    if (pinnedBlocks.length === 0 || aiState !== 'idle') return;
+    setAiState('loading');
+    try {
+      const { text } = await router.quality(buildDigestPrompt(thread, pinnedBlocks));
+      const trimmed = text.trim();
+      if (trimmed === '' || trimmed === 'NO_DIGEST') {
+        setAiState('failed');
+        return;
+      }
+      setConclusion(trimmed);
+      setAiState('idle');
+    } catch {
+      setAiState('failed');
+    }
+  };
+
+  const aiDisabled = pinnedBlocks.length === 0 || aiState !== 'idle';
 
   return (
     <div
@@ -55,14 +89,21 @@ export default function CompleteThreadPanel({ thread, onClose }: Props) {
             spellCheck={false}
           />
 
-          <button
-            type="button"
-            disabled
-            title="Phase 11 wires this in"
-            className="mt-2 cursor-not-allowed rounded-md border border-line px-2.5 py-1 text-xs text-muted/60"
-          >
-            让 AI 总结
-          </button>
+          {aiAvailable && (
+            <button
+              type="button"
+              onClick={() => void handleAiSummary()}
+              disabled={aiDisabled}
+              title={
+                pinnedBlocks.length === 0
+                  ? '先给重要的信息块加上置顶标记'
+                  : '从置顶的信息块生成一段结论草稿'
+              }
+              className="mt-2 rounded-md border border-line px-2.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-muted/60"
+            >
+              {aiState === 'loading' ? '总结中…' : '让 AI 总结'}
+            </button>
+          )}
         </div>
 
         <footer className="flex items-center justify-end gap-2 border-t border-line bg-paper-2/40 px-5 py-3 text-xs">

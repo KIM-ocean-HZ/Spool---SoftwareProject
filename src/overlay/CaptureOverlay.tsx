@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { ChevronDown, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import { createBlock, deleteBlock } from '@/lib/db/blocks';
 import {
@@ -20,6 +21,7 @@ import type { Thread } from '@/lib/db/threads';
 import { createThread, listAllThreads } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { listWorkspaces } from '@/lib/db/workspaces';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const TOAST_AUTO_DISMISS_MS = 2500;
 const NOTICE_AUTO_DISMISS_MS = 2200;
@@ -68,7 +70,19 @@ export default function CaptureOverlay() {
   const [threadsByWs, setThreadsByWs] = useState<Record<string, Thread[]>>({});
   const [hover, setHover] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // True while a RouteSuggestion bubble is showing — pauses auto-dismiss so the
+  // user can actually act on it (§11.5).
+  const [suggestionActive, setSuggestionActive] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  // The overlay window has its own JS context, so it must load settings + probe
+  // Ollama itself for RouteSuggestion's isAiAvailable() gate.
+  useEffect(() => {
+    void (async () => {
+      await useSettingsStore.getState().load();
+      await useSettingsStore.getState().detectOllama();
+    })();
+  }, []);
 
   const refresh = async (): Promise<void> => {
     try {
@@ -94,6 +108,7 @@ export default function CaptureOverlay() {
         setContent({ kind: 'toast', data: e.payload });
         setHover(false);
         setPickerOpen(false);
+        setSuggestionActive(false);
         void refresh();
       });
       if (cancelled) dispose();
@@ -115,6 +130,7 @@ export default function CaptureOverlay() {
         setContent({ kind: 'notice', data: e.payload });
         setHover(false);
         setPickerOpen(false);
+        setSuggestionActive(false);
       });
       if (cancelled) dispose();
       else unlisten = dispose;
@@ -151,14 +167,14 @@ export default function CaptureOverlay() {
   // with on them.
   useEffect(() => {
     if (!content) return;
-    if (hover || pickerOpen) return;
+    if (hover || pickerOpen || suggestionActive) return;
     const ms = content.kind === 'notice' ? NOTICE_AUTO_DISMISS_MS : TOAST_AUTO_DISMISS_MS;
     const t = setTimeout(() => {
       setContent(null);
       hideOverlay();
     }, ms);
     return () => clearTimeout(t);
-  }, [content, hover, pickerOpen]);
+  }, [content, hover, pickerOpen, suggestionActive]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -240,6 +256,28 @@ export default function CaptureOverlay() {
     setPickerOpen(false);
     setContent(null);
     hideOverlay();
+  };
+
+  // The user accepted a RouteSuggestion: the block's thread_id is already updated
+  // and the cross-window action emitted by RouteSuggestion. Here we just re-point
+  // the toast's "已存入" attribution to the destination thread.
+  const onSuggestionMoved = (target: {
+    threadId: string;
+    threadTitle: string;
+    workspaceTitle: string;
+  }): void => {
+    setContent((current) => {
+      if (!current || current.kind !== 'toast') return current;
+      return {
+        kind: 'toast',
+        data: {
+          ...current.data,
+          threadId: target.threadId,
+          threadTitle: target.threadTitle,
+          workspaceTitle: target.workspaceTitle,
+        },
+      };
+    });
   };
 
   const onSaveAsNew = async (): Promise<void> => {
@@ -358,6 +396,14 @@ export default function CaptureOverlay() {
           <span>另存为新脉络</span>
         </button>
       </div>
+
+      <RouteSuggestion
+        key={toast.blockId}
+        toast={toast}
+        workspaces={workspaces}
+        onMoved={onSuggestionMoved}
+        onActiveChange={setSuggestionActive}
+      />
     </div>
   );
 }

@@ -66,4 +66,13 @@ export type OverlayAction =
       oldThreadId: string;
       newBlock: Block;
       newThread: Thread;
+    }
+  // The user accepted an AI capture-classification suggestion (§11.5). Unlike
+  // 'redirect' this reparents in place (thread_id update, same block id) — main
+  // already holds the full Block in its store, so only the ids need to cross.
+  | {
+      kind: 'suggestion-move';
+      blockId: string;
+      oldThreadId: string;
+      newThreadId: string;
     };

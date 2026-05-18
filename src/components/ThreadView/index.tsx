@@ -92,6 +92,7 @@ export default function ThreadView() {
     <div className="relative flex h-full flex-col">
       <ThreadHeader
         thread={thread}
+        blocks={blocks}
         workspaces={workspaces}
         onPack={() => setPackOpen(true)}
         onComplete={() => setCompleteOpen(true)}
@@ -122,7 +123,11 @@ export default function ThreadView() {
       )}
 
       {completeOpen && (
-        <CompleteThreadPanel thread={thread} onClose={() => setCompleteOpen(false)} />
+        <CompleteThreadPanel
+          thread={thread}
+          blocks={blocks}
+          onClose={() => setCompleteOpen(false)}
+        />
       )}
     </div>
   );

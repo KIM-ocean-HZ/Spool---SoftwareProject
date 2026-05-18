@@ -1,13 +1,27 @@
-import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
+import {
+  CalendarDays,
+  CheckCircle2,
+  Package,
+  Pin,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { router } from '@/lib/ai/router';
+import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
+import type { Block } from '@/lib/db/blocks';
 import type { Thread, ThreadStatus } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
+import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 export type ThreadViewMode = 'log' | 'digest';
 
 interface Props {
   thread: Thread;
+  blocks: readonly Block[];
   workspaces: Workspace[];
   onPack: () => void;
   onComplete: () => void;
@@ -80,6 +94,7 @@ const fromDateInput = (s: string): number => {
 
 export default function ThreadHeader({
   thread,
+  blocks,
   workspaces,
   onPack,
   onComplete,
@@ -88,11 +103,47 @@ export default function ThreadHeader({
   onSetViewMode,
 }: Props) {
   const patch = useThreadsStore((s) => s.patch);
+  const setSummary = useThreadsStore((s) => s.setSummary);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
+  const aiAvailable = useSettingsStore(isAiAvailable);
 
   const [title, setTitle] = useDebouncedField(thread.title, thread.id, (v) =>
     void patch(thread.id, { title: v }),
   );
+
+  // Status summary (§11.3). The summary is disposable decoration: a failed call
+  // silently reverts the loading state and leaves any cached summary untouched.
+  const [summarizing, setSummarizing] = useState(false);
+  // Staleness is tracked only within this session, starting from a user-triggered
+  // generation — so a new block bumps the "可能已过期" dot without false positives
+  // from the async block load on a thread switch.
+  const [genBaseline, setGenBaseline] = useState<number | null>(null);
+  useEffect(() => {
+    setGenBaseline(null);
+    setSummarizing(false);
+  }, [thread.id]);
+
+  const summaryStale =
+    thread.summary != null && genBaseline != null && blocks.length > genBaseline;
+
+  const canSummarize =
+    thread.status !== 'done' && aiAvailable && blocks.length > 0;
+
+  const handleSummarize = async (): Promise<void> => {
+    if (summarizing) return;
+    setSummarizing(true);
+    try {
+      const { text } = await router.quality(buildStatusPrompt(thread, blocks as Block[]));
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      await setSummary(thread.id, trimmed);
+      setGenBaseline(blocks.length);
+    } catch {
+      // §6.3 / §18 rule 9: silent degradation — no toast, cached summary kept.
+    } finally {
+      setSummarizing(false);
+    }
+  };
 
   return (
     <header className="flex-none border-b border-line px-6 py-3">
@@ -103,6 +154,18 @@ export default function ThreadHeader({
           placeholder="无标题"
           className="min-w-0 flex-1 bg-transparent font-serif text-2xl text-ink outline-none placeholder:text-muted/50"
         />
+
+        {canSummarize && thread.summary == null && (
+          <button
+            onClick={() => void handleSummarize()}
+            disabled={summarizing}
+            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+            title="概括当前状态"
+          >
+            <Sparkles size={11} />
+            <span>{summarizing ? '生成中…' : '状态摘要'}</span>
+          </button>
+        )}
 
         <button
           onClick={onPack}
@@ -147,6 +210,35 @@ export default function ThreadHeader({
           <span>{thread.isCaptureTarget ? '捕捉目标' : '设为目标'}</span>
         </button>
       </div>
+
+      {thread.status !== 'done' && thread.summary != null && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <p
+            className="min-w-0 flex-1 truncate text-xs italic text-muted"
+            title={thread.summary}
+          >
+            {summarizing ? '摘要刷新中…' : thread.summary}
+          </p>
+          {summaryStale && !summarizing && (
+            <span
+              className="h-1.5 w-1.5 flex-none rounded-full bg-muted/60"
+              title="有新信息块，摘要可能已过期"
+              aria-label="可能已过期"
+            />
+          )}
+          {canSummarize && (
+            <button
+              onClick={() => void handleSummarize()}
+              disabled={summarizing}
+              className="flex flex-none items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted transition-colors hover:text-accent disabled:opacity-50"
+              title="重新生成摘要"
+            >
+              <RefreshCw size={10} />
+              <span>刷新</span>
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
         {thread.status === 'done' ? (

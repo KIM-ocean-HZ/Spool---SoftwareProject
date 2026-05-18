@@ -104,6 +104,13 @@ export const updateBlockSource = async (id: string, source: string | null): Prom
   await db.execute('UPDATE blocks SET source = $1 WHERE id = $2', [source, id]);
 };
 
+// Reparent a block to a different thread (§11.5 — the capture classification "move").
+// Keeps the block's id and created_at, so it sorts into the target thread by time.
+export const updateBlockThread = async (id: string, threadId: string): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE blocks SET thread_id = $1 WHERE id = $2', [threadId, id]);
+};
+
 export const updateBlockContent = async (id: string, content: string): Promise<void> => {
   const db = await getDb();
   await db.execute('UPDATE blocks SET content = $1 WHERE id = $2', [content, id]);
