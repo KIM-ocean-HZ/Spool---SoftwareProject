@@ -45,14 +45,27 @@ const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {})
 });
 
 describe('assemble', () => {
+  it('begins with the four-category English instruction header', () => {
+    const out = assemble({ thread, blocks: [textBlock('b1', 'hi')], now: NOW });
+    // Verbatim phrases — assert a few so silent template drift is caught.
+    expect(out).toContain('## How to Read This Context');
+    expect(out).toContain('FOUR different authority categories');
+    expect(out).toContain('### 📖 Reference (authoritative)');
+    expect(out).toContain('### 🧩 Synthesis (already-formed understanding)');
+    expect(out).toContain('### 🔄 Process (conversation traces — read for evolution, not facts)');
+    expect(out).toContain("### 💭 Personal (the user's own hypotheses and notes)");
+    expect(out).toContain('If they conflict with other categories, Reference wins.');
+    expect(out).toContain('## Output Language');
+    expect(out).toContain('Respond in Simplified Chinese unless content itself dictates');
+  });
+
   it('handles an empty thread', () => {
     const out = assemble({ thread, blocks: [], now: NOW });
-    expect(out).toContain('# 项目：论文文献综述');
-    expect(out).toContain('共 0 条记录');
-    expect(out).toContain('（暂无置顶的关键信息）');
-    expect(out).toContain('（暂无记录）');
-    expect(out).not.toContain('## 下一步');
-    expect(out).not.toContain('## 相关文件与链接');
+    expect(out).toContain('# Project Context: 论文文献综述');
+    expect(out).toContain('0 blocks total');
+    expect(out).toContain('(no pinned blocks)');
+    expect(out).toContain('(no blocks yet)');
+    expect(out).not.toContain('## Related Files & Links');
   });
 
   it('renders plain text blocks with timestamps', () => {
@@ -62,37 +75,39 @@ describe('assemble', () => {
     ];
     const out = assemble({ thread, blocks, now: NOW });
     expect(out).toMatch(/\[2026-05-15 09:10\] first thought/);
-    expect(out).toMatch(/\[2026-05-15 09:20 · 来自 Notion\] second thought/);
+    expect(out).toMatch(/\[2026-05-15 09:20 · from Notion\] second thought/);
   });
 
-  it('lifts pinned blocks into the Key Information section', () => {
+  it('lifts pinned blocks into the Pinned Blocks section', () => {
     const blocks = [
       textBlock('b1', 'background noise'),
       textBlock('b2', 'pinned key insight', { pinned: true }),
     ];
     const out = assemble({ thread, blocks, now: NOW });
     const lines = out.split('\n');
-    const keyIdx = lines.indexOf('## 关键信息');
-    const logIdx = lines.indexOf('## 完整记录');
-    expect(keyIdx).toBeGreaterThan(-1);
-    expect(logIdx).toBeGreaterThan(keyIdx);
-    const keySection = lines.slice(keyIdx, logIdx).join('\n');
-    expect(keySection).toContain('pinned key insight');
-    expect(keySection).not.toContain('background noise');
+    const pinnedIdx = lines.indexOf('## Pinned Blocks');
+    const logIdx = lines.indexOf('## Full Record (chronological)');
+    expect(pinnedIdx).toBeGreaterThan(-1);
+    expect(logIdx).toBeGreaterThan(pinnedIdx);
+    const pinnedSection = lines.slice(pinnedIdx, logIdx).join('\n');
+    expect(pinnedSection).toContain('pinned key insight');
+    expect(pinnedSection).not.toContain('background noise');
   });
 
   it('renders a block annotation indented beneath it', () => {
     const blocks = [textBlock('b1', 'kickoff note', { annotation: '这条要重点跟进' })];
     const out = assemble({ thread, blocks, now: NOW });
-    expect(out).toContain('    备注：这条要重点跟进');
+    expect(out).toContain('    note: 这条要重点跟进');
   });
 
   it('lists a block attachment inline and in the Related Files & Links section', () => {
     const blocks = [textBlock('b1', 'kickoff note')];
     const attachments = [attachment('a1', 'b1')];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain('    附件：paper.pdf');
-    expect(out).toContain('## 相关文件与链接');
+    expect(out).toContain(
+      '    ↳ attached file: paper.pdf — see Related Files & Links section below',
+    );
+    expect(out).toContain('## Related Files & Links');
     expect(out).toContain('- paper.pdf — /Users/x/Desktop/paper.pdf');
   });
 
@@ -102,8 +117,31 @@ describe('assemble', () => {
       attachment('a1', 'b1', { kind: 'url', target: 'https://example.com/spec', label: '' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain('    附件：https://example.com/spec');
+    expect(out).toContain(
+      '    ↳ attached URL: https://example.com/spec — https://example.com/spec',
+    );
     expect(out).toContain('- https://example.com/spec — https://example.com/spec');
+  });
+
+  it("inlines an attachment's extracted text indented under its block", () => {
+    const blocks = [textBlock('b1', 'see attached')];
+    const attachments = [
+      attachment('a1', 'b1', { extractedText: 'line one\nline two', extractionKind: 'pdf' }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).toContain('    ↳ attached file: paper.pdf (pdf)');
+    expect(out).toContain('      line one');
+    expect(out).toContain('      line two');
+  });
+
+  it('truncates extracted text longer than 8000 chars with a marker', () => {
+    const long = 'x'.repeat(8500);
+    const blocks = [textBlock('b1', 'big file')];
+    const attachments = [attachment('a1', 'b1', { extractedText: long, extractionKind: 'pdf' })];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).toContain('[... truncated, 500 more chars not shown ...]');
+    expect(out).toContain('x'.repeat(8000));
+    expect(out).not.toContain('x'.repeat(8001));
   });
 
   it('renders ref blocks using the refTitles map', () => {
@@ -112,7 +150,7 @@ describe('assemble', () => {
     ];
     const refTitles = new Map([['t2', '相关脉络的最新标题']]);
     const out = assemble({ thread, blocks, refTitles, now: NOW });
-    expect(out).toContain('→ 引用脉络：相关脉络的最新标题');
+    expect(out).toContain('→ Referenced thread: 相关脉络的最新标题');
     expect(out).not.toContain('old snapshot title');
   });
 
@@ -121,7 +159,7 @@ describe('assemble', () => {
       { ...textBlock('b1', '脉络快照标题'), kind: 'ref', refThreadId: 't2' },
     ];
     const out = assemble({ thread, blocks, now: NOW });
-    expect(out).toContain('→ 引用脉络：脉络快照标题');
+    expect(out).toContain('→ Referenced thread: 脉络快照标题');
   });
 
   it('is a pure function (no globals, no side effects)', () => {

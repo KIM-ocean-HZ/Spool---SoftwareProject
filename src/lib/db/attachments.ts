@@ -3,12 +3,19 @@ import { getDb } from './client';
 
 export type AttachmentKind = 'file' | 'folder' | 'url';
 
+// v2.7: which extractor produced an attachment's cached text (or 'failed').
+export type AttachmentExtractionKind = 'pdf' | 'docx' | 'plaintext' | 'failed' | null;
+
 export interface Attachment {
   id: string;
   blockId: string;
   kind: AttachmentKind;
   target: string;              // absolute path or URL
   label: string;               // display name
+  // v2.7: auto-extracted text for file kinds. Optional here; the extraction pipeline and
+  // the backing schema column land in the next commit, until which these read as undefined.
+  extractedText?: string | null;
+  extractionKind?: AttachmentExtractionKind;
   createdAt: number;
 }
 
