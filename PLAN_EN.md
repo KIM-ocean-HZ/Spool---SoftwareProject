@@ -1,4 +1,4 @@
-# Spool — Implementation Blueprint v2.5
+# Spool — Implementation Blueprint v2.7
 
 ---
 
@@ -9,7 +9,8 @@
 - **Claude Code**: Implement phase by phase, in the order given in §15. After completing each phase, STOP and wait for Ocean to review before starting the next. **Do not work on multiple phases in parallel. Do not pre-implement anything outside the current phase.**
 - **When you hit any ambiguity, or feel tempted to add a feature**: First re-read §2 (Product Constitution) — especially §2.5 (design principles), §2.6 (rejected ideas), and §2.7 (the feature filter). Most ambiguity is resolved there. If still unresolved, STOP and ask Ocean. Do not improvise.
 - **This document is written in English deliberately** — it is used directly as a prompt for Claude Code, and English yields more reliable instruction-following. All user-facing UI copy in the product itself, however, must be in Simplified Chinese (see §18, rule 11).
-- **Version 2.6 (this revision)** is a post-Phase-8 design correction. Three features that survived earlier reviews but failed Ocean's dogfooding are removed: (a) the manual `next_step` per-thread note (§3.3, §9.9) — its job is naturally done by scrolling to the bottom of an append-only feed; (b) the manual `0-100` `progress` slider (§9.9) — notorious theater; replaced by the existing `active|parked|done` status (rendered as a small status dot in the sidebar); (c) the never-shipped proposal of color-coded blocks by source — superseded by source-category icons + date dividers (§9.3), both of which uphold "quiet visuals" (§9.9 spirit). This revision forces the first additive `ALTER TABLE` migration (SCHEMA_VERSION 2→3, dropping two `threads` columns) — partial credit on §19.3. **The Product Constitution (§2), the core loop (§3), the two-tier structure, the AI orchestration strategy, and Phases 9–13 are unchanged in intent.**
+- **Version 2.7 (this revision)** is a post-dogfooding correction informed by the first real-world pack-to-Claude experiment after Phase 11. Two changes: (a) **pack templates gain an English instruction header** that teaches the receiving AI the four-category authority hierarchy — Reference (authoritative facts, do not contradict), Synthesis (already-formed understanding, may be built upon), Process (conversation traces, read for the user's evolving questions, never as facts), Personal (user's own hypotheses, may be wrong) — and the per-category handling rules. The experiment showed AI classification accuracy at 100% under friendly conditions but only because the user manually annotated some blocks; embedding the hierarchy in the pack template generalizes that behavior to every pack. (b) **Attachments evolve from "clickable pointers" to "indexed content sources"** — files (PDF, docx, txt, md) are auto-extracted on attach and their text is inlined into pack output. The v2.6 "attachments are pointers" assumption (§9.6) was contradicted by real use — Ocean manually copy-pasted PDF text into blocks because pointers were not enough, which is the kind of user-side friction §2.5 Principle 1 forbids. Schema bumps 3→4 (additive ALTER on `attachments`). **The Product Constitution (§2), the core loop (§3), the two-tier structure, and Phases 9–13 are unchanged in intent. The 6 principles are unchanged.**
+- **Version 2.6** was a post-Phase-8 design correction. Manual `progress` slider and manual `next_step` field rolled back. Source-category icons + date dividers replaced the rejected color-coding proposal. First additive `ALTER TABLE` (SCHEMA_VERSION 2→3).
 - **Version 2.5** was a post-Phase-7 retrospective. Phases 1–7 marked complete; double-tap ⌥ trigger and browser tab-title source detection promoted from v1.5 into v1; FTS5 trigram tokenizer documented; §18.1 rule 4 lifted; Improvement Backlog added as §19; §18 rule 13 added (no Claude/Anthropic attribution).
 - **Version 2.4** was a roadmap amendment that inserted Phase 5 Capture Hardening and Phase 6 Block Workbench, and dissolved the old "File Anchors" phase into Phase 6 — see §9.6 for the reasoning.
 
@@ -37,7 +38,7 @@
 16. Acceptance Criteria
 17. Out of Scope (with architectural hooks)
 18. General Rules for Claude Code
-19. Improvement Backlog (post-Phase 7)
+19. Improvement Backlog (post-Phase 8 / v2.6)
 
 ---
 
@@ -98,6 +99,7 @@ Knowledge workers running several "cross-tool, cross-day" workstreams at once: r
 | **Manual 0–100 progress slider (rolled back in v2.6)** | Looks like a "% done" dashboard signal | Notorious theater — users either set it once and never update, or pick round numbers without thought. The slider produces a number to *maintain*, not a signal to *trust*. Linear, GitHub Issues, Things all reject continuous manual progress for the same reason; the pattern's failure is well-documented | Use `active \| parked \| done` status as the only completion signal (rendered as a status dot in the sidebar), `deadline` (data the user gives once) for urgency, and `updated_at` (system-tracked) for freshness. Nothing the user has to "remember to update" |
 | **Manual `next_step` per-thread note (rolled back in v2.6)** | "Write down where you left off" sounds like the perfect re-entry aid | Negative dogfooding result. Requires past-Ocean to predict future-Ocean's needs; cognitive cost at write time, frequently stale by re-entry time. Violates the spirit of Principle 1 (zero-friction) on the *exit* side — Spool's promise is that exit needs no ceremony either | Append-only feeds naturally surface "where you left off" — the newest blocks at the bottom ARE the re-entry cue. Default behavior: scroll to bottom on thread open. If a real gap surfaces in future dogfooding, cross-session scroll memory (one column: `threads.last_scroll_block_id`) is the cheap architectural fix (§17) |
 | **Color-coded blocks by source** | Sounds like instant visual sorting in long threads | Violates "visuals must stay quiet" (§9.9 spirit). `source` is free-text and user-editable — no clean mapping for "ChatGPT" vs "Gemini" vs "面试笔记". 5–10 source colors turn a long feed into a color-block collage, making review *worse*, not better. The product's whole palette is paper + ink + amber + urgent on purpose | Source-category **icons** (single mono lucide-react glyph per source family) at the head of the source badge + **date dividers** between days. Visual rhythm without color-noise palette explosion (§9.3) |
+| **Per-block user-selected classification at capture time** | "Let the user tag each block as Reference / Synthesis / Process / Personal when capturing — clean data, no AI guessing" | Violates §2.5 Principle 1 (zero-friction capture). At capture moment, the user doesn't yet know what category fits — they're reacting to "this is worth saving." Forcing a category choice adds the exact pause the principle forbids. The dogfooding experiment also showed AI can classify with embedded instructions just fine — manual tagging would be friction without payoff | **Pack template includes embedded English instructions teaching the receiving AI the four-category hierarchy** (§9.5). The user provides no signal at capture; the receiving AI sorts based on source field + content shape + the embedded instructions. If a specific block is misclassified, a low-friction post-hoc override is available via the BlockActions hover bar (§9.3, future v1.5 enhancement — not in v1) |
 
 ### 2.7 The Filter: Should This Feature Be Built?
 
@@ -156,6 +158,7 @@ Workspace   ← Big topic. e.g. "COMP3074", "AI-music grad apps", "Dissertation"
 A thread has wildly different value density at different stages, so it has two shapes (full design in §11):
 
 - **Active or Parked (status `active` / `parked`)**: The thread is a **workbench**. `active` = in progress; `parked` = consciously set aside (waiting on something, or just not now). A full timeline feed; every block is useful. Both use the `LogView`. On thread open the feed **auto-scrolls to the bottom** — the newest blocks ARE "where you left off." (The earlier manual `next_step` note was rolled back in v2.6 — §2.6.)
+- Note on use patterns: dogfooding shows two distinct capture modes — (1) live capture during work (the original assumption, well served by §9.4's double-tap ⌥), and (2) batch retrospective dump (the user finishes a study session in an external AI tool, then back-fills the thread with all conversation history and reference files in one sitting). Both modes are first-class. The pack output design (§9.5) accommodates both by giving the receiving AI explicit category sorting instructions — it doesn't assume time-ordered blocks are necessarily more meaningful than batch-dumped ones.
 - **Done (status `done`)**: The thread is an **archive**. 90% of the blocks are process noise; only a few are conclusions. Completing a thread triggers a one-time "wrap-up action," and the thread switches by default to the "digest view" — showing only pinned blocks, their attachments, and an (optional) conclusion summary. The raw feed is still one click away.
 
 This transition is the core noise-reduction mechanism, and it **requires no extra organizing from the user**: pinning is something they do during work anyway; the conclusion summary is a single optional sentence at completion time.
@@ -434,13 +437,20 @@ CREATE INDEX IF NOT EXISTS idx_blocks_thread
   ON blocks(thread_id, created_at ASC);
 
 -- Attachment: a file, folder, or URL linked to a block. Replaces the old kind=anchor block.
+-- v2.7: `extracted_text` added — for `file` kinds with extractable text (PDF, docx, txt, md),
+-- Spool now auto-extracts the file's text content on attach and stores it here. Pack output
+-- inlines this content alongside the block, replacing the v1 "attachments are pointers only"
+-- design that real use proved insufficient.
 CREATE TABLE IF NOT EXISTS attachments (
-  id         TEXT PRIMARY KEY,
-  block_id   TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-  kind       TEXT NOT NULL,                   -- file | folder | url
-  target     TEXT NOT NULL,                   -- absolute path (file/folder) or the URL
-  label      TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename / domain
-  created_at INTEGER NOT NULL
+  id              TEXT PRIMARY KEY,
+  block_id        TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+  kind            TEXT NOT NULL,                   -- file | folder | url
+  target          TEXT NOT NULL,                   -- absolute path (file/folder) or the URL
+  label           TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename / domain
+  extracted_text  TEXT,                            -- v2.7: nullable; auto-extracted text content for file kinds
+  extracted_at    INTEGER,                         -- v2.7: ms epoch; null if extraction not attempted or not applicable
+  extraction_kind TEXT,                            -- v2.7: 'pdf' | 'docx' | 'plaintext' | 'failed' | null
+  created_at      INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_block
@@ -471,6 +481,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
   PRAGMA user_version = 3;
   ```
   SQLite 3.35+ supports `ALTER TABLE ... DROP COLUMN`; Tauri's `plugin-sql` ships a modern SQLite, so this is portable.
+- For v3 → v4: additive migration on `attachments`:
+  ```sql
+  ALTER TABLE attachments ADD COLUMN extracted_text TEXT;
+  ALTER TABLE attachments ADD COLUMN extracted_at INTEGER;
+  ALTER TABLE attachments ADD COLUMN extraction_kind TEXT;
+  PRAGMA user_version = 4;
+  ```
+  Existing attachment rows get NULL for the three new columns — they will be backfilled lazily the next time the user opens a thread that contains them, by a background extraction pass. No data loss.
 
 §19.3 is partially closed by this migration — the pattern is proven; a fuller migration framework (named scripts, transaction-wrapped, dry-run preview) is still TBD before any real preview release.
 
@@ -523,12 +541,17 @@ export interface Block {
 // src/lib/db/attachments.ts
 export type AttachmentKind = 'file' | 'folder' | 'url';
 
+export type AttachmentExtractionKind = 'pdf' | 'docx' | 'plaintext' | 'failed' | null;
+
 export interface Attachment {
   id: string;
   blockId: string;
   kind: AttachmentKind;
-  target: string;              // absolute path or URL
-  label: string;               // display name
+  target: string;                              // absolute path or URL
+  label: string;                               // display name
+  extractedText: string | null;                // v2.7: auto-extracted text for file kinds
+  extractedAt: number | null;                  // v2.7: ms epoch when extraction completed; null if unattempted
+  extractionKind: AttachmentExtractionKind;    // v2.7: which extractor handled this (or 'failed')
   createdAt: number;
 }
 ```
@@ -623,24 +646,73 @@ A block is written to the database the moment it is created (capture, composer, 
 A "Pack context" button on the thread header (Cmd+Shift+P).
 
 - **The core assembly is the pure function `assemble.ts` — it calls no AI and touches no network.**
-- The Markdown template in `templates.ts`:
+- The pack template (in `templates.ts`) embeds an **English instruction header** before any user content. This header teaches the receiving AI how to handle four authority categories of input. The header is in English regardless of UI language because LLMs follow English instructions more reliably (verified empirically — see §19.13). The user content (block contents, source labels, etc.) stays in its original language. The final line of the header asks the AI to respond in the user's preferred language (set in settings; defaults to Simplified Chinese for this build).
+
+- Template structure:
   ```
-  # Project: <title>
-  Context as of <date>, <N> entries total.
-
-  ## Key Information
-  - <pinned block content>
-
-  ## Full Record
+  # Project Context: <title>
+ 
+  Generated by Spool on <date>. <N> blocks total.
+ 
+  ---
+ 
+  ## How to Read This Context
+ 
+  The blocks below come from FOUR different authority categories. Treat each category according to the rules in this section. This sorting matters — mishandling categories will produce wrong or unsafe output.
+ 
+  ### 📖 Reference (authoritative)
+  Blocks whose `source` looks like an institutional / official artifact:
+  - email clients (Mail, Outlook, etc.)
+  - school / institutional domains
+  - file attachments (PDF, docx, slides)
+  - forum / platform posts from authoritative figures
+  **Handling**: Treat as ground truth. Do not contradict. Do not extrapolate beyond what they say. If they conflict with other categories, Reference wins.
+ 
+  ### 🧩 Synthesis (already-formed understanding)
+  Blocks whose `source` is another AI tool (Claude, ChatGPT, Gemini, etc.) AND whose content has the shape of a long structured explanation (headings, formulas, multi-paragraph essays).
+ 
+  **Handling**: These are someone else's synthesis. They may be useful as background or framing, but their correctness is not guaranteed. Do not treat them as facts. If they contradict Reference, defer to Reference. Do not copy them wholesale into your output.
+ 
+  ### 🔄 Process (conversation traces — read for evolution, not facts)
+  Blocks whose `source` is another AI tool AND whose content has the shape of a question-and-answer dialogue (multiple turns, short exchanges, dialogue markers like "User:" or "Q:" or "我:", high question density).
+ 
+  **Handling**: The literal content of these blocks is NOT a reliable source of facts. What IS reliable is the user's evolving questions — what they ask repeatedly, where they got confused, what they kept circling back to. Extract these as signals of the user's cognitive gaps and address them, but never quote the AI responses inside these blocks as if they were authoritative.
+ 
+  ### 💭 Personal (the user's own hypotheses and notes)
+  Blocks with no `source` field — these are typed by the user directly into Spool. They represent the user's current understanding, often incomplete or speculative.
+ 
+  **Handling**: Read these to understand where the user currently stands. If they contain factual errors, point them out directly — do not protect the user's feelings at the cost of correctness.
+ 
+  ---
+ 
+  ## Pinned Blocks
+ 
+  These are blocks the user explicitly marked as "core context" during work. Give them priority weight in your reasoning. They are sorted by their original timeline position.
+ 
+  - 📌 [<time> · from <source>] <block content>
+    note: <annotation if any>
+  ## Full Record (chronological)
+ 
   [<time>] <block content>
   [<time> · from <source>] <block content>
       note: <annotation>
-      attached: <attachment label>
+      ↳ attached file: <label> (kind: pdf/docx/etc.)
+         <extracted text inlined here, indented under the block, capped at 8000 chars per attachment; truncation marker if exceeded>
+      ↳ attached URL: <label> — <target>
   → Referenced thread: <referenced thread title>
-
+ 
   ## Related Files & Links
-  - <attachment label> — <target>
+ 
+  - <attachment label> — <target>  [extracted: yes/no]
+  ---
+ 
+  ## Output Language
+ 
+  Respond in Simplified Chinese unless content itself dictates otherwise (e.g. don't translate quoted English source material). Technical terms may stay in their original language.
   ```
+ 
+- **The core assembly function `assemble.ts` is still a pure function — it calls no AI and touches no network.** The four-category instruction header is static text from `templates.ts`, inlined verbatim. The receiving AI does the actual classification at consumption time, based on `source` field + content shape + the embedded instructions.
+- **Attachment text is inlined when available**: if a file attachment has `extracted_text != null`, its text appears indented beneath the block, capped at 8000 characters per attachment to prevent any single PDF from dominating the pack. If the text was truncated, a marker `[... truncated, N more chars not shown ...]` appears at the cut. Pack-time cost: negligible (string interpolation over already-cached data).
 - `PackDialog` shows the assembled full text (scrollable) + a "Copy to clipboard" button + a toast.
 - v1 scope: pack "everything." A range selector ("pinned only / last N days only") is v1.5.
 
@@ -655,7 +727,9 @@ How it behaves:
 - **A URL** (dragged in, or added via the 📎 hover action) behaves the same way.
 - An attachment renders as a small chip on its block (an icon by `kind` + the `label`). Click → open the file/folder with the system default app / Finder, or the URL in the browser. Missing target → a toast notice, no crash.
 - An attachment is a **property of a block**, not a new structural tier — Principle 6 (exactly two tiers) is intact. An attachment is payload on a block, like `pinned` or `source`.
-- v1 does not read file contents or preview them. An attachment is a clickable pointer (the original "anchor" promise).
+- v2.7: For file attachments with extractable text (PDF, docx, txt, md), Spool **auto-extracts** the text content on attach and caches it in the attachment row (`extracted_text`). This text is inlined into pack output (§9.5) so the receiving AI sees the file content, not just a path. Extraction is best-effort: on failure or for unsupported types (images, archives, binaries), `extracted_text` stays NULL and the attachment behaves as a pointer (the v2.6 fallback). Extraction is local-only — never sends file contents to network. The user can disable auto-extraction per-file or globally in settings (privacy-conscious users may prefer pointer-only behavior for sensitive PDFs).
+- Extraction does NOT preview files in the BlockItem UI — that's still v2. The chip remains the v2.6 design (icon + label, click to open in native app). The extracted text is silent backing storage, only surfaced at pack time.
+- Image attachments and other non-text formats keep their v2.6 pointer-only behavior. OCR is explicitly out of scope (§17 — would require AI in the pack hot path, violates §6.4 rule 2).
 
 In the pack output (§9.5), a block's attachments are listed inline beneath it, and every attachment in the thread is also collected into a "Related Files & Links" section.
 
@@ -1210,7 +1284,9 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 - [ ] `assemble.ts` already handles ref in Phase 4; here just confirm the rendering is correct
 - **Acceptance**: @-referencing another thread in the same workspace from within a thread creates a clickable reference block that navigates accurately on click; the reference line appears in the briefing when packing.
 
-### Phase 11 — The AI Layer (~3 h)
+### Phase 11 — The AI Layer ✅ COMPLETE (~3 h)
+
+> Delivered status summaries, conclusion summaries, and capture classification suggestions per spec. All AI surfaces silently degrade on failure. Privacy mode + isAiAvailable() gating verified. Tests added per §18 rule 10. First real-world dogfooding experiment after this phase produced the findings that drove the v2.7 PLAN revision (pack template instruction header + attachment auto-extraction).
 
 - [ ] Confirm the `lib/ai/` infrastructure ported from v1 works (router / providers / cache / parseJson / quotaStore)
 - [ ] `prompts/summarizeStatus.ts` / `summarizeDigest.ts` / `route.ts` copy §12
@@ -1234,7 +1310,7 @@ Carries over the paper-ink-amber palette. **The v1 `tokens.css` is kept; just ad
 
 - [ ] GitHub repo, MIT LICENSE
 - [ ] GitHub Actions auto-builds macOS + Windows
-- [ ] Release v2.4.0
+- [ ] Release v0.12.0 (first packaged build under v2.7 PLAN)
 
 ---
 
@@ -1287,6 +1363,9 @@ Not in v1 scope, but the architecture must be able to accommodate them. Claude C
 | Mobile | v2 | Tauri 2.0 builds iOS/Android directly |
 | End-to-end encrypted sync | v2 | Add a `nonce` column to each block; add a key layer to the database |
 | Browser extension (precise URL grab + one-click capture) | v2 | The extension communicates with the app over a local port |
+| File attachment preview UI in BlockItem (inline PDF viewer, image thumbnails) | v2 | Extracted text already cached as of v2.7; preview UI is rendering layer, deferred to v2. The chip stays clickable to open in native app |
+| OCR for image attachments | v2 | Would require AI in pack hot path (violates §6.4 rule 2). v2 may add it as an explicit user-triggered, non-pack-blocking action |
+| Cross-app file watch / re-extract on file change | v2 | The cached `extracted_text` becomes stale if the source file changes. v1 accepts the staleness; v2 adds an inotify/FSEvents watcher to re-extract on change |
 
 > Items promoted *out* of this table in v2.5 (now shipped in v1): double-tap-modifier capture trigger (now ⌥ — §10.4); smarter source auto-detection via browser tab title (§10.5).
 
@@ -1387,7 +1466,7 @@ The capture trigger has churned through Phases 3 → 5 → 7: `⌘⇧C` → +dou
 
 **Every commit — including the baseline — must observe §18 rule 13**: no Claude / Anthropic / AI-tool attribution anywhere in git history, README, source comments, or commit message bodies. Git identity stays as Ocean's; `Co-Authored-By:` Claude lines and "Generated with Claude Code" footers are forbidden.
 
-### 19.3 🟡 Schema migration policy needs upgrading before any preview release — PARTIAL: first additive migration shipped in v2.6; full framework still TBD
+### 19.3 🟡 Schema migration policy needs upgrading before any preview release — PARTIAL: two additive migrations shipped (v2.6 for `threads`, v2.7 for `attachments`); full named-registry framework still TBD
 
 v2.6's `ALTER TABLE threads DROP COLUMN progress; DROP COLUMN next_step;` is the first additive migration in this project's history — the pattern is proven (see §8.1 migration policy paragraph). What's still pending before any preview release:
 
@@ -1454,6 +1533,35 @@ v2.6 removed `next_step` on the bet that "the newest blocks at the bottom of an 
 
 **Action**: dogfood for a week. If a real gap shows up — specifically, if Ocean repeatedly finds himself scrolling away from the bottom to find "where I actually was" — add the cross-session scroll-position memory hooked in §17 (one column, ~30 lines of code). If no gap shows up, the rollback was correct and the architectural hook stays in §17 unused.
 
+### 19.13 ✅ Pack template language strategy — DONE in v2.7
+
+Dogfooding showed receiving AIs follow English instruction headers more reliably than Chinese ones (better at negative constraints, hard limits, edge-case rules). The v2.7 pack template uses English for the instruction header (§9.5) while leaving user content in its original language. The final line of the header explicitly requests output in the user's preferred language. Verified: Claude follows the four-category instructions cleanly when given in English; in Chinese the same instructions saw lower adherence in side-by-side tests.
+
+### 19.14 Track AI classification failure cases during dogfooding — Target: ongoing observation, 4–6 weeks post-v2.7
+
+The first experiment showed 100% classification accuracy under friendly conditions (manual annotations from the user + clean source labels + nearly-empty Personal category). The accuracy under less friendly conditions (ambiguous sources, no annotations, balanced category mix) is unknown.
+
+**Action**: during the next 4–6 weeks of dogfooding, manually log every pack the user sends to an AI. For each pack: did the AI classify all blocks correctly? If not, which direction did it miss (the dangerous direction is Process → Synthesis)? What was the misclassification rate? If misclassification rate stays <5%, the embedded instruction approach is sufficient. If >15%, escalate to a client-side rule classifier (the deferred §2.6 design). If 5–15%, analyze the failure patterns and decide whether prompt tuning can resolve them.
+
+**Logging mechanism**: a simple "thumbs up / thumbs down" indicator after PackDialog copy — does NOT need to be implemented in code; can be a literal piece of paper next to Ocean's desk for now. The point is the data, not the UI.
+
+### 19.15 Attachment auto-extraction quality monitoring — Target: 4–6 weeks post-v2.7
+
+PDF extraction quality varies wildly by source. Academic PDFs (LaTeX-generated) extract cleanly. Scanned PDFs extract garbage or empty. Office-document-exported PDFs extract OK but lose some formatting. Docx extracts well via `mammoth` (already in v1 deps).
+
+**Action**: during dogfooding, log any attachment whose extracted text looks corrupted, empty, or unhelpful. The expected failure modes are: scanned PDFs (need OCR, deferred §17), heavily formatted PDFs with tables, and password-protected PDFs (extract fails entirely).
+
+If a large fraction of real PDFs fail to extract cleanly, the v2 OCR work (§17) becomes higher priority. If extraction is fine for 80%+ of real PDFs, the v1 design is good enough.
+
+### 19.16 Investigate batch-dump vs live-capture usage patterns — Target: 4–6 weeks post-v2.7
+
+The first dogfooding session showed all 15 blocks captured in an 8-minute window — a batch retrospective dump, not the live-capture pattern PLAN §3.3 originally assumed. Ocean clarified this was a one-off (revision phase, all study already done in external tools). Whether batch-dump is a recurring mode or a one-time edge case affects several product decisions:
+
+- If batch-dump recurs: the capture overlay window + double-tap ⌥ infrastructure has lower amortized value per use, though it remains differentiating. Pack template should not assume time-ordering carries semantic meaning.
+- If batch-dump was one-off: PLAN §3.3 "workbench" framing is intact.
+
+**Action**: log every pack session for 4–6 weeks. Note whether the underlying captures happened (a) live during work, (b) batch-dumped after work, or (c) mixed. Aggregate and decide at the end of the observation period whether PLAN §3.3 needs adjustment.
+
 ---
 
 **Backlog discipline.** When you address an item, mark it ✅ here and add a one-line note pointing at the commit / phase. When you reject an item after revisiting, mark it ⌫ with a one-line reason. Don't delete items — the record matters more than the brevity.
@@ -1461,5 +1569,5 @@ v2.6 removed `next_step` on the bet that "the newest blocks at the bottom of an 
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.6 (supersedes v2.5; change in this revision: post-Phase-8 design correction — manual `progress` slider and manual `next_step` field rolled back; rejected proposal of color-coded blocks superseded by source-category icons + date dividers; first additive `ALTER TABLE` schema migration (SCHEMA_VERSION 2→3); §19 backlog markers updated to reality through Phase 8)
+Version: 2.7 (supersedes v2.6; change in this revision: pack template gains embedded English four-category instruction header informed by the first real-world dogfooding experiment (§9.5); attachments evolve from pointers to indexed content sources with auto-extracted text inlined into pack output (§9.6); SCHEMA_VERSION 3→4 additive ALTER on `attachments`; §19 adds entries 19.13–19.16 for ongoing dogfooding observations)
 Last updated: 2026-05-18
