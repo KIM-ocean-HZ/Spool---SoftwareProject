@@ -40,6 +40,9 @@ const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {})
   kind: 'file',
   target: '/Users/x/Desktop/paper.pdf',
   label: 'paper.pdf',
+  extractedText: null,
+  extractedAt: null,
+  extractionKind: null,
   createdAt: T(0),
   ...opts,
 });
@@ -142,6 +145,31 @@ describe('assemble', () => {
     expect(out).toContain('[... truncated, 500 more chars not shown ...]');
     expect(out).toContain('x'.repeat(8000));
     expect(out).not.toContain('x'.repeat(8001));
+  });
+
+  it('renders a block with a mix of extracted, failed, and URL attachments', () => {
+    const blocks = [textBlock('b1', 'mixed bag')];
+    const attachments = [
+      attachment('a1', 'b1', {
+        label: 'notes.pdf',
+        target: '/x/notes.pdf',
+        extractedText: 'extracted body text',
+        extractionKind: 'pdf',
+      }),
+      attachment('a2', 'b1', {
+        label: 'photo.jpg',
+        target: '/x/photo.jpg',
+        extractionKind: 'failed',
+      }),
+      attachment('a3', 'b1', { kind: 'url', label: 'spec', target: 'https://e.com/s' }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).toContain('    ↳ attached file: notes.pdf (pdf)');
+    expect(out).toContain('      extracted body text');
+    expect(out).toContain(
+      '    ↳ attached file: photo.jpg — see Related Files & Links section below',
+    );
+    expect(out).toContain('    ↳ attached URL: spec — https://e.com/s');
   });
 
   it('renders ref blocks using the refTitles map', () => {

@@ -6,12 +6,12 @@ export const INBOX_WORKSPACE_TITLE = '收件箱';
 export const UNSORTED_THREAD_TITLE = '未分类';
 
 // Bump this whenever schema.sql changes. On startup the database's PRAGMA
-// user_version is compared against this. The v2 → v3 step runs an additive
-// ALTER TABLE migration (see migrateSchema) that preserves all user data; any
-// other mismatch falls back to DROP-and-recreate — acceptable for an unreleased
-// personal tool with no production data (PLAN_EN.md §5, §8.1). §19.3 tracks the
-// fuller migration framework still owed before any preview release.
-const SCHEMA_VERSION = 3;
+// user_version is compared against this. The v2 → v3 and v3 → v4 steps run
+// additive ALTER TABLE migrations (see migrateSchema) that preserve all user
+// data; any other mismatch falls back to DROP-and-recreate — acceptable for an
+// unreleased personal tool with no production data (PLAN_EN.md §5, §8.1). §19.3
+// tracks the fuller migration framework still owed before any preview release.
+const SCHEMA_VERSION = 4;
 
 // Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
 // attachments → blocks → threads → workspaces. Indexes and the blocks_* FTS
@@ -56,11 +56,12 @@ const applySchema = async (db: Database): Promise<void> => {
 };
 
 // Schema migration. If the on-disk user_version matches SCHEMA_VERSION there is
-// nothing to do. The v2 → v3 step (the v2.6 design rollback) is an additive
-// ALTER TABLE migration that drops two `threads` columns while leaving every row
-// of user data intact. Any other mismatch — including a brand-new database at
-// user_version 0 — falls back to dropping every table and rebuilding from
-// schema.sql.
+// nothing to do. The v2 → v3 step (the v2.6 design rollback) drops two `threads`
+// columns; the v3 → v4 step (the v2.7 attachment extraction work) adds three
+// `attachments` columns. Both are additive ALTER TABLE migrations that leave
+// every row of user data intact. Any other mismatch — including a brand-new
+// database at user_version 0 — falls back to dropping every table and rebuilding
+// from schema.sql.
 const migrateSchema = async (db: Database): Promise<void> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
   const current = rows[0]?.user_version ?? 0;
@@ -84,6 +85,24 @@ const migrateSchema = async (db: Database): Promise<void> => {
     await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     const after = await db.select<{ user_version: number }[]>('PRAGMA user_version');
     console.info(`[db] v2->3 migration complete; user_version now ${after[0]?.user_version}`);
+    return;
+  }
+
+  // v3 → v4: add `extracted_text`, `extracted_at`, `extraction_kind` to `attachments`
+  // (PLAN_EN.md §8.1, v2.7 text extraction). Each ADD COLUMN is guarded independently —
+  // on an already-migrated database the column exists, which is not an error.
+  if (current === 3) {
+    console.warn('[db] schema version 3 -> 4; additive ALTER TABLE migration');
+    for (const col of ['extracted_text TEXT', 'extracted_at INTEGER', 'extraction_kind TEXT']) {
+      try {
+        await db.execute(`ALTER TABLE attachments ADD COLUMN ${col}`);
+      } catch (e) {
+        console.info(`[db] v3->4: column attachments.${col} not added (likely exists)`, e);
+      }
+    }
+    await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    const after = await db.select<{ user_version: number }[]>('PRAGMA user_version');
+    console.info(`[db] v3->4 migration complete; user_version now ${after[0]?.user_version}`);
     return;
   }
 

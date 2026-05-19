@@ -14,7 +14,8 @@ type PersistableKey =
   | 'ollamaModel'
   | 'privacyMode'
   | 'captureShortcut'
-  | 'searchShortcut';
+  | 'searchShortcut'
+  | 'autoExtractAttachments';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -26,6 +27,9 @@ interface SettingsState {
   privacyMode: boolean;
   captureShortcut: string;
   searchShortcut: string;
+  // v2.7: auto-extract text from file attachments on attach (§9.6). When false, the
+  // three extraction columns stay NULL and pack output treats files as pointers only.
+  autoExtractAttachments: boolean;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // True once a local Ollama model has been detected via /api/tags. Runtime-only —
@@ -67,6 +71,7 @@ const KEYS: PersistableKey[] = [
   'privacyMode',
   'captureShortcut',
   'searchShortcut',
+  'autoExtractAttachments',
 ];
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -77,6 +82,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   privacyMode: false,
   captureShortcut: DEFAULT_CAPTURE_ACCEL,
   searchShortcut: DEFAULT_SEARCH_ACCEL,
+  autoExtractAttachments: true,
   loaded: false,
   panelOpen: false,
   ollamaAvailable: false,

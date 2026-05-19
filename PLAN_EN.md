@@ -187,6 +187,8 @@ The following all hang off the "Thread" — they are supporting layers, **not pi
 
 **Full dependency list (npm)**: `tailwindcss @tailwindcss/typography zustand lucide-react nanoid @tauri-apps/plugin-sql @tauri-apps/plugin-store @tauri-apps/plugin-global-shortcut @tauri-apps/plugin-clipboard-manager @tauri-apps/plugin-fs @tauri-apps/plugin-dialog` + `vitest @types/node` (dev).
 
+> **v2.7 additions** (approved by Ocean for the attachment text-extraction work, §9.6): `pdf-parse` (PDF → text, pure JS, no native deps) and `mammoth` (docx → text). Both are local-only — no network access. Plaintext formats use the built-in `TextDecoder`, no dependency.
+
 **Rust crates (Cargo)** added in Phases 5–7 (all approved): `core-graphics`, `core-foundation`, `foreign-types`. Tauri feature `macos-private-api` is enabled (needed by the transparent always-on-top capture overlay).
 
 **Do not install**: any all-in-one UI component library, Redux, state-query libraries (SWR/TanStack), rich text editors, date libraries (native `Intl` is enough). For any dependency outside this list, ask Ocean first.

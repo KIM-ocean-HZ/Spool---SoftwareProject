@@ -3,11 +3,13 @@ import Toggle from '@/components/ui/Toggle';
 import { clearAllData } from '@/lib/db/client';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// General settings (PLAN_EN.md §9.12): launch at login, and the destructive
-// clear-all-data action behind an inline two-step confirmation.
+// General settings (PLAN_EN.md §9.12): launch at login, attachment auto-extraction,
+// and the destructive clear-all-data action behind an inline two-step confirmation.
 export default function GeneralConfig() {
   const launchAtLogin = useSettingsStore((s) => s.launchAtLogin);
   const setLaunchAtLogin = useSettingsStore((s) => s.setLaunchAtLogin);
+  const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
+  const update = useSettingsStore((s) => s.update);
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
 
@@ -32,6 +34,21 @@ export default function GeneralConfig() {
           <div className="mt-0.5 text-xs text-muted">登录时自动运行,捕捉快捷键随时可用</div>
         </div>
         <Toggle checked={launchAtLogin} onChange={(v) => void setLaunchAtLogin(v)} />
+      </div>
+
+      <div className="border-t border-line" />
+
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">自动提取附件文字内容</div>
+          <div className="mt-0.5 text-xs text-muted">
+            PDF / Word / 纯文本文件被附加时自动读取内容,用于 Pack 输出。完全本地操作,不上传任何数据。
+          </div>
+        </div>
+        <Toggle
+          checked={autoExtractAttachments}
+          onChange={(v) => void update({ autoExtractAttachments: v })}
+        />
       </div>
 
       <div className="border-t border-line" />

@@ -1,8 +1,14 @@
 import { create } from 'zustand';
+import { extractAttachmentText } from '@/lib/attachments/extractor';
 import * as adb from '@/lib/db/attachments';
-import type { Attachment, CreateAttachmentArgs } from '@/lib/db/attachments';
+import type {
+  Attachment,
+  AttachmentExtractionKind,
+  CreateAttachmentArgs,
+} from '@/lib/db/attachments';
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
+import { useSettingsStore } from './settingsStore';
 
 interface BlocksState {
   byThread: Record<string, Block[]>;
@@ -18,6 +24,9 @@ interface BlocksState {
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
   detach: (attachmentId: string, blockId: string) => Promise<void>;
+  // v2.7: one-time startup pass that extracts text for legacy file attachments created
+  // before the extraction pipeline existed (PLAN §8.1, §9.6).
+  backfillExtractions: () => Promise<void>;
 }
 
 const removeAttachmentsForBlock = (
@@ -29,125 +38,187 @@ const removeAttachmentsForBlock = (
   return rest;
 };
 
-export const useBlocksStore = create<BlocksState>((set, get) => ({
-  byThread: {},
-  attachmentsByBlock: {},
+// v2.7: patch one attachment's extraction fields in the by-block index. A no-op if the
+// block is not currently loaded (e.g. a backfilled attachment in an unopened thread — it
+// picks up the cached text from the DB the next time that thread loads).
+const applyExtraction = (
+  map: Record<string, Attachment[]>,
+  blockId: string,
+  attachmentId: string,
+  extractedText: string | null,
+  extractionKind: AttachmentExtractionKind,
+): Record<string, Attachment[]> => {
+  const list = map[blockId];
+  if (!list) return map;
+  return {
+    ...map,
+    [blockId]: list.map((a) =>
+      a.id === attachmentId
+        ? { ...a, extractedText, extractedAt: Date.now(), extractionKind }
+        : a,
+    ),
+  };
+};
 
-  load: async (threadId) => {
-    const [list, attachments] = await Promise.all([
-      db.listBlocksByThread(threadId),
-      adb.listAttachmentsByThread(threadId),
-    ]);
-    // Reset attachments for blocks in this thread (so refresh doesn't keep stale rows
-    // for deleted blocks), then index the fresh ones.
-    const blockIds = new Set(list.map((b) => b.id));
-    set((s) => {
-      const nextAttach: Record<string, Attachment[]> = {};
-      for (const [bId, arr] of Object.entries(s.attachmentsByBlock)) {
-        if (!blockIds.has(bId)) nextAttach[bId] = arr;
+export const useBlocksStore = create<BlocksState>((set, get) => {
+  // v2.7: extract text for one file attachment, persist the result, and patch it into
+  // the by-block index so an open thread / a later Pack reflects the text. Never throws —
+  // extraction is best-effort and must not break the attach flow or the startup backfill.
+  const extractAndStore = async (a: Attachment): Promise<void> => {
+    try {
+      const result = await extractAttachmentText(a.target);
+      const text = result.ok ? result.text : null;
+      await adb.updateAttachmentExtraction(a.id, text, result.kind);
+      set((s) => ({
+        attachmentsByBlock: applyExtraction(s.attachmentsByBlock, a.blockId, a.id, text, result.kind),
+      }));
+    } catch (e) {
+      console.warn('[extract] failed for attachment', a.id, e);
+    }
+  };
+
+  return {
+    byThread: {},
+    attachmentsByBlock: {},
+
+    load: async (threadId) => {
+      const [list, attachments] = await Promise.all([
+        db.listBlocksByThread(threadId),
+        adb.listAttachmentsByThread(threadId),
+      ]);
+      // Reset attachments for blocks in this thread (so refresh doesn't keep stale rows
+      // for deleted blocks), then index the fresh ones.
+      const blockIds = new Set(list.map((b) => b.id));
+      set((s) => {
+        const nextAttach: Record<string, Attachment[]> = {};
+        for (const [bId, arr] of Object.entries(s.attachmentsByBlock)) {
+          if (!blockIds.has(bId)) nextAttach[bId] = arr;
+        }
+        for (const a of attachments) {
+          const arr = nextAttach[a.blockId];
+          if (arr) arr.push(a);
+          else nextAttach[a.blockId] = [a];
+        }
+        return {
+          byThread: { ...s.byThread, [threadId]: list },
+          attachmentsByBlock: nextAttach,
+        };
+      });
+    },
+
+    append: async (args) => {
+      const b = await db.createBlock(args);
+      set((s) => ({
+        byThread: {
+          ...s.byThread,
+          [b.threadId]: [...(s.byThread[b.threadId] ?? []), b],
+        },
+      }));
+      return b;
+    },
+
+    togglePin: async (id) => {
+      const pinned = await db.togglePin(id);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.map((b) => (b.id === id ? { ...b, pinned } : b));
       }
-      for (const a of attachments) {
-        const arr = nextAttach[a.blockId];
-        if (arr) arr.push(a);
-        else nextAttach[a.blockId] = [a];
+      set({ byThread: next });
+    },
+
+    remove: async (id) => {
+      await db.deleteBlock(id);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.filter((b) => b.id !== id);
       }
-      return {
-        byThread: { ...s.byThread, [threadId]: list },
-        attachmentsByBlock: nextAttach,
-      };
-    });
-  },
+      // Drop the block's attachments from the index — DB does it via ON DELETE CASCADE,
+      // we mirror it here so the UI doesn't render orphan chips.
+      set({
+        byThread: next,
+        attachmentsByBlock: removeAttachmentsForBlock(state.attachmentsByBlock, id),
+      });
+    },
 
-  append: async (args) => {
-    const b = await db.createBlock(args);
-    set((s) => ({
-      byThread: {
-        ...s.byThread,
-        [b.threadId]: [...(s.byThread[b.threadId] ?? []), b],
-      },
-    }));
-    return b;
-  },
-
-  togglePin: async (id) => {
-    const pinned = await db.togglePin(id);
-    const state = get();
-    const next: Record<string, Block[]> = {};
-    for (const [tId, list] of Object.entries(state.byThread)) {
-      next[tId] = list.map((b) => (b.id === id ? { ...b, pinned } : b));
-    }
-    set({ byThread: next });
-  },
-
-  remove: async (id) => {
-    await db.deleteBlock(id);
-    const state = get();
-    const next: Record<string, Block[]> = {};
-    for (const [tId, list] of Object.entries(state.byThread)) {
-      next[tId] = list.filter((b) => b.id !== id);
-    }
-    // Drop the block's attachments from the index — DB does it via ON DELETE CASCADE,
-    // we mirror it here so the UI doesn't render orphan chips.
-    set({
-      byThread: next,
-      attachmentsByBlock: removeAttachmentsForBlock(state.attachmentsByBlock, id),
-    });
-  },
-
-  setSource: async (id, source) => {
-    await db.updateBlockSource(id, source);
-    const state = get();
-    const next: Record<string, Block[]> = {};
-    for (const [tId, list] of Object.entries(state.byThread)) {
-      next[tId] = list.map((b) => (b.id === id ? { ...b, source } : b));
-    }
-    set({ byThread: next });
-  },
-
-  setContent: async (id, content) => {
-    await db.updateBlockContent(id, content);
-    const state = get();
-    const next: Record<string, Block[]> = {};
-    for (const [tId, list] of Object.entries(state.byThread)) {
-      next[tId] = list.map((b) => (b.id === id ? { ...b, content } : b));
-    }
-    set({ byThread: next });
-  },
-
-  setAnnotation: async (id, annotation) => {
-    await db.updateBlockAnnotation(id, annotation);
-    const state = get();
-    const next: Record<string, Block[]> = {};
-    for (const [tId, list] of Object.entries(state.byThread)) {
-      next[tId] = list.map((b) => (b.id === id ? { ...b, annotation } : b));
-    }
-    set({ byThread: next });
-  },
-
-  attach: async (args) => {
-    const a = await adb.createAttachment(args);
-    set((s) => ({
-      attachmentsByBlock: {
-        ...s.attachmentsByBlock,
-        [a.blockId]: [...(s.attachmentsByBlock[a.blockId] ?? []), a],
-      },
-    }));
-    return a;
-  },
-
-  detach: async (attachmentId, blockId) => {
-    await adb.deleteAttachment(attachmentId);
-    set((s) => {
-      const list = s.attachmentsByBlock[blockId];
-      if (!list) return s;
-      const filtered = list.filter((a) => a.id !== attachmentId);
-      if (filtered.length === 0) {
-        const { [blockId]: _drop, ...rest } = s.attachmentsByBlock;
-        return { attachmentsByBlock: rest };
+    setSource: async (id, source) => {
+      await db.updateBlockSource(id, source);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.map((b) => (b.id === id ? { ...b, source } : b));
       }
-      return {
-        attachmentsByBlock: { ...s.attachmentsByBlock, [blockId]: filtered },
-      };
-    });
-  },
-}));
+      set({ byThread: next });
+    },
+
+    setContent: async (id, content) => {
+      await db.updateBlockContent(id, content);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.map((b) => (b.id === id ? { ...b, content } : b));
+      }
+      set({ byThread: next });
+    },
+
+    setAnnotation: async (id, annotation) => {
+      await db.updateBlockAnnotation(id, annotation);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.map((b) => (b.id === id ? { ...b, annotation } : b));
+      }
+      set({ byThread: next });
+    },
+
+    attach: async (args) => {
+      const a = await adb.createAttachment(args);
+      set((s) => ({
+        attachmentsByBlock: {
+          ...s.attachmentsByBlock,
+          [a.blockId]: [...(s.attachmentsByBlock[a.blockId] ?? []), a],
+        },
+      }));
+      // v2.7: kick off background text extraction for file attachments (§9.6). Fire-and-
+      // forget — the chip is already visible; extracted text is patched in when ready.
+      // Skipped entirely when the user has disabled auto-extraction (§2.5 privacy).
+      if (a.kind === 'file' && useSettingsStore.getState().autoExtractAttachments) {
+        void extractAndStore(a);
+      }
+      return a;
+    },
+
+    detach: async (attachmentId, blockId) => {
+      await adb.deleteAttachment(attachmentId);
+      set((s) => {
+        const list = s.attachmentsByBlock[blockId];
+        if (!list) return s;
+        const filtered = list.filter((a) => a.id !== attachmentId);
+        if (filtered.length === 0) {
+          const { [blockId]: _drop, ...rest } = s.attachmentsByBlock;
+          return { attachmentsByBlock: rest };
+        }
+        return {
+          attachmentsByBlock: { ...s.attachmentsByBlock, [blockId]: filtered },
+        };
+      });
+    },
+
+    backfillExtractions: async () => {
+      // Respects the same privacy switch as on-attach extraction (§2.5).
+      if (!useSettingsStore.getState().autoExtractAttachments) return;
+      let pending: Attachment[];
+      try {
+        pending = await adb.listAttachmentsNeedingExtraction();
+      } catch (e) {
+        console.warn('[extract] backfill query failed', e);
+        return;
+      }
+      // Sequential — one file at a time so app startup doesn't hammer the disk (§2.4).
+      for (const a of pending) {
+        await extractAndStore(a);
+      }
+    },
+  };
+});

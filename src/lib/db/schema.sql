@@ -49,13 +49,19 @@ CREATE INDEX IF NOT EXISTS idx_blocks_thread
   ON blocks(thread_id, created_at ASC);
 
 -- Attachment: a file, folder, or URL linked to a block.
+-- v2.7: `extracted_text` added — for `file` kinds with extractable text (PDF, docx, txt,
+-- md, …), Spool auto-extracts the file's content on attach and caches it here; pack output
+-- inlines it (§9.6), replacing the v1 "attachments are pointers only" design.
 CREATE TABLE IF NOT EXISTS attachments (
-  id         TEXT PRIMARY KEY,
-  block_id   TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-  kind       TEXT NOT NULL,                   -- file | folder | url
-  target     TEXT NOT NULL,                   -- absolute path (file/folder) or the URL
-  label      TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename / domain
-  created_at INTEGER NOT NULL
+  id              TEXT PRIMARY KEY,
+  block_id        TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+  kind            TEXT NOT NULL,                   -- file | folder | url
+  target          TEXT NOT NULL,                   -- absolute path (file/folder) or the URL
+  label           TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename / domain
+  extracted_text  TEXT,                            -- v2.7: nullable; auto-extracted text for file kinds
+  extracted_at    INTEGER,                         -- v2.7: ms epoch; null if extraction not attempted
+  extraction_kind TEXT,                            -- v2.7: 'pdf' | 'docx' | 'plaintext' | 'failed' | null
+  created_at      INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_block
