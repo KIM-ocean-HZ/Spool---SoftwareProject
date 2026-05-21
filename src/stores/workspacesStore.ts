@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/workspaces';
 import type { Workspace } from '@/lib/db/workspaces';
+import { useThreadsStore } from './threadsStore';
 
 interface WorkspacesState {
   workspaces: Workspace[];
@@ -59,7 +61,12 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   remove: async (id) => {
+    // Cascade-soft-deletes the workspace's threads too. Restore a usable base afterwards
+    // (recreates the Inbox if this was the last workspace), then refresh both stores —
+    // threads were deleted and the capture target may need re-promoting.
     await db.softDeleteWorkspace(id);
-    set((s) => ({ workspaces: s.workspaces.filter((w) => w.id !== id) }));
+    await ensureBaseData();
+    await get().load();
+    await useThreadsStore.getState().loadAll();
   },
 }));

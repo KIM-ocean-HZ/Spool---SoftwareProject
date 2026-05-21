@@ -116,24 +116,45 @@ const migrateSchema = async (db: Database): Promise<void> => {
   console.info(`[db] schema rebuilt; user_version set to ${SCHEMA_VERSION}`);
 };
 
+// Idempotent base-data guarantee: at least one workspace (the Inbox) and at least one
+// thread (the capture target). Runs at startup, and again after a deletion — so deleting
+// the capture-target thread, or every thread / the Inbox workspace, self-heals by
+// recreating an empty Inbox rather than leaving capture with no target.
 const seedDefaults = async (db: Database): Promise<void> => {
-  const rows = await db.select<{ c: number }[]>(
+  const now = Date.now();
+
+  const wsRows = await db.select<{ c: number }[]>(
     'SELECT COUNT(*) AS c FROM workspaces WHERE deleted_at IS NULL',
   );
-  if ((rows[0]?.c ?? 0) > 0) return;
+  let wsId: string;
+  if ((wsRows[0]?.c ?? 0) === 0) {
+    wsId = nanoid();
+    await db.execute(
+      'INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)',
+      [wsId, INBOX_WORKSPACE_TITLE, 0, now, now],
+    );
+  } else {
+    const first = await db.select<{ id: string }[]>(
+      'SELECT id FROM workspaces WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC LIMIT 1',
+    );
+    wsId = first[0]!.id;
+  }
 
-  const now = Date.now();
-  const wsId = nanoid();
-  const tId = nanoid();
-  await db.execute(
-    'INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)',
-    [wsId, INBOX_WORKSPACE_TITLE, 0, now, now],
+  const thRows = await db.select<{ c: number }[]>(
+    'SELECT COUNT(*) AS c FROM threads WHERE deleted_at IS NULL',
   );
-  await db.execute(
-    `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, created_at, updated_at)
-     VALUES ($1, $2, $3, 'active', 1, $4, $5)`,
-    [tId, wsId, UNSORTED_THREAD_TITLE, now, now],
-  );
+  if ((thRows[0]?.c ?? 0) === 0) {
+    await db.execute(
+      `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, created_at, updated_at)
+       VALUES ($1, $2, $3, 'active', 1, $4, $5)`,
+      [nanoid(), wsId, UNSORTED_THREAD_TITLE, now, now],
+    );
+  }
+};
+
+// Public entry point for the same guarantee, called by the stores after a deletion.
+export const ensureBaseData = async (): Promise<void> => {
+  await seedDefaults(await getDb());
 };
 
 const initDb = async (): Promise<Database> => {

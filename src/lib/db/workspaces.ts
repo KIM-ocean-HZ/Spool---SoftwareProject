@@ -73,21 +73,10 @@ export const reorderWorkspaces = async (orderedIds: string[]): Promise<void> => 
   }
 };
 
-// A workspace that contains a capture-target thread is undeletable — captures must always
-// land somewhere. This implicitly protects the seeded Inbox.
-export const isWorkspaceProtected = async (id: string): Promise<boolean> => {
-  const db = await getDb();
-  const rows = await db.select<{ c: number }[]>(
-    'SELECT COUNT(*) AS c FROM threads WHERE workspace_id = $1 AND is_capture_target = 1 AND deleted_at IS NULL',
-    [id],
-  );
-  return (rows[0]?.c ?? 0) > 0;
-};
-
+// Soft-delete a workspace and cascade-soft-delete its threads. Deleting the workspace
+// that holds the capture target is permitted — the caller restores a target afterwards
+// (ensureBaseData + ensureCaptureTarget), recreating the Inbox if nothing is left.
 export const softDeleteWorkspace = async (id: string): Promise<void> => {
-  if (await isWorkspaceProtected(id)) {
-    throw new Error('workspace contains the capture target and cannot be deleted');
-  }
   const db = await getDb();
   const now = Date.now();
   await db.execute('UPDATE workspaces SET deleted_at = $1 WHERE id = $2', [now, id]);

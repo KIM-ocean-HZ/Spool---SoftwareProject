@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
+import DeleteButton from '@/components/ui/DeleteButton';
 import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -37,9 +38,11 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
   const inputRef = useRef<HTMLInputElement>(null);
 
   const rename = useWorkspacesStore((s) => s.rename);
+  const removeWorkspace = useWorkspacesStore((s) => s.remove);
   const createThread = useThreadsStore((s) => s.create);
   const selectThread = useThreadsStore((s) => s.select);
   const patchThread = useThreadsStore((s) => s.patch);
+  const removeThread = useThreadsStore((s) => s.remove);
 
   // Sync titleInput when external workspace title changes (e.g. another tab edits)
   useEffect(() => {
@@ -150,6 +153,12 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         >
           <Plus size={12} />
         </button>
+
+        <DeleteButton
+          onConfirm={() => void removeWorkspace(workspace.id)}
+          title="删除工作区"
+          className="invisible group-hover:visible"
+        />
       </div>
 
       {!collapsed && (
@@ -168,6 +177,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
               thread={t}
               active={t.id === activeThreadId}
               onSelect={() => selectThread(t.id)}
+              onDelete={() => void removeThread(t.id)}
             />
           ))}
         </ul>

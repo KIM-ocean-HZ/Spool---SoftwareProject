@@ -1,6 +1,7 @@
 import { Pin } from 'lucide-react';
 import type { DragEvent } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
+import DeleteButton from '@/components/ui/DeleteButton';
 import StatusDot from '@/components/ui/StatusDot';
 import type { Thread } from '@/lib/db/threads';
 import { useCaptureStore } from '@/stores/captureStore';
@@ -13,9 +14,10 @@ interface Props {
   thread: Thread;
   active: boolean;
   onSelect: () => void;
+  onDelete: () => void;
 }
 
-export default function ThreadListItem({ thread, active, onSelect }: Props) {
+export default function ThreadListItem({ thread, active, onSelect, onDelete }: Props) {
   const title = thread.title.trim() || '无标题';
   const dimmed = thread.status === 'done';
   const flash = useCaptureStore((s) => s.flashThreadId === thread.id);
@@ -49,6 +51,12 @@ export default function ThreadListItem({ thread, active, onSelect }: Props) {
         <div className="flex flex-none items-center gap-1.5">
           <StatusDot status={thread.status} />
           {thread.deadline != null && <CountdownBadge deadline={thread.deadline} />}
+          <DeleteButton
+            onConfirm={onDelete}
+            title="删除脉络"
+            size={11}
+            className="invisible group-hover:visible"
+          />
         </div>
       </div>
     </li>

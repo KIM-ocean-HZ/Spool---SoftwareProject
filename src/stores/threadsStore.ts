@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/threads';
 import type { Thread, ThreadPatch } from '@/lib/db/threads';
 
@@ -49,12 +50,15 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
         console.info('[threads] auto-promoted capture target after self-heal:', promoted);
       }
       const all = await db.listAllThreads();
-      set({
+      set((s) => ({
         threadsByWorkspace: groupByWorkspace(all),
         captureTargetId: findCaptureTarget(all),
+        // If the previously-active thread was deleted (here or via a workspace delete),
+        // drop the selection so App re-selects the capture target.
+        activeId: all.some((t) => t.id === s.activeId) ? s.activeId : null,
         loading: false,
         error: null,
-      });
+      }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[threads] load failed', e);
@@ -117,16 +121,10 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
 
   remove: async (id) => {
     await db.softDeleteThread(id);
-    set((s) => {
-      const next: Record<string, Thread[]> = {};
-      for (const [wsId, list] of Object.entries(s.threadsByWorkspace)) {
-        next[wsId] = list.filter((t) => t.id !== id);
-      }
-      return {
-        threadsByWorkspace: next,
-        activeId: s.activeId === id ? null : s.activeId,
-      };
-    });
+    // If that was the capture target (or the last thread), restore a usable base + target;
+    // loadAll then re-promotes a target and recomputes captureTargetId / activeId.
+    await ensureBaseData();
+    await get().loadAll();
   },
 
   select: (id) => set({ activeId: id }),

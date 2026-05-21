@@ -174,14 +174,9 @@ export const ensureCaptureTarget = async (): Promise<string | null> => {
   return id;
 };
 
+// Soft-delete is always permitted, including the capture-target thread — the caller is
+// responsible for restoring a target afterwards (ensureBaseData + ensureCaptureTarget).
 export const softDeleteThread = async (id: string): Promise<void> => {
   const db = await getDb();
-  const rows = await db.select<{ c: number }[]>(
-    'SELECT is_capture_target AS c FROM threads WHERE id = $1 AND deleted_at IS NULL',
-    [id],
-  );
-  if ((rows[0]?.c ?? 0) === 1) {
-    throw new Error('cannot delete the capture-target thread');
-  }
   await db.execute('UPDATE threads SET deleted_at = $1 WHERE id = $2', [Date.now(), id]);
 };
