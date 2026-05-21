@@ -5,7 +5,7 @@ import type { RefObject } from 'react';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import { toast } from '@/stores/toastStore';
-import { basename, pathIsDir } from '@/lib/utils/openTarget';
+import { basename, parentDirName, pathIsDir } from '@/lib/utils/openTarget';
 import type { AttachmentKind } from '@/lib/db/attachments';
 
 interface UseThreadDropTargetArgs {
@@ -144,6 +144,9 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
             threadId: threadIdRef.current,
             kind: 'text',
             content: basename(first),
+            // Record where the file came from (its containing folder) as the block's
+            // source, so the origin shows on the block and in pack output.
+            source: parentDirName(first) || null,
           });
           blockId = b.id;
         }

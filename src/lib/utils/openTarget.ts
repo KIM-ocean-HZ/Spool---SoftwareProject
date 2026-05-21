@@ -8,6 +8,14 @@ export const basename = (path: string): string => {
   return segs[segs.length - 1] || path;
 };
 
+// Name of the folder containing a path — used as the auto-source when a dropped local
+// file becomes a block (e.g. "/Users/x/Desktop/a.pdf" → "Desktop"). Empty string if the
+// path has no parent segment.
+export const parentDirName = (path: string): string => {
+  const segs = path.split(/[/\\]/).filter(Boolean);
+  return segs.length >= 2 ? segs[segs.length - 2]! : '';
+};
+
 // Open an attachment target (file / folder / URL) with the OS default application.
 // The Rust `open_target` command rejects with a message when a file/folder target is
 // missing or moved — callers should catch and surface that as a toast.
