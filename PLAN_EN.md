@@ -730,7 +730,8 @@ How it behaves:
 - An attachment renders as a small chip on its block (an icon by `kind` + the `label`). Click → open the file/folder with the system default app / Finder, or the URL in the browser. Missing target → a toast notice, no crash.
 - An attachment is a **property of a block**, not a new structural tier — Principle 6 (exactly two tiers) is intact. An attachment is payload on a block, like `pinned` or `source`.
 - v2.7: For file attachments with extractable text (PDF, docx, txt, md), Spool **auto-extracts** the text content on attach and caches it in the attachment row (`extracted_text`). This text is inlined into pack output (§9.5) so the receiving AI sees the file content, not just a path. Extraction is best-effort: on failure or for unsupported types (images, archives, binaries), `extracted_text` stays NULL and the attachment behaves as a pointer (the v2.6 fallback). Extraction is local-only — never sends file contents to network. The user can disable auto-extraction per-file or globally in settings (privacy-conscious users may prefer pointer-only behavior for sensitive PDFs).
-- Extraction does NOT preview files in the BlockItem UI — that's still v2. The chip remains the v2.6 design (icon + label, click to open in native app). The extracted text is silent backing storage, only surfaced at pack time.
+- The chip keeps the v2.6 design (icon + label, click to open in native app). A *rendered* file preview (PDF pages as canvas, etc.) is still v2. But the extracted text is **not** silent: (a) chips whose attachment carries extracted text gain a chevron that expands an inline, read-only **text** preview beneath the chip row (`BlockAttachments.tsx`); and (b) the extracted text is inlined into the **status summary** prompt (§12.1) as well as pack output (§9.5), so the on-thread AI summary reads file contents, not just a path. *(v2.7 revision — the original v2.7 spec scoped extracted text as pack-only "silent backing storage"; real use wanted to see and AI-summarize the content on-thread, so it now also surfaces in the UI preview and the status summary.)*
+- Implementation note (pdf.js / webview compat): PDF extraction uses pdf.js's **legacy** build, and `extractor.ts` installs a small `ReadableStream` async-iterator (`Symbol.asyncIterator`/`values()`) polyfill before loading pdf.js — the Tauri WKWebView ships `ReadableStream` without async iteration, which pdf.js's `getTextContent` relies on (`for await (const v of readableStream)`), otherwise throwing "undefined is not a function (near '...value of readableStream...')".
 - Image attachments and other non-text formats keep their v2.6 pointer-only behavior. OCR is explicitly out of scope (§17 — would require AI in the pack hot path, violates §6.4 rule 2).
 
 In the pack output (§9.5), a block's attachments are listed inline beneath it, and every attachment in the thread is also collected into a "Related Files & Links" section.
@@ -925,19 +926,27 @@ Each prompt is its own file. All prompts: open with a role, use markdown section
 ### 12.1 Thread Status Summary (src/lib/ai/prompts/summarizeStatus.ts)
 
 ```typescript
-export const buildStatusPrompt = (thread: Thread, blocks: Block[]) => `
+// v2.7: attachmentsByBlock carries each block's file attachments (keyed by block id);
+// any auto-extracted text is inlined under its block (capped at EXTRACT_CHAR_CAP per
+// attachment, same as the pack §9.5) so the status summary reads file contents, not just
+// the block's typed text. The param is defaulted, so older call sites stay valid.
+export const buildStatusPrompt = (
+  thread: Thread,
+  blocks: Block[],
+  attachmentsByBlock: Record<string, Attachment[]> = {},
+) => `
 你是一个项目状态摘要工具。读下面这条项目脉络里按时间排列的信息块,写一句话总结"这个项目现在到哪一步了"。
 
 # 项目标题
 ${thread.title || '(无标题)'}
 
-# 信息块(按时间从旧到新)
-${blocks.map(b => `[${formatTime(b.createdAt)}] ${b.content}`).join('\n')}
+# 信息块(按时间从旧到新；部分信息块附带文件内容,以 📎 标出,应视为该信息块的一部分)
+${blocks.map(b => `[${formatTime(b.createdAt)}] ${b.content}` /* + 该块附件的提取文本,以 "  📎 附件「label」(kind) 内容:" 引导 */).join('\n')}
 
 # 规则
 1. 只输出一句话,不超过 50 字
 2. 聚焦"当前状态 / 下一步",不要复述全部历史
-3. 绝对不要添加信息块里没有的内容
+3. 绝对不要添加信息块(含其附件内容)里没有的内容
 4. 不要前言、解释、markdown 标记——直接输出那句话
 `.trim();
 ```

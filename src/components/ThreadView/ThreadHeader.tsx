@@ -14,6 +14,7 @@ import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread, ThreadStatus } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
+import { useBlocksStore } from '@/stores/blocksStore';
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -105,6 +106,7 @@ export default function ThreadHeader({
   const patch = useThreadsStore((s) => s.patch);
   const setSummary = useThreadsStore((s) => s.setSummary);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
+  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
   const aiAvailable = useSettingsStore(isAiAvailable);
 
   const [title, setTitle] = useDebouncedField(thread.title, thread.id, (v) =>
@@ -133,7 +135,9 @@ export default function ThreadHeader({
     if (summarizing) return;
     setSummarizing(true);
     try {
-      const { text } = await router.quality(buildStatusPrompt(thread, blocks as Block[]));
+      const { text } = await router.quality(
+        buildStatusPrompt(thread, blocks as Block[], attachmentsByBlock),
+      );
       const trimmed = text.trim();
       if (!trimmed) return;
       await setSummary(thread.id, trimmed);
