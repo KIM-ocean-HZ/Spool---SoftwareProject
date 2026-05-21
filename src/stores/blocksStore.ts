@@ -9,6 +9,7 @@ import type {
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
 import { useSettingsStore } from './settingsStore';
+import { toast } from './toastStore';
 
 interface BlocksState {
   byThread: Record<string, Block[]>;
@@ -64,7 +65,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
   // v2.7: extract text for one file attachment, persist the result, and patch it into
   // the by-block index so an open thread / a later Pack reflects the text. Never throws —
   // extraction is best-effort and must not break the attach flow or the startup backfill.
-  const extractAndStore = async (a: Attachment): Promise<void> => {
+  // `notify` surfaces a genuine extraction failure (not an unsupported file type) as a
+  // toast — used on attach so the user sees why a file's text is missing; off for backfill.
+  const extractAndStore = async (a: Attachment, notify: boolean): Promise<void> => {
     try {
       const result = await extractAttachmentText(a.target);
       const text = result.ok ? result.text : null;
@@ -72,8 +75,13 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       set((s) => ({
         attachmentsByBlock: applyExtraction(s.attachmentsByBlock, a.blockId, a.id, text, result.kind),
       }));
+      if (!result.ok && !result.reason.startsWith('unsupported extension')) {
+        console.error('[extract] failed for', a.target, '—', result.reason);
+        if (notify) toast.error(`文件文字提取失败：${result.reason}`);
+      }
     } catch (e) {
-      console.warn('[extract] failed for attachment', a.id, e);
+      console.error('[extract] failed for attachment', a.id, e);
+      if (notify) toast.error(`文件文字提取失败：${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -184,7 +192,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       // forget — the chip is already visible; extracted text is patched in when ready.
       // Skipped entirely when the user has disabled auto-extraction (§2.5 privacy).
       if (a.kind === 'file' && useSettingsStore.getState().autoExtractAttachments) {
-        void extractAndStore(a);
+        void extractAndStore(a, true);
       }
       return a;
     },
@@ -217,7 +225,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       }
       // Sequential — one file at a time so app startup doesn't hammer the disk (§2.4).
       for (const a of pending) {
-        await extractAndStore(a);
+        await extractAndStore(a, false);
       }
     },
   };

@@ -1,11 +1,14 @@
 import { readFile } from '@tauri-apps/plugin-fs';
+// Static `?worker` import so Vite reliably compiles the pdf.js worker as its own chunk and
+// hands us a Worker constructor (a dynamic import of `?worker` is NOT transformed reliably).
+// This pulls only the tiny worker-glue into the main bundle; the worker asset and the pdf.js
+// core both load lazily — the asset on `new PdfWorker()`, the core on `import('pdfjs-dist')`.
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 
 // v2.7 attachment text extraction (PLAN_EN.md §9.6). Reads a file attachment's text so
 // pack output can inline it. Runs entirely local — never touches the network. Best-effort:
 // unsupported or unreadable files resolve to `{ ok: false }` rather than throwing.
 //
-// The parsers (pdf.js, mammoth) are heavy and only needed when a matching file is actually
-// attached, so they are loaded via dynamic import() — keeping them out of the main bundle.
 // `readFile` returns a Uint8Array, handed straight to the parsers; no Node `Buffer`, which
 // does not exist in the Tauri webview runtime.
 
@@ -23,7 +26,6 @@ const getPdfjs = (): Promise<typeof import('pdfjs-dist')> => {
   if (!pdfjsPromise) {
     pdfjsPromise = (async () => {
       const pdfjs = await import('pdfjs-dist');
-      const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
       pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
       return pdfjs;
     })();
