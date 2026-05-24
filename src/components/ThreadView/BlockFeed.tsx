@@ -98,16 +98,26 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   const clearSelection = useBlocksStore((s) => s.clearSelection);
   const selectionAnchor = useRef<string | null>(null);
 
-  // v2.8 §20.1 drag-marquee state. Stored in viewport coords (clientX/Y) — origin is the
-  // mouseDown point; cursor tracks current pointer. The visible rectangle stays anchored
-  // to the viewport while auto-scrolling, matching Finder behaviour: blocks slide through
-  // the rectangle as the feed scrolls, getting picked up as they intersect.
+  // v2.8 §20.1 drag-marquee state. The visible rectangle's two corners are kept here
+  // in viewport coords (for cheap rendering); the TRUE origin lives in
+  // `marqueeOriginContent` as scroll-container content coords (mouseDown clientY +
+  // scrollTop at that instant). Each frame the visible anchor is recomputed as
+  // `originContent - currentScrollTop`, so when the feed auto-scrolls the rectangle
+  // extends past the top of the viewport instead of staying pinned to the mouseDown
+  // viewport Y — without this, blocks at the top scrolled out of the rectangle and
+  // got dropped from the per-frame recomputed selection.
   const [marquee, setMarquee] = useState<{
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
+    anchorX: number;
+    anchorY: number;
+    cursorX: number;
+    cursorY: number;
   } | null>(null);
+  // Drag origin in scroll-container content coords (invariant for the duration of a
+  // drag). Held as a ref so updates don't trigger re-renders.
+  const marqueeOriginContent = useRef<{ x: number; y: number } | null>(null);
+  // Latest cursor position in viewport coords — refreshed by mousemove inside the
+  // active-drag effect; refs because the rAF loop reads it every frame.
+  const marqueeCursor = useRef<{ x: number; y: number } | null>(null);
   // Snapshot of the selection at drag start. Each frame the new selection is computed as
   // baseline ∪ (blocks the rectangle currently intersects), so dragging into and back out
   // of a block doesn't leave it stuck selected.
@@ -161,7 +171,10 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   // v2.8 §20.1 drag-marquee: mouseDown on empty feed space (no block, no button, no
   // textarea …) starts a rubber-band selection like Finder. Modifier-held mouseDown is
-  // skipped so shift/cmd-click on a checkbox keeps its own meaning.
+  // skipped so shift/cmd-click on a checkbox keeps its own meaning. Origin is captured
+  // in CONTENT coordinates (clientY + current scrollTop), not viewport coords — so the
+  // rectangle keeps stretching from the original mouseDown point as the feed
+  // auto-scrolls, instead of collapsing back into the visible window.
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -173,8 +186,21 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     ) {
       return;
     }
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    marqueeOriginContent.current = {
+      x: e.clientX + scrollEl.scrollLeft,
+      y: e.clientY + scrollEl.scrollTop,
+    };
+    marqueeCursor.current = { x: e.clientX, y: e.clientY };
     marqueeBaseline.current = new Set(useBlocksStore.getState().selectedBlockIds);
-    setMarquee({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+    setMarquee({
+      anchorX: e.clientX,
+      anchorY: e.clientY,
+      cursorX: e.clientX,
+      cursorY: e.clientY,
+    });
     // Wipe any browser text selection that might have started on the empty-space click;
     // preventDefault on a non-focusable div also keeps a new selection from forming.
     window.getSelection()?.removeAllRanges();
@@ -183,23 +209,34 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   // While a marquee drag is active: track cursor, auto-scroll near edges, recompute the
   // selection from rectangle ∩ block bounding rects. Esc reverts to the pre-drag baseline.
-  // Effect re-runs only when a drag opens (origin x1/y1 changes) or closes (marquee →
-  // null); intra-drag cursor updates flow through the mousemove closure + a dirty flag.
+  // Effect re-runs only when a drag opens (null → state) or closes (state → null); the
+  // rAF loop reads the live cursor + scroll from refs, so per-frame updates skip React.
+  const marqueeActive = marquee !== null;
   useEffect(() => {
-    if (!marquee) return;
-    const origin = { x: marquee.x1, y: marquee.y1 };
-    let cursorX = marquee.x2;
-    let cursorY = marquee.y2;
-    let dirty = false;
+    if (!marqueeActive) return;
     let rafId = 0;
+    let dirty = true; // ensure at least one recompute fires after mouseDown
+
+    // Compute current rectangle in viewport coords from refs + live scroll. Used by
+    // both the selection recompute and the visible-rectangle state push.
+    const currentRect = (): { left: number; right: number; top: number; bottom: number } | null => {
+      const scrollEl = scrollRef.current;
+      const origin = marqueeOriginContent.current;
+      const cursor = marqueeCursor.current;
+      if (!scrollEl || !origin || !cursor) return null;
+      const anchorX = origin.x - scrollEl.scrollLeft;
+      const anchorY = origin.y - scrollEl.scrollTop;
+      return {
+        left: Math.min(anchorX, cursor.x),
+        right: Math.max(anchorX, cursor.x),
+        top: Math.min(anchorY, cursor.y),
+        bottom: Math.max(anchorY, cursor.y),
+      };
+    };
 
     const recompute = (): void => {
-      const rect = {
-        left: Math.min(origin.x, cursorX),
-        right: Math.max(origin.x, cursorX),
-        top: Math.min(origin.y, cursorY),
-        bottom: Math.max(origin.y, cursorY),
-      };
+      const rect = currentRect();
+      if (!rect) return;
       const next = new Set(marqueeBaseline.current);
       document.querySelectorAll<HTMLElement>('[data-block-id]').forEach((el) => {
         if (intersectsRect(rect, el.getBoundingClientRect())) {
@@ -210,16 +247,37 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       setSelection(next);
     };
 
-    const tick = (): void => {
-      // Auto-scroll while the cursor sits in the top / bottom edge band of the feed.
+    const pushVisualState = (): void => {
       const scrollEl = scrollRef.current;
-      if (scrollEl) {
+      const origin = marqueeOriginContent.current;
+      const cursor = marqueeCursor.current;
+      if (!scrollEl || !origin || !cursor) return;
+      const anchorX = origin.x - scrollEl.scrollLeft;
+      const anchorY = origin.y - scrollEl.scrollTop;
+      setMarquee((m) => {
+        if (!m) return null;
+        if (
+          m.anchorX === anchorX &&
+          m.anchorY === anchorY &&
+          m.cursorX === cursor.x &&
+          m.cursorY === cursor.y
+        ) {
+          return m;
+        }
+        return { anchorX, anchorY, cursorX: cursor.x, cursorY: cursor.y };
+      });
+    };
+
+    const tick = (): void => {
+      const scrollEl = scrollRef.current;
+      const cursor = marqueeCursor.current;
+      if (scrollEl && cursor) {
         const r = scrollEl.getBoundingClientRect();
         const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
-        if (cursorY < r.top + MARQUEE_SCROLL_EDGE && scrollEl.scrollTop > 0) {
+        if (cursor.y < r.top + MARQUEE_SCROLL_EDGE && scrollEl.scrollTop > 0) {
           scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - MARQUEE_SCROLL_SPEED);
           dirty = true;
-        } else if (cursorY > r.bottom - MARQUEE_SCROLL_EDGE && scrollEl.scrollTop < maxScroll) {
+        } else if (cursor.y > r.bottom - MARQUEE_SCROLL_EDGE && scrollEl.scrollTop < maxScroll) {
           scrollEl.scrollTop = Math.min(
             maxScroll,
             scrollEl.scrollTop + MARQUEE_SCROLL_SPEED,
@@ -229,27 +287,27 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       }
       if (dirty) {
         recompute();
-        // Push current cursor into React state so the visible rectangle re-renders.
-        // The state setter is no-op when x2/y2 match, so a still cursor + no scroll
-        // doesn't churn renders.
-        setMarquee((m) => (m && (m.x2 !== cursorX || m.y2 !== cursorY)
-          ? { ...m, x2: cursorX, y2: cursorY }
-          : m));
+        pushVisualState();
         dirty = false;
       }
       rafId = requestAnimationFrame(tick);
     };
 
     const onMove = (e: MouseEvent): void => {
-      cursorX = e.clientX;
-      cursorY = e.clientY;
+      marqueeCursor.current = { x: e.clientX, y: e.clientY };
       dirty = true;
     };
-    const onUp = (): void => setMarquee(null);
+    const onUp = (): void => {
+      marqueeOriginContent.current = null;
+      marqueeCursor.current = null;
+      setMarquee(null);
+    };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       // Revert any additions this drag made; keep the pre-drag selection intact.
       setSelection(marqueeBaseline.current);
+      marqueeOriginContent.current = null;
+      marqueeCursor.current = null;
       setMarquee(null);
     };
 
@@ -264,9 +322,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       window.removeEventListener('keydown', onKey);
       cancelAnimationFrame(rafId);
     };
-    // Effect lifecycle is keyed on origin: drag open (null → coords) re-runs, drag close
-    // (coords → null) tears down. Intra-drag cursor changes flow through the closure.
-  }, [marquee?.x1, marquee?.y1, setSelection, scrollRef]);
+  }, [marqueeActive, setSelection, scrollRef]);
 
   // Range-select between the anchor and the just-clicked block, using current feed
   // order (whichever sort mode is active). Plain click sets the anchor; shift-click
@@ -383,15 +439,19 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       </div>
       {/* §20.1 drag-marquee rectangle. Fixed position so it lives in viewport coords
           and isn't clipped by the scroll container; pointer-events:none so it never
-          steals events from the blocks beneath. Rendered only while a drag is active. */}
+          steals events from the blocks beneath. The anchor is recomputed each frame
+          as (origin-in-content − current scrollTop), so during auto-scroll the
+          rectangle's top extends past the visible viewport (off-screen, clipped)
+          rather than collapsing — that's what keeps previously-selected blocks at
+          the top of the sweep inside the per-frame recomputed selection. */}
       {marquee && (
         <div
           className="pointer-events-none fixed z-30 rounded-sm border border-accent/70 bg-accent/10"
           style={{
-            left: Math.min(marquee.x1, marquee.x2),
-            top: Math.min(marquee.y1, marquee.y2),
-            width: Math.abs(marquee.x2 - marquee.x1),
-            height: Math.abs(marquee.y2 - marquee.y1),
+            left: Math.min(marquee.anchorX, marquee.cursorX),
+            top: Math.min(marquee.anchorY, marquee.cursorY),
+            width: Math.abs(marquee.cursorX - marquee.anchorX),
+            height: Math.abs(marquee.cursorY - marquee.anchorY),
           }}
         />
       )}
