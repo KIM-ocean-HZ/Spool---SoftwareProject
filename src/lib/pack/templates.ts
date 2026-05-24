@@ -101,3 +101,74 @@ may stay in their original language.`;
 // --- Truncation marker for over-long extracted text -------------------------------------
 export const truncationMarker = (remainder: number): string =>
   `[... truncated, ${remainder} more chars not shown ...]`;
+
+// --- Pack task templates (v2.8 §20.7, Experimental Track B) -----------------------------
+// Orthogonal to the four-category authority header: that header says HOW TO READ the
+// input, a template says WHAT TASK to perform. A template is just a different closing
+// instruction block appended after "Related Files & Links", before the Output Language
+// line — the header + block bodies are byte-identical across templates. Hardcoded set,
+// no editor, no per-thread persistence; intent is to learn from dogfooding which (if
+// any) earn their place, not to build a system. Default = `default` (no extra block —
+// preserves pre-v2.8 behavior).
+//
+// Instruction text is English on purpose (§19.13: LLMs follow English directives more
+// reliably for negative constraints + edge-case rules). Each block opens with `## Task`
+// so the receiving AI lands cleanly on the instruction the user wants it to perform.
+
+export type PackTemplateKey = 'default' | 'revision' | 'combine';
+
+export const PACK_TEMPLATE_KEYS: PackTemplateKey[] = ['default', 'revision', 'combine'];
+
+export interface PackTemplate {
+  key: PackTemplateKey;
+  // UI label shown in the PackDialog selector. Chinese — this is the only user-facing
+  // template metadata; the body is what the receiving AI reads (English).
+  label: string;
+  // Tooltip / hint shown beside the selector.
+  hint: string;
+  // The closing block appended after "Related Files & Links" and before "## Output
+  // Language". `null` = no extra block (the `default` template).
+  closing: string | null;
+}
+
+const REVISION_CLOSING = `## Task
+
+Generate revision materials from the context above, respecting the four-category authority hierarchy:
+- Use 📖 Reference content as ground truth.
+- Treat 🧩 Synthesis as framing only; do not copy it wholesale.
+- Mine 🔄 Process traces for the user's recurring confusions and turn them into review prompts.
+- Validate 💭 Personal hypotheses against Reference; correct factual errors directly.
+
+Produce: (1) a short summary of the core ideas the user should master, (2) a focused list of question-and-answer review items targeting the user's apparent gaps, and (3) one or two open-ended prompts the user can use to self-test.`;
+
+const COMBINE_CLOSING = `## Task
+
+The blocks above are scattered fragments — multiple captures from chats, notes, and references that overlap and partly repeat. Synthesize them into ONE clean, deduplicated summary that:
+- Preserves the four-category authority hierarchy (📖 Reference wins over 🧩 Synthesis wins over 🔄 Process; 💭 Personal is the user's current model, possibly wrong).
+- Collapses repetition and resolves contradictions explicitly (state which source each retained claim came from).
+- Reads as one coherent document, not a list of fragments.
+
+Do not invent content beyond what the blocks provide. If a claim cannot be supported by the blocks, omit it or call it out as a gap.`;
+
+export const PACK_TEMPLATES: Record<PackTemplateKey, PackTemplate> = {
+  default: {
+    key: 'default',
+    label: '纯上下文',
+    hint: '只交付上下文，不附加任务（当前默认）',
+    closing: null,
+  },
+  revision: {
+    key: 'revision',
+    label: '复习资料',
+    hint: '让 AI 据此生成复习材料',
+    closing: REVISION_CLOSING,
+  },
+  combine: {
+    key: 'combine',
+    label: '组合零散对话',
+    hint: '把碎片整合成一份去重的干净总结',
+    closing: COMBINE_CLOSING,
+  },
+};
+
+export const DEFAULT_PACK_TEMPLATE: PackTemplateKey = 'default';

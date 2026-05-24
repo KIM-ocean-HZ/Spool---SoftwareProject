@@ -285,4 +285,49 @@ describe('assemble', () => {
     const b = assemble({ thread, blocks, now: NOW });
     expect(a).toBe(b);
   });
+
+  // --- v2.8 §20.7: pack task templates ---------------------------------------------------
+  describe('pack task templates (§20.7)', () => {
+    const blocks = [textBlock('b1', 'one note')];
+
+    it('default template emits no extra closing block (current behavior)', () => {
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).not.toContain('## Task');
+      // Pre-v2.8 callers (no `template` arg) get byte-identical output to
+      // explicitly passing template: 'default'.
+      const explicit = assemble({ thread, blocks, template: 'default', now: NOW });
+      expect(out).toBe(explicit);
+    });
+
+    it('revision template appends a revision-materials closing block before Output Language', () => {
+      const out = assemble({ thread, blocks, template: 'revision', now: NOW });
+      expect(out).toContain('## Task');
+      expect(out).toContain('Generate revision materials');
+      expect(out).toContain('four-category authority hierarchy');
+      // Closing block lands BEFORE the Output Language directive (so the AI reads
+      // the task right before being told what language to reply in).
+      const taskIdx = out.indexOf('## Task');
+      const langIdx = out.indexOf('## Output Language');
+      expect(taskIdx).toBeGreaterThan(-1);
+      expect(langIdx).toBeGreaterThan(taskIdx);
+    });
+
+    it('combine template appends a synthesis closing block', () => {
+      const out = assemble({ thread, blocks, template: 'combine', now: NOW });
+      expect(out).toContain('## Task');
+      expect(out).toContain('scattered fragments');
+      expect(out).toContain('deduplicated summary');
+      expect(out).toContain('Do not invent content');
+    });
+
+    it('header + record body are byte-identical across templates (only the closing differs)', () => {
+      const defaultOut = assemble({ thread, blocks, template: 'default', now: NOW });
+      const revisionOut = assemble({ thread, blocks, template: 'revision', now: NOW });
+      // Everything up to the "## Output Language" line in the default output must
+      // appear verbatim in the revision output (the revision-task closing slots in
+      // between the body and the language directive, not into the body).
+      const defaultBody = defaultOut.slice(0, defaultOut.indexOf('## Output Language'));
+      expect(revisionOut).toContain(defaultBody);
+    });
+  });
 });

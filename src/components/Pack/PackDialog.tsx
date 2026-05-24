@@ -2,6 +2,12 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Check, Copy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { assemble } from '@/lib/pack/assemble';
+import {
+  DEFAULT_PACK_TEMPLATE,
+  PACK_TEMPLATES,
+  PACK_TEMPLATE_KEYS,
+  type PackTemplateKey,
+} from '@/lib/pack/templates';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
@@ -25,13 +31,17 @@ export default function PackDialog({
   onClose,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  // v2.8 §20.7: per-pack task template selector. Per-pack only — no persistence across
+  // sessions or per-thread defaults, by intent: we're learning which templates earn
+  // their place, not building a system.
+  const [template, setTemplate] = useState<PackTemplateKey>(DEFAULT_PACK_TEMPLATE);
 
   // assemble is a synchronous pure function — memoize it so re-renders don't re-pack the
   // whole thread. It's still fast (<1ms on small threads) but this keeps the textarea
   // diff-free between renders.
   const text = useMemo(
-    () => assemble({ thread, blocks, attachments, refTitles }),
-    [thread, blocks, attachments, refTitles],
+    () => assemble({ thread, blocks, attachments, refTitles, template }),
+    [thread, blocks, attachments, refTitles, template],
   );
 
   useEffect(() => {
@@ -73,6 +83,33 @@ export default function PackDialog({
             <X size={14} />
           </button>
         </header>
+
+        {/* v2.8 §20.7: task-template picker. Quiet — defaults to 纯上下文 (no extra
+            block), so users who don't engage see byte-identical pack output. */}
+        <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
+          <span className="text-muted">想让 AI 做什么?</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {PACK_TEMPLATE_KEYS.map((k) => {
+              const t = PACK_TEMPLATES[k];
+              const active = template === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setTemplate(k)}
+                  title={t.hint}
+                  className={`rounded-md border px-2 py-0.5 transition-colors ${
+                    active
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3">
           <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.55] text-ink-2">

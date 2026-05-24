@@ -3,6 +3,7 @@ import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import {
   ATTACHMENT_SEE_BELOW,
+  DEFAULT_PACK_TEMPLATE,
   EMPTY_LOG_LINE,
   EMPTY_PINNED_LINE,
   EXTRACT_CHAR_CAP,
@@ -14,6 +15,7 @@ import {
   NOTE_MARKER,
   OUTPUT_LANGUAGE,
   PACK_HEADER,
+  PACK_TEMPLATES,
   PINNED_PREFIX,
   REF_MARKER,
   SECTION_FILES,
@@ -23,6 +25,7 @@ import {
   UNKNOWN_THREAD,
   URL_MARKER,
   truncationMarker,
+  type PackTemplateKey,
 } from './templates';
 
 export interface AssembleArgs {
@@ -34,6 +37,10 @@ export interface AssembleArgs {
   // Map of referenced thread id → title; used to render `kind=ref` blocks. The caller
   // (Phase 9 @-mention) supplies this. Empty map is fine for Phase 4.
   refTitles?: Map<string, string>;
+  // v2.8 §20.7: optional task-template selector. The chosen template's closing block
+  // is appended after "Related Files & Links" and before the Output Language line.
+  // Default = 'default' (no extra block — pre-v2.8 behavior).
+  template?: PackTemplateKey;
   // For deterministic output in tests.
   now?: number;
 }
@@ -131,7 +138,14 @@ const renderBlock = (
 // Pure function. No await, no fetch, no DB calls — this is the §6.4 hot path. The
 // four-category instruction header is static text inlined verbatim from templates.ts;
 // the receiving AI does the actual classification at consumption time.
-export function assemble({ thread, blocks, attachments, refTitles, now }: AssembleArgs): string {
+export function assemble({
+  thread,
+  blocks,
+  attachments,
+  refTitles,
+  template,
+  now,
+}: AssembleArgs): string {
   const dateStr = formatPackDate(now ?? Date.now());
   const out: string[] = [];
 
@@ -187,6 +201,18 @@ export function assemble({ thread, blocks, attachments, refTitles, now }: Assemb
           : '';
       out.push(`- ${attachmentLabel(a)} — ${a.target}${notInlined}`);
     }
+  }
+
+  // v2.8 §20.7: optional task-template closing block. Appended AFTER "Related Files &
+  // Links" and BEFORE the Output Language directive, so the receiving AI lands on the
+  // task right before it's told what language to reply in. Default template emits no
+  // block — pre-v2.8 packs stay byte-identical.
+  const tmpl = PACK_TEMPLATES[template ?? DEFAULT_PACK_TEMPLATE];
+  if (tmpl.closing) {
+    out.push('');
+    out.push('---');
+    out.push('');
+    out.push(tmpl.closing);
   }
 
   // Output Language: the closing directive asking the AI to respond in the user's language.
