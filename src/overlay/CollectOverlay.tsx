@@ -1,8 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { Link2, Pin, Send, Trash2, X } from 'lucide-react';
+import {
+  GripVertical,
+  Link2,
+  MessageSquarePlus,
+  Pin,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { nanoid } from 'nanoid';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   COLLECT_APPEND_EVENT,
   COLLECT_CLOSED_EVENT,
@@ -14,24 +22,27 @@ import {
 import { createAttachment } from '@/lib/db/attachments';
 import { createBlock, togglePin as togglePinDb } from '@/lib/db/blocks';
 import { getCaptureTargetThread } from '@/lib/db/threads';
+import { joinSegments, type Segment } from '@/lib/blocks/segments';
 
 // v2.8 §20 Track B — collect mode (staging toast).
 //
 // A persistent staging UI rendered inside the existing overlay window. While open,
 // every clipboard capture (forwarded by useCapture in main) appends a transient item
-// here instead of writing a block to SQLite. The user can edit each item's text and
-// annotation inline, attach a single URL per item, then Send to merge everything into
-// one block in the current capture target — or Close to discard.
+// here instead of writing a block to SQLite. Items are block-like: small by default,
+// click to expand for edit, hover-bar reveals add-annotation / add-URL / pin / delete /
+// drag-to-reorder. Send merges everything into one block in the current capture target;
+// Close discards.
 //
-// Crucial isolation invariant (§20.8 kill-criterion): nothing touches the blocks /
-// attachments table until the user clicks Send. The staging items live ONLY in this
-// component's state; a future revert is a clean module + hook + Rust-branch removal.
+// Crucial isolation invariant (§20.8): nothing touches the blocks / attachments table
+// until the user clicks Send. A future revert is a clean module + hook + Rust-branch
+// removal.
 
-// Window heights when staging is showing. Keep STAGING_COLLAPSED close to the toast's
-// collapsed height so the "just opened, empty" state doesn't waste vertical space.
-const STAGING_HEIGHT_EMPTY = 140;
-const STAGING_HEIGHT_PER_ITEM = 110;
-const STAGING_HEIGHT_MAX = 520;
+// Auto-size cap so the staging toast doesn't grow off-screen on a small display.
+// Beyond this the panel's own scroll kicks in — per-item content still truncates +
+// click-to-expand (no per-item scrollbars).
+const MAX_PANEL_HEIGHT = 540;
+// Tiny extra so the card's drop shadow isn't clipped by the OS window's bottom edge.
+const SHADOW_ALLOWANCE = 8;
 
 interface StagingItem {
   id: string;
@@ -42,58 +53,38 @@ interface StagingItem {
   pinned: boolean;
 }
 
-const clampHeight = (n: number): number =>
-  Math.max(STAGING_HEIGHT_EMPTY, Math.min(STAGING_HEIGHT_MAX, n));
+interface ItemUiState {
+  expanded: boolean; // true → text textarea visible; false → line-clamped preview
+  editingAnnotation: boolean; // true → annotation textarea shown even when empty
+  editingUrl: boolean; // true → URL input shown even when empty
+}
+
+const defaultUi = (): ItemUiState => ({
+  expanded: false,
+  editingAnnotation: false,
+  editingUrl: false,
+});
 
 export default function CollectOverlay() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<StagingItem[]>([]);
+  const [ui, setUi] = useState<Record<string, ItemUiState>>({});
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
+  // Index of the item being dragged (for HTML5 drag-and-drop reordering); null when
+  // no drag in progress. Index — not id — so the over-handler reorders in O(1).
+  const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
 
-  // Stash a callback ref so the append listener can read the latest items without
-  // re-subscribing on every state change (listen() returns a dispose handle, not a
-  // re-subscribable handler).
+  // Stash refs so listener closures read latest state without re-subscribing.
   const itemsRef = useRef<StagingItem[]>([]);
   itemsRef.current = items;
 
-  // Window-resize follows item count so the staging toast grows with content but
-  // caps at STAGING_HEIGHT_MAX (the inner list scrolls past that).
-  useEffect(() => {
-    if (!open) return;
-    const target = clampHeight(STAGING_HEIGHT_EMPTY + STAGING_HEIGHT_PER_ITEM * items.length);
-    void invoke(RESIZE_OVERLAY_COMMAND, { height: target }).catch((e) => {
-      console.warn('[collect] resize failed', e);
-    });
-  }, [open, items.length]);
-
-  // Esc → request-close (immediate when staging is empty, confirm prompt otherwise).
-  // Mounted only while staging is open so we don't shadow the CaptureOverlay's own
-  // Esc handler when a normal toast is showing.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      if (confirming) {
-        // Inside the confirm prompt Esc means "back out of the prompt", not "discard".
-        e.preventDefault();
-        setConfirming(false);
-        return;
-      }
-      e.preventDefault();
-      if (itemsRef.current.length === 0) {
-        // Empty staging — Esc closes silently.
-        void emit(COLLECT_CLOSED_EVENT, { kind: 'discarded' } satisfies CollectClosedPayload);
-        void invoke(HIDE_OVERLAY_COMMAND);
-        setOpen(false);
-        setItems([]);
-        return;
-      }
-      setConfirming(true);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, confirming]);
+  // ResizeObserver target — the card root. Drives Rust to match the OS window to
+  // the card's actual height so the rounded bottom corner is always visible.
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Inner scroll container for the items list — used by the auto-scroll-on-append
+  // effect (task 5.1: panel auto-navigates to bottom when new items arrive).
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Listen for `collect:open` (long-press fired) and `collect:append` (a clipboard
   // capture forwarded while staging is open).
@@ -106,6 +97,7 @@ export default function CollectOverlay() {
       const dispose1 = await listen('collect:open', () => {
         setOpen(true);
         setItems([]);
+        setUi({});
         setConfirming(false);
       });
       if (cancelled) dispose1();
@@ -121,6 +113,7 @@ export default function CollectOverlay() {
           pinned: false,
         };
         setItems([...itemsRef.current, incoming]);
+        setUi((u) => ({ ...u, [incoming.id]: defaultUi() }));
       });
       if (cancelled) dispose2();
       else unlistenAppend = dispose2;
@@ -133,11 +126,74 @@ export default function CollectOverlay() {
     };
   }, []);
 
+  // Task 5.1: when an item is appended, scroll the list to its bottom so the user
+  // sees the newest item. Runs whenever items.length grows.
+  const prevLenRef = useRef(0);
+  useEffect(() => {
+    if (items.length > prevLenRef.current && listRef.current) {
+      // Defer to next frame so the new <li> is in the DOM before we measure.
+      requestAnimationFrame(() => {
+        const el = listRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+    prevLenRef.current = items.length;
+  }, [items.length]);
+
+  // Esc → request-close (immediate when empty, confirm prompt otherwise). Mounted
+  // only while staging is open so it doesn't shadow CaptureOverlay's Esc handler
+  // when a normal toast is showing.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      if (confirming) {
+        e.preventDefault();
+        setConfirming(false);
+        return;
+      }
+      e.preventDefault();
+      if (itemsRef.current.length === 0) {
+        void emit(COLLECT_CLOSED_EVENT, { kind: 'discarded' } satisfies CollectClosedPayload);
+        void invoke(HIDE_OVERLAY_COMMAND);
+        setOpen(false);
+        setItems([]);
+        setUi({});
+        return;
+      }
+      setConfirming(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, confirming]);
+
+  // Auto-size the OS window to the card's measured height (capped at MAX_PANEL_HEIGHT
+  // — past that the inner list scrolls but per-item content still uses truncate +
+  // expand, per task 5.2). Without this the window would either clip the rounded
+  // bottom or waste space below a short panel.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = cardRef.current;
+    if (!el) return;
+    const apply = (): void => {
+      const cardH = Math.ceil(el.getBoundingClientRect().height);
+      const target = Math.min(MAX_PANEL_HEIGHT, cardH) + SHADOW_ALLOWANCE;
+      void invoke(RESIZE_OVERLAY_COMMAND, { height: target }).catch((e) => {
+        console.warn('[collect] resize failed', e);
+      });
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open]);
+
   if (!open) return null;
 
   const close = (payload: CollectClosedPayload): void => {
     setOpen(false);
     setItems([]);
+    setUi({});
     setConfirming(false);
     setSending(false);
     void emit(COLLECT_CLOSED_EVENT, payload).catch((e) => {
@@ -162,9 +218,28 @@ export default function CollectOverlay() {
   const updateItem = (id: string, patch: Partial<StagingItem>): void => {
     setItems((arr) => arr.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   };
-
+  const updateUi = (id: string, patch: Partial<ItemUiState>): void => {
+    setUi((u) => ({ ...u, [id]: { ...(u[id] ?? defaultUi()), ...patch } }));
+  };
   const removeItem = (id: string): void => {
     setItems((arr) => arr.filter((it) => it.id !== id));
+    setUi((u) => {
+      const { [id]: _drop, ...rest } = u;
+      return rest;
+    });
+  };
+
+  // Task 5.4: drag-to-reorder. Pin (task 5.4 question option 1) stays orthogonal —
+  // drag changes merge order, pin propagates to the merged block's pinned flag.
+  const reorderTo = (fromIdx: number, toIdx: number): void => {
+    if (fromIdx === toIdx) return;
+    setItems((arr) => {
+      const next = arr.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      if (!moved) return arr;
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
   };
 
   const send = async (): Promise<void> => {
@@ -179,32 +254,29 @@ export default function CollectOverlay() {
       return;
     }
     if (!target) {
-      // No capture target — fall back to discard rather than guessing where to land
-      // the merge. The user can set a target and try again.
       setSending(false);
       console.warn('[collect] send aborted: no capture target');
       return;
     }
 
-    // Merge items into one block. Each item becomes a paragraph separated by a blank
-    // line. When all items share a source we keep it as the block's source; when they
-    // differ we prefix each segment with `[from <source>]` (same convention as the
-    // merge-blocks helper). Annotations are newline-joined onto the merged block.
-    const sources = items
-      .map((it) => (it.source ?? '').trim())
-      .filter((s) => s.length > 0);
+    // Build merged content via the segments module: each staging item becomes a
+    // segment with its (optional) annotation lifted onto the `↪ note:` marker
+    // line. Source disagreement gets a `[from <source>] ` prefix on non-first
+    // segments (matches computeMergedFields's convention). The user's drag order
+    // is honored — items render in the order the user laid them out.
+    const sources = items.map((it) => (it.source ?? '').trim()).filter((s) => s.length > 0);
     const allSame = sources.length === items.length && new Set(sources).size <= 1;
     const sharedSource = allSame && sources.length > 0 ? sources[0]! : null;
 
-    const segments: string[] = items.map((it) => {
-      const prefix = allSame ? '' : `[from ${it.source?.trim() || '(无来源)'}] `;
-      return `${prefix}${it.text}`;
+    const segments: Segment[] = items.map((it, idx) => {
+      const isFirst = idx === 0;
+      const prefix = allSame || isFirst ? '' : `[from ${it.source?.trim() || '(无来源)'}] `;
+      return {
+        text: `${prefix}${it.text}`,
+        annotation: it.annotation.trim() || null,
+      };
     });
-    const content = segments.join('\n\n');
-    const annotations = items
-      .map((it) => it.annotation.trim())
-      .filter((a) => a.length > 0);
-    const annotation = annotations.length > 0 ? annotations.join('\n') : null;
+    const content = joinSegments(segments);
     const hasPinned = items.some((it) => it.pinned);
 
     let block: Awaited<ReturnType<typeof createBlock>>;
@@ -213,7 +285,9 @@ export default function CollectOverlay() {
         threadId: target.id,
         kind: 'text',
         content,
-        annotation,
+        // Per-segment annotations are inside `content`; top-level annotation is null
+        // for the merged block (mirrors computeMergedFields).
+        annotation: null,
         source: sharedSource,
       });
     } catch (e) {
@@ -222,7 +296,6 @@ export default function CollectOverlay() {
       return;
     }
 
-    // Pin the merged block if any staging item had its pin flag flipped.
     if (hasPinned) {
       try {
         await togglePinDb(block.id);
@@ -232,8 +305,6 @@ export default function CollectOverlay() {
       }
     }
 
-    // Attach each staging item's URL (if any) to the new block. Errors don't block
-    // the Send — the merged block is more important than a single dropped attachment.
     for (const it of items) {
       const u = it.url.trim();
       if (!u) continue;
@@ -255,14 +326,15 @@ export default function CollectOverlay() {
 
   return (
     <div
-      className="overlay-in w-full overflow-hidden rounded-lg border border-line-strong bg-paper"
-      style={{ boxShadow: 'var(--shadow-toast)' }}
+      ref={cardRef}
+      className="overlay-in flex w-full flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"
+      style={{ boxShadow: 'var(--shadow-toast)', maxHeight: MAX_PANEL_HEIGHT }}
     >
-      <header className="flex items-center justify-between border-b border-line bg-paper-2/40 px-3 py-2">
-        <div className="font-ui text-[12px] text-ink">
-          <span className="font-serif">正在收集</span>
+      <header className="flex flex-none items-center justify-between border-b border-line bg-paper-2/40 px-3 py-1.5">
+        <div className="font-ui text-[11px] text-ink">
+          <span className="font-serif text-[12px]">正在收集</span>
           <span className="ml-1.5 text-muted">
-            {items.length === 0 ? '— 双击 ⌥ 或 ⌘⇧C 把要存的内容加入' : `· ${items.length} 项`}
+            {items.length === 0 ? '— ⌥⌥ 或 ⌘⇧C 加入内容' : `· ${items.length}`}
           </span>
         </div>
         <button
@@ -272,78 +344,54 @@ export default function CollectOverlay() {
           aria-label="关闭"
           className="rounded p-1 text-muted/70 hover:bg-paper hover:text-ink"
         >
-          <X size={12} />
+          <X size={11} />
         </button>
       </header>
 
-      <ul className="max-h-72 overflow-y-auto px-2 py-1.5">
+      <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
         {items.length === 0 && (
-          <li className="px-2 py-3 font-ui text-[11px] leading-relaxed text-muted">
-            按你平时的方式继续捕捉（⌥⌥ 或 ⌘⇧C）。在这里收集成几条草稿，再发送为一块整理过的 block。
-          </li>
+          <p className="px-1 py-2 font-ui text-[11px] leading-relaxed text-muted">
+            继续 ⌥⌥ 或 ⌘⇧C 捕捉，会在这里堆成草稿。整理后发送，会合并为一块写入当前目标脉络。
+          </p>
         )}
-        {items.map((it) => (
-          <li
-            key={it.id}
-            className="mb-1.5 rounded-md border border-line bg-paper-2/30 p-2 last:mb-0"
-          >
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] text-muted">
-              {it.source && <span className="truncate">来自 {it.source}</span>}
-              <button
-                type="button"
-                onClick={() => updateItem(it.id, { pinned: !it.pinned })}
-                title={it.pinned ? '取消置顶' : '置顶'}
-                aria-label={it.pinned ? '取消置顶' : '置顶'}
-                className={`ml-auto rounded p-1 transition-colors ${
-                  it.pinned
-                    ? 'text-accent'
-                    : 'text-muted/70 hover:bg-paper hover:text-ink'
-                }`}
-              >
-                <Pin size={10} className={it.pinned ? 'fill-current' : ''} />
-              </button>
-              <button
-                type="button"
-                onClick={() => removeItem(it.id)}
-                title="删除此项"
-                aria-label="删除"
-                className="rounded p-1 text-muted/70 hover:bg-paper hover:text-urgent"
-              >
-                <Trash2 size={10} />
-              </button>
-            </div>
-            <textarea
-              value={it.text}
-              onChange={(e) => updateItem(it.id, { text: e.target.value })}
-              rows={2}
-              spellCheck={false}
-              className="w-full resize-none rounded border border-line bg-paper px-2 py-1 font-ui text-[12px] leading-[1.5] text-ink outline-none focus:border-line-strong"
+        {items.map((it, idx) => {
+          const itemUi = ui[it.id] ?? defaultUi();
+          return (
+            <StagingRow
+              key={it.id}
+              item={it}
+              ui={itemUi}
+              isDragging={dragFromIdx === idx}
+              onTextChange={(v) => updateItem(it.id, { text: v })}
+              onAnnotationChange={(v) => updateItem(it.id, { annotation: v })}
+              onUrlChange={(v) => updateItem(it.id, { url: v })}
+              onTogglePin={() => updateItem(it.id, { pinned: !it.pinned })}
+              onToggleExpand={() => updateUi(it.id, { expanded: !itemUi.expanded })}
+              onToggleAnnotation={() =>
+                updateUi(it.id, { editingAnnotation: !itemUi.editingAnnotation })
+              }
+              onToggleUrl={() => updateUi(it.id, { editingUrl: !itemUi.editingUrl })}
+              onRemove={() => removeItem(it.id)}
+              onDragStart={() => setDragFromIdx(idx)}
+              onDragEnd={() => setDragFromIdx(null)}
+              onDragOver={(e) => {
+                if (dragFromIdx === null) return;
+                e.preventDefault();
+              }}
+              onDrop={(e) => {
+                if (dragFromIdx === null) return;
+                e.preventDefault();
+                reorderTo(dragFromIdx, idx);
+                setDragFromIdx(null);
+              }}
             />
-            <textarea
-              value={it.annotation}
-              onChange={(e) => updateItem(it.id, { annotation: e.target.value })}
-              placeholder="批注（可选）"
-              rows={1}
-              spellCheck={false}
-              className="mt-1 w-full resize-none rounded border border-line bg-paper px-2 py-1 font-ui text-[11px] italic leading-[1.5] text-ink-2 placeholder:text-muted/70 outline-none focus:border-line-strong"
-            />
-            <div className="mt-1 flex items-center gap-1">
-              <Link2 size={10} className="shrink-0 text-muted/70" />
-              <input
-                value={it.url}
-                onChange={(e) => updateItem(it.id, { url: e.target.value })}
-                placeholder="附一个 URL（可选）"
-                spellCheck={false}
-                className="flex-1 rounded border border-line bg-paper px-1.5 py-0.5 font-ui text-[11px] text-ink outline-none focus:border-line-strong"
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
+          );
+        })}
+      </div>
 
       {confirming ? (
-        <footer className="flex items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-2 text-[11px]">
-          <span className="text-muted">丢弃 {items.length} 条未发送的草稿？</span>
+        <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
+          <span className="text-muted">丢弃 {items.length} 条草稿？</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -362,7 +410,7 @@ export default function CollectOverlay() {
           </div>
         </footer>
       ) : (
-        <footer className="flex items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-2 text-[11px]">
+        <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
           <button
             type="button"
             onClick={requestClose}
@@ -385,3 +433,202 @@ export default function CollectOverlay() {
   );
 }
 
+// --- Per-item row -----------------------------------------------------------------------
+// Block-like (task 4): default-quiet, line-clamped preview, hover toolbar exposes
+// annotate / url toggles, click body to expand into edit mode. URL and annotation are
+// hidden until either has content OR the toggle is on, so stacked staging items don't
+// pile up empty input fields.
+
+interface StagingRowProps {
+  item: StagingItem;
+  ui: ItemUiState;
+  isDragging: boolean;
+  onTextChange: (v: string) => void;
+  onAnnotationChange: (v: string) => void;
+  onUrlChange: (v: string) => void;
+  onTogglePin: () => void;
+  onToggleExpand: () => void;
+  onToggleAnnotation: () => void;
+  onToggleUrl: () => void;
+  onRemove: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+}
+
+function StagingRow({
+  item,
+  ui,
+  isDragging,
+  onTextChange,
+  onAnnotationChange,
+  onUrlChange,
+  onTogglePin,
+  onToggleExpand,
+  onToggleAnnotation,
+  onToggleUrl,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+}: StagingRowProps) {
+  const [hover, setHover] = useState(false);
+  const annotationVisible = ui.editingAnnotation || item.annotation.trim().length > 0;
+  const urlVisible = ui.editingUrl || item.url.trim().length > 0;
+  const showActions = hover || ui.expanded;
+
+  return (
+    <article
+      draggable
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onDragStart={(e) => {
+        // dataTransfer must be set or some browsers don't fire dragover. Empty
+        // string is fine — we track the index in component state, not in the
+        // payload.
+        e.dataTransfer.setData('text/plain', item.id);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`mb-1 rounded-md border border-line bg-paper-2/30 px-1.5 py-1 last:mb-0 transition-opacity ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+    >
+      {/* Row header: drag handle + source label + hover-revealed action chips. */}
+      <div className="flex items-center gap-1 text-[10px] text-muted">
+        <span
+          // Cursor cue on the handle; the whole article is draggable, but the handle
+          // makes the affordance discoverable.
+          className="cursor-grab text-muted/60 hover:text-ink"
+          title="拖动调整顺序"
+          aria-hidden="true"
+        >
+          <GripVertical size={10} />
+        </span>
+        {item.source && <span className="truncate">{item.source}</span>}
+        <div
+          className={`ml-auto flex items-center gap-0.5 transition-opacity ${
+            showActions ? 'opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+        >
+          <RowBtn
+            title={item.pinned ? '取消置顶' : '标为重点（发送后整块会置顶）'}
+            onClick={onTogglePin}
+            active={item.pinned}
+          >
+            <Pin size={10} className={item.pinned ? 'fill-current' : ''} />
+          </RowBtn>
+          <RowBtn
+            title={annotationVisible ? '隐藏批注框' : '添加批注'}
+            onClick={onToggleAnnotation}
+            active={ui.editingAnnotation}
+          >
+            <MessageSquarePlus size={10} />
+          </RowBtn>
+          <RowBtn
+            title={urlVisible ? '隐藏链接框' : '附一个链接'}
+            onClick={onToggleUrl}
+            active={ui.editingUrl}
+          >
+            <Link2 size={10} />
+          </RowBtn>
+          <RowBtn title="删除此项" onClick={onRemove} danger>
+            <Trash2 size={10} />
+          </RowBtn>
+        </div>
+      </div>
+
+      {/* Body: text preview (line-clamped) or full textarea in edit mode.
+          Click the preview to expand into edit; click outside (blur) collapses
+          again. Mirrors BlockItem's "no internal scrollbar — truncate + expand". */}
+      {ui.expanded ? (
+        <textarea
+          autoFocus
+          value={item.text}
+          onChange={(e) => onTextChange(e.target.value)}
+          onBlur={onToggleExpand}
+          rows={Math.min(8, Math.max(2, item.text.split('\n').length + 1))}
+          spellCheck={false}
+          className="mt-1 w-full resize-none rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] leading-[1.5] text-ink outline-none focus:border-accent"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          title="点击编辑"
+          // Line-clamped preview. The whole row above is draggable, so this
+          // button stops propagation on mousedown so a click-to-edit doesn't
+          // accidentally initiate a drag.
+          onMouseDown={(e) => e.stopPropagation()}
+          className="mt-0.5 block w-full whitespace-pre-wrap break-words rounded px-1 py-0.5 text-left font-ui text-[12px] leading-[1.45] text-ink hover:bg-paper"
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {item.text || <span className="text-muted/70">（空）</span>}
+        </button>
+      )}
+
+      {/* Annotation: same visibility rule as a real block — present only when set
+          OR the user just opened the field. Quiet styling so it doesn't compete. */}
+      {annotationVisible && (
+        <textarea
+          value={item.annotation}
+          onChange={(e) => onAnnotationChange(e.target.value)}
+          placeholder="批注（可选）"
+          rows={1}
+          spellCheck={false}
+          className="mt-1 w-full resize-none rounded border border-line bg-paper px-1.5 py-1 font-ui text-[11px] italic leading-[1.4] text-ink-2 placeholder:text-muted/60 outline-none focus:border-line-strong"
+        />
+      )}
+
+      {urlVisible && (
+        <input
+          value={item.url}
+          onChange={(e) => onUrlChange(e.target.value)}
+          placeholder="链接（可选）"
+          spellCheck={false}
+          className="mt-1 w-full rounded border border-line bg-paper px-1.5 py-0.5 font-ui text-[11px] text-ink outline-none focus:border-line-strong"
+        />
+      )}
+    </article>
+  );
+}
+
+interface RowBtnProps {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}
+
+function RowBtn({ title, onClick, active, danger, children }: RowBtnProps) {
+  const tone = danger
+    ? 'text-muted/70 hover:bg-paper hover:text-urgent'
+    : active
+      ? 'text-accent'
+      : 'text-muted/70 hover:bg-paper hover:text-ink';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      onMouseDown={(e) => {
+        // Stop drag from initiating when the user is just clicking an action chip.
+        e.stopPropagation();
+      }}
+      className={`rounded p-1 transition-colors ${tone}`}
+    >
+      {children}
+    </button>
+  );
+}
