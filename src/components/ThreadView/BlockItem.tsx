@@ -118,12 +118,15 @@ function TextBlockItem({
   }, [editingContent]);
 
   useEffect(() => {
-    if (editingAnnotation && annotationRef.current) {
+    // v2.8 §20.4: when both fields enter edit together (double-click path), keep focus
+    // on the content textarea — the spec says double-click lands focus on content by
+    // default. Auto-focus the annotation only when it's the standalone ✑ entry point.
+    if (editingAnnotation && !editingContent && annotationRef.current) {
       const el = annotationRef.current;
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
-  }, [editingAnnotation]);
+  }, [editingAnnotation, editingContent]);
 
   useEffect(() => {
     if (attachingUrl && urlRef.current) urlRef.current.focus();
@@ -165,6 +168,16 @@ function TextBlockItem({
   };
 
   const cancelAnnotation = (): void => {
+    setAnnotationDraft(block.annotation ?? '');
+    setEditingAnnotation(false);
+  };
+
+  // v2.8 §20.4: unified-mode cancel. When the user entered edit via double-click both
+  // fields are open at once; Esc on either should drop both drafts and close both, so
+  // they can't get out of step (one revert, one stale draft committed by a later blur).
+  const cancelAll = (): void => {
+    setContentDraft(block.content);
+    setEditingContent(false);
     setAnnotationDraft(block.annotation ?? '');
     setEditingAnnotation(false);
   };
@@ -279,7 +292,9 @@ function TextBlockItem({
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
-              cancelContent();
+              // v2.8 §20.4: in unified edit mode (double-click) Esc cancels both fields.
+              if (editingAnnotation) cancelAll();
+              else cancelContent();
             }
           }}
           rows={Math.min(12, Math.max(2, contentDraft.split('\n').length + 1))}
@@ -290,8 +305,19 @@ function TextBlockItem({
         <>
           <div
             ref={measureRef}
-            onDoubleClick={readOnly ? undefined : () => setEditingContent(true)}
-            title={readOnly ? undefined : '双击编辑'}
+            // v2.8 §20.4: double-click opens content AND annotation together — annotation
+            // becomes a quiet area at the bottom of edit mode. Both save on blur; Esc on
+            // either cancels both. The ✑ hover action still opens annotation alone for
+            // users who reach for it instead (decide post-dogfooding which stays).
+            onDoubleClick={
+              readOnly
+                ? undefined
+                : () => {
+                    setEditingContent(true);
+                    setEditingAnnotation(true);
+                  }
+            }
+            title={readOnly ? undefined : '双击编辑（含批注）'}
             style={
               collapsed
                 ? {
@@ -318,8 +344,11 @@ function TextBlockItem({
         </>
       )}
 
-      {/* Annotation — visually distinct (left rule + paper-2 tint) so it never reads
-          as part of the captured source text. */}
+      {/* Annotation. Read-only view stays visually distinct (left rule + paper-2 tint)
+          so it never reads as part of the captured source text. The edit textarea (v2.8
+          §20.4) is quiet and subordinate to the content textarea above — smaller font,
+          muted color, lighter border — so most blocks (which won't have annotations)
+          show a barely-there input rather than competing for attention. */}
       {(block.annotation || editingAnnotation) &&
         (editingAnnotation ? (
           <textarea
@@ -330,15 +359,17 @@ function TextBlockItem({
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
-                cancelAnnotation();
+                // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
+                if (editingContent) cancelAll();
+                else cancelAnnotation();
               } else if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 void commitAnnotation();
               }
             }}
             rows={2}
-            placeholder="写一条批注…（Enter 保存，Shift+Enter 换行，Esc 取消）"
-            className="mt-2 w-full resize-none rounded border-l-2 border-accent bg-paper-2/40 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2 outline-none focus:border-accent"
+            placeholder="批注（可选）"
+            className="mt-1.5 w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
             spellCheck={false}
           />
         ) : (
