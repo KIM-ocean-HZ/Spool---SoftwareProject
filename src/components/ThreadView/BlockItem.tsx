@@ -64,6 +64,7 @@ function TextBlockItem({
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
   const attach = useBlocksStore((s) => s.attach);
   const detach = useBlocksStore((s) => s.detach);
+  const setIncludeInPack = useBlocksStore((s) => s.setIncludeInPack);
 
   // Action-bar reveal is JS-driven (not CSS group-hover): mouseleave deterministically
   // clears it, so the bar can't get stuck visible when the cursor moves to the block
@@ -375,6 +376,9 @@ function TextBlockItem({
       <BlockAttachments
         attachments={attachments}
         onDetach={readOnly ? undefined : (aid) => void detach(aid, block.id)}
+        onSetIncludeInPack={
+          readOnly ? undefined : (aid, v) => void setIncludeInPack(aid, block.id, v)
+        }
       />
     </article>
   );

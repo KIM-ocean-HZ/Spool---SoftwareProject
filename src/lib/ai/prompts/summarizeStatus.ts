@@ -25,6 +25,8 @@ export const buildStatusPrompt = (
   blocks: Block[],
   // v2.7: extracted text for file attachments, keyed by owning block id. Defaulted so
   // existing call sites and tests without attachments stay valid.
+  // v2.8 §20.2: only attachments with include_in_pack === true are inlined — fixes the
+  // v2.7 token-cost concern (every extracted PDF was inlined unconditionally).
   attachmentsByBlock: Record<string, Attachment[]> = {},
 ) => `
 你是一个项目状态摘要工具。读下面这条项目脉络里按时间排列的信息块,写一句话总结"这个项目现在到哪一步了"。
@@ -36,7 +38,10 @@ ${thread.title || '(无标题)'}
 ${blocks
   .map((b) => {
     const atts = (attachmentsByBlock[b.id] ?? []).filter(
-      (a) => a.extractedText != null && a.extractedText.trim().length > 0,
+      (a) =>
+        a.includeInPack &&
+        a.extractedText != null &&
+        a.extractedText.trim().length > 0,
     );
     return `[${formatTime(b.createdAt)}] ${b.content}${atts.map(renderAttachmentText).join('')}`;
   })

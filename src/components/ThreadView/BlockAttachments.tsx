@@ -8,6 +8,9 @@ interface Props {
   attachments: readonly Attachment[];
   // Omitted in read-only contexts (the digest view) — without it no detach control renders.
   onDetach?: (attachmentId: string) => void;
+  // v2.8 §20.2: toggle per-attachment opt-in for inlining extracted_text into pack /
+  // summaries. Omitted in read-only contexts; only rendered on chips with extracted text.
+  onSetIncludeInPack?: (attachmentId: string, value: boolean) => void;
 }
 
 // Per PLAN_EN.md §9.6: an attachment renders as a chip on its block. Icon picked by
@@ -19,7 +22,7 @@ interface Props {
 // whose attachment carries auto-extracted text gain a chevron that expands an inline,
 // read-only text preview below the chip row. The chip's open-in-native-app click is
 // unchanged; the chevron is a separate control.
-export default function BlockAttachments({ attachments, onDetach }: Props) {
+export default function BlockAttachments({ attachments, onDetach, onSetIncludeInPack }: Props) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
   if (attachments.length === 0) return null;
@@ -74,6 +77,25 @@ export default function BlockAttachments({ attachments, onDetach }: Props) {
                   className="flex-none px-1 py-0.5 text-muted transition-colors hover:text-accent"
                 >
                   {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                </button>
+              )}
+              {hasText(a) && onSetIncludeInPack && (
+                <button
+                  type="button"
+                  onClick={() => onSetIncludeInPack(a.id, !a.includeInPack)}
+                  title={
+                    a.includeInPack
+                      ? '已加入 Pack —— 点击移出'
+                      : '加入 Pack（让提取的文本进入打包与摘要）'
+                  }
+                  aria-pressed={a.includeInPack}
+                  className={`flex-none rounded-full px-1.5 py-0.5 text-[10px] transition-colors ${
+                    a.includeInPack
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-muted hover:bg-paper-2 hover:text-ink-2'
+                  }`}
+                >
+                  {a.includeInPack ? '已加入 Pack' : '加入 Pack'}
                 </button>
               )}
               {onDetach && (

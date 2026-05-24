@@ -77,8 +77,10 @@ const renderExtractedText = (text: string): string => {
 };
 
 // One attachment, rendered as the indented sub-lines beneath its block. File attachments
-// carrying extracted text inline that text; everything else points at the Related Files
-// section. `extractedText` is populated by the v2.7 extraction pipeline (extractor.ts).
+// inline their extracted text ONLY when the user opted in (v2.8 §20.2: include_in_pack).
+// Everything else — opted-out files, files without extracted text, folders — points at
+// the Related Files section. `extractedText` is populated by the v2.7 extraction pipeline
+// (extractor.ts); `includeInPack` is the v2.8 split that controls inlining specifically.
 const renderAttachment = (a: Attachment): string[] => {
   const label = attachmentLabel(a);
   if (a.kind === 'url') {
@@ -88,7 +90,7 @@ const renderAttachment = (a: Attachment): string[] => {
     return [`${NOTE_INDENT}${FOLDER_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
   }
   // kind === 'file'
-  if (a.extractedText != null) {
+  if (a.extractedText != null && a.includeInPack) {
     return [
       `${NOTE_INDENT}${FILE_MARKER}${label} (${a.extractionKind ?? 'text'})`,
       renderExtractedText(a.extractedText),
@@ -169,14 +171,21 @@ export function assemble({ thread, blocks, attachments, refTitles, now }: Assemb
   }
 
   // Related Files & Links: every attachment in the thread, collected so the user can
-  // scan at a glance what artifacts belong to the project.
+  // scan at a glance what artifacts belong to the project. v2.8 §9.5: a file attachment
+  // whose extracted_text exists but was NOT inlined (include_in_pack === false) carries
+  // a "[extracted: yes, not inlined]" tag, so the receiving AI knows content exists but
+  // was deliberately withheld for length — and can ask the user to inline it if needed.
   const all = attachments ?? [];
   if (all.length > 0) {
     out.push('');
     out.push(SECTION_FILES);
     out.push('');
     for (const a of all) {
-      out.push(`- ${attachmentLabel(a)} — ${a.target}`);
+      const notInlined =
+        a.kind === 'file' && a.extractedText != null && !a.includeInPack
+          ? '  [extracted: yes, not inlined]'
+          : '';
+      out.push(`- ${attachmentLabel(a)} — ${a.target}${notInlined}`);
     }
   }
 

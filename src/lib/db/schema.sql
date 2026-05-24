@@ -50,8 +50,10 @@ CREATE INDEX IF NOT EXISTS idx_blocks_thread
 
 -- Attachment: a file, folder, or URL linked to a block.
 -- v2.7: `extracted_text` added — for `file` kinds with extractable text (PDF, docx, txt,
--- md, …), Spool auto-extracts the file's content on attach and caches it here; pack output
--- inlines it (§9.6), replacing the v1 "attachments are pointers only" design.
+-- md, …), Spool auto-extracts the file's content on attach and caches it here.
+-- v2.8 (§20.2): `include_in_pack` splits the formerly-conflated "extract" and "inline into
+-- pack/summary" — extraction stays always-on (cheap, local, powers preview); inlining is
+-- opt-in per attachment (default 0) so the user controls pack length / token cost.
 CREATE TABLE IF NOT EXISTS attachments (
   id              TEXT PRIMARY KEY,
   block_id        TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
@@ -61,6 +63,7 @@ CREATE TABLE IF NOT EXISTS attachments (
   extracted_text  TEXT,                            -- v2.7: nullable; auto-extracted text for file kinds
   extracted_at    INTEGER,                         -- v2.7: ms epoch; null if extraction not attempted
   extraction_kind TEXT,                            -- v2.7: 'pdf' | 'docx' | 'plaintext' | 'failed' | null
+  include_in_pack INTEGER NOT NULL DEFAULT 0,      -- v2.8 §20.2: 1 = inline extracted_text into pack/summaries
   created_at      INTEGER NOT NULL
 );
 

@@ -43,6 +43,7 @@ const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {})
   extractedText: null,
   extractedAt: null,
   extractionKind: null,
+  includeInPack: false,
   createdAt: T(0),
   ...opts,
 });
@@ -126,10 +127,14 @@ describe('assemble', () => {
     expect(out).toContain('- https://example.com/spec — https://example.com/spec');
   });
 
-  it("inlines an attachment's extracted text indented under its block", () => {
+  it("inlines an attachment's extracted text only when include_in_pack === true (§20.2)", () => {
     const blocks = [textBlock('b1', 'see attached')];
     const attachments = [
-      attachment('a1', 'b1', { extractedText: 'line one\nline two', extractionKind: 'pdf' }),
+      attachment('a1', 'b1', {
+        extractedText: 'line one\nline two',
+        extractionKind: 'pdf',
+        includeInPack: true,
+      }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).toContain('    ↳ attached file: paper.pdf (pdf)');
@@ -137,17 +142,55 @@ describe('assemble', () => {
     expect(out).toContain('      line two');
   });
 
-  it('truncates extracted text longer than 8000 chars with a marker', () => {
+  it('does NOT inline extracted text when include_in_pack === false (default, §20.2)', () => {
+    const blocks = [textBlock('b1', 'see attached')];
+    const attachments = [
+      attachment('a1', 'b1', {
+        extractedText: 'should not appear in body',
+        extractionKind: 'pdf',
+        // includeInPack defaults to false via the factory
+      }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    // The chip points at Related Files & Links instead of inlining the body text.
+    expect(out).toContain(
+      '    ↳ attached file: paper.pdf — see Related Files & Links section below',
+    );
+    expect(out).not.toContain('should not appear in body');
+    // And Related Files & Links tags the row with the not-inlined marker so the AI
+    // knows content exists but was withheld.
+    expect(out).toContain(
+      '- paper.pdf — /Users/x/Desktop/paper.pdf  [extracted: yes, not inlined]',
+    );
+  });
+
+  it('omits the not-inlined marker for files without extracted text', () => {
+    const blocks = [textBlock('b1', 'see attached')];
+    const attachments = [
+      attachment('a1', 'b1', { label: 'photo.jpg', target: '/x/photo.jpg' }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).toContain('- photo.jpg — /x/photo.jpg');
+    expect(out).not.toContain('[extracted: yes, not inlined]');
+  });
+
+  it('truncates inlined extracted text longer than 8000 chars with a marker', () => {
     const long = 'x'.repeat(8500);
     const blocks = [textBlock('b1', 'big file')];
-    const attachments = [attachment('a1', 'b1', { extractedText: long, extractionKind: 'pdf' })];
+    const attachments = [
+      attachment('a1', 'b1', {
+        extractedText: long,
+        extractionKind: 'pdf',
+        includeInPack: true,
+      }),
+    ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).toContain('[... truncated, 500 more chars not shown ...]');
     expect(out).toContain('x'.repeat(8000));
     expect(out).not.toContain('x'.repeat(8001));
   });
 
-  it('renders a block with a mix of extracted, failed, and URL attachments', () => {
+  it('renders a block with a mix of inlined / extracted-not-inlined / failed / URL attachments', () => {
     const blocks = [textBlock('b1', 'mixed bag')];
     const attachments = [
       attachment('a1', 'b1', {
@@ -155,21 +198,36 @@ describe('assemble', () => {
         target: '/x/notes.pdf',
         extractedText: 'extracted body text',
         extractionKind: 'pdf',
+        includeInPack: true,
       }),
       attachment('a2', 'b1', {
+        label: 'reference.pdf',
+        target: '/x/reference.pdf',
+        extractedText: 'extracted but kept out of pack',
+        extractionKind: 'pdf',
+        // includeInPack: false
+      }),
+      attachment('a3', 'b1', {
         label: 'photo.jpg',
         target: '/x/photo.jpg',
         extractionKind: 'failed',
       }),
-      attachment('a3', 'b1', { kind: 'url', label: 'spec', target: 'https://e.com/s' }),
+      attachment('a4', 'b1', { kind: 'url', label: 'spec', target: 'https://e.com/s' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).toContain('    ↳ attached file: notes.pdf (pdf)');
     expect(out).toContain('      extracted body text');
     expect(out).toContain(
+      '    ↳ attached file: reference.pdf — see Related Files & Links section below',
+    );
+    expect(out).not.toContain('extracted but kept out of pack');
+    expect(out).toContain(
       '    ↳ attached file: photo.jpg — see Related Files & Links section below',
     );
     expect(out).toContain('    ↳ attached URL: spec — https://e.com/s');
+    expect(out).toContain(
+      '- reference.pdf — /x/reference.pdf  [extracted: yes, not inlined]',
+    );
   });
 
   it('renders ref blocks using the refTitles map', () => {

@@ -15,6 +15,7 @@ export interface Attachment {
   extractedText: string | null;                // v2.7: auto-extracted text for file kinds
   extractedAt: number | null;                  // v2.7: ms epoch when extraction completed; null if unattempted
   extractionKind: AttachmentExtractionKind;     // v2.7: which extractor handled this (or 'failed')
+  includeInPack: boolean;                       // v2.8 §20.2: opt-in flag for inlining extracted_text into pack/summaries
   createdAt: number;
 }
 
@@ -34,6 +35,7 @@ interface Row {
   extracted_text: string | null;
   extracted_at: number | null;
   extraction_kind: AttachmentExtractionKind;
+  include_in_pack: number;
   created_at: number;
 }
 
@@ -46,11 +48,12 @@ const fromRow = (r: Row): Attachment => ({
   extractedText: r.extracted_text,
   extractedAt: r.extracted_at,
   extractionKind: r.extraction_kind,
+  includeInPack: r.include_in_pack === 1,
   createdAt: r.created_at,
 });
 
 const SELECT_COLS =
-  'id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, created_at';
+  'id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at';
 
 export const listAttachmentsByBlock = async (blockId: string): Promise<Attachment[]> => {
   const db = await getDb();
@@ -67,7 +70,7 @@ export const listAttachmentsByThread = async (threadId: string): Promise<Attachm
   const db = await getDb();
   const rows = await db.select<Row[]>(
     `SELECT a.id, a.block_id, a.kind, a.target, a.label,
-            a.extracted_text, a.extracted_at, a.extraction_kind, a.created_at
+            a.extracted_text, a.extracted_at, a.extraction_kind, a.include_in_pack, a.created_at
        FROM attachments a
        JOIN blocks b ON b.id = a.block_id
       WHERE b.thread_id = $1
@@ -93,8 +96,9 @@ export const listAttachmentsNeedingExtraction = async (): Promise<Attachment[]> 
 
 export const createAttachment = async (args: CreateAttachmentArgs): Promise<Attachment> => {
   const db = await getDb();
-  // The three extraction columns start NULL — they are filled in asynchronously after
-  // the row exists, by the v2.7 extraction pipeline (see updateAttachmentExtraction).
+  // Extraction columns start NULL — filled in asynchronously by the v2.7 extraction
+  // pipeline (see updateAttachmentExtraction). include_in_pack defaults to false (v2.8
+  // §20.2): extraction stays always-on for preview, but inlining is opt-in per attachment.
   const a: Attachment = {
     id: nanoid(),
     blockId: args.blockId,
@@ -104,6 +108,7 @@ export const createAttachment = async (args: CreateAttachmentArgs): Promise<Atta
     extractedText: null,
     extractedAt: null,
     extractionKind: null,
+    includeInPack: false,
     createdAt: Date.now(),
   };
   await db.execute(
@@ -130,6 +135,17 @@ export const updateAttachmentExtraction = async (
       WHERE id = $4`,
     [text, Date.now(), kind, id],
   );
+};
+
+// v2.8 §20.2: flip per-attachment opt-in for inlining extracted_text into pack/summaries.
+// Extraction itself is untouched — only whether assemble.ts / status / digest prompts
+// inline the cached text. Persisted as 0/1; the in-memory model carries it as boolean.
+export const setIncludeInPack = async (id: string, value: boolean): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE attachments SET include_in_pack = $1 WHERE id = $2', [
+    value ? 1 : 0,
+    id,
+  ]);
 };
 
 export const deleteAttachment = async (id: string): Promise<void> => {

@@ -29,6 +29,9 @@ interface BlocksState {
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
   detach: (attachmentId: string, blockId: string) => Promise<void>;
+  // v2.8 §20.2: per-attachment toggle for inlining extracted_text into pack/summaries.
+  // Persists immediately and patches the in-memory index so the chip reflects state.
+  setIncludeInPack: (attachmentId: string, blockId: string, value: boolean) => Promise<void>;
   // v2.7: one-time startup pass that extracts text for legacy file attachments created
   // before the extraction pipeline existed (PLAN §8.1, §9.6).
   backfillExtractions: () => Promise<void>;
@@ -224,6 +227,22 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         }
         return {
           attachmentsByBlock: { ...s.attachmentsByBlock, [blockId]: filtered },
+        };
+      });
+    },
+
+    setIncludeInPack: async (attachmentId, blockId, value) => {
+      await adb.setIncludeInPack(attachmentId, value);
+      set((s) => {
+        const list = s.attachmentsByBlock[blockId];
+        if (!list) return s;
+        return {
+          attachmentsByBlock: {
+            ...s.attachmentsByBlock,
+            [blockId]: list.map((a) =>
+              a.id === attachmentId ? { ...a, includeInPack: value } : a,
+            ),
+          },
         };
       });
     },
