@@ -103,15 +103,25 @@ function TextBlockItem({
   const [collapsed, setCollapsed] = useState(true);
   const [needsTruncation, setNeedsTruncation] = useState(false);
 
-  // v2.8 §20.5 (Track B): select-to-highlight. When the user makes a text selection
-  // inside this block's rendered content, a small floating "标为重点?" prompt appears
-  // anchored to the selection rect. Confirming wraps the selected substring in == in
-  // the stored content. The mapping is substring-indexOf (see highlight.ts limitation),
-  // and the whole feature is isolated behind highlight.ts + HighlightedContent.tsx so
-  // a §20.8 cut is a clean revert.
+  // v2.8 §20.5 (Track B): select-to-highlight.
+  //
+  // Two entry points share one wrap action:
+  //  - Display mode: select text → small floating "标为重点?" prompt appears anchored
+  //    to the selection rect, OR the highlight button in the hover toolbar fires.
+  //  - Edit mode (textarea): select text inside the textarea → the floating prompt
+  //    does not appear (the browser's native selection highlight is enough cue), but
+  //    the toolbar's highlight button is still enabled and wraps the textarea's
+  //    selection in the draft (committed when the user finishes editing).
+  //
+  // Selection state is tracked unified for both modes so the toolbar's `canHighlight`
+  // chip enables/disables correctly. The whole feature stays isolated behind
+  // highlight.ts + HighlightedContent.tsx for a clean §20.8 revert.
   const [highlightPrompt, setHighlightPrompt] = useState<
     { x: number; y: number; text: string } | null
   >(null);
+  // Last-known selected text *within this block*, refreshed on selectionchange.
+  // Drives `canHighlight` for the toolbar button in both display and edit mode.
+  const [highlightableSelection, setHighlightableSelection] = useState<string | null>(null);
 
   useEffect(() => {
     if (!editingContent) setContentDraft(block.content);
@@ -151,27 +161,57 @@ function TextBlockItem({
     setNeedsTruncation(el.scrollHeight - el.clientHeight > 1);
   }, [block.content, collapsed, editingContent]);
 
-  // v2.8 §20.5: dismiss the highlight prompt when the selection is cleared (the user
-  // clicked elsewhere) or the user pressed Esc / scrolled. Without this, the prompt
-  // can stick around after the rect it was anchored to is gone.
+  // v2.8 §20.5: track the live selection so (a) the floating prompt dismisses when
+  // it becomes stale and (b) the toolbar's highlight button enables/disables based
+  // on whether the current selection sits inside THIS block. Works in both display
+  // mode (selection inside measureRef) and edit mode (selection inside contentRef
+  // textarea — read via selectionStart/End, since selectionchange fires for
+  // textareas too).
   useEffect(() => {
-    if (!highlightPrompt) return;
-    const dismissOnSelectionChange = (): void => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
-        setHighlightPrompt(null);
+    if (readOnly) return;
+    const onSelectionChange = (): void => {
+      // Edit mode: read directly from the textarea.
+      if (editingContent) {
+        const ta = contentRef.current;
+        if (ta && document.activeElement === ta && ta.selectionStart !== ta.selectionEnd) {
+          const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+          setHighlightableSelection(isHighlightable(text) ? text : null);
+        } else {
+          setHighlightableSelection(null);
+        }
+        return;
       }
+      // Display mode: window selection must be inside this block's content.
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setHighlightableSelection(null);
+        if (highlightPrompt) setHighlightPrompt(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      const container = measureRef.current;
+      if (!container || !container.contains(range.commonAncestorContainer)) {
+        setHighlightableSelection(null);
+        return;
+      }
+      const text = sel.toString();
+      if (!isHighlightable(text)) {
+        setHighlightableSelection(null);
+        if (highlightPrompt) setHighlightPrompt(null);
+        return;
+      }
+      setHighlightableSelection(text);
     };
-    const dismissOnKey = (e: KeyboardEvent): void => {
+    const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setHighlightPrompt(null);
     };
-    document.addEventListener('selectionchange', dismissOnSelectionChange);
-    document.addEventListener('keydown', dismissOnKey);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('selectionchange', dismissOnSelectionChange);
-      document.removeEventListener('keydown', dismissOnKey);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('keydown', onKey);
     };
-  }, [highlightPrompt]);
+  }, [readOnly, editingContent, highlightPrompt]);
 
   const commitContent = async (): Promise<void> => {
     const next = contentDraft;
@@ -250,17 +290,72 @@ function TextBlockItem({
     });
   };
 
-  const confirmHighlight = async (): Promise<void> => {
-    if (!highlightPrompt) return;
-    const { content: next, changed } = wrapHighlight(block.content, highlightPrompt.text);
-    setHighlightPrompt(null);
-    window.getSelection()?.removeAllRanges();
+  // Unified wrap action used by BOTH the floating prompt and the toolbar button.
+  // `source` controls which content string the wrap applies to:
+  //  - 'display' → wrap block.content and persist via setContent.
+  //  - 'edit'    → wrap the textarea draft (contentDraft) so the change rides the
+  //                normal blur-commit; lets the user keep editing without losing the
+  //                in-flight draft.
+  const runHighlight = async (selected: string): Promise<void> => {
+    const trimmed = selected.trim();
+    if (!trimmed) return;
+    if (editingContent) {
+      // Edit-mode path: mutate the textarea draft, restore caret to a sensible spot.
+      const ta = contentRef.current;
+      const draft = contentDraft;
+      // Prefer the actual selection inside the textarea (so we wrap the exact span)
+      // over wrapHighlight's first-match heuristic.
+      if (ta && ta.selectionStart !== ta.selectionEnd) {
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const inSel = draft.slice(start, end);
+        if (!isHighlightable(inSel)) return;
+        const next = draft.slice(0, start) + '==' + inSel + '==' + draft.slice(end);
+        setContentDraft(next);
+        // Caret restoration in the next frame, after React rerenders the textarea.
+        setTimeout(() => {
+          if (!ta) return;
+          ta.focus();
+          ta.setSelectionRange(end + 4, end + 4);
+        }, 0);
+        return;
+      }
+      // No textarea selection (e.g. user is editing but selected via DOM somehow) —
+      // fall back to first-match wrap on the draft.
+      const { content: next, changed } = wrapHighlight(draft, trimmed);
+      if (!changed) return;
+      setContentDraft(next);
+      return;
+    }
+    // Display-mode path: persist immediately via the store.
+    const { content: next, changed } = wrapHighlight(block.content, trimmed);
     if (!changed) return;
     try {
       await setContent(block.id, next);
     } catch (e) {
       console.error('[highlight] save failed', e);
     }
+  };
+
+  const confirmHighlight = async (): Promise<void> => {
+    if (!highlightPrompt) return;
+    const text = highlightPrompt.text;
+    setHighlightPrompt(null);
+    window.getSelection()?.removeAllRanges();
+    await runHighlight(text);
+  };
+
+  // Toolbar-button entry: works in both modes. Falls back to the floating prompt's
+  // last captured selection if there isn't a live window selection (e.g. the user
+  // moved focus to the toolbar via keyboard after selecting).
+  const runHighlightFromToolbar = async (): Promise<void> => {
+    const live = highlightableSelection;
+    if (!live) return;
+    setHighlightPrompt(null);
+    await runHighlight(live);
+    // Clear the cached selection so the button disables until the user re-selects.
+    setHighlightableSelection(null);
+    window.getSelection()?.removeAllRanges();
   };
 
   const commitUrl = async (): Promise<void> => {
@@ -351,12 +446,17 @@ function TextBlockItem({
         <SourceBadge block={block} readOnly={readOnly} />
         {!readOnly && (
           <BlockActions
-            visible={hovered}
+            // v2.8 §20.5 follow-up: keep the action bar visible while editing so the
+            // highlight button can wrap a textarea selection without the user having
+            // to leave edit mode first.
+            visible={hovered || editingContent}
             pinned={block.pinned}
+            canHighlight={highlightableSelection !== null}
             onTogglePin={() => onTogglePin?.()}
             onEdit={() => setEditingContent(true)}
             onAttachFile={() => void handleAttachFile()}
             onAttachUrl={() => setAttachingUrl((v) => !v)}
+            onHighlight={() => void runHighlightFromToolbar()}
             onAnnotate={() => setEditingAnnotation(true)}
             onCopy={() => onCopy?.()}
             onDelete={() => onDelete?.()}

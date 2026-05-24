@@ -1,5 +1,6 @@
 import {
   Copy,
+  Highlighter,
   Link as LinkIcon,
   MessageSquarePlus,
   Paperclip,
@@ -15,10 +16,16 @@ interface Props {
   // fast cursor move always clears it — webkit sometimes leaves :hover stuck.
   visible: boolean;
   pinned: boolean;
+  // v2.8 §20.5 follow-up: dogfooding showed users don't always discover the floating
+  // "标为重点?" prompt — surface highlight as an explicit hover-bar action too. The
+  // button is enabled iff a selection currently sits inside this block (display or
+  // edit mode); BlockItem owns that state and reports it via `canHighlight`.
+  canHighlight: boolean;
   onTogglePin: () => void;
   onEdit: () => void;
   onAttachFile: () => void;
   onAttachUrl: () => void;
+  onHighlight: () => void;
   onAnnotate: () => void;
   onCopy: () => void;
   onDelete: () => void;
@@ -29,17 +36,29 @@ interface ActionBtnProps {
   onClick: () => void;
   children: ReactNode;
   emphasis?: 'normal' | 'accent';
+  disabled?: boolean;
 }
 
 // Hover-revealed action bar per PLAN_EN.md §9.3: pin / edit / attach file / attach
-// link / annotate / copy / delete.
-function ActionBtn({ title, onClick, children, emphasis = 'normal' }: ActionBtnProps) {
+// link / highlight / annotate / copy / delete.
+function ActionBtn({
+  title,
+  onClick,
+  children,
+  emphasis = 'normal',
+  disabled = false,
+}: ActionBtnProps) {
   const hover = emphasis === 'accent' ? 'hover:text-accent' : 'hover:text-ink';
   return (
     <button
       onClick={onClick}
       title={title}
-      className={`rounded p-1 text-muted hover:bg-paper-2 ${hover}`}
+      disabled={disabled}
+      // mousedown.preventDefault on the highlight button avoids collapsing the user's
+      // selection before onClick fires. Doing it on every button is harmless and
+      // keeps focus stable when other buttons are clicked from inside an editor.
+      onMouseDown={(e) => e.preventDefault()}
+      className={`rounded p-1 text-muted hover:bg-paper-2 ${hover} disabled:cursor-not-allowed disabled:text-muted/40 disabled:hover:bg-transparent`}
     >
       {children}
     </button>
@@ -49,10 +68,12 @@ function ActionBtn({ title, onClick, children, emphasis = 'normal' }: ActionBtnP
 export default function BlockActions({
   visible,
   pinned,
+  canHighlight,
   onTogglePin,
   onEdit,
   onAttachFile,
   onAttachUrl,
+  onHighlight,
   onAnnotate,
   onCopy,
   onDelete,
@@ -74,6 +95,14 @@ export default function BlockActions({
       </ActionBtn>
       <ActionBtn title="附加链接" onClick={onAttachUrl}>
         <LinkIcon size={11} />
+      </ActionBtn>
+      <ActionBtn
+        title={canHighlight ? '标为重点（包裹 ==选区==）' : '先选中要标重点的文字'}
+        onClick={onHighlight}
+        emphasis="accent"
+        disabled={!canHighlight}
+      >
+        <Highlighter size={11} />
       </ActionBtn>
       <ActionBtn title="添加批注" onClick={onAnnotate}>
         <MessageSquarePlus size={11} />
