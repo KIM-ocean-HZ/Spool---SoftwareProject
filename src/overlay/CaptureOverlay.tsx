@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { ChevronDown, Pin, Plus, RotateCcw, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import {
@@ -34,12 +34,15 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // Increased from 2.5s (too short for note typing) to 8s on Ocean's feedback.
 const TOAST_AUTO_DISMISS_MS = 8000;
 const NOTICE_AUTO_DISMISS_MS = 2200;
-// Window dimensions must match Rust's OVERLAY_WIDTH / OVERLAY_HEIGHT_COLLAPSED in
-// capture.rs. The toast fills the window width (340). The window is top-right
-// anchored, so growing the height extends downward — both the picker dropdown
-// and the v2.8 §20.6 pin/note expansion grow into the same expanded slot.
-const HEIGHT_COLLAPSED = 100;
-const HEIGHT_EXPANDED = 400;
+// Window width must match Rust's OVERLAY_WIDTH (capture.rs). Heights are now
+// driven by ResizeObserver to match the toast's actual rendered height — fixes a
+// dogfooding bug where long attribution lines wrapped past the fixed 100px and
+// clipped the toast's bottom rounded corner. The picker dropdown extends outside
+// the toast's flow (absolute-positioned), so its open state needs an extra
+// allowance the observer can't see.
+const PICKER_DROPDOWN_ALLOWANCE = 300;
+// Tiny extra so the box-shadow isn't clipped by the bottom edge of the window.
+const SHADOW_ALLOWANCE = 8;
 
 const hideOverlay = (): void => {
   void invoke(HIDE_OVERLAY_COMMAND).catch((e) => {
@@ -92,6 +95,10 @@ export default function CaptureOverlay() {
   const [pinned, setPinned] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState('');
   const annotationRef = useRef<HTMLTextAreaElement>(null);
+  // ResizeObserver target — the visible card root. Used to match the OS window
+  // height to the toast's actual rendered height so the rounded bottom corner
+  // is always visible regardless of attribution-line wrap or expansion state.
+  const cardRef = useRef<HTMLDivElement>(null);
 
   // The overlay window has its own JS context, so it must load settings + probe
   // Ollama itself for RouteSuggestion's isAiAvailable() gate.
@@ -209,11 +216,23 @@ export default function CaptureOverlay() {
     return () => window.removeEventListener('mousedown', onClick);
   }, [pickerOpen]);
 
-  // Sync window height to picker / expansion state. Window is top-anchored so growing
-  // the height extends the bottom edge downward; the toast itself stays put.
-  useEffect(() => {
-    resizeOverlay(pickerOpen || expanded ? HEIGHT_EXPANDED : HEIGHT_COLLAPSED);
-  }, [pickerOpen, expanded]);
+  // Auto-size the OS window to the toast's actual rendered height (plus shadow +
+  // optional picker-dropdown allowance). Fixes the "bottom not rounded" dogfooding
+  // bug: long workspace/thread names wrapped the attribution to multiple lines and
+  // pushed the toast taller than the old fixed 100px, clipping the bottom corner.
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const apply = (): void => {
+      const cardH = Math.ceil(el.getBoundingClientRect().height);
+      const allow = (pickerOpen ? PICKER_DROPDOWN_ALLOWANCE : 0) + SHADOW_ALLOWANCE;
+      resizeOverlay(cardH + allow);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [content, expanded, pickerOpen]);
 
   // v2.8 §20.6: Esc dismisses while a toast is showing (the only window-level
   // keystroke we listen for, so the overlay still feels glanceable / non-blocking).
@@ -405,25 +424,16 @@ export default function CaptureOverlay() {
 
   return (
     <div
+      ref={cardRef}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      onClick={(e) => {
-        // v2.8 §20.6: clicking anywhere on the toast body expands it for pin/note —
-        // a deliberate engagement, not a dismiss. Inner buttons stopPropagation so a
-        // click on Undo/Redirect/× doesn't also flip expanded.
-        e.stopPropagation();
-        if (!expanded) setExpanded(true);
-      }}
-      className="overlay-in relative w-full cursor-pointer rounded-lg border border-line-strong bg-paper"
+      className="overlay-in relative w-full rounded-lg border border-line-strong bg-paper"
       style={{ boxShadow: 'var(--shadow-toast)' }}
     >
-      {/* × close — explicit dismiss. Stops propagation so the body click doesn't expand. */}
+      {/* × close — explicit dismiss. */}
       <button
         type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          dismissToast();
-        }}
+        onClick={dismissToast}
         title="关闭 (Esc)"
         aria-label="关闭"
         className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-muted/70 hover:bg-paper-2 hover:text-ink"
@@ -448,18 +458,30 @@ export default function CaptureOverlay() {
             </>
           )}
         </div>
+        {/* v2.8 §20.6 follow-up: explicit affordance for the expand interaction.
+            Dogfooding showed users didn't realise clicking the toast body opened
+            a pin/note panel. Now an inline "+ 添加批注·置顶" button advertises it
+            with a chevron; the prior click-anywhere-to-expand model was an
+            invisible behaviour and is removed. */}
+        {!expanded && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            title="点击展开：可置顶 / 添加批注"
+            className="mt-1.5 flex items-center gap-1 rounded text-[11px] text-muted hover:text-accent"
+          >
+            <MessageSquarePlus size={11} />
+            <span>添加批注 · 置顶</span>
+            <ChevronDown size={11} />
+          </button>
+        )}
       </div>
 
-      {/* v2.8 §20.6: pin + annotation surface, mounted ONLY after the user clicks
-          the toast body. Default state never shows these controls so the toast
-          stays glanceable per §10.3. */}
+      {/* v2.8 §20.6: pin + annotation surface, mounted only after the user clicks
+          the explicit affordance above. Default state never shows these controls
+          so the toast stays glanceable per §10.3. */}
       {expanded && (
-        <div
-          className="border-t border-line px-3.5 py-2.5"
-          // Clicks inside the expanded area must NOT bubble to the body click (which
-          // would no-op now but in case the body handler grows behaviour later).
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="border-t border-line px-3.5 py-2.5">
           <div className="flex items-start gap-2">
             <button
               type="button"
@@ -490,10 +512,7 @@ export default function CaptureOverlay() {
 
       <div className="flex items-center gap-1 border-t border-line bg-paper-2/30 px-2 py-1.5 text-[11px]">
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            void onUndo();
-          }}
+          onClick={() => void onUndo()}
           className="flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
           title="撤销刚才的捕捉"
         >
@@ -503,10 +522,7 @@ export default function CaptureOverlay() {
 
         <div className="relative" ref={pickerRef}>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setPickerOpen((v) => !v);
-            }}
+            onClick={() => setPickerOpen((v) => !v)}
             className="flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
             title="改投到其它脉络"
           >
@@ -517,7 +533,6 @@ export default function CaptureOverlay() {
             <div
               className="absolute left-0 top-full mt-1 max-h-72 w-64 overflow-y-auto rounded-md border border-line-strong bg-paper py-1"
               style={{ boxShadow: 'var(--shadow-toast)' }}
-              onClick={(e) => e.stopPropagation()}
             >
               {workspaces.map((ws) => {
                 const list = (threadsByWs[ws.id] ?? []).filter((t) => t.status !== 'done');
@@ -549,10 +564,7 @@ export default function CaptureOverlay() {
         </div>
 
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            void onSaveAsNew();
-          }}
+          onClick={() => void onSaveAsNew()}
           className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-accent"
           title="把这条作为新脉络的第一块"
         >
