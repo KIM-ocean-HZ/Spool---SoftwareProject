@@ -86,6 +86,9 @@ incomplete or speculative.
 If they contain factual errors, point them out directly — do not protect
 the user's feelings at the cost of correctness.
 
+### ⭐ User-highlighted spans (\`==…==\`)
+Substrings wrapped in \`==…==\` inside any block above are sentence-level key points the user emphasized at capture time — prioritize them. They coexist with pinned blocks (pin = whole block is core context; highlight = a sentence within a block is key); when a highlight sits inside a pinned block, treat it as one emphasis, not two.
+
 ---`;
 
 // --- Closing language directive (verbatim — §9.5) ---------------------------------------

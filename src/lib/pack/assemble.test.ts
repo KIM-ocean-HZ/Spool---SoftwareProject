@@ -63,6 +63,37 @@ describe('assemble', () => {
     expect(out).toContain('Respond in Simplified Chinese unless content itself dictates');
   });
 
+  it('header explains user-highlighted == spans (§20.5)', () => {
+    const out = assemble({ thread, blocks: [textBlock('b1', 'hi')], now: NOW });
+    expect(out).toContain('### ⭐ User-highlighted spans');
+    expect(out).toContain('==…==');
+    expect(out).toContain('sentence-level key points');
+    expect(out).toContain('coexist with pinned blocks');
+  });
+
+  it('passes ==…== highlight markers through block content verbatim (§20.5)', () => {
+    const blocks = [
+      textBlock('b1', 'the ==key insight== is here', { createdAt: T(10) }),
+      textBlock('b2', '前段 ==重点句子== 后段', { createdAt: T(20) }),
+    ];
+    const out = assemble({ thread, blocks, now: NOW });
+    expect(out).toContain('the ==key insight== is here');
+    expect(out).toContain('前段 ==重点句子== 后段');
+  });
+
+  it('does not crash on malformed/edge ==…== content (§20.5)', () => {
+    const blocks = [
+      textBlock('b1', 'lone == marker without a pair'),
+      textBlock('b2', '====='),
+      textBlock('b3', '==unclosed'),
+    ];
+    expect(() => assemble({ thread, blocks, now: NOW })).not.toThrow();
+    const out = assemble({ thread, blocks, now: NOW });
+    expect(out).toContain('lone == marker without a pair');
+    expect(out).toContain('=====');
+    expect(out).toContain('==unclosed');
+  });
+
   it('handles an empty thread', () => {
     const out = assemble({ thread, blocks: [], now: NOW });
     expect(out).toContain('# Project Context: 论文文献综述');

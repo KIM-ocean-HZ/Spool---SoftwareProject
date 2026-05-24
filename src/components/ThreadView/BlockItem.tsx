@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { HighlightedContent } from '@/lib/blocks/HighlightedContent';
+import { isHighlightable, wrapHighlight } from '@/lib/blocks/highlight';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
@@ -101,6 +103,16 @@ function TextBlockItem({
   const [collapsed, setCollapsed] = useState(true);
   const [needsTruncation, setNeedsTruncation] = useState(false);
 
+  // v2.8 §20.5 (Track B): select-to-highlight. When the user makes a text selection
+  // inside this block's rendered content, a small floating "标为重点?" prompt appears
+  // anchored to the selection rect. Confirming wraps the selected substring in == in
+  // the stored content. The mapping is substring-indexOf (see highlight.ts limitation),
+  // and the whole feature is isolated behind highlight.ts + HighlightedContent.tsx so
+  // a §20.8 cut is a clean revert.
+  const [highlightPrompt, setHighlightPrompt] = useState<
+    { x: number; y: number; text: string } | null
+  >(null);
+
   useEffect(() => {
     if (!editingContent) setContentDraft(block.content);
   }, [block.content, editingContent]);
@@ -138,6 +150,28 @@ function TextBlockItem({
     if (!el) return;
     setNeedsTruncation(el.scrollHeight - el.clientHeight > 1);
   }, [block.content, collapsed, editingContent]);
+
+  // v2.8 §20.5: dismiss the highlight prompt when the selection is cleared (the user
+  // clicked elsewhere) or the user pressed Esc / scrolled. Without this, the prompt
+  // can stick around after the rect it was anchored to is gone.
+  useEffect(() => {
+    if (!highlightPrompt) return;
+    const dismissOnSelectionChange = (): void => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) {
+        setHighlightPrompt(null);
+      }
+    };
+    const dismissOnKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setHighlightPrompt(null);
+    };
+    document.addEventListener('selectionchange', dismissOnSelectionChange);
+    document.addEventListener('keydown', dismissOnKey);
+    return () => {
+      document.removeEventListener('selectionchange', dismissOnSelectionChange);
+      document.removeEventListener('keydown', dismissOnKey);
+    };
+  }, [highlightPrompt]);
 
   const commitContent = async (): Promise<void> => {
     const next = contentDraft;
@@ -180,6 +214,53 @@ function TextBlockItem({
     setEditingContent(false);
     setAnnotationDraft(block.annotation ?? '');
     setEditingAnnotation(false);
+  };
+
+  // v2.8 §20.5: capture the current selection and anchor the floating prompt to it.
+  // Runs on mouseup so the selection is stable; ignores selections collapsed by the
+  // click, selections that escape this block, and selections that aren't wrap-worthy
+  // (whitespace-only or already-nested ==).
+  const onContentMouseUp = (): void => {
+    if (readOnly || editingContent) {
+      setHighlightPrompt(null);
+      return;
+    }
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      setHighlightPrompt(null);
+      return;
+    }
+    const range = sel.getRangeAt(0);
+    const container = measureRef.current;
+    if (!container || !container.contains(range.commonAncestorContainer)) {
+      setHighlightPrompt(null);
+      return;
+    }
+    const text = sel.toString();
+    if (!isHighlightable(text)) {
+      setHighlightPrompt(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    const blockRect = container.getBoundingClientRect();
+    setHighlightPrompt({
+      x: rect.left + rect.width / 2 - blockRect.left,
+      y: rect.top - blockRect.top - 4,
+      text,
+    });
+  };
+
+  const confirmHighlight = async (): Promise<void> => {
+    if (!highlightPrompt) return;
+    const { content: next, changed } = wrapHighlight(block.content, highlightPrompt.text);
+    setHighlightPrompt(null);
+    window.getSelection()?.removeAllRanges();
+    if (!changed) return;
+    try {
+      await setContent(block.id, next);
+    } catch (e) {
+      console.error('[highlight] save failed', e);
+    }
   };
 
   const commitUrl = async (): Promise<void> => {
@@ -302,7 +383,7 @@ function TextBlockItem({
           spellCheck={false}
         />
       ) : (
-        <>
+        <div className="relative">
           <div
             ref={measureRef}
             // v2.8 §20.4: double-click opens content AND annotation together — annotation
@@ -317,6 +398,9 @@ function TextBlockItem({
                     setEditingAnnotation(true);
                   }
             }
+            // v2.8 §20.5: capture selection on mouseup so the prompt anchors to the
+            // user's released selection rect.
+            onMouseUp={readOnly ? undefined : onContentMouseUp}
             title={readOnly ? undefined : '双击编辑（含批注）'}
             style={
               collapsed
@@ -330,8 +414,27 @@ function TextBlockItem({
             }
             className="whitespace-pre-wrap break-words font-ui text-[15px] leading-[1.65] text-ink"
           >
-            {block.content}
+            <HighlightedContent content={block.content} />
           </div>
+          {highlightPrompt && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                // Prevent the click from collapsing the selection before our handler reads it.
+                e.preventDefault();
+              }}
+              onClick={() => void confirmHighlight()}
+              style={{
+                position: 'absolute',
+                left: highlightPrompt.x,
+                top: highlightPrompt.y,
+                transform: 'translate(-50%, -100%)',
+              }}
+              className="z-20 whitespace-nowrap rounded-md border border-line-strong bg-paper px-2 py-1 font-ui text-[11px] text-ink shadow-[var(--shadow-toast)] hover:border-accent hover:text-accent"
+            >
+              标为重点?
+            </button>
+          )}
           {(needsTruncation || !collapsed) && (
             <button
               type="button"
@@ -341,7 +444,7 @@ function TextBlockItem({
               {collapsed ? '展开全部' : '收起'}
             </button>
           )}
-        </>
+        </div>
       )}
 
       {/* Annotation. Read-only view stays visually distinct (left rule + paper-2 tint)
