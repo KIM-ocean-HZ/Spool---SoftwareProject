@@ -3,6 +3,7 @@ import { router } from '@/lib/ai/router';
 import { buildDigestPrompt } from '@/lib/ai/prompts/summarizeDigest';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
+import { useBlocksStore } from '@/stores/blocksStore';
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -20,6 +21,10 @@ interface Props {
 export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) {
   const patch = useThreadsStore((s) => s.patch);
   const aiAvailable = useSettingsStore(isAiAvailable);
+  // v2.8 §20.3: the digest prompt now inlines each pinned block's attachment text.
+  // Mirrors the v2.7 status summary (ThreadHeader passes attachmentsByBlock through
+  // buildStatusPrompt). Pinning is the opt-in signal — include_in_pack is not consulted.
+  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
   const [conclusion, setConclusion] = useState('');
   // 'failed' covers both an error and a NO_DIGEST response — both silently disable
   // the button for this thread, with no popup (§11.4 + §12.4).
@@ -50,7 +55,9 @@ export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) 
     if (pinnedBlocks.length === 0 || aiState !== 'idle') return;
     setAiState('loading');
     try {
-      const { text } = await router.quality(buildDigestPrompt(thread, pinnedBlocks));
+      const { text } = await router.quality(
+        buildDigestPrompt(thread, pinnedBlocks, attachmentsByBlock),
+      );
       const trimmed = text.trim();
       if (trimmed === '' || trimmed === 'NO_DIGEST') {
         setAiState('failed');
