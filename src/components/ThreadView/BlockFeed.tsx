@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -74,6 +74,19 @@ export default function BlockFeed({ threadId }: Props) {
   const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
   const overEmpty = useDropStore((s) => s.overEmpty);
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
+  // v2.8 §20.1 selection state. Anchor id drives shift-click range selection.
+  const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
+  const toggleSelect = useBlocksStore((s) => s.toggleSelect);
+  const selectMany = useBlocksStore((s) => s.selectMany);
+  const clearSelection = useBlocksStore((s) => s.clearSelection);
+  const selectionAnchor = useRef<string | null>(null);
+
+  // Selection is per-thread implicitly — clear it on thread switch so a stale set from
+  // the previous feed can't accidentally include blocks the user can no longer see.
+  useEffect(() => {
+    clearSelection();
+    selectionAnchor.current = null;
+  }, [threadId, clearSelection]);
 
   const [sortMode, setSortMode] = useState<SortMode>('time');
   // Tail-window size for this thread. Reset on thread switch so a previously expanded
@@ -113,6 +126,26 @@ export default function BlockFeed({ threadId }: Props) {
   const handleCopy = (text: string) => {
     void navigator.clipboard.writeText(text);
   };
+
+  // Range-select between the anchor and the just-clicked block, using current feed
+  // order (whichever sort mode is active). Plain click sets the anchor; shift-click
+  // extends to it. Re-clicking the anchor with shift collapses to a single toggle.
+  const handleSelectClick = (id: string, shiftKey: boolean): void => {
+    if (shiftKey && selectionAnchor.current && selectionAnchor.current !== id) {
+      const ids = ordered.map((b) => b.id);
+      const a = ids.indexOf(selectionAnchor.current);
+      const b = ids.indexOf(id);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        selectMany(ids.slice(lo, hi + 1));
+        return;
+      }
+    }
+    toggleSelect(id);
+    selectionAnchor.current = id;
+  };
+
+  const anySelected = selectedBlockIds.size > 0;
 
   if (blocks.length === 0) {
     return (
@@ -188,6 +221,9 @@ export default function BlockFeed({ threadId }: Props) {
                 block={b}
                 attachments={attachmentsByBlock[b.id] ?? EMPTY_ATTACHMENTS}
                 highlight={b.id === highlightBlockId}
+                selected={selectedBlockIds.has(b.id)}
+                anySelected={anySelected}
+                onSelectClick={(shiftKey) => handleSelectClick(b.id, shiftKey)}
                 onTogglePin={() => void togglePin(b.id)}
                 onCopy={() => handleCopy(b.content)}
                 onDelete={() => void remove(b.id)}

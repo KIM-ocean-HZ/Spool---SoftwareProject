@@ -17,6 +17,13 @@ interface Props {
   highlight?: boolean;
   // Digest view renders blocks read-only: no hover action bar, no inline edit (§11.2).
   readOnly?: boolean;
+  // v2.8 §20.1: multi-select state for the merge action. `selected` reflects whether
+  // this block is in the current selection; `anySelected` keeps every checkbox visible
+  // once a selection exists (not just the hovered one); `onSelectClick` receives the
+  // shift modifier so the feed can compute a range select.
+  selected?: boolean;
+  anySelected?: boolean;
+  onSelectClick?: (shiftKey: boolean) => void;
   onTogglePin?: () => void;
   onCopy?: () => void;
   onDelete?: () => void;
@@ -46,6 +53,9 @@ function TextBlockItem({
   attachments,
   highlight,
   readOnly,
+  selected,
+  anySelected,
+  onSelectClick,
   onTogglePin,
   onCopy,
   onDelete,
@@ -218,6 +228,30 @@ function TextBlockItem({
       )}
 
       <div className="mb-1 flex items-center gap-2 text-[10px] text-muted">
+        {/* v2.8 §20.1 selection checkbox: visible on hover, and on every block once any
+            block is selected (so the user can see what's already in the set). */}
+        {!readOnly && onSelectClick && (hovered || anySelected) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectClick(e.shiftKey);
+            }}
+            title={selected ? '取消选择' : 'Shift 点击可范围选择'}
+            aria-label={selected ? '取消选择' : '选择此 block'}
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+              selected
+                ? 'border-accent bg-accent text-paper'
+                : 'border-line-strong bg-paper hover:border-accent'
+            }`}
+          >
+            {selected && (
+              <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2.5 6.5l2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+        )}
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>
         <SourceBadge block={block} readOnly={readOnly} />
         {!readOnly && (

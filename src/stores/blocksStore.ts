@@ -8,6 +8,7 @@ import type {
 } from '@/lib/db/attachments';
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
+import { computeMergedFields } from '@/lib/db/blocks';
 import { useSettingsStore } from './settingsStore';
 import { toast } from './toastStore';
 
@@ -16,6 +17,9 @@ interface BlocksState {
   // Attachments keyed by their owning block id. Hydrated alongside blocks on thread
   // load so BlockItem can render chips without per-block queries.
   attachmentsByBlock: Record<string, Attachment[]>;
+  // v2.8 §20.1: multi-select state for the merge action. Global (single set), cleared
+  // on thread switch so a stale selection from a previous thread can't survive.
+  selectedBlockIds: Set<string>;
   load: (threadId: string) => Promise<void>;
   append: (args: CreateBlockArgs) => Promise<Block>;
   togglePin: (id: string) => Promise<void>;
@@ -28,6 +32,16 @@ interface BlocksState {
   // v2.7: one-time startup pass that extracts text for legacy file attachments created
   // before the extraction pipeline existed (PLAN §8.1, §9.6).
   backfillExtractions: () => Promise<void>;
+  // v2.8 §20.1: selection helpers. toggleSelect flips one block; selectMany adds a range
+  // (used by shift-click); clearSelection empties the set.
+  toggleSelect: (id: string) => void;
+  selectMany: (ids: string[]) => void;
+  clearSelection: () => void;
+  // v2.8 §20.1: merge ≥2 blocks. Survivor = earliest createdAt. Re-points attachments,
+  // joins contents chronologically (with [from <source>] prefixes when sources differ),
+  // newline-joins annotations, OR-aggregates pinned. Hard-deletes non-survivors. Reloads
+  // the thread afterwards so the store reflects the new shape in one round trip.
+  mergeBlocks: (ids: string[]) => Promise<void>;
 }
 
 const removeAttachmentsForBlock = (
@@ -88,6 +102,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
   return {
     byThread: {},
     attachmentsByBlock: {},
+    selectedBlockIds: new Set<string>(),
 
     load: async (threadId) => {
       const [list, attachments] = await Promise.all([
@@ -227,6 +242,76 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       for (const a of pending) {
         await extractAndStore(a, false);
       }
+    },
+
+    toggleSelect: (id) => {
+      set((s) => {
+        const next = new Set(s.selectedBlockIds);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return { selectedBlockIds: next };
+      });
+    },
+
+    selectMany: (ids) => {
+      set((s) => {
+        const next = new Set(s.selectedBlockIds);
+        for (const id of ids) next.add(id);
+        return { selectedBlockIds: next };
+      });
+    },
+
+    clearSelection: () => {
+      set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));
+    },
+
+    mergeBlocks: async (ids) => {
+      if (ids.length < 2) return;
+      const state = get();
+      // Collect every selected block across threads. In practice they all sit in the
+      // same thread (the UI only selects within one feed at a time), but reading from
+      // every loaded thread keeps the store function decoupled from the caller.
+      const wanted = new Set(ids);
+      const found: { threadId: string; block: Block }[] = [];
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        for (const b of list) {
+          if (wanted.has(b.id)) found.push({ threadId: tId, block: b });
+        }
+      }
+      if (found.length !== ids.length) {
+        console.warn('[merge] some selected ids not found in loaded threads', {
+          requested: ids,
+          found: found.map((x) => x.block.id),
+        });
+      }
+      if (found.length < 2) return;
+      const threadIds = new Set(found.map((x) => x.threadId));
+      if (threadIds.size > 1) {
+        console.warn('[merge] refusing cross-thread merge', { threadIds: [...threadIds] });
+        toast.error('合并失败：所选 block 跨脉络');
+        return;
+      }
+      const threadId = found[0]!.threadId;
+
+      const merged = computeMergedFields(found.map((x) => x.block));
+      try {
+        await db.mergeBlocks(
+          merged.survivorId,
+          merged.content,
+          merged.annotation,
+          merged.pinned,
+          merged.source,
+          merged.nonSurvivorIds,
+        );
+      } catch (e) {
+        console.error('[merge] failed', e);
+        toast.error(`合并失败：${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      // Clear selection and reload — simpler and safer than reconstructing the merged
+      // block + reparented attachments in-memory across two indexes.
+      set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));
+      await get().load(threadId);
     },
   };
 });

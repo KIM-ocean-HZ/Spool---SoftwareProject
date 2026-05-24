@@ -3,6 +3,7 @@ import { useThreadDropTarget } from '@/hooks/useThreadDropTarget';
 import { useBlocksStore } from '@/stores/blocksStore';
 import BlockFeed from './BlockFeed';
 import Composer from './Composer';
+import MergeToolbar from './MergeToolbar';
 
 interface Props {
   threadId: string;
@@ -34,6 +35,9 @@ export default function LogView({ threadId }: Props) {
     <div ref={rootRef} className="flex flex-1 flex-col overflow-hidden">
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <BlockFeed threadId={threadId} />
+        {/* §20.1 merge toolbar — sticky bottom of the scroll area, only appears when
+            ≥1 block is selected (component returns null otherwise). */}
+        <MergeToolbar />
       </div>
       <Composer threadId={threadId} />
     </div>

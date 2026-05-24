@@ -139,3 +139,85 @@ export const deleteBlock = async (id: string): Promise<void> => {
   const db = await getDb();
   await db.execute('DELETE FROM blocks WHERE id = $1', [id]);
 };
+
+// v2.8 §20.1: pure helper computing the survivor + merged fields for a multi-block merge.
+// Earliest-created block stays as survivor — keeps its id, created_at, and feed position.
+// Contents are joined chronologically; if any source differs across the set, non-survivor
+// segments are prefixed with `[from <source>]` so segment boundaries stay visible. Pinned
+// becomes true if any merged block was pinned; annotations newline-join in chronological
+// order (survivor's first); survivor's source is kept regardless.
+export interface MergedFields {
+  survivorId: string;
+  content: string;
+  annotation: string | null;
+  pinned: boolean;
+  source: string | null;
+  nonSurvivorIds: string[];
+}
+
+const MERGE_SEGMENT_SEPARATOR = '\n\n';
+const MERGE_NO_SOURCE_LABEL = '(无来源)';
+
+export const computeMergedFields = (blocks: Block[]): MergedFields => {
+  if (blocks.length < 2) throw new Error('mergeBlocks: need at least 2 blocks');
+  const ordered = [...blocks].sort((a, b) => a.createdAt - b.createdAt);
+  const survivor = ordered[0]!;
+  const nonSurvivors = ordered.slice(1);
+
+  const firstSource = ordered[0]!.source ?? null;
+  const sourcesDiffer = ordered.some((b) => (b.source ?? null) !== firstSource);
+
+  const segments: string[] = [survivor.content];
+  for (const b of nonSurvivors) {
+    const prefix = sourcesDiffer ? `[from ${b.source ?? MERGE_NO_SOURCE_LABEL}] ` : '';
+    segments.push(`${prefix}${b.content}`);
+  }
+
+  const annotations = ordered
+    .map((b) => b.annotation)
+    .filter((a): a is string => a != null && a.trim().length > 0);
+
+  return {
+    survivorId: survivor.id,
+    content: segments.join(MERGE_SEGMENT_SEPARATOR),
+    annotation: annotations.length > 0 ? annotations.join('\n') : null,
+    pinned: ordered.some((b) => b.pinned),
+    source: survivor.source,
+    nonSurvivorIds: nonSurvivors.map((b) => b.id),
+  };
+};
+
+// Merge multiple blocks: re-points attachments to survivor, writes merged fields onto
+// survivor, deletes non-survivors. Steps run sequentially (no BEGIN/COMMIT — see
+// threads.ts:141 on why tauri-plugin-sql's connection pool makes explicit transactions
+// unreliable). Order is safety-driven: attachments are moved BEFORE non-survivor blocks
+// are dropped, so the FK cascade can never strand a moved attachment. The FTS sync
+// triggers (schema.sql blocks_au/blocks_ad) keep blocks_fts current across both writes.
+export const mergeBlocks = async (
+  survivorId: string,
+  content: string,
+  annotation: string | null,
+  pinned: boolean,
+  source: string | null,
+  nonSurvivorIds: string[],
+): Promise<void> => {
+  if (nonSurvivorIds.length === 0) return;
+  const db = await getDb();
+
+  const repointPlaceholders = nonSurvivorIds.map((_, i) => `$${i + 2}`).join(', ');
+  await db.execute(
+    `UPDATE attachments SET block_id = $1 WHERE block_id IN (${repointPlaceholders})`,
+    [survivorId, ...nonSurvivorIds],
+  );
+
+  await db.execute(
+    'UPDATE blocks SET content = $1, annotation = $2, pinned = $3, source = $4 WHERE id = $5',
+    [content, annotation, pinned ? 1 : 0, source, survivorId],
+  );
+
+  const deletePlaceholders = nonSurvivorIds.map((_, i) => `$${i + 1}`).join(', ');
+  await db.execute(
+    `DELETE FROM blocks WHERE id IN (${deletePlaceholders})`,
+    [...nonSurvivorIds],
+  );
+};
