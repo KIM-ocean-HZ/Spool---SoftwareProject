@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { useBlocksStore } from '@/stores/blocksStore';
 
 // v2.8 §20.1: floating toolbar that appears when ≥1 block is selected for merge.
-// "合并" only enables at ≥2; "清除" cancels the selection without merging. A confirm
-// gate sits in front of the actual merge — there is no undo stack in v1.
+// "合并" only enables at ≥2; "取消" drops the selection without merging (deliberately
+// not "清除" — that label is reserved for destructive data-wipe actions and would read
+// ambiguously here). A confirm gate sits in front of the actual merge — no undo in v1.
 export default function MergeToolbar() {
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const clearSelection = useBlocksStore((s) => s.clearSelection);
@@ -52,10 +53,10 @@ export default function MergeToolbar() {
           type="button"
           onClick={() => clearSelection()}
           className="flex items-center gap-1 rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-          title="清除选择"
+          title="取消选择"
         >
           <X size={12} />
-          清除
+          取消
         </button>
       </div>
     </div>
