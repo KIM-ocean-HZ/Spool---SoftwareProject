@@ -96,19 +96,40 @@ describe('computeMergedFields (§20.1)', () => {
     expect(m.pinned).toBe(true);
   });
 
-  it('newline-joins annotations in chronological order, skipping null/empty', () => {
+  it('encodes per-segment annotations inline (↪ note: marker) and nulls the top-level annotation', () => {
     const blocks = [
-      block('b1', 100, { annotation: 'first note' }),
-      block('b2', 200, { annotation: null }),
-      block('b3', 300, { annotation: '   ' }),
-      block('b4', 400, { annotation: 'third note' }),
+      block('b1', 100, { content: 'alpha', annotation: 'first note' }),
+      block('b2', 200, { content: 'beta', annotation: null }),
+      block('b3', 300, { content: 'gamma', annotation: '   ' }),
+      block('b4', 400, { content: 'delta', annotation: 'fourth note' }),
     ];
-    expect(computeMergedFields(blocks).annotation).toBe('first note\nthird note');
+    const m = computeMergedFields(blocks);
+    // Top-level annotation is null — per-segment annotations live in the content.
+    expect(m.annotation).toBeNull();
+    // Each annotated segment gets a `↪ note: ...` line as its last line; un-annotated
+    // segments stay unmarked.
+    expect(m.content).toBe(
+      'alpha\n↪ note: first note\n\nbeta\n\ngamma\n\ndelta\n↪ note: fourth note',
+    );
   });
 
-  it('returns null annotation when no block carried one', () => {
-    const blocks = [block('b1', 100), block('b2', 200)];
-    expect(computeMergedFields(blocks).annotation).toBeNull();
+  it('emits marker-free content (and null annotation) when no block carried an annotation', () => {
+    const blocks = [block('b1', 100, { content: 'a' }), block('b2', 200, { content: 'b' })];
+    const m = computeMergedFields(blocks);
+    expect(m.annotation).toBeNull();
+    expect(m.content).toBe('a\n\nb');
+    expect(m.content).not.toContain('↪ note:');
+  });
+
+  it('flattens a multi-line per-segment annotation onto one line (single ↪ note: line)', () => {
+    const blocks = [
+      block('b1', 100, { content: 'x', annotation: 'first line\nsecond line' }),
+      block('b2', 200, { content: 'y', annotation: 'plain' }),
+    ];
+    const m = computeMergedFields(blocks);
+    // The annotation marker must be the LAST line of its segment, so multi-line
+    // annotations are flattened to one line.
+    expect(m.content).toBe('x\n↪ note: first line second line\n\ny\n↪ note: plain');
   });
 });
 
@@ -178,13 +199,17 @@ describe('mergeBlocks against a real SQLite engine (§20.1)', () => {
     expect(survivor.id).toBe(b1.id);
     expect(survivor.createdAt).toBe(b1.createdAt);
 
-    // Sources differ → non-survivor segments are prefixed
-    expect(survivor.content).toBe('first\n\n[from Chrome] second\n\n[from (无来源)] third');
+    // Sources differ → non-survivor segments are prefixed; b1's annotation rides
+    // inside its segment as a `↪ note:` line.
+    expect(survivor.content).toBe(
+      'first\n↪ note: note A\n\n[from Chrome] second\n\n[from (无来源)] third',
+    );
 
-    // Survivor keeps its source, gains pinned from b2, annotation preserved
+    // Survivor keeps its source, gains pinned from b2. Top-level annotation is null
+    // — per-segment annotations live inside the content now (see segments.ts).
     expect(survivor.source).toBe('Notion');
     expect(survivor.pinned).toBe(true);
-    expect(survivor.annotation).toBe('note A');
+    expect(survivor.annotation).toBeNull();
 
     // Both non-survivor attachments now belong to the survivor
     const survivorAttachments = await listAttachmentsByBlock(survivor.id);

@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { joinSegments, type Segment } from '@/lib/blocks/segments';
 import { getDb } from './client';
 
 export type BlockKind = 'text' | 'ref';
@@ -144,8 +145,16 @@ export const deleteBlock = async (id: string): Promise<void> => {
 // Earliest-created block stays as survivor — keeps its id, created_at, and feed position.
 // Contents are joined chronologically; if any source differs across the set, non-survivor
 // segments are prefixed with `[from <source>]` so segment boundaries stay visible. Pinned
-// becomes true if any merged block was pinned; annotations newline-join in chronological
-// order (survivor's first); survivor's source is kept regardless.
+// becomes true if any merged block was pinned; survivor's source is kept regardless.
+//
+// Annotation handling (v2.8 §20.1 follow-up, 2026-05-25): per-segment annotations are
+// preserved by appending `↪ note: <text>` as the last line of each segment that had one
+// (see lib/blocks/segments.ts). The top-level `annotation` field on the merged block is
+// set to null when ANY of the merged blocks carried an annotation — having both the
+// inline markers AND a duplicate top-level annotation would be confusing for both the
+// reader and the pack output. When none of the merged blocks had annotations, the
+// content stays marker-free (and the resulting block, like any un-merged one, parses as
+// a single segment with no annotation).
 export interface MergedFields {
   survivorId: string;
   content: string;
@@ -155,7 +164,6 @@ export interface MergedFields {
   nonSurvivorIds: string[];
 }
 
-const MERGE_SEGMENT_SEPARATOR = '\n\n';
 const MERGE_NO_SOURCE_LABEL = '(无来源)';
 
 export const computeMergedFields = (blocks: Block[]): MergedFields => {
@@ -167,20 +175,23 @@ export const computeMergedFields = (blocks: Block[]): MergedFields => {
   const firstSource = ordered[0]!.source ?? null;
   const sourcesDiffer = ordered.some((b) => (b.source ?? null) !== firstSource);
 
-  const segments: string[] = [survivor.content];
-  for (const b of nonSurvivors) {
-    const prefix = sourcesDiffer ? `[from ${b.source ?? MERGE_NO_SOURCE_LABEL}] ` : '';
-    segments.push(`${prefix}${b.content}`);
-  }
-
-  const annotations = ordered
-    .map((b) => b.annotation)
-    .filter((a): a is string => a != null && a.trim().length > 0);
+  const segments: Segment[] = ordered.map((b, idx) => {
+    const isSurvivor = idx === 0;
+    const prefix = sourcesDiffer && !isSurvivor
+      ? `[from ${b.source ?? MERGE_NO_SOURCE_LABEL}] `
+      : '';
+    return {
+      text: `${prefix}${b.content}`,
+      annotation: b.annotation,
+    };
+  });
 
   return {
     survivorId: survivor.id,
-    content: segments.join(MERGE_SEGMENT_SEPARATOR),
-    annotation: annotations.length > 0 ? annotations.join('\n') : null,
+    content: joinSegments(segments),
+    // Always null: per-segment annotations live inside the content now; carrying a
+    // separate top-level annotation would render twice.
+    annotation: null,
     pinned: ordered.some((b) => b.pinned),
     source: survivor.source,
     nonSurvivorIds: nonSurvivors.map((b) => b.id),

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { HighlightedContent } from '@/lib/blocks/HighlightedContent';
 import { isHighlightable, wrapHighlight } from '@/lib/blocks/highlight';
+import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
@@ -514,7 +514,12 @@ function TextBlockItem({
             }
             className="whitespace-pre-wrap break-words font-ui text-[15px] leading-[1.65] text-ink"
           >
-            <HighlightedContent content={block.content} />
+            {/* v2.8 §20.1 follow-up: merged blocks whose content carries the per-
+                segment annotation marker render as a list of segments with each
+                annotation visually attached. Un-merged blocks (and merged blocks
+                without per-segment annotations) take SegmentedContent's fast path
+                and render identically to HighlightedContent. */}
+            <SegmentedContent content={block.content} />
           </div>
           {highlightPrompt && (
             <button
