@@ -131,6 +131,38 @@ const applyOverlayAction = (action: OverlayAction): void => {
     });
     void useThreadsStore.getState().patch(action.newThreadId, {});
     useCaptureStore.getState().setFlash(action.newThreadId, action.blockId);
+    return;
+  }
+  if (action.kind === 'pin') {
+    // v2.8 §20.6: pin toggled from the expanded capture toast. DB write done in overlay.
+    useBlocksStore.setState((s) => {
+      const list = s.byThread[action.threadId];
+      if (!list) return s;
+      return {
+        byThread: {
+          ...s.byThread,
+          [action.threadId]: list.map((b) =>
+            b.id === action.blockId ? { ...b, pinned: action.pinned } : b,
+          ),
+        },
+      };
+    });
+    return;
+  }
+  if (action.kind === 'annotate') {
+    // v2.8 §20.6: annotation written from the expanded capture toast. DB write done in overlay.
+    useBlocksStore.setState((s) => {
+      const list = s.byThread[action.threadId];
+      if (!list) return s;
+      return {
+        byThread: {
+          ...s.byThread,
+          [action.threadId]: list.map((b) =>
+            b.id === action.blockId ? { ...b, annotation: action.annotation } : b,
+          ),
+        },
+      };
+    });
   }
 };
 

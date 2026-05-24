@@ -75,4 +75,18 @@ export type OverlayAction =
       blockId: string;
       oldThreadId: string;
       newThreadId: string;
+    }
+  // v2.8 §20.6: pin/annotate from the expanded capture toast. DB write already
+  // done in the overlay; main mirrors the change into blocksStore.
+  | {
+      kind: 'pin';
+      blockId: string;
+      threadId: string;
+      pinned: boolean;
+    }
+  | {
+      kind: 'annotate';
+      blockId: string;
+      threadId: string;
+      annotation: string | null;
     };
