@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -17,7 +17,23 @@ const WINDOW_SIZE = 200;
 
 interface Props {
   threadId: string;
+  // Forwarded from LogView so the §20.1 drag-marquee can auto-scroll the same container
+  // and resolve block-element positions against the correct scroll origin.
+  scrollRef: RefObject<HTMLDivElement | null>;
 }
+
+// v2.8 §20.1 drag-marquee constants.
+// Edge-trigger band for auto-scroll while dragging near the top/bottom of the feed.
+const MARQUEE_SCROLL_EDGE = 40;
+// Pixels per animation frame while auto-scrolling — tuned so a long sweep feels
+// continuous without being so fast the user overshoots the target block.
+const MARQUEE_SCROLL_SPEED = 14;
+// Bounding-box intersection — viewport coords for both rects.
+const intersectsRect = (
+  a: { left: number; right: number; top: number; bottom: number },
+  b: DOMRect,
+): boolean =>
+  !(b.right < a.left || b.left > a.right || b.bottom < a.top || b.top > a.bottom);
 
 // Module-level sentinel: a fresh `[]` inside the selector would change identity every
 // render and trip React's useSyncExternalStore "snapshot is unstable" guard — the same
@@ -66,7 +82,7 @@ function DateDivider({ ts }: { ts: number }) {
   );
 }
 
-export default function BlockFeed({ threadId }: Props) {
+export default function BlockFeed({ threadId, scrollRef }: Props) {
   const load = useBlocksStore((s) => s.load);
   const togglePin = useBlocksStore((s) => s.togglePin);
   const remove = useBlocksStore((s) => s.remove);
@@ -78,8 +94,24 @@ export default function BlockFeed({ threadId }: Props) {
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const toggleSelect = useBlocksStore((s) => s.toggleSelect);
   const selectMany = useBlocksStore((s) => s.selectMany);
+  const setSelection = useBlocksStore((s) => s.setSelection);
   const clearSelection = useBlocksStore((s) => s.clearSelection);
   const selectionAnchor = useRef<string | null>(null);
+
+  // v2.8 §20.1 drag-marquee state. Stored in viewport coords (clientX/Y) — origin is the
+  // mouseDown point; cursor tracks current pointer. The visible rectangle stays anchored
+  // to the viewport while auto-scrolling, matching Finder behaviour: blocks slide through
+  // the rectangle as the feed scrolls, getting picked up as they intersect.
+  const [marquee, setMarquee] = useState<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null>(null);
+  // Snapshot of the selection at drag start. Each frame the new selection is computed as
+  // baseline ∪ (blocks the rectangle currently intersects), so dragging into and back out
+  // of a block doesn't leave it stuck selected.
+  const marqueeBaseline = useRef<Set<string>>(new Set());
 
   // Selection is per-thread implicitly — clear it on thread switch so a stale set from
   // the previous feed can't accidentally include blocks the user can no longer see.
@@ -126,6 +158,115 @@ export default function BlockFeed({ threadId }: Props) {
   const handleCopy = (text: string) => {
     void navigator.clipboard.writeText(text);
   };
+
+  // v2.8 §20.1 drag-marquee: mouseDown on empty feed space (no block, no button, no
+  // textarea …) starts a rubber-band selection like Finder. Modifier-held mouseDown is
+  // skipped so shift/cmd-click on a checkbox keeps its own meaning.
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return;
+    if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        '[data-block-id], button, textarea, input, a, select, label, [contenteditable]',
+      )
+    ) {
+      return;
+    }
+    marqueeBaseline.current = new Set(useBlocksStore.getState().selectedBlockIds);
+    setMarquee({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+    // Wipe any browser text selection that might have started on the empty-space click;
+    // preventDefault on a non-focusable div also keeps a new selection from forming.
+    window.getSelection()?.removeAllRanges();
+    e.preventDefault();
+  };
+
+  // While a marquee drag is active: track cursor, auto-scroll near edges, recompute the
+  // selection from rectangle ∩ block bounding rects. Esc reverts to the pre-drag baseline.
+  // Effect re-runs only when a drag opens (origin x1/y1 changes) or closes (marquee →
+  // null); intra-drag cursor updates flow through the mousemove closure + a dirty flag.
+  useEffect(() => {
+    if (!marquee) return;
+    const origin = { x: marquee.x1, y: marquee.y1 };
+    let cursorX = marquee.x2;
+    let cursorY = marquee.y2;
+    let dirty = false;
+    let rafId = 0;
+
+    const recompute = (): void => {
+      const rect = {
+        left: Math.min(origin.x, cursorX),
+        right: Math.max(origin.x, cursorX),
+        top: Math.min(origin.y, cursorY),
+        bottom: Math.max(origin.y, cursorY),
+      };
+      const next = new Set(marqueeBaseline.current);
+      document.querySelectorAll<HTMLElement>('[data-block-id]').forEach((el) => {
+        if (intersectsRect(rect, el.getBoundingClientRect())) {
+          const id = el.dataset.blockId;
+          if (id) next.add(id);
+        }
+      });
+      setSelection(next);
+    };
+
+    const tick = (): void => {
+      // Auto-scroll while the cursor sits in the top / bottom edge band of the feed.
+      const scrollEl = scrollRef.current;
+      if (scrollEl) {
+        const r = scrollEl.getBoundingClientRect();
+        const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+        if (cursorY < r.top + MARQUEE_SCROLL_EDGE && scrollEl.scrollTop > 0) {
+          scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - MARQUEE_SCROLL_SPEED);
+          dirty = true;
+        } else if (cursorY > r.bottom - MARQUEE_SCROLL_EDGE && scrollEl.scrollTop < maxScroll) {
+          scrollEl.scrollTop = Math.min(
+            maxScroll,
+            scrollEl.scrollTop + MARQUEE_SCROLL_SPEED,
+          );
+          dirty = true;
+        }
+      }
+      if (dirty) {
+        recompute();
+        // Push current cursor into React state so the visible rectangle re-renders.
+        // The state setter is no-op when x2/y2 match, so a still cursor + no scroll
+        // doesn't churn renders.
+        setMarquee((m) => (m && (m.x2 !== cursorX || m.y2 !== cursorY)
+          ? { ...m, x2: cursorX, y2: cursorY }
+          : m));
+        dirty = false;
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const onMove = (e: MouseEvent): void => {
+      cursorX = e.clientX;
+      cursorY = e.clientY;
+      dirty = true;
+    };
+    const onUp = (): void => setMarquee(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      // Revert any additions this drag made; keep the pre-drag selection intact.
+      setSelection(marqueeBaseline.current);
+      setMarquee(null);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKey);
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKey);
+      cancelAnimationFrame(rafId);
+    };
+    // Effect lifecycle is keyed on origin: drag open (null → coords) re-runs, drag close
+    // (coords → null) tears down. Intra-drag cursor changes flow through the closure.
+  }, [marquee?.x1, marquee?.y1, setSelection, scrollRef]);
 
   // Range-select between the anchor and the just-clicked block, using current feed
   // order (whichever sort mode is active). Plain click sets the anchor; shift-click
@@ -174,7 +315,7 @@ export default function BlockFeed({ threadId }: Props) {
   const visible = hiddenCount > 0 ? ordered.slice(hiddenCount) : ordered;
 
   return (
-    <div className="px-6 py-3">
+    <div onMouseDown={handleMouseDown} className="px-6 py-3">
       <div className="mb-2 flex items-center justify-end gap-0.5 text-[11px]">
         <span className="mr-1 text-muted">排序</span>
         {(['time', 'source'] as const).map((m) => (
@@ -240,6 +381,20 @@ export default function BlockFeed({ threadId }: Props) {
           </div>
         )}
       </div>
+      {/* §20.1 drag-marquee rectangle. Fixed position so it lives in viewport coords
+          and isn't clipped by the scroll container; pointer-events:none so it never
+          steals events from the blocks beneath. Rendered only while a drag is active. */}
+      {marquee && (
+        <div
+          className="pointer-events-none fixed z-30 rounded-sm border border-accent/70 bg-accent/10"
+          style={{
+            left: Math.min(marquee.x1, marquee.x2),
+            top: Math.min(marquee.y1, marquee.y2),
+            width: Math.abs(marquee.x2 - marquee.x1),
+            height: Math.abs(marquee.y2 - marquee.y1),
+          }}
+        />
+      )}
     </div>
   );
 }

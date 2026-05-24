@@ -36,9 +36,11 @@ interface BlocksState {
   // before the extraction pipeline existed (PLAN §8.1, §9.6).
   backfillExtractions: () => Promise<void>;
   // v2.8 §20.1: selection helpers. toggleSelect flips one block; selectMany adds a range
-  // (used by shift-click); clearSelection empties the set.
+  // (used by shift-click); setSelection REPLACES the entire set (used by drag-marquee on
+  // every frame — baseline ∪ hits); clearSelection empties it.
   toggleSelect: (id: string) => void;
   selectMany: (ids: string[]) => void;
+  setSelection: (ids: Iterable<string>) => void;
   clearSelection: () => void;
   // v2.8 §20.1: merge ≥2 blocks. Survivor = earliest createdAt. Re-points attachments,
   // joins contents chronologically (with [from <source>] prefixes when sources differ),
@@ -276,6 +278,26 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       set((s) => {
         const next = new Set(s.selectedBlockIds);
         for (const id of ids) next.add(id);
+        return { selectedBlockIds: next };
+      });
+    },
+
+    setSelection: (ids) => {
+      const next = new Set(ids);
+      set((s) => {
+        // Guard against churn — the drag-marquee tick calls this every frame even when
+        // the hit set hasn't changed; without this, every frame triggers a full feed
+        // re-render. Cheap O(n) compare since n is the selection size, not the feed.
+        if (s.selectedBlockIds.size === next.size) {
+          let same = true;
+          for (const id of next) {
+            if (!s.selectedBlockIds.has(id)) {
+              same = false;
+              break;
+            }
+          }
+          if (same) return s;
+        }
         return { selectedBlockIds: next };
       });
     },

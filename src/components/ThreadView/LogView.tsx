@@ -34,7 +34,10 @@ export default function LogView({ threadId }: Props) {
   return (
     <div ref={rootRef} className="flex flex-1 flex-col overflow-hidden">
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <BlockFeed threadId={threadId} />
+        {/* scrollRef is forwarded so BlockFeed's §20.1 drag-marquee selection can
+            auto-scroll near the top/bottom edges and resolve block positions against
+            the same scroll container. */}
+        <BlockFeed threadId={threadId} scrollRef={scrollRef} />
         {/* §20.1 merge toolbar — sticky bottom of the scroll area, only appears when
             ≥1 block is selected (component returns null otherwise). */}
         <MergeToolbar />
