@@ -1,4 +1,14 @@
-import { ChevronDown, ChevronRight, File, Folder, Link as LinkIcon, X } from 'lucide-react';
+import {
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  File,
+  FileText,
+  Folder,
+  Link as LinkIcon,
+  Square,
+  X,
+} from 'lucide-react';
 import { useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import { openTarget } from '@/lib/utils/openTarget';
@@ -9,19 +19,20 @@ interface Props {
   // Omitted in read-only contexts (the digest view) — without it no detach control renders.
   onDetach?: (attachmentId: string) => void;
   // v2.8 §20.2: toggle per-attachment opt-in for inlining extracted_text into pack /
-  // summaries. Omitted in read-only contexts; only rendered on chips with extracted text.
+  // summaries. Omitted in read-only contexts; only rendered when extracted text exists.
   onSetIncludeInPack?: (attachmentId: string, value: boolean) => void;
 }
 
-// Per PLAN_EN.md §9.6: an attachment renders as a chip on its block. Icon picked by
-// kind, click opens with the OS default app / Finder / browser via the Rust
-// `open_target` command; a missing target surfaces a toast (§14.4) instead of
-// crashing — the block and the attachment record are kept.
+// Per PLAN_EN.md §9.6: an attachment renders as a chip on its block. Click opens with the
+// OS default app via the Rust `open_target` command; a missing target surfaces a toast
+// (§14.4) instead of crashing.
 //
-// Beyond §9.6 (extracted text was originally pack-only "silent backing storage"): chips
-// whose attachment carries auto-extracted text gain a chevron that expands an inline,
-// read-only text preview below the chip row. The chip's open-in-native-app click is
-// unchanged; the chevron is a separate control.
+// Layout (v2.8 cleanup): the chip is just the open action. The preview chevron and the
+// detach × are SIBLINGS of the chip (not nested inside its pill) so the click targets
+// aren't crowded. The "加入 Pack" toggle (§20.2) lives inside the expanded preview
+// panel's header — it's semantically about the extracted text, so it belongs alongside
+// the text rather than on the chip row. A subtle FileText vs File icon swap on the chip
+// reflects the pack-inclusion state at a glance.
 export default function BlockAttachments({ attachments, onDetach, onSetIncludeInPack }: Props) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -50,62 +61,68 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
 
   return (
     <div className="mt-1.5 space-y-1.5">
-      <ul className="flex flex-wrap gap-1.5">
+      <ul className="flex flex-wrap gap-x-3 gap-y-1.5">
         {attachments.map((a) => {
           const label = a.label.trim() || a.target;
-          const Icon = a.kind === 'folder' ? Folder : a.kind === 'url' ? LinkIcon : File;
+          const isFile = a.kind === 'file';
+          const fileHasText = isFile && hasText(a);
+          // Subtle state indicator: an active "加入 Pack" attachment uses FileText (with
+          // visible text lines) instead of File (outline only). Folder / URL kinds are
+          // unaffected. Tooltip on the chip flags the state too.
+          const Icon =
+            a.kind === 'folder'
+              ? Folder
+              : a.kind === 'url'
+                ? LinkIcon
+                : fileHasText && a.includeInPack
+                  ? FileText
+                  : File;
           const isOpen = expanded.has(a.id);
+          const chipTitle =
+            fileHasText && a.includeInPack
+              ? `${a.target}\n（文本已加入 Pack）`
+              : a.target;
           return (
             <li
               key={a.id}
-              className="group/chip inline-flex items-center rounded-full border border-line bg-paper-2/60 font-ui text-[11px] text-ink-2 transition-colors hover:border-accent"
+              className="group/chip inline-flex items-center gap-1"
             >
+              {/* Chip body — single action, single click target. Rounded pill with the
+                  icon + label; clicking opens the attachment externally. */}
               <button
                 type="button"
                 onClick={() => void handleOpen(a)}
-                title={a.target}
-                className="flex max-w-[260px] items-center gap-1 py-0.5 pl-1.5 pr-1 transition-colors hover:text-accent"
+                title={chipTitle}
+                className="inline-flex max-w-[260px] items-center gap-1 rounded-full border border-line bg-paper-2/60 px-2 py-0.5 font-ui text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
               >
                 <Icon size={10} className="flex-none" />
                 <span className="truncate">{label}</span>
               </button>
-              {hasText(a) && (
+
+              {/* Preview chevron — sibling of the chip, not nested. Visually separated
+                  by the parent's gap-1 so a stray click on it doesn't open the file. */}
+              {fileHasText && (
                 <button
                   type="button"
                   onClick={() => toggle(a.id)}
                   title={isOpen ? '收起提取的文本' : '展开提取的文本'}
-                  className="flex-none px-1 py-0.5 text-muted transition-colors hover:text-accent"
+                  aria-label={isOpen ? '收起提取的文本' : '展开提取的文本'}
+                  className="rounded p-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-accent"
                 >
-                  {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 </button>
               )}
-              {hasText(a) && onSetIncludeInPack && (
-                <button
-                  type="button"
-                  onClick={() => onSetIncludeInPack(a.id, !a.includeInPack)}
-                  title={
-                    a.includeInPack
-                      ? '已加入 Pack —— 点击移出'
-                      : '加入 Pack（让提取的文本进入打包与摘要）'
-                  }
-                  aria-pressed={a.includeInPack}
-                  className={`flex-none rounded-full px-1.5 py-0.5 text-[10px] transition-colors ${
-                    a.includeInPack
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-muted hover:bg-paper-2 hover:text-ink-2'
-                  }`}
-                >
-                  {a.includeInPack ? '已加入 Pack' : '加入 Pack'}
-                </button>
-              )}
+
+              {/* Detach × — hover-revealed, outside the chip pill so it doesn't crowd
+                  the open / preview targets. */}
               {onDetach && (
                 <button
                   type="button"
                   onClick={() => onDetach(a.id)}
                   title="移除附件"
-                  className="flex-none py-0.5 pl-0.5 pr-1.5 text-muted opacity-0 transition-opacity hover:text-accent group-hover/chip:opacity-100"
+                  className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-accent group-hover/chip:opacity-100"
                 >
-                  <X size={9} />
+                  <X size={11} />
                 </button>
               )}
             </li>
@@ -113,14 +130,40 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
         })}
       </ul>
 
+      {/* Expanded text preview, one panel per opened chip. The header carries metadata
+          (filename · kind · char count) plus the §20.2 "加入 Pack" toggle — moved out of
+          the chip row so the chip stays minimal, and put here because the toggle is
+          semantically about whether THIS extracted text travels with pack / summaries. */}
       {attachments.map((a) =>
         expanded.has(a.id) && a.extractedText !== null ? (
           <div key={a.id} className="rounded-md border border-line bg-paper-2/40 p-2">
             <div className="mb-1 flex items-center justify-between gap-2 font-ui text-[10px] text-muted">
-              <span className="truncate">{a.label.trim() || a.target}</span>
-              <span className="flex-none">
-                {a.extractionKind} · {a.extractedText.length} 字符
-              </span>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate">{a.label.trim() || a.target}</span>
+                <span className="flex-none">
+                  {a.extractionKind} · {a.extractedText.length} 字符
+                </span>
+              </div>
+              {onSetIncludeInPack && (
+                <button
+                  type="button"
+                  onClick={() => onSetIncludeInPack(a.id, !a.includeInPack)}
+                  title={
+                    a.includeInPack
+                      ? '此文本会随打包 / 状态摘要一起发送给 AI —— 点击取消'
+                      : '勾选后，此文本会随打包 / 状态摘要一起发送给 AI'
+                  }
+                  aria-pressed={a.includeInPack}
+                  className={`flex flex-none items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
+                    a.includeInPack
+                      ? 'text-accent hover:bg-accent/10'
+                      : 'text-muted hover:bg-paper-2 hover:text-ink-2'
+                  }`}
+                >
+                  {a.includeInPack ? <CheckSquare size={11} /> : <Square size={11} />}
+                  <span>加入 Pack</span>
+                </button>
+              )}
             </div>
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-ink-2">
               {a.extractedText}
