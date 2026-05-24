@@ -8,17 +8,20 @@ import {
 } from '@/lib/capture/clipboard';
 import { ingestCapture } from '@/lib/capture/ingest';
 import {
+  APPEND_COLLECT_ITEM_COMMAND,
   OVERLAY_ACTION_EVENT,
   SHOW_OVERLAY_COMMAND,
   SHOW_OVERLAY_NOTICE_COMMAND,
   UPDATE_OVERLAY_SOURCE_COMMAND,
   type CaptureOverlayPayload,
+  type CollectAppendPayload,
   type OverlayAction,
   type OverlayNotice,
 } from '@/lib/capture/overlayProtocol';
 import { updateBlockSource } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { buildPreview, useCaptureStore } from '@/stores/captureStore';
+import { useCollectStore } from '@/stores/collectStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -192,6 +195,26 @@ export function useCapture(): void {
           tlog('clipboard read', t0, `len=${text.length}`);
           if (!text) {
             showNoticeInOverlay({ kind: 'empty' });
+            return;
+          }
+
+          // v2.8 §20 Track B: when collect mode is active, this capture routes to the
+          // overlay's staging list — NO block lands in the database. The main capture
+          // path (DB write + toast) is otherwise byte-for-byte unchanged. Collect mode
+          // is opened only by the dedicated long-press ⌥ trigger.
+          if (useCollectStore.getState().active) {
+            const frontmost = await Promise.race([
+              frontmostPromise,
+              sleep(FRONTMOST_HOT_PATH_MS).then(() => null),
+            ]);
+            const collectPayload: CollectAppendPayload = {
+              text,
+              source: frontmost?.source ?? null,
+            };
+            void invoke(APPEND_COLLECT_ITEM_COMMAND, { payload: collectPayload }).catch(
+              (e) => console.error('[collect] append_collect_item failed', e),
+            );
+            tlog('collect item appended', t0);
             return;
           }
 

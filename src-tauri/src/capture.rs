@@ -668,6 +668,48 @@ pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     Ok(())
 }
 
+// v2.8 §20 Track B: position + show the overlay window in collect/staging mode. No
+// capture payload — the overlay listens for the separate `collect:open` event and
+// renders its staging UI. Sequence mirrors show_capture_overlay (reset size →
+// reposition → emit → show) so the geometry stays consistent.
+#[tauri::command]
+pub fn show_collect_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let win = app
+        .get_webview_window(OVERLAY_LABEL)
+        .ok_or_else(|| "overlay window not found".to_string())?;
+    win.set_size(LogicalSize::new(
+        OVERLAY_WIDTH as f64,
+        OVERLAY_HEIGHT_COLLAPSED as f64,
+    ))
+    .map_err(|e| e.to_string())?;
+    position_overlay_top_right(&app)?;
+    app.emit_to(OVERLAY_LABEL, "collect:open", ())
+        .map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// v2.8 §20 Track B: relay one captured-while-collecting item into the overlay's
+// staging list. The main window invokes this when its capture-trigger handler sees
+// collect mode is active — text comes from the clipboard, source from the foreground
+// app. Nothing touches the blocks table here; the item is transient until Send.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectAppendPayload {
+    pub text: String,
+    pub source: Option<String>,
+}
+
+#[tauri::command]
+pub fn append_collect_item<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CollectAppendPayload,
+) -> Result<(), String> {
+    app.emit_to(OVERLAY_LABEL, "collect:append", payload)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // Resize the overlay window's height (e.g. expand for the Redirect dropdown). Since
 // the window is top-anchored, growing the height just extends downward — the
 // position stays put. Width is fixed; the toast layout assumes OVERLAY_WIDTH.

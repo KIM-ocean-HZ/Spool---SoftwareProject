@@ -25,6 +25,8 @@ pub fn run() {
             capture::show_capture_notice,
             capture::set_shortcuts,
             capture::probe_browser_automation,
+            capture::show_collect_overlay,
+            capture::append_collect_item,
         ]);
 
     #[cfg(desktop)]

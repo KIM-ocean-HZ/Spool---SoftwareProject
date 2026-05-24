@@ -6,6 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import ToastRack from '@/components/ui/Toast';
 import { useCapture } from '@/hooks/useCapture';
+import { useCollect } from '@/hooks/useCollect';
 import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -32,6 +33,7 @@ export default function App() {
   const openSettings = useSettingsStore((s) => s.openPanel);
 
   useCapture();
+  useCollect();
   useTrayMenu();
   useSearch();
 

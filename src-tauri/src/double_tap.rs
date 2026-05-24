@@ -41,6 +41,7 @@ use foreign_types::ForeignType;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
 // Hardware key codes for the left/right ⌥ (Option) keys — layout-independent.
@@ -52,12 +53,27 @@ const KEYCODE_OPT_RIGHT: i64 = 61;
 // from hardware timestamps, not from (latency-prone) callback delivery time.
 const DOUBLE_TAP_WINDOW_MS: u64 = 500;
 
+// v2.8 §20 Track B: long-press ⌥ opens the collect-mode staging toast. Threshold is
+// long enough that a fast double-tap (≤500ms each press window) can't coincidentally
+// trigger collect — the user has to deliberately hold the key. Made a named constant
+// per the prompt so the kill criterion in §20.8 reads as one tunable.
+const LONG_PRESS_THRESHOLD_MS: u64 = 600;
+
 const NANOS_PER_MS: u64 = 1_000_000;
 
 // CGEventGetTimestamp value (nanoseconds) of the last observed clean ⌥ press. Atomic
 // so the tap callback — dispatched on its own run-loop thread — reads/writes lock-free.
 // 0 means "no first tap yet"; a real CGEvent timestamp is never 0.
 static LAST_OPT_PRESS_NS: AtomicU64 = AtomicU64::new(0);
+
+// v2.8 Track B long-press state. PRESS_ID monotonically increments on every clean ⌥
+// press; OPT_IS_DOWN tracks the live press/release edge. A long-press timer thread
+// spawned on press captures the current PRESS_ID and, after LONG_PRESS_THRESHOLD_MS,
+// fires collect-trigger ONLY if (a) OPT_IS_DOWN is still true and (b) PRESS_ID hasn't
+// moved (the user hasn't pressed-released-repressed in the meantime). This guarantees
+// a stray double-tap can't accidentally also trip the long-press.
+static OPT_PRESS_ID: AtomicU64 = AtomicU64::new(0);
+static OPT_IS_DOWN: AtomicBool = AtomicBool::new(false);
 
 // CFMachPortRef of the installed tap, stashed so the callback can re-enable in place
 // after macOS disables it (§19.4). Null until run_tap() finishes setup. Storing a
@@ -141,10 +157,18 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                 }
                 let flags = event.get_flags();
                 // The ⌥ bit set in the post-change flags means this is the *press*
-                // edge; the release edge clears it and is ignored.
-                if !flags.contains(CGEventFlags::CGEventFlagAlternate) {
+                // edge; cleared means *release*. Both edges matter now — release
+                // bails the long-press timer (v2.8 Track B).
+                let is_press = flags.contains(CGEventFlags::CGEventFlagAlternate);
+
+                if !is_press {
+                    // Release edge — mark the press session as ended so the in-flight
+                    // long-press timer (if any) bails on wakeup. Does NOT update
+                    // LAST_OPT_PRESS_NS (only presses count for double-tap pairing).
+                    OPT_IS_DOWN.store(false, Ordering::Relaxed);
                     return None;
                 }
+
                 // Require ⌥ alone — a ⌥ press while ⌘/⇧/⌃ is held belongs to a combo
                 // (⌥⌘C, ⌥⇧4, …), not a deliberate tap.
                 if flags.contains(CGEventFlags::CGEventFlagCommand)
@@ -153,6 +177,12 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                 {
                     return None;
                 }
+
+                // Mark the press as live and stamp a fresh press_id so an older
+                // long-press timer (still sleeping from a previous press) can detect
+                // it has been superseded and bail.
+                OPT_IS_DOWN.store(true, Ordering::Relaxed);
+                let press_id = OPT_PRESS_ID.fetch_add(1, Ordering::Relaxed) + 1;
 
                 let now = unsafe { CGEventGetTimestamp(event.as_ptr() as *const c_void) };
                 let prev = LAST_OPT_PRESS_NS.swap(now, Ordering::Relaxed);
@@ -177,6 +207,29 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                         );
                     }
                 }
+
+                // v2.8 Track B: spawn a one-shot long-press detector. It sleeps the
+                // threshold, then fires collect-trigger iff (a) this same press is
+                // still down AND (b) no newer press has started in the meantime. The
+                // thread is short-lived (~600ms) and self-cleans. We do this AFTER
+                // the double-tap logic above so a fast second tap still trips capture
+                // first — and that fast second tap also increments OPT_PRESS_ID, so
+                // the first press's long-press timer will bail.
+                let app_for_timer = app.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(LONG_PRESS_THRESHOLD_MS));
+                    if !OPT_IS_DOWN.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
+                        return; // superseded by a newer press
+                    }
+                    // Reset double-tap pairing so this long-pressed ⌥ can't also pair
+                    // with a future tap for an unintended capture-trigger.
+                    LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                    eprintln!("[long-press] TRIGGER after {LONG_PRESS_THRESHOLD_MS}ms hold");
+                    let _ = app_for_timer.emit("collect-trigger", ());
+                });
             }
             _ => {}
         }
@@ -229,7 +282,8 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
         Ordering::Release,
     );
     eprintln!(
-        "[double-tap] installed — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture"
+        "[double-tap] installed — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture; \
+         long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)"
     );
     // CFRunLoop::run_current() blocks this thread forever — exactly what we want
     // for a long-lived event-tap listener. The thread is dedicated to this loop.
