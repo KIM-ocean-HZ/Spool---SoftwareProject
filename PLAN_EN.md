@@ -9,7 +9,9 @@
 - **Claude Code**: Implement phase by phase, in the order given in §15. After completing each phase, STOP and wait for Ocean to review before starting the next. **Do not work on multiple phases in parallel. Do not pre-implement anything outside the current phase.**
 - **When you hit any ambiguity, or feel tempted to add a feature**: First re-read §2 (Product Constitution) — especially §2.5 (design principles), §2.6 (rejected ideas), and §2.7 (the feature filter). Most ambiguity is resolved there. If still unresolved, STOP and ask Ocean. Do not improvise.
 - **This document is written in English deliberately** — it is used directly as a prompt for Claude Code, and English yields more reliable instruction-following. All user-facing UI copy in the product itself, however, must be in Simplified Chinese (see §18, rule 11).
-- **Version 2.7 (this revision)** is a post-dogfooding correction informed by the first real-world pack-to-Claude experiment after Phase 11. Two changes: (a) **pack templates gain an English instruction header** that teaches the receiving AI the four-category authority hierarchy — Reference (authoritative facts, do not contradict), Synthesis (already-formed understanding, may be built upon), Process (conversation traces, read for the user's evolving questions, never as facts), Personal (user's own hypotheses, may be wrong) — and the per-category handling rules. The experiment showed AI classification accuracy at 100% under friendly conditions but only because the user manually annotated some blocks; embedding the hierarchy in the pack template generalizes that behavior to every pack. (b) **Attachments evolve from "clickable pointers" to "indexed content sources"** — files (PDF, docx, txt, md) are auto-extracted on attach and their text is inlined into pack output. The v2.6 "attachments are pointers" assumption (§9.6) was contradicted by real use — Ocean manually copy-pasted PDF text into blocks because pointers were not enough, which is the kind of user-side friction §2.5 Principle 1 forbids. Schema bumps 3→4 (additive ALTER on `attachments`). **The Product Constitution (§2), the core loop (§3), the two-tier structure, and Phases 9–13 are unchanged in intent. The 6 principles are unchanged.**
+- **Version 2.8 (this revision)** opens a formally-separated **Experimental Track (§20)** — a fenced area for dogfood-gated features that are NOT yet part of the Product Constitution. Two tracks: Track A (merge blocks, extraction/inline split, conclusion-summary attachments, annotation-in-edit-mode) is cheap and clearly-good, built to stay. Track B (select-to-highlight, capture-toast optional expansion, pack task templates) is a set of genuine interaction bets, built to be validated — the default expectation is that at least one gets cut. Each §20 feature carries a kill criterion (§20.8). Schema bumps 4→5 (additive ALTER on `attachments` for `include_in_pack`, splitting "extract text" from "inline text into pack"). **§1–§19 and the 6 principles are unchanged. §2.7's filter is deliberately suspended for §20 items — they are being tested to learn whether they would pass it.**
+
+- **Version 2.7** is a post-dogfooding correction informed by the first real-world pack-to-Claude experiment after Phase 11. Two changes: (a) **pack templates gain an English instruction header** that teaches the receiving AI the four-category authority hierarchy — Reference (authoritative facts, do not contradict), Synthesis (already-formed understanding, may be built upon), Process (conversation traces, read for the user's evolving questions, never as facts), Personal (user's own hypotheses, may be wrong) — and the per-category handling rules. The experiment showed AI classification accuracy at 100% under friendly conditions but only because the user manually annotated some blocks; embedding the hierarchy in the pack template generalizes that behavior to every pack. (b) **Attachments evolve from "clickable pointers" to "indexed content sources"** — files (PDF, docx, txt, md) are auto-extracted on attach and their text is inlined into pack output. The v2.6 "attachments are pointers" assumption (§9.6) was contradicted by real use — Ocean manually copy-pasted PDF text into blocks because pointers were not enough, which is the kind of user-side friction §2.5 Principle 1 forbids. Schema bumps 3→4 (additive ALTER on `attachments`). **The Product Constitution (§2), the core loop (§3), the two-tier structure, and Phases 9–13 are unchanged in intent. The 6 principles are unchanged.**
 - **Version 2.6** was a post-Phase-8 design correction. Manual `progress` slider and manual `next_step` field rolled back. Source-category icons + date dividers replaced the rejected color-coding proposal. First additive `ALTER TABLE` (SCHEMA_VERSION 2→3).
 - **Version 2.5** was a post-Phase-7 retrospective. Phases 1–7 marked complete; double-tap ⌥ trigger and browser tab-title source detection promoted from v1.5 into v1; FTS5 trigram tokenizer documented; §18.1 rule 4 lifted; Improvement Backlog added as §19; §18 rule 13 added (no Claude/Anthropic attribution).
 - **Version 2.4** was a roadmap amendment that inserted Phase 5 Capture Hardening and Phase 6 Block Workbench, and dissolved the old "File Anchors" phase into Phase 6 — see §9.6 for the reasoning.
@@ -39,6 +41,7 @@
 17. Out of Scope (with architectural hooks)
 18. General Rules for Claude Code
 19. Improvement Backlog (post-Phase 8 / v2.6)
+20. Experimental Track (v2.8) — Dogfood-Gated Features
 
 ---
 
@@ -439,10 +442,10 @@ CREATE INDEX IF NOT EXISTS idx_blocks_thread
   ON blocks(thread_id, created_at ASC);
 
 -- Attachment: a file, folder, or URL linked to a block. Replaces the old kind=anchor block.
--- v2.7: `extracted_text` added — for `file` kinds with extractable text (PDF, docx, txt, md),
--- Spool now auto-extracts the file's text content on attach and stores it here. Pack output
--- inlines this content alongside the block, replacing the v1 "attachments are pointers only"
--- design that real use proved insufficient.
+-- v2.7: extracted_text/extracted_at/extraction_kind — auto-extracted file text, cached on attach.
+-- v2.8: include_in_pack — splits "extract" (always on, cheap, local, powers preview) from
+-- "inline into pack/summary" (default OFF, user opts in per attachment, controls token cost
+-- and pack length). Extraction still happens for every supported file; only INLINING is gated.
 CREATE TABLE IF NOT EXISTS attachments (
   id              TEXT PRIMARY KEY,
   block_id        TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
@@ -452,6 +455,7 @@ CREATE TABLE IF NOT EXISTS attachments (
   extracted_text  TEXT,                            -- v2.7: nullable; auto-extracted text content for file kinds
   extracted_at    INTEGER,                         -- v2.7: ms epoch; null if extraction not attempted or not applicable
   extraction_kind TEXT,                            -- v2.7: 'pdf' | 'docx' | 'plaintext' | 'failed' | null
+  include_in_pack INTEGER NOT NULL DEFAULT 0,      -- v2.8: 1 = inline this attachment's text into pack/summaries; default 0
   created_at      INTEGER NOT NULL
 );
 
@@ -472,7 +476,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
 
 **Capture-target uniqueness**: `threads.ts`'s `setCaptureTarget(id)` uses a transaction to zero all rows first, then set one.
 
-**Schema version & migration policy.** `SCHEMA_VERSION` is held in `client.ts` and currently equals `3` (bumped in v2.6 to drop `threads.progress` and `threads.next_step`).
+**Schema version & migration policy.** `SCHEMA_VERSION` is held in `client.ts` and currently equals `5` (4 added v2.7 attachment-extraction columns; 5 added v2.8 `include_in_pack`).
 
 - For v0 → current: run `schema.sql` fresh.
 - For v1 → v2: the trigram tokenizer change (still a DROP+recreate of the `blocks_fts` virtual table only; user data untouched).
@@ -491,6 +495,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5(
   PRAGMA user_version = 4;
   ```
   Existing attachment rows get NULL for the three new columns — they will be backfilled lazily the next time the user opens a thread that contains them, by a background extraction pass. No data loss.
+- For v4 → v5: additive migration on `attachments`:
+  ALTER TABLE attachments ADD COLUMN include_in_pack INTEGER NOT NULL DEFAULT 0;
+  PRAGMA user_version = 5;
+  Behavior change this encodes: under v2.7, any attachment with extracted_text != null was inlined into pack automatically. From v2.8, inlining is opt-in per attachment. Existing rows get include_in_pack = 0, so previously-extracted attachments STOP auto-inlining until the user toggles them on. Intentional — controls pack length / token cost (the v2.7 dogfooding finding). Extraction itself is unchanged and still default-on, so preview and one-click opt-in remain instant. No data loss.
 
 §19.3 is partially closed by this migration — the pattern is proven; a fuller migration framework (named scripts, transaction-wrapped, dry-run preview) is still TBD before any real preview release.
 
@@ -554,6 +562,7 @@ export interface Attachment {
   extractedText: string | null;                // v2.7: auto-extracted text for file kinds
   extractedAt: number | null;                  // v2.7: ms epoch when extraction completed; null if unattempted
   extractionKind: AttachmentExtractionKind;    // v2.7: which extractor handled this (or 'failed')
+  includeInPack: boolean;                      // v2.8: inline this attachment's text into pack/summaries (default false)
   createdAt: number;
 }
 ```
@@ -714,7 +723,7 @@ A "Pack context" button on the thread header (Cmd+Shift+P).
   ```
  
 - **The core assembly function `assemble.ts` is still a pure function — it calls no AI and touches no network.** The four-category instruction header is static text from `templates.ts`, inlined verbatim. The receiving AI does the actual classification at consumption time, based on `source` field + content shape + the embedded instructions.
-- **Attachment text is inlined when available**: if a file attachment has `extracted_text != null`, its text appears indented beneath the block, capped at 8000 characters per attachment to prevent any single PDF from dominating the pack. If the text was truncated, a marker `[... truncated, N more chars not shown ...]` appears at the cut. Pack-time cost: negligible (string interpolation over already-cached data).
+- **Attachment text is inlined only when the user opted in (v2.8)**: a file attachment's extracted text is inlined beneath its block ONLY if include_in_pack === true. Default is false — extraction still happens and powers the inline preview (§20.2), but pack stays lean unless the user flips the toggle on that attachment. When inlined, text is capped at 8000 chars per attachment with a truncation marker. When NOT inlined, the attachment still appears in "Related Files & Links" as a pointer with [extracted: yes, not inlined] so the receiving AI knows content exists but was withheld for length.
 - `PackDialog` shows the assembled full text (scrollable) + a "Copy to clipboard" button + a toast.
 - v1 scope: pack "everything." A range selector ("pinned only / last N days only") is v1.5.
 
@@ -1579,6 +1588,112 @@ The first dogfooding session showed all 15 blocks captured in an 8-minute window
 
 ---
 
+>>>BEGIN §20
+ 
+---
+ 
+## 20. Experimental Track (v2.8) — Dogfood-Gated Features
+ 
+> **This section is not like §1–§19.** Everything above is settled product. Everything here is provisional — built to be dogfooded, and explicitly allowed to be cut. §20 features are NOT part of the Product Constitution (§2). They do not earn §2.6's permanence, and §2.7's filter is *suspended* for them: they are being built precisely to learn whether they would pass it. Each carries a **kill criterion** (§20.8). Code for §20 features must be written behind clear boundaries so that ripping one out is a clean, near-single-commit revert — never an entanglement.
+>
+> **Two tracks.** Track A (§20.1–§20.4): cheap, low-risk, clearly-good; built to stay unless dogfooding actively surfaces a problem. Track B (§20.5–§20.7): genuine interaction bets; built to learn. The honest default expectation is that **at least one Track B feature gets cut.** That is not failure — that is the track working.
+ 
+### 20.1 (Track A) Merge blocks
+ 
+The problem: fragmented sources (especially PPT) produce several tiny, individually-useless blocks. Capture must stay zero-friction (Principle 1), so the fix is **post-hoc consolidation, not pre-commit staging** — captures land instantly as always; merging is an optional cleanup afterward.
+ 
+- Multi-select in the feed: a block enters "selected" state via a checkbox that appears on hover, or shift-click range select. Quiet — selection UI only appears once at least one block is selected.
+- A "merge" action combines selected blocks into one, **keeping the earliest block** as survivor:
+  - Survivor `content` = selected contents joined by a blank line, chronological order.
+  - Survivor keeps its own id, created_at, feed position (merge doesn't reorder the timeline).
+  - All attachments from merged blocks move to the survivor.
+  - Annotations from merged blocks are appended to the survivor's annotation (newline-joined) — never silently dropped.
+  - pinned becomes true if ANY merged block was pinned.
+  - source: if all share one source, keep it; if they differ, keep survivor's and note differing sources inline at each segment head as [from <source>].
+  - Non-survivor blocks are hard-deleted.
+- A confirmation step ("Merge N blocks into one? This can't be auto-undone.") is enough; no formal undo stack in v1.
+**Why Track A**: small, mechanical, preserves zero-friction capture, helps regardless of source. Low risk.
+ 
+### 20.2 (Track A) Split extraction from pack-inlining
+ 
+Encoded by include_in_pack (§8.1, §8.2). Two layers:
+ 
+- **Extraction** (unchanged, default ON): on attach, supported files (pdf/docx/txt/md) extracted and cached. Powers preview. Local, one-time, cheap.
+- **Inlining** (v2.8, default OFF, per-attachment): whether an attachment's text inlines into pack (§9.5) and AI summaries (§20.3, status summary).
+UI: in BlockAttachments, a chip with extracted_text shows the existing expand arrow (text preview, built in v2.7 follow-up) plus a small toggle "加入 Pack" reflecting include_in_pack. Off by default; flipping persists immediately.
+ 
+Status summary (§12.1) must now **respect include_in_pack** — only inline opted-in attachments. This also fixes the token-cost concern from the v2.7 status-summary change.
+ 
+**Why Track A**: resolves the v2.7 token-cost finding without losing extraction's value. The toggle is the user's cost/length control.
+ 
+### 20.3 (Track A) Conclusion summary reads pinned blocks + their attachments
+ 
+§12.2 buildDigestPrompt currently reads only pinned blocks' content. Extend to inline pinned blocks' attachment extracted text.
+ 
+- For each pinned block, inline its attachments' extracted_text, capped at 8000 chars per attachment (consistent with pack and status summary).
+- **Pinning is the opt-in signal here**: a pinned block's attachments are inlined regardless of include_in_pack. Rationale: pinning is a stronger "this matters" signal than the pack-inline toggle. (The pack-inline toggle governs the full-record pack; the conclusion summary is about user-curated highlights, where pinning already expresses intent.)
+- Ocean-authorized change to a §12 prompt body (§18 rule 5). Signature gains attachmentsByBlock, mirroring the v2.7 status-summary change. CompleteThreadPanel passes it in.
+**Why Track A**: completes a half-built feature (status summary already reads attachments; conclusion should too). Low controversy.
+ 
+### 20.4 (Track A) Annotation as a bottom area in edit mode
+ 
+Dogfooding showed users don't use the separate ✑ annotate hover action — they double-click and type into content. So: make annotation part of the natural edit flow, while keeping the annotation field separate in data (so pack still classifies it as 💭 Personal).
+ 
+- Double-click a block → edit mode shows the content textarea on top + **a quiet, visually-subordinate annotation area at the bottom** ("批注(可选)" placeholder, smaller, muted, clearly secondary).
+- Most blocks have no annotation; the bottom area is present but unobtrusive — visible enough that the user learns it exists, quiet enough that it never demands attention. Tune in dogfooding.
+- The ✑ hover action may stay as an alternative entry or be removed — decide after dogfooding which the user reaches for.
+- Data model unchanged: still writes blocks.annotation; pack still renders annotation as the user's own note. Only the interaction changes.
+**Why Track A**: keeps the data separation pack relies on, matches observed real behavior. Low risk.
+ 
+### 20.5 (Track B) Select-to-highlight (划词高亮)
+ 
+**Gesture, not syntax.** Select text within a block; a small floating prompt appears ("标为重点?"); on confirm, the app wraps the selection in ==...== **in the stored content string**. Resolves two failure modes at once: users don't memorize Markdown syntax (the gesture does it), and the highlight survives editing (stored as plain-text markers, not a fragile selection offset).
+ 
+- Display: ==...== renders as a quiet highlight (e.g. --selection background). Editing the block shows the raw == markers (edit returns to source — same principle as future Markdown rendering).
+- Pack: assemble.ts recognizes ==(.+?)== and the pack instruction header (§9.5) gains a line telling the AI these are user-emphasized key points to prioritize. **Relationship to pin**: pin = whole block is core; highlight = a sentence within a block is key. They coexist; the header mentions both without double-emphasizing.
+- **NOT the rejected rich-text editor (§2.6).** Storage is plain-text Markdown markers, not a rich-text document model. No toolbar, no WYSIWYG, no offset tracking. The gesture is sugar over a text mutation.
+**Why Track B**: open assumption — *will the user actually select-and-confirm, or is it still too much friction?* Ocean flagged this himself. Built to find out.
+ 
+### 20.6 (Track B) Capture toast — optional expansion (pin / note)
+ 
+The capture toast (§9.4) must stay glanceable and non-activating by default (§10.3). This adds **optional** depth without breaking that: default path is still "lands, glance, gone, zero action." A subtle affordance lets the user, if they choose, expand the toast (a deliberate click — already focuses the overlay per §14.3) into:
+- a **pin** toggle (pin this just-captured block — closes the "pin存在感低" gap at the highest-leverage moment),
+- a **note** input (annotate at capture time, when context is freshest).
+**Hard constraint**: the toast's default rendered state is byte-for-byte as quiet as today's. Pin/note controls live behind the expand interaction, never shown by default, never required. If implementing this makes the default toast heavier or slower-to-dismiss, the feature is wrong — stop and reconsider.
+ 
+The overlay already has its own SQLite access (§9.4), so writing pin/annotation back is straightforward; emit the existing cross-window event so main-window stores update.
+ 
+**Why Track B**: open assumption — *does enriching the toast erode the "瞄一眼即走" feel?* The v2.4 toast design rests on default weightlessness. Built to find out whether optional depth can coexist with it.
+ 
+### 20.7 (Track B) Pack task templates
+ 
+Orthogonal to the v2.7 four-category header. The header says *how to read the input* (by authority); a template says *what task to perform*. A "template" is just a different **closing task-instruction block** appended after the full record — the content body (header + blocks) is identical.
+ 
+- assemble.ts takes an optional template parameter; templates.ts holds 2–3 hardcoded closing blocks:
+  - **默认 / 纯上下文**: no extra task block (current behavior).
+  - **复习资料**: closing block asking the AI to generate revision materials, respecting the four-category hierarchy.
+  - **组合零散对话**: closing block asking the AI to synthesize scattered fragments into one clean, de-duplicated summary.
+- PackDialog gets a small selector "想让 AI 做什么?" with these presets. Default = 纯上下文.
+- **No template engine, no editor, no management UI.** Hardcode 2–3, see which gets used. User-defined templates are out of scope (revisit only if the hardcoded set proves consistently insufficient).
+**Why Track B**: open assumption — *which (if any) templates earn their place?* Built to learn usage, not to build a system.
+ 
+### 20.8 Kill criteria & review schedule
+ 
+Each §20 feature is reviewed after **3 weeks** of dogfooding. Kill criteria:
+ 
+- **20.1 Merge**: keep unless unused (0 merges in 3 weeks) AND PPT fragmentation proves rare → then cut.
+- **20.2 Extraction/inline split**: keep (foundational). Only tune the default (off vs a smart small-file threshold).
+- **20.3 Conclusion attachments**: keep unless conclusion summaries get worse with attachments inlined → then gate the same way as status summary.
+- **20.4 Annotation bottom area**: keep unless still unused after the interaction change → then "users genuinely don't annotate," de-emphasize further.
+- **20.5 Highlight**: **cut if Ocean's own highlight count is near zero after 2 weeks.** If the creator won't use the gesture, no user will. The == markers are isolated; removal is clean.
+- **20.6 Toast expansion**: **cut immediately if it makes the default toast heavier or slower.** Default weightlessness is non-negotiable (§10.3).
+- **20.7 Templates**: keep only the templates that get used; cut the rest. If none beat 纯上下文, cut the selector entirely.
+**Logging**: same as §19.14–§19.16 — a paper log next to the desk. Per feature, note usage count and any friction.
+ 
+**On graduation**: a §20 feature that survives review and proves clearly valuable gets *promoted* — moved into the relevant §1–§19 section and (if it touches the core) re-examined against §2. Until promoted, it stays fenced here. Promotion is a deliberate act, recorded in the changelog — not a silent drift.
+ 
+>>>END §20
+
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.7 (supersedes v2.6; change in this revision: pack template gains embedded English four-category instruction header informed by the first real-world dogfooding experiment (§9.5); attachments evolve from pointers to indexed content sources with auto-extracted text inlined into pack output (§9.6); SCHEMA_VERSION 3→4 additive ALTER on `attachments`; §19 adds entries 19.13–19.16 for ongoing dogfooding observations)
-Last updated: 2026-05-18
+Version: 2.8 (supersedes v2.7; change in this revision: opens §20 Experimental Track — a fenced, dogfood-gated, explicitly-reversible area for provisional features, split into Track A (merge blocks, extraction/inline split, conclusion-summary attachments, annotation-in-edit-mode — built to stay) and Track B (select-to-highlight, capture-toast optional expansion, pack task templates — built to validate, expected to cut at least one); schema 4→5 additive ALTER on attachments for include_in_pack; §1–§19 and the 6 principles unchanged; §2.7 deliberately suspended for §20 items)
+Last updated: 2026-05-24
