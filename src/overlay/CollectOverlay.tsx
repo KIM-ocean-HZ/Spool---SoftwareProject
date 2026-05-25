@@ -74,6 +74,14 @@ export default function CollectOverlay() {
   // Index of the item being dragged (for HTML5 drag-and-drop reordering); null when
   // no drag in progress. Index — not id — so the over-handler reorders in O(1).
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
+  // Where the dragged item would land if dropped right now. `idx` is the row the
+  // cursor is over; `position: 'before'` means "land above row idx", `'after'`
+  // means "land below row idx". `idx = -1` is the special "drop above the very
+  // first row" zone (the top spacer). Drives both the thin drop-indicator line
+  // shown to the user AND the final reorder math on drop.
+  const [dropAt, setDropAt] = useState<
+    { idx: number; position: 'before' | 'after' } | null
+  >(null);
 
   // Stash refs so listener closures read latest state without re-subscribing.
   const itemsRef = useRef<StagingItem[]>([]);
@@ -229,17 +237,41 @@ export default function CollectOverlay() {
     });
   };
 
-  // Task 5.4: drag-to-reorder. Pin (task 5.4 question option 1) stays orthogonal —
-  // drag changes merge order, pin propagates to the merged block's pinned flag.
-  const reorderTo = (fromIdx: number, toIdx: number): void => {
-    if (fromIdx === toIdx) return;
-    setItems((arr) => {
-      const next = arr.slice();
-      const [moved] = next.splice(fromIdx, 1);
-      if (!moved) return arr;
-      next.splice(toIdx, 0, moved);
-      return next;
-    });
+  // Task 5.4: drag-to-reorder. Pin stays orthogonal — drag changes merge order, pin
+  // propagates to the merged block's pinned flag.
+  //
+  // Position-aware: dropAt carries the row the cursor is over AND whether the drop
+  // should land BEFORE or AFTER that row (decided by which half of the row the
+  // cursor is in — see onDragOver in StagingRow). idx === -1 is the top spacer
+  // ("drop above the very first row"). We adjust the final insertion index because
+  // splice() removes from the source first, shifting later indices down by one.
+  const dropDraggedItem = (): void => {
+    if (dragFromIdx === null || !dropAt) return;
+    const { idx, position } = dropAt;
+    // Target = the raw insertion index in the un-modified array.
+    let target = idx === -1 ? 0 : position === 'before' ? idx : idx + 1;
+    // splice(fromIdx, 1) on a forward drag shifts every subsequent index down by 1.
+    if (dragFromIdx < target) target -= 1;
+    if (dragFromIdx !== target) {
+      setItems((arr) => {
+        const next = arr.slice();
+        const [moved] = next.splice(dragFromIdx, 1);
+        if (!moved) return arr;
+        next.splice(target, 0, moved);
+        return next;
+      });
+    }
+    setDragFromIdx(null);
+    setDropAt(null);
+  };
+
+  const computeDropPosition = (
+    e: React.DragEvent,
+    idx: number,
+  ): { idx: number; position: 'before' | 'after' } => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    return { idx, position: e.clientY < midpoint ? 'before' : 'after' };
   };
 
   const send = async (): Promise<void> => {
@@ -354,14 +386,39 @@ export default function CollectOverlay() {
             继续 ⌥⌥ 或 ⌘⇧C 捕捉，会在这里堆成草稿。整理后发送，会合并为一块写入当前目标脉络。
           </p>
         )}
+        {items.length > 0 && (
+          // Top sentinel: a small drop zone above the first row. Catches drags that
+          // release near the very top so the user can pin a block to position 0
+          // without having to overshoot the first row's top half.
+          <div
+            onDragOver={(e) => {
+              if (dragFromIdx === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              setDropAt({ idx: -1, position: 'before' });
+            }}
+            onDrop={(e) => {
+              if (dragFromIdx === null) return;
+              e.preventDefault();
+              dropDraggedItem();
+            }}
+            className={`h-1.5 rounded transition-colors ${
+              dragFromIdx !== null && dropAt?.idx === -1 ? 'bg-accent/60' : ''
+            }`}
+            aria-hidden="true"
+          />
+        )}
         {items.map((it, idx) => {
           const itemUi = ui[it.id] ?? defaultUi();
+          const showAbove = dropAt?.idx === idx && dropAt.position === 'before';
+          const showBelow = dropAt?.idx === idx && dropAt.position === 'after';
           return (
             <StagingRow
               key={it.id}
               item={it}
               ui={itemUi}
               isDragging={dragFromIdx === idx}
+              indicator={showAbove ? 'above' : showBelow ? 'below' : null}
               onTextChange={(v) => updateItem(it.id, { text: v })}
               onAnnotationChange={(v) => updateItem(it.id, { annotation: v })}
               onUrlChange={(v) => updateItem(it.id, { url: v })}
@@ -373,16 +430,20 @@ export default function CollectOverlay() {
               onToggleUrl={() => updateUi(it.id, { editingUrl: !itemUi.editingUrl })}
               onRemove={() => removeItem(it.id)}
               onDragStart={() => setDragFromIdx(idx)}
-              onDragEnd={() => setDragFromIdx(null)}
+              onDragEnd={() => {
+                setDragFromIdx(null);
+                setDropAt(null);
+              }}
               onDragOver={(e) => {
                 if (dragFromIdx === null) return;
                 e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                setDropAt(computeDropPosition(e, idx));
               }}
               onDrop={(e) => {
                 if (dragFromIdx === null) return;
                 e.preventDefault();
-                reorderTo(dragFromIdx, idx);
-                setDragFromIdx(null);
+                dropDraggedItem();
               }}
             />
           );
@@ -443,6 +504,10 @@ interface StagingRowProps {
   item: StagingItem;
   ui: ItemUiState;
   isDragging: boolean;
+  // Drop indicator anchored to this row: 'above' draws a line at the top, 'below'
+  // at the bottom. null means no indicator on this row. Parent decides which row
+  // (if any) hosts the indicator based on the cursor's current dropAt target.
+  indicator: 'above' | 'below' | null;
   onTextChange: (v: string) => void;
   onAnnotationChange: (v: string) => void;
   onUrlChange: (v: string) => void;
@@ -461,6 +526,7 @@ function StagingRow({
   item,
   ui,
   isDragging,
+  indicator,
   onTextChange,
   onAnnotationChange,
   onUrlChange,
@@ -480,36 +546,44 @@ function StagingRow({
   const showActions = hover || ui.expanded;
 
   return (
-    <article
-      draggable
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onDragStart={(e) => {
-        // dataTransfer must be set or some browsers don't fire dragover. Empty
-        // string is fine — we track the index in component state, not in the
-        // payload.
-        e.dataTransfer.setData('text/plain', item.id);
-        e.dataTransfer.effectAllowed = 'move';
-        onDragStart();
-      }}
-      onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      className={`mb-1 rounded-md border border-line bg-paper-2/30 px-1.5 py-1 last:mb-0 transition-opacity ${
-        isDragging ? 'opacity-40' : ''
-      }`}
-    >
-      {/* Row header: drag handle + source label + hover-revealed action chips. */}
-      <div className="flex items-center gap-1 text-[10px] text-muted">
-        <span
-          // Cursor cue on the handle; the whole article is draggable, but the handle
-          // makes the affordance discoverable.
-          className="cursor-grab text-muted/60 hover:text-ink"
-          title="拖动调整顺序"
-          aria-hidden="true"
-        >
-          <GripVertical size={10} />
-        </span>
+    <div className="relative">
+      {indicator === 'above' && (
+        // Thin accent line so the user can see where the drop will land. Positioned
+        // OUTSIDE the article so the article's own padding doesn't push it offscreen.
+        <div className="pointer-events-none absolute -top-0.5 left-0 right-0 z-10 h-0.5 rounded bg-accent" />
+      )}
+      {indicator === 'below' && (
+        <div className="pointer-events-none absolute -bottom-0.5 left-0 right-0 z-10 h-0.5 rounded bg-accent" />
+      )}
+      <article
+        draggable
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onDragStart={(e) => {
+          // dataTransfer must be set or some browsers don't fire dragover. Empty
+          // string is fine — we track the index in component state, not in the payload.
+          e.dataTransfer.setData('text/plain', item.id);
+          e.dataTransfer.effectAllowed = 'move';
+          onDragStart();
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+        className={`mb-1 rounded-md border border-line bg-paper-2/30 px-1.5 py-1 last:mb-0 transition-opacity ${
+          isDragging ? 'opacity-40' : ''
+        }`}
+      >
+        {/* Row header: drag handle + source label + hover-revealed action chips. */}
+        <div className="flex items-center gap-1 text-[10px] text-muted">
+          <span
+            // Cursor cue on the handle; the whole article is draggable, but the handle
+            // makes the affordance discoverable.
+            className="cursor-grab text-muted/60 hover:text-ink"
+            title="拖动调整顺序"
+            aria-hidden="true"
+          >
+            <GripVertical size={10} />
+          </span>
         {item.source && <span className="truncate">{item.source}</span>}
         <div
           className={`ml-auto flex items-center gap-0.5 transition-opacity ${
@@ -557,15 +631,23 @@ function StagingRow({
           className="mt-1 w-full resize-none rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] leading-[1.5] text-ink outline-none focus:border-accent"
         />
       ) : (
-        <button
-          type="button"
+        // Clickable preview area. Native HTML5 DnD on the parent <article> uses a
+        // small movement threshold to distinguish click from drag, so a quiet click
+        // here just expands while a click-and-drag from anywhere in the row still
+        // initiates the reorder. No stopPropagation — that was the prior bug that
+        // killed drag init from this region.
+        <div
+          role="button"
+          tabIndex={0}
           onClick={onToggleExpand}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onToggleExpand();
+            }
+          }}
           title="点击编辑"
-          // Line-clamped preview. The whole row above is draggable, so this
-          // button stops propagation on mousedown so a click-to-edit doesn't
-          // accidentally initiate a drag.
-          onMouseDown={(e) => e.stopPropagation()}
-          className="mt-0.5 block w-full whitespace-pre-wrap break-words rounded px-1 py-0.5 text-left font-ui text-[12px] leading-[1.45] text-ink hover:bg-paper"
+          className="mt-0.5 cursor-text whitespace-pre-wrap break-words rounded px-1 py-0.5 font-ui text-[12px] leading-[1.45] text-ink hover:bg-paper"
           style={{
             display: '-webkit-box',
             WebkitLineClamp: 3,
@@ -574,7 +656,7 @@ function StagingRow({
           }}
         >
           {item.text || <span className="text-muted/70">（空）</span>}
-        </button>
+        </div>
       )}
 
       {/* Annotation: same visibility rule as a real block — present only when set
@@ -599,7 +681,8 @@ function StagingRow({
           className="mt-1 w-full rounded border border-line bg-paper px-1.5 py-0.5 font-ui text-[11px] text-ink outline-none focus:border-line-strong"
         />
       )}
-    </article>
+      </article>
+    </div>
   );
 }
 
@@ -622,10 +705,10 @@ function RowBtn({ title, onClick, active, danger, children }: RowBtnProps) {
       type="button"
       onClick={onClick}
       title={title}
-      onMouseDown={(e) => {
-        // Stop drag from initiating when the user is just clicking an action chip.
-        e.stopPropagation();
-      }}
+      // Don't stopPropagation on mousedown — that was the prior bug that killed
+      // drag init when the user grabbed near a chip. HTML5 DnD distinguishes click
+      // from drag by movement threshold, so a quiet click here still triggers
+      // onClick while a press-and-drag from this area still starts a reorder.
       className={`rounded p-1 transition-colors ${tone}`}
     >
       {children}
