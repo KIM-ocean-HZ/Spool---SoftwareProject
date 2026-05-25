@@ -1,5 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { isHighlightable, wrapHighlight } from '@/lib/blocks/highlight';
+import {
+  isCurrentlyHighlighted,
+  isHighlightable,
+  toggleHighlight,
+} from '@/lib/blocks/highlight';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
@@ -122,6 +126,11 @@ function TextBlockItem({
   // Last-known selected text *within this block*, refreshed on selectionchange.
   // Drives `canHighlight` for the toolbar button in both display and edit mode.
   const [highlightableSelection, setHighlightableSelection] = useState<string | null>(null);
+  // True iff the current selection already sits inside a `==…==` highlight — flips
+  // the toolbar button into "un-highlight" mode (different icon + title) so the user
+  // can undo a highlight without retyping. Updated on the same selectionchange tick
+  // as highlightableSelection.
+  const [selectionAlreadyHighlighted, setSelectionAlreadyHighlighted] = useState(false);
 
   useEffect(() => {
     if (!editingContent) setContentDraft(block.content);
@@ -175,9 +184,22 @@ function TextBlockItem({
         const ta = contentRef.current;
         if (ta && document.activeElement === ta && ta.selectionStart !== ta.selectionEnd) {
           const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-          setHighlightableSelection(isHighlightable(text) ? text : null);
+          if (isHighlightable(text)) {
+            setHighlightableSelection(text);
+            // Edit-mode highlight check: read the textarea's own buffer (the draft),
+            // not the persisted block.content — the user may have just typed ==.
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            const before = ta.value.slice(Math.max(0, start - 2), start);
+            const after = ta.value.slice(end, end + 2);
+            setSelectionAlreadyHighlighted(before === '==' && after === '==');
+          } else {
+            setHighlightableSelection(null);
+            setSelectionAlreadyHighlighted(false);
+          }
         } else {
           setHighlightableSelection(null);
+          setSelectionAlreadyHighlighted(false);
         }
         return;
       }
@@ -185,6 +207,7 @@ function TextBlockItem({
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         setHighlightableSelection(null);
+        setSelectionAlreadyHighlighted(false);
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
@@ -192,15 +215,18 @@ function TextBlockItem({
       const container = measureRef.current;
       if (!container || !container.contains(range.commonAncestorContainer)) {
         setHighlightableSelection(null);
+        setSelectionAlreadyHighlighted(false);
         return;
       }
       const text = sel.toString();
       if (!isHighlightable(text)) {
         setHighlightableSelection(null);
+        setSelectionAlreadyHighlighted(false);
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
       setHighlightableSelection(text);
+      setSelectionAlreadyHighlighted(isCurrentlyHighlighted(block.content, text));
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setHighlightPrompt(null);
@@ -211,7 +237,7 @@ function TextBlockItem({
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('keydown', onKey);
     };
-  }, [readOnly, editingContent, highlightPrompt]);
+  }, [readOnly, editingContent, highlightPrompt, block.content]);
 
   const commitContent = async (): Promise<void> => {
     const next = contentDraft;
@@ -290,29 +316,44 @@ function TextBlockItem({
     });
   };
 
-  // Unified wrap action used by BOTH the floating prompt and the toolbar button.
-  // `source` controls which content string the wrap applies to:
-  //  - 'display' → wrap block.content and persist via setContent.
-  //  - 'edit'    → wrap the textarea draft (contentDraft) so the change rides the
-  //                normal blur-commit; lets the user keep editing without losing the
-  //                in-flight draft.
+  // Unified toggle action used by BOTH the floating prompt and the toolbar button.
+  // Wraps a plain selection in `==…==`; UN-wraps it when the selection already sits
+  // inside an existing highlight. The wrap/unwrap routing lives in
+  // toggleHighlight (highlight.ts) so the UI doesn't branch twice.
+  //
+  // `editingContent` controls where the change lands:
+  //  - display → persist via setContent immediately.
+  //  - edit    → mutate the textarea draft, so the change rides the normal
+  //              blur-commit and the user keeps editing without losing context.
   const runHighlight = async (selected: string): Promise<void> => {
     const trimmed = selected.trim();
     if (!trimmed) return;
     if (editingContent) {
-      // Edit-mode path: mutate the textarea draft, restore caret to a sensible spot.
       const ta = contentRef.current;
       const draft = contentDraft;
-      // Prefer the actual selection inside the textarea (so we wrap the exact span)
-      // over wrapHighlight's first-match heuristic.
+      // Prefer the textarea's actual selection range — lets us toggle the exact
+      // span the user grabbed instead of the first-match heuristic.
       if (ta && ta.selectionStart !== ta.selectionEnd) {
         const start = ta.selectionStart;
         const end = ta.selectionEnd;
         const inSel = draft.slice(start, end);
+        const before = draft.slice(Math.max(0, start - 2), start);
+        const after = draft.slice(end, end + 2);
+        if (before === '==' && after === '==') {
+          // Un-highlight: strip the surrounding markers.
+          const next = draft.slice(0, start - 2) + inSel + draft.slice(end + 2);
+          setContentDraft(next);
+          setTimeout(() => {
+            if (!ta) return;
+            ta.focus();
+            ta.setSelectionRange(start - 2, end - 2);
+          }, 0);
+          return;
+        }
+        // Wrap, but only for plain selections (no embedded markers).
         if (!isHighlightable(inSel)) return;
         const next = draft.slice(0, start) + '==' + inSel + '==' + draft.slice(end);
         setContentDraft(next);
-        // Caret restoration in the next frame, after React rerenders the textarea.
         setTimeout(() => {
           if (!ta) return;
           ta.focus();
@@ -320,15 +361,13 @@ function TextBlockItem({
         }, 0);
         return;
       }
-      // No textarea selection (e.g. user is editing but selected via DOM somehow) —
-      // fall back to first-match wrap on the draft.
-      const { content: next, changed } = wrapHighlight(draft, trimmed);
+      const { content: next, changed } = toggleHighlight(draft, trimmed);
       if (!changed) return;
       setContentDraft(next);
       return;
     }
     // Display-mode path: persist immediately via the store.
-    const { content: next, changed } = wrapHighlight(block.content, trimmed);
+    const { content: next, changed } = toggleHighlight(block.content, trimmed);
     if (!changed) return;
     try {
       await setContent(block.id, next);
@@ -452,6 +491,7 @@ function TextBlockItem({
             visible={hovered || editingContent}
             pinned={block.pinned}
             canHighlight={highlightableSelection !== null}
+            selectionAlreadyHighlighted={selectionAlreadyHighlighted}
             onTogglePin={() => onTogglePin?.()}
             onEdit={() => setEditingContent(true)}
             onAttachFile={() => void handleAttachFile()}
@@ -537,7 +577,7 @@ function TextBlockItem({
               }}
               className="z-20 whitespace-nowrap rounded-md border border-line-strong bg-paper px-2 py-1 font-ui text-[11px] text-ink shadow-[var(--shadow-toast)] hover:border-accent hover:text-accent"
             >
-              标为重点?
+              {selectionAlreadyHighlighted ? '取消重点?' : '标为重点?'}
             </button>
           )}
           {(needsTruncation || !collapsed) && (

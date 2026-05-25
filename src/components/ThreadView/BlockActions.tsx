@@ -21,6 +21,11 @@ interface Props {
   // button is enabled iff a selection currently sits inside this block (display or
   // edit mode); BlockItem owns that state and reports it via `canHighlight`.
   canHighlight: boolean;
+  // True iff the current selection already sits inside a `==…==` highlight — flips
+  // the toolbar action's tooltip + visual into the "un-highlight" affordance. Drives
+  // CLAUDE.md §1 "no silent mode change" — the user sees from the button that the
+  // click will REMOVE rather than ADD.
+  selectionAlreadyHighlighted: boolean;
   onTogglePin: () => void;
   onEdit: () => void;
   onAttachFile: () => void;
@@ -69,6 +74,7 @@ export default function BlockActions({
   visible,
   pinned,
   canHighlight,
+  selectionAlreadyHighlighted,
   onTogglePin,
   onEdit,
   onAttachFile,
@@ -78,6 +84,11 @@ export default function BlockActions({
   onCopy,
   onDelete,
 }: Props) {
+  const highlightTitle = !canHighlight
+    ? '先选中要标重点的文字'
+    : selectionAlreadyHighlighted
+      ? '取消重点（移除 ==…==）'
+      : '标为重点（包裹 ==选区==）';
   return (
     <div
       className={`ml-auto flex items-center gap-0.5 transition-opacity ${
@@ -97,12 +108,20 @@ export default function BlockActions({
         <LinkIcon size={11} />
       </ActionBtn>
       <ActionBtn
-        title={canHighlight ? '标为重点（包裹 ==选区==）' : '先选中要标重点的文字'}
+        title={highlightTitle}
         onClick={onHighlight}
         emphasis="accent"
         disabled={!canHighlight}
       >
-        <Highlighter size={11} />
+        {/* Icon flips: Highlighter for wrap, struck-through icon for unwrap.
+            Using the same Highlighter glyph but desaturated + a small slash via
+            line-through underline keeps the bar visually quiet. */}
+        <Highlighter
+          size={11}
+          className={
+            canHighlight && selectionAlreadyHighlighted ? 'line-through' : ''
+          }
+        />
       </ActionBtn>
       <ActionBtn title="添加批注" onClick={onAnnotate}>
         <MessageSquarePlus size={11} />

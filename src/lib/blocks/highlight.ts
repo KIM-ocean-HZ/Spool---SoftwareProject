@@ -51,3 +51,45 @@ export const wrapHighlight = (content: string, selected: string): WrapResult => 
   const next = content.slice(0, idx) + MARKER + selected + MARKER + content.slice(afterStart);
   return { content: next, changed: true };
 };
+
+// True iff the first occurrence of `selected` (or its bare form if the user picked up
+// the markers in their selection) sits inside an existing `==…==` highlight. Drives the
+// UI toggle: highlight button reads this to decide whether the next click should wrap
+// or unwrap. When `selected` came from a DOM `Selection` inside a `<mark>`, it's already
+// the bare inner text — the .replace below is the safety net for textarea selections
+// where the user may have included the == markers in the range.
+export const isCurrentlyHighlighted = (content: string, selected: string): boolean => {
+  const bare = selected.replace(/=/g, '').trim();
+  if (!bare) return false;
+  const idx = content.indexOf(bare);
+  if (idx === -1) return false;
+  const before = content.slice(Math.max(0, idx - 2), idx);
+  const after = content.slice(idx + bare.length, idx + bare.length + 2);
+  return before === MARKER && after === MARKER;
+};
+
+// Remove the `==…==` markers around the first occurrence of `selected`. Inverse of
+// wrapHighlight: returns { changed: false } when no surrounding markers exist, so the
+// caller can treat this as a no-op without an extra branch.
+export const unwrapHighlight = (content: string, selected: string): WrapResult => {
+  const bare = selected.replace(/=/g, '').trim();
+  if (!bare) return { content, changed: false };
+  const idx = content.indexOf(bare);
+  if (idx === -1) return { content, changed: false };
+  const before = content.slice(Math.max(0, idx - 2), idx);
+  const after = content.slice(idx + bare.length, idx + bare.length + 2);
+  if (before !== MARKER || after !== MARKER) return { content, changed: false };
+  const next = content.slice(0, idx - 2) + bare + content.slice(idx + bare.length + 2);
+  return { content: next, changed: true };
+};
+
+// Single entry-point used by both the floating prompt and the toolbar button: wrap if
+// the current selection is plain text, unwrap if it sits inside an existing highlight.
+// Keeps the toggle logic in one place rather than scattering wrap/unwrap branches
+// across call sites.
+export const toggleHighlight = (content: string, selected: string): WrapResult => {
+  if (isCurrentlyHighlighted(content, selected)) {
+    return unwrapHighlight(content, selected);
+  }
+  return wrapHighlight(content, selected);
+};
