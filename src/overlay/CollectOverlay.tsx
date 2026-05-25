@@ -73,15 +73,20 @@ export default function CollectOverlay() {
   const [sending, setSending] = useState(false);
   // Index of the item being dragged (for HTML5 drag-and-drop reordering); null when
   // no drag in progress. Index — not id — so the over-handler reorders in O(1).
+  // Mirrored into a ref because React's setState batches across the dragstart →
+  // first dragover gap: without the ref, the dragover handler would read a stale
+  // null and skip preventDefault, leaving the cursor stuck in "+" / no-drop mode.
   const [dragFromIdx, setDragFromIdx] = useState<number | null>(null);
+  const dragFromIdxRef = useRef<number | null>(null);
   // Where the dragged item would land if dropped right now. `idx` is the row the
   // cursor is over; `position: 'before'` means "land above row idx", `'after'`
   // means "land below row idx". `idx = -1` is the special "drop above the very
-  // first row" zone (the top spacer). Drives both the thin drop-indicator line
-  // shown to the user AND the final reorder math on drop.
+  // first row" zone. Mirror-ref for the same reason — drop reads latest target
+  // without waiting for a render.
   const [dropAt, setDropAt] = useState<
     { idx: number; position: 'before' | 'after' } | null
   >(null);
+  const dropAtRef = useRef<{ idx: number; position: 'before' | 'after' } | null>(null);
 
   // Stash refs so listener closures read latest state without re-subscribing.
   const itemsRef = useRef<StagingItem[]>([]);
@@ -242,36 +247,100 @@ export default function CollectOverlay() {
   //
   // Position-aware: dropAt carries the row the cursor is over AND whether the drop
   // should land BEFORE or AFTER that row (decided by which half of the row the
-  // cursor is in — see onDragOver in StagingRow). idx === -1 is the top spacer
-  // ("drop above the very first row"). We adjust the final insertion index because
-  // splice() removes from the source first, shifting later indices down by one.
+  // cursor is in — see the container-level dragover below). idx === -1 is the
+  // top-of-list sentinel ("drop above the very first row"). We adjust the final
+  // insertion index because splice() removes from the source first, shifting later
+  // indices down by one.
   const dropDraggedItem = (): void => {
-    if (dragFromIdx === null || !dropAt) return;
-    const { idx, position } = dropAt;
-    // Target = the raw insertion index in the un-modified array.
+    const from = dragFromIdxRef.current;
+    const at = dropAtRef.current;
+    if (from === null || !at) {
+      dragFromIdxRef.current = null;
+      dropAtRef.current = null;
+      setDragFromIdx(null);
+      setDropAt(null);
+      return;
+    }
+    const { idx, position } = at;
     let target = idx === -1 ? 0 : position === 'before' ? idx : idx + 1;
-    // splice(fromIdx, 1) on a forward drag shifts every subsequent index down by 1.
-    if (dragFromIdx < target) target -= 1;
-    if (dragFromIdx !== target) {
+    if (from < target) target -= 1;
+    if (from !== target) {
       setItems((arr) => {
         const next = arr.slice();
-        const [moved] = next.splice(dragFromIdx, 1);
+        const [moved] = next.splice(from, 1);
         if (!moved) return arr;
         next.splice(target, 0, moved);
         return next;
       });
     }
+    dragFromIdxRef.current = null;
+    dropAtRef.current = null;
     setDragFromIdx(null);
     setDropAt(null);
   };
 
-  const computeDropPosition = (
-    e: React.DragEvent,
-    idx: number,
-  ): { idx: number; position: 'before' | 'after' } => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const midpoint = rect.top + rect.height / 2;
-    return { idx, position: e.clientY < midpoint ? 'before' : 'after' };
+  // Container-level dragover: find which row the cursor is over by iterating the
+  // rendered row elements (data-staging-idx attribute) and comparing clientY. One
+  // handler at the list root is more reliable than per-row handlers — child
+  // elements (textareas, role=button divs) can't accidentally swallow the event,
+  // and the refs let us read the latest drag-in-progress flag synchronously
+  // without waiting for React to flush a state update.
+  const onListDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
+    if (dragFromIdxRef.current === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const root = listRef.current;
+    if (!root) return;
+    const rows = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-staging-idx]'),
+    );
+    if (rows.length === 0) return;
+    const y = e.clientY;
+    // Above the first row → top-sentinel slot (idx -1).
+    const firstRect = rows[0]!.getBoundingClientRect();
+    if (y < firstRect.top) {
+      const next = { idx: -1, position: 'before' as const };
+      dropAtRef.current = next;
+      setDropAt(next);
+      return;
+    }
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect();
+      if (y >= rect.top && y <= rect.bottom) {
+        const idx = Number(row.dataset.stagingIdx);
+        const mid = rect.top + rect.height / 2;
+        const next = {
+          idx,
+          position: (y < mid ? 'before' : 'after') as 'before' | 'after',
+        };
+        dropAtRef.current = next;
+        setDropAt(next);
+        return;
+      }
+    }
+    // Below the last row → after the last.
+    const lastIdx = Number(rows[rows.length - 1]!.dataset.stagingIdx);
+    const next = { idx: lastIdx, position: 'after' as const };
+    dropAtRef.current = next;
+    setDropAt(next);
+  };
+
+  const onListDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    if (dragFromIdxRef.current === null) return;
+    e.preventDefault();
+    dropDraggedItem();
+  };
+
+  const startDragFrom = (idx: number): void => {
+    dragFromIdxRef.current = idx;
+    setDragFromIdx(idx);
+  };
+
+  const endDrag = (): void => {
+    dragFromIdxRef.current = null;
+    dropAtRef.current = null;
+    setDragFromIdx(null);
+    setDropAt(null);
   };
 
   const send = async (): Promise<void> => {
@@ -380,31 +449,40 @@ export default function CollectOverlay() {
         </button>
       </header>
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
+      <div
+        ref={listRef}
+        // Drag-and-drop attached at the LIST level (not per row) so child elements
+        // inside a row can't swallow dragover/drop events. The handler walks
+        // `data-staging-idx` rows to figure out which one the cursor is over and
+        // which half it's in. dragenter is also preventDefaulted because some
+        // WebKit builds require it before drop will fire.
+        onDragEnter={(e) => {
+          if (dragFromIdxRef.current === null) return;
+          e.preventDefault();
+        }}
+        onDragOver={onListDragOver}
+        onDragLeave={(e) => {
+          // Clear the drop indicator when the cursor leaves the list region. Guard
+          // against the spurious dragleave that fires when crossing into a child.
+          const next = e.relatedTarget as Node | null;
+          if (next && listRef.current?.contains(next)) return;
+          dropAtRef.current = null;
+          setDropAt(null);
+        }}
+        onDrop={onListDrop}
+        className="flex-1 overflow-y-auto px-2 py-1.5"
+      >
         {items.length === 0 && (
           <p className="px-1 py-2 font-ui text-[11px] leading-relaxed text-muted">
             继续 ⌥⌥ 或 ⌘⇧C 捕捉，会在这里堆成草稿。整理后发送，会合并为一块写入当前目标脉络。
           </p>
         )}
-        {items.length > 0 && (
-          // Top sentinel: a small drop zone above the first row. Catches drags that
-          // release near the very top so the user can pin a block to position 0
-          // without having to overshoot the first row's top half.
+        {/* Top-sentinel indicator (visual only). The drop-zone math is now in
+            onListDragOver — when the cursor is above the first row, dropAt.idx = -1
+            and we draw the line here. */}
+        {items.length > 0 && dropAt?.idx === -1 && (
           <div
-            onDragOver={(e) => {
-              if (dragFromIdx === null) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              setDropAt({ idx: -1, position: 'before' });
-            }}
-            onDrop={(e) => {
-              if (dragFromIdx === null) return;
-              e.preventDefault();
-              dropDraggedItem();
-            }}
-            className={`h-1.5 rounded transition-colors ${
-              dragFromIdx !== null && dropAt?.idx === -1 ? 'bg-accent/60' : ''
-            }`}
+            className="pointer-events-none mb-1 h-0.5 rounded bg-accent"
             aria-hidden="true"
           />
         )}
@@ -415,6 +493,7 @@ export default function CollectOverlay() {
           return (
             <StagingRow
               key={it.id}
+              idx={idx}
               item={it}
               ui={itemUi}
               isDragging={dragFromIdx === idx}
@@ -429,22 +508,8 @@ export default function CollectOverlay() {
               }
               onToggleUrl={() => updateUi(it.id, { editingUrl: !itemUi.editingUrl })}
               onRemove={() => removeItem(it.id)}
-              onDragStart={() => setDragFromIdx(idx)}
-              onDragEnd={() => {
-                setDragFromIdx(null);
-                setDropAt(null);
-              }}
-              onDragOver={(e) => {
-                if (dragFromIdx === null) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                setDropAt(computeDropPosition(e, idx));
-              }}
-              onDrop={(e) => {
-                if (dragFromIdx === null) return;
-                e.preventDefault();
-                dropDraggedItem();
-              }}
+              onDragStart={() => startDragFrom(idx)}
+              onDragEnd={endDrag}
             />
           );
         })}
@@ -501,6 +566,9 @@ export default function CollectOverlay() {
 // pile up empty input fields.
 
 interface StagingRowProps {
+  // Index in the parent's items array — written to a data-staging-idx attribute
+  // so the container-level dragover can identify which row the cursor is over.
+  idx: number;
   item: StagingItem;
   ui: ItemUiState;
   isDragging: boolean;
@@ -518,11 +586,10 @@ interface StagingRowProps {
   onRemove: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
 }
 
 function StagingRow({
+  idx,
   item,
   ui,
   isDragging,
@@ -537,8 +604,6 @@ function StagingRow({
   onRemove,
   onDragStart,
   onDragEnd,
-  onDragOver,
-  onDrop,
 }: StagingRowProps) {
   const [hover, setHover] = useState(false);
   const annotationVisible = ui.editingAnnotation || item.annotation.trim().length > 0;
@@ -580,18 +645,21 @@ function StagingRow({
       )}
       <article
         draggable
+        data-staging-idx={idx}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onDragStart={(e) => {
-          // dataTransfer must be set or some browsers don't fire dragover. Empty
-          // string is fine — we track the index in component state, not in the payload.
+          // dataTransfer.setData is required — some browsers won't fire dragover
+          // on subsequent elements if it's omitted. Empty string is fine; we keep
+          // the actual drag source in a ref on the parent.
           e.dataTransfer.setData('text/plain', item.id);
           e.dataTransfer.effectAllowed = 'move';
           onDragStart();
         }}
         onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        // dragover / drop now live on the LIST container (one handler, walks rows
+        // by data-staging-idx) so child elements inside the row can't swallow the
+        // events — that was the cause of the previous "+ cursor but no swap" bug.
         className={`mb-1 rounded-md border border-line bg-paper-2/30 px-1.5 py-1 last:mb-0 transition-opacity ${
           isDragging ? 'opacity-40' : ''
         }`}
