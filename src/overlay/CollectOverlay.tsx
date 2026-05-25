@@ -544,6 +544,29 @@ function StagingRow({
   const annotationVisible = ui.editingAnnotation || item.annotation.trim().length > 0;
   const urlVisible = ui.editingUrl || item.url.trim().length > 0;
   const showActions = hover || ui.expanded;
+  // Task 2: detect whether the collapsed preview actually clips its content. Only
+  // when it does should the "展开" affordance appear — short items stay quiet. Same
+  // measure-by-DOM pattern BlockItem uses for `needsTruncation`. Re-measures when
+  // the text or the expand state changes (the latter so collapsing back re-checks).
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    if (ui.expanded) return;
+    const el = previewRef.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight - el.clientHeight > 1);
+  }, [item.text, ui.expanded]);
+  // Auto-grow the edit textarea so long items don't sprout an internal scroll bar.
+  // The panel itself scrolls past MAX_PANEL_HEIGHT; per-item content uses the
+  // "truncate when small, grow when expanded" pattern matching BlockItem.
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    if (!ui.expanded) return;
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [item.text, ui.expanded]);
 
   return (
     <div className="relative">
@@ -617,46 +640,66 @@ function StagingRow({
         </div>
       </div>
 
-      {/* Body: text preview (line-clamped) or full textarea in edit mode.
-          Click the preview to expand into edit; click outside (blur) collapses
-          again. Mirrors BlockItem's "no internal scrollbar — truncate + expand". */}
+      {/* Body: collapsed preview (line-clamped, max 3 lines) or full edit textarea.
+          Auto-shrink for long text + "展开"/"收起" affordance when overflow exists.
+          Edit textarea auto-grows to fit so it never carries its own scrollbar —
+          panel scrolls instead. Matches BlockItem's truncate-and-expand pattern. */}
       {ui.expanded ? (
-        <textarea
-          autoFocus
-          value={item.text}
-          onChange={(e) => onTextChange(e.target.value)}
-          onBlur={onToggleExpand}
-          rows={Math.min(8, Math.max(2, item.text.split('\n').length + 1))}
-          spellCheck={false}
-          className="mt-1 w-full resize-none rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] leading-[1.5] text-ink outline-none focus:border-accent"
-        />
+        <div className="mt-1">
+          <textarea
+            ref={taRef}
+            autoFocus
+            value={item.text}
+            onChange={(e) => onTextChange(e.target.value)}
+            spellCheck={false}
+            className="w-full resize-none overflow-hidden rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] leading-[1.5] text-ink outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="mt-0.5 text-[10px] text-muted hover:text-accent"
+          >
+            收起
+          </button>
+        </div>
       ) : (
         // Clickable preview area. Native HTML5 DnD on the parent <article> uses a
         // small movement threshold to distinguish click from drag, so a quiet click
         // here just expands while a click-and-drag from anywhere in the row still
-        // initiates the reorder. No stopPropagation — that was the prior bug that
-        // killed drag init from this region.
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={onToggleExpand}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onToggleExpand();
-            }
-          }}
-          title="点击编辑"
-          className="mt-0.5 cursor-text whitespace-pre-wrap break-words rounded px-1 py-0.5 font-ui text-[12px] leading-[1.45] text-ink hover:bg-paper"
-          style={{
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {item.text || <span className="text-muted/70">（空）</span>}
-        </div>
+        // initiates the reorder.
+        <>
+          <div
+            ref={previewRef}
+            role="button"
+            tabIndex={0}
+            onClick={onToggleExpand}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onToggleExpand();
+              }
+            }}
+            title={overflows ? '点击展开 / 编辑' : '点击编辑'}
+            className="mt-0.5 cursor-text whitespace-pre-wrap break-words rounded px-1 py-0.5 font-ui text-[12px] leading-[1.45] text-ink hover:bg-paper"
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {item.text || <span className="text-muted/70">（空）</span>}
+          </div>
+          {overflows && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="mt-0.5 text-[10px] text-muted hover:text-accent"
+            >
+              展开全文
+            </button>
+          )}
+        </>
       )}
 
       {/* Annotation: same visibility rule as a real block — present only when set
