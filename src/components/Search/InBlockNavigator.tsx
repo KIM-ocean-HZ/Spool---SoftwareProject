@@ -43,6 +43,10 @@ export default function InBlockNavigator({
   }, []);
 
   const onInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // IME composition Enter must commit the candidate, not advance to the
+    // next match. Same isComposing / keyCode 229 pattern as the global
+    // search overlay.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey) onPrev();

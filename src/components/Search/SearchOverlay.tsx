@@ -40,6 +40,12 @@ export default function SearchOverlay() {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    // IME composition (e.g. typing English via pinyin) needs Enter / arrows
+    // to commit or move through candidates. Hijacking those keystrokes as
+    // navigation would jump to the first result before the user even saw the
+    // candidate list. `isComposing` is the standard; keyCode 229 is the
+    // legacy fallback some IMEs / browsers still emit.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       closeSearch();
