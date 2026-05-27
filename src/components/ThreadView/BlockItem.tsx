@@ -9,6 +9,7 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
 import { formatBlockTime } from '@/lib/utils/time';
+import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import BlockActions from './BlockActions';
@@ -80,6 +81,11 @@ function TextBlockItem({
   // True while a Finder drag hovers *this* block — draws the drop-target ring so the
   // user can see exactly which block the attachment will land on (§9.6).
   const isDropTarget = useDropStore((s) => s.targetBlockId === block.id);
+
+  // v2.9 §9.3 / §19.18: brief background tint marking the most-recently-acted-upon
+  // block, so the user keeps orientation across edit / collapse / annotate cycles.
+  const isActive = useActiveBlockStore((s) => s.activeBlockId === block.id);
+  const setActive = useActiveBlockStore((s) => s.setActive);
 
   // Inline-edit state for the captured text. We commit on blur/Enter (per §9.3) so
   // the user never has to look for a Save button. Esc reverts to the pre-edit value.
@@ -444,13 +450,27 @@ function TextBlockItem({
       data-block-id={block.id}
       onMouseEnter={readOnly ? undefined : () => setHovered(true)}
       onMouseLeave={readOnly ? undefined : () => setHovered(false)}
+      onClick={
+        readOnly
+          ? undefined
+          : (e) => {
+              // v2.9 §9.3 / §19.18: passive "I'm looking at this" cue. Interactive
+              // children carry their own action handlers — the ones that should
+              // trigger orientation (annotate, show more/less, double-click) wire
+              // setActive explicitly; the rest (pin/copy/delete/attach/highlight,
+              // attachment chips, source-badge editor, inline textareas) are
+              // deliberately excluded so a destructive click doesn't tint the row.
+              if ((e.target as HTMLElement).closest('button, a, input, textarea')) return;
+              setActive(block.id);
+            }
+      }
       className={`group relative rounded-md border bg-paper/40 px-3.5 py-2.5 transition-shadow ${
         block.pinned ? 'pl-4' : ''
       } ${
         isDropTarget
           ? 'border-accent ring-2 ring-accent ring-offset-1 ring-offset-paper'
           : 'border-line/60'
-      } ${highlight ? 'flash' : ''}`}
+      } ${highlight ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
     >
       {block.pinned && (
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
@@ -497,7 +517,10 @@ function TextBlockItem({
             onAttachFile={() => void handleAttachFile()}
             onAttachUrl={() => setAttachingUrl((v) => !v)}
             onHighlight={() => void runHighlightFromToolbar()}
-            onAnnotate={() => setEditingAnnotation(true)}
+            onAnnotate={() => {
+              setActive(block.id);
+              setEditingAnnotation(true);
+            }}
             onCopy={() => onCopy?.()}
             onDelete={() => onDelete?.()}
           />
@@ -534,6 +557,7 @@ function TextBlockItem({
               readOnly
                 ? undefined
                 : () => {
+                    setActive(block.id);
                     setEditingContent(true);
                     setEditingAnnotation(true);
                   }
@@ -583,7 +607,10 @@ function TextBlockItem({
           {(needsTruncation || !collapsed) && (
             <button
               type="button"
-              onClick={() => setCollapsed((v) => !v)}
+              onClick={() => {
+                setActive(block.id);
+                setCollapsed((v) => !v);
+              }}
               className="mt-1 text-[11px] text-muted hover:text-accent"
             >
               {collapsed ? '展开全部' : '收起'}
