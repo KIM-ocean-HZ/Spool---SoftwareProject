@@ -37,6 +37,9 @@ interface SearchState {
   runSearch: () => Promise<void>;
   highlight: (blockId: string) => void;
   startNavigation: (blockId: string, hits: HitOffset[], query: string) => void;
+  // Live edit of the find bar's query: caller (LogView) re-runs
+  // buildHitOffsets against the target block and passes the new hits in.
+  setNavigationQuery: (query: string, hits: HitOffset[]) => void;
   clearNavigation: () => void;
   nextHit: () => void;
   prevHit: () => void;
@@ -91,6 +94,14 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       activeHits: hits,
       activeHitIndex: 0,
       activeQuery: query,
+      flashTick: s.flashTick + 1,
+    })),
+
+  setNavigationQuery: (query, hits) =>
+    set((s) => ({
+      activeQuery: query,
+      activeHits: hits,
+      activeHitIndex: 0,
       flashTick: s.flashTick + 1,
     })),
 

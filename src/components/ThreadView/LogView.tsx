@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useThreadDropTarget } from '@/hooks/useThreadDropTarget';
+import { buildHitOffsets } from '@/lib/search/query';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useSearchStore } from '@/stores/searchStore';
 import InBlockNavigator from '../Search/InBlockNavigator';
@@ -52,6 +53,15 @@ export default function LogView({ threadId }: Props) {
           query={navQuery}
           index={navHitIndex}
           total={navHits.length}
+          onQueryChange={(next) => {
+            // Live in-block re-search: recompute hit positions on the
+            // destination block as the user types. Falls through to the
+            // store's setNavigationQuery which also resets index + bumps
+            // flashTick so BlockItem re-scrolls to the new active hit.
+            const target = threadBlocks?.find((b) => b.id === navBlockId);
+            const hits = target ? buildHitOffsets(target.content, target.annotation, next) : [];
+            useSearchStore.getState().setNavigationQuery(next, hits);
+          }}
           onPrev={() => useSearchStore.getState().prevHit()}
           onNext={() => useSearchStore.getState().nextHit()}
           onDismiss={() => useSearchStore.getState().clearNavigation()}

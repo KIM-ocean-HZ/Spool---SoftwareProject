@@ -73,10 +73,15 @@ export function useSearch(): void {
       const { nextHit, prevHit, clearNavigation } = useSearchStore.getState();
       if (e.key === 'Escape') {
         if (e.defaultPrevented) return;
-        // Don't steal Esc from an active textarea / input — the field's own
-        // Esc cancel handler should run first; nav clear can wait.
-        const ae = document.activeElement;
-        if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) return;
+        // Skip Esc when focus is in an editor (block textarea, etc.) so the
+        // field's own cancel handler keeps it — but allow Esc from the find
+        // bar's own input (it lives inside [data-search-nav-bar]) so the
+        // user can dismiss search from there with a single key.
+        const ae = document.activeElement as HTMLElement | null;
+        const inFindBar = ae?.closest('[data-search-nav-bar]') != null;
+        const isEditor =
+          !inFindBar && ae != null && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT');
+        if (isEditor) return;
         e.preventDefault();
         clearNavigation();
         return;
