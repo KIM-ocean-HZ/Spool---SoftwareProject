@@ -39,12 +39,13 @@ export default function SearchResultItem({ hit, selected, onSelect, onActivate }
 
   // v2.9 §9.10 / §19.17: kick off in-block navigation BEFORE the overlay's
   // existing navigate(thread switch + scroll). BlockItem reads activeHits the
-  // moment it mounts in the destination thread and renders highlights + the
-  // navigator pill in one paint — no flash-of-unhighlighted block.
+  // moment it mounts in the destination thread and renders the auto-expand +
+  // highlights + the find bar in one paint. Always called — even with zero
+  // literal offsets (e.g. the FTS5 trigram path matched without a substring),
+  // because the auto-expand and active-block tint still need to fire.
   const activate = () => {
-    if (hit.hitOffsets.length > 0) {
-      useSearchStore.getState().startNavigation(hit.blockId, hit.hitOffsets);
-    }
+    const { query } = useSearchStore.getState();
+    useSearchStore.getState().startNavigation(hit.blockId, hit.hitOffsets, query.trim());
     onActivate();
   };
 

@@ -16,20 +16,19 @@ interface SearchState {
   // flashes it. Self-clears after HIGHLIGHT_MS.
   highlightBlockId: string | null;
 
-  // v2.9 §9.10 / §19.17: in-block navigation state. Set when SearchResultItem is
-  // activated; BlockItem subscribes and, while it is the target, forces the block
-  // expanded, wraps each hit position in <mark>, and mounts the InBlockNavigator
-  // pill. Cleared by Esc, click outside the block, or >200px scroll away.
+  // v2.9 §9.10 / §19.17: in-block navigation state. Set when a search result is
+  // activated. While set, the find bar (mounted at the top of the destination
+  // thread's LogView) is visible and BlockItem force-expands its target +
+  // wraps every hit position in <mark>. Cleared by ✕, Esc, click-outside the
+  // block + bar, or user-initiated scroll-away.
   activeNavigationBlockId: string | null;
   activeHits: HitOffset[];
   activeHitIndex: number;
-  // Visibility of the navigator pill. `✕` dismisses just the pill while leaving
-  // the highlights in place; the highlights themselves clear with
-  // activeNavigationBlockId via the other dismissal conditions.
-  navigatorOpen: boolean;
-  // Bumps on every hit advance so the active <mark> can vary its React key and
-  // restart the 900ms amber fade animation — including when wrapping back to
-  // the same index from the opposite end.
+  // The query string that triggered navigation — surfaced in the find bar so
+  // the user keeps context after the global search overlay closes.
+  activeQuery: string;
+  // Bumps on every hit advance — used by BlockItem's scroll-active-into-view
+  // effect so the same-index wrap-around still re-scrolls.
   flashTick: number;
 
   openSearch: () => void;
@@ -37,8 +36,7 @@ interface SearchState {
   setQuery: (q: string) => void;
   runSearch: () => Promise<void>;
   highlight: (blockId: string) => void;
-  startNavigation: (blockId: string, hits: HitOffset[]) => void;
-  dismissNavigator: () => void;
+  startNavigation: (blockId: string, hits: HitOffset[], query: string) => void;
   clearNavigation: () => void;
   nextHit: () => void;
   prevHit: () => void;
@@ -54,7 +52,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   activeNavigationBlockId: null,
   activeHits: [],
   activeHitIndex: 0,
-  navigatorOpen: false,
+  activeQuery: '',
   flashTick: 0,
 
   openSearch: () => set({ open: true }),
@@ -87,23 +85,21 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     }, HIGHLIGHT_MS);
   },
 
-  startNavigation: (blockId, hits) =>
+  startNavigation: (blockId, hits, query) =>
     set((s) => ({
       activeNavigationBlockId: blockId,
       activeHits: hits,
       activeHitIndex: 0,
-      navigatorOpen: hits.length > 0,
+      activeQuery: query,
       flashTick: s.flashTick + 1,
     })),
-
-  dismissNavigator: () => set({ navigatorOpen: false }),
 
   clearNavigation: () =>
     set({
       activeNavigationBlockId: null,
       activeHits: [],
       activeHitIndex: 0,
-      navigatorOpen: false,
+      activeQuery: '',
     }),
 
   nextHit: () =>

@@ -1,53 +1,89 @@
-// v2.9 §13.2 / §9.10 / §19.17: a small floating pill anchored top-right of the
-// destination block during search navigation. Renders `index/total ▲ ▼ ✕` in
-// Geist Mono. Button clicks delegate to the parent BlockItem, which in turn
-// delegates to the searchStore — keyboard shortcuts (Cmd+G / Cmd+Shift+G /
-// F3 / Esc) live in useSearch.ts so they only fire while this pill is mounted.
+import { ChevronDown, ChevronUp, Search as SearchIcon, X } from 'lucide-react';
+
+// v2.9 §9.10 / §13.2 / §19.17: in-block search find bar. Mounted at the top of
+// the destination thread's LogView (a fixed band above the scrollable feed)
+// so it stays put while the user scrolls and is large enough to read at a
+// glance — closer to vscode's find widget than a floating pill.
+//
+// Buttons delegate to the searchStore via callbacks. Keyboard shortcuts
+// (Cmd/Ctrl+G, Shift+Cmd/Ctrl+G, F3, Shift+F3, Esc) are wired in useSearch.ts
+// and gated on `activeNavigationBlockId` so they only fire while this bar is
+// mounted.
+//
+// `data-search-nav-bar` lets BlockItem's click-outside dismissal exclude the
+// bar's own controls — the buttons live OUTSIDE articleRef (above the feed).
 
 interface Props {
-  index: number; // zero-based active hit index
+  query: string;
+  index: number;
   total: number;
   onPrev: () => void;
   onNext: () => void;
   onDismiss: () => void;
 }
 
-export default function InBlockNavigator({ index, total, onPrev, onNext, onDismiss }: Props) {
-  if (total === 0) return null;
+export default function InBlockNavigator({
+  query,
+  index,
+  total,
+  onPrev,
+  onNext,
+  onDismiss,
+}: Props) {
+  const empty = total === 0;
   return (
     <div
-      className="absolute right-2 top-2 z-20 flex select-none items-center gap-1 rounded-full border border-line-strong bg-paper px-2 py-0.5 font-mono text-[10.5px] text-ink-2"
-      style={{ boxShadow: 'var(--shadow-toast)' }}
+      data-search-nav-bar
+      role="toolbar"
+      aria-label="块内查找"
+      className="flex flex-none items-center gap-2 border-b border-line-strong bg-paper-2/80 px-4 py-2 backdrop-blur-sm"
     >
-      <span aria-live="polite">
-        {index + 1}/{total}
+      <SearchIcon size={14} className="flex-none text-accent" />
+      <span className="font-ui text-[12px] text-muted">查找</span>
+      <span
+        className="max-w-[260px] truncate rounded border border-line bg-paper px-2 py-0.5 font-mono text-[12px] text-ink"
+        title={query}
+      >
+        {query || ' '}
       </span>
+      <span
+        className="font-mono text-[11px] text-muted"
+        aria-live="polite"
+      >
+        {empty ? '无匹配' : `${index + 1} / ${total}`}
+      </span>
+
+      <div className="flex-1" />
+
       <button
         type="button"
         onClick={onPrev}
+        disabled={empty}
+        title="上一个匹配 (⇧⌘G)"
         aria-label="上一个匹配"
-        title="上一个 (⇧⌘G)"
-        className="rounded px-1 leading-none hover:text-accent"
+        className="flex h-6 w-6 flex-none items-center justify-center rounded text-muted transition-colors hover:bg-paper hover:text-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
-        ▲
+        <ChevronUp size={14} />
       </button>
       <button
         type="button"
         onClick={onNext}
+        disabled={empty}
+        title="下一个匹配 (⌘G)"
         aria-label="下一个匹配"
-        title="下一个 (⌘G)"
-        className="rounded px-1 leading-none hover:text-accent"
+        className="flex h-6 w-6 flex-none items-center justify-center rounded text-muted transition-colors hover:bg-paper hover:text-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
-        ▼
+        <ChevronDown size={14} />
       </button>
+      <div className="h-4 w-px flex-none bg-line" />
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="关闭"
-        title="关闭"
-        className="rounded px-1 leading-none hover:text-accent"
+        title="关闭 (Esc)"
+        aria-label="关闭查找"
+        className="flex h-6 w-6 flex-none items-center justify-center rounded text-muted transition-colors hover:bg-paper hover:text-accent"
       >
-        ✕
+        <X size={14} />
       </button>
     </div>
   );

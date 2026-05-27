@@ -16,7 +16,6 @@ import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
-import InBlockNavigator from '../Search/InBlockNavigator';
 import BlockActions from './BlockActions';
 import BlockAttachments from './BlockAttachments';
 import RefBlockItem from './RefBlockItem';
@@ -73,15 +72,14 @@ const NAV_SCROLL_DISMISS_PX = 200;
 // the union of mark intervals (== caps stripped, highlight content kept, hits
 // overlayed) so a hit inside an existing highlight still nests both wrappers.
 //
-// `activeHitIndex` identifies which hit currently owns the 900ms amber fade
-// (§13.3); `flashTick` is embedded in its React key so each ▲/▼ press
-// remounts the active <mark> and restarts the animation — including the
-// wrap-around case where the index doesn't change.
+// Active hit gets a brighter amber background (--highlight) plus an inset
+// accent ring so it stays visually loud after the user lands — orientation
+// holds even when the .flash animation isn't running. CSS transition smooths
+// the active↔inactive swap as ▲/▼ moves through hits.
 const renderWithHits = (
   text: string,
   hits: ReadonlyArray<{ start: number; end: number; idx: number }>,
   activeHitIndex: number,
-  flashTick: number,
 ): ReactNode => {
   if (hits.length === 0 && !text.includes('==')) return text;
 
@@ -130,12 +128,15 @@ const renderWithHits = (
 
     if (hit) {
       const isActive = hit.idx === activeHitIndex;
-      const key = isActive ? `${i}-${flashTick}` : `${i}`;
       parts.push(
         <mark
-          key={key}
+          key={i}
           data-hit-index={hit.idx}
-          className={`rounded-sm bg-[var(--selection)] px-0.5 text-ink ${isActive ? 'flash' : ''}`}
+          className={`rounded-sm px-0.5 text-ink transition-colors duration-200 ${
+            isActive
+              ? 'bg-[var(--highlight)] shadow-[inset_0_0_0_1px_var(--accent-2)]'
+              : 'bg-[var(--selection)]'
+          }`}
         >
           {segText}
         </mark>,
@@ -211,14 +212,12 @@ function TextBlockItem({
   const setActive = useActiveBlockStore((s) => s.setActive);
 
   // v2.9 §9.10 / §19.17: in-block search navigation. When this block is the
-  // active target, force-expand the truncation, render content + annotation
-  // with hit-marks, and mount the InBlockNavigator pill. `navigatorOpen` is
-  // separate so `✕` can dismiss the pill while keeping the highlights up — they
-  // clear with `activeNavigationBlockId` on Esc / scroll-away / click-outside.
+  // active target, force-expand the truncation and wrap each hit position in
+  // <mark>. The find bar itself is mounted in LogView (above the feed), not
+  // here. Clears on ✕/Esc/click-outside/wheel-away.
   const isNavTarget = useSearchStore((s) => s.activeNavigationBlockId === block.id);
   const navHits = useSearchStore((s) => s.activeHits);
   const navHitIndex = useSearchStore((s) => s.activeHitIndex);
-  const navigatorOpen = useSearchStore((s) => s.navigatorOpen);
   const flashTick = useSearchStore((s) => s.flashTick);
 
   // Inline-edit state for the captured text. We commit on blur/Enter (per §9.3) so
@@ -338,33 +337,49 @@ function TextBlockItem({
     }
   }, [isNavTarget, navHitIndex, flashTick]);
 
-  // >200px scroll dismissal. Anchored to the scroll position at the moment
-  // this block became the navigation target, so a fresh scrollIntoView during
-  // landing doesn't immediately count against the threshold.
+  // User-initiated scroll-away dismissal. Listens to `wheel` and `touchmove`
+  // (not `scroll`) so programmatic `scrollIntoView` from BlockFeed's landing
+  // logic — which itself can move >200px to center a distant block — does NOT
+  // fire dismissal mid-landing. The first version of this effect anchored on
+  // raw scrollTop and then watched `scroll`, which killed nav before the user
+  // ever saw the highlights.
+  //
+  // Threshold is checked against the block's bounding rect relative to the
+  // scroll container, so "scrolled away" is independent of how far raw
+  // scrollTop has moved.
   useEffect(() => {
     if (!isNavTarget) return;
     const article = articleRef.current;
     const scrollContainer = findScrollContainer(article);
-    if (!scrollContainer) return;
-    const anchor = scrollContainer.scrollTop;
-    const onScroll = () => {
-      if (Math.abs(scrollContainer.scrollTop - anchor) > NAV_SCROLL_DISMISS_PX) {
+    if (!scrollContainer || !article) return;
+    const onUserScroll = () => {
+      const blockRect = article.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const offTop = containerRect.top - blockRect.bottom;
+      const offBottom = blockRect.top - containerRect.bottom;
+      if (Math.max(offTop, offBottom) > NAV_SCROLL_DISMISS_PX) {
         useSearchStore.getState().clearNavigation();
       }
     };
-    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
-    return () => scrollContainer.removeEventListener('scroll', onScroll);
+    scrollContainer.addEventListener('wheel', onUserScroll, { passive: true });
+    scrollContainer.addEventListener('touchmove', onUserScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('wheel', onUserScroll);
+      scrollContainer.removeEventListener('touchmove', onUserScroll);
+    };
   }, [isNavTarget]);
 
-  // Click outside the destination block clears navigation. Buttons inside the
-  // navigator pill (and any other in-article controls) live within articleRef
-  // so the listener correctly leaves the state intact for them.
+  // Click outside both the destination block and the find bar clears
+  // navigation. The bar mounts above the feed (in LogView), outside this
+  // article, so we exempt it with a data-search-nav-bar selector check.
   useEffect(() => {
     if (!isNavTarget) return;
     const onDocMouseDown = (e: MouseEvent) => {
       const article = articleRef.current;
       if (!article) return;
-      if (article.contains(e.target as Node)) return;
+      const target = e.target as HTMLElement;
+      if (article.contains(target)) return;
+      if (target.closest('[data-search-nav-bar]')) return;
       useSearchStore.getState().clearNavigation();
     };
     document.addEventListener('mousedown', onDocMouseDown);
@@ -712,16 +727,6 @@ function TextBlockItem({
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
       )}
 
-      {isNavTarget && navigatorOpen && (
-        <InBlockNavigator
-          index={navHitIndex}
-          total={navHits.length}
-          onPrev={() => useSearchStore.getState().prevHit()}
-          onNext={() => useSearchStore.getState().nextHit()}
-          onDismiss={() => useSearchStore.getState().dismissNavigator()}
-        />
-      )}
-
       <div className="mb-1 flex items-center gap-2 text-[10px] text-muted">
         {/* v2.8 §20.1 selection checkbox: visible on hover, and on every block once any
             block is selected (so the user can see what's already in the set). */}
@@ -838,12 +843,7 @@ function TextBlockItem({
                 renderer still preserves ==…== highlights — no styling regression
                 during nav. */}
             {isNavTarget
-              ? renderWithHits(
-                  block.content,
-                  hitsForField(navHits, 'content'),
-                  navHitIndex,
-                  flashTick,
-                )
+              ? renderWithHits(block.content, hitsForField(navHits, 'content'), navHitIndex)
               : <SegmentedContent content={block.content} />}
           </div>
           {highlightPrompt && (
@@ -915,7 +915,6 @@ function TextBlockItem({
                   block.annotation,
                   hitsForField(navHits, 'annotation'),
                   navHitIndex,
-                  flashTick,
                 )
               : block.annotation}
           </div>

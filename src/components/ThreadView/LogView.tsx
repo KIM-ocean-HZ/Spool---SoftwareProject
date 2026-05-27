@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useThreadDropTarget } from '@/hooks/useThreadDropTarget';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useSearchStore } from '@/stores/searchStore';
+import InBlockNavigator from '../Search/InBlockNavigator';
 import BlockFeed from './BlockFeed';
 import Composer from './Composer';
 import MergeToolbar from './MergeToolbar';
@@ -31,8 +33,30 @@ export default function LogView({ threadId }: Props) {
     scrolledThread.current = threadId;
   }, [threadId, blockCount]);
 
+  // v2.9 §9.10 / §19.17: the in-block find bar lives at the top of this thread
+  // whenever a search result has landed on one of its blocks. Mounting it here
+  // (above the scrollable feed) keeps it visible and at a readable size as the
+  // user pages through matches, the way vscode's find widget does.
+  const navBlockId = useSearchStore((s) => s.activeNavigationBlockId);
+  const navHits = useSearchStore((s) => s.activeHits);
+  const navHitIndex = useSearchStore((s) => s.activeHitIndex);
+  const navQuery = useSearchStore((s) => s.activeQuery);
+  const threadBlocks = useBlocksStore((s) => s.byThread[threadId]);
+  const showNavBar =
+    navBlockId !== null && (threadBlocks?.some((b) => b.id === navBlockId) ?? false);
+
   return (
     <div ref={rootRef} className="flex flex-1 flex-col overflow-hidden">
+      {showNavBar && (
+        <InBlockNavigator
+          query={navQuery}
+          index={navHitIndex}
+          total={navHits.length}
+          onPrev={() => useSearchStore.getState().prevHit()}
+          onNext={() => useSearchStore.getState().nextHit()}
+          onDismiss={() => useSearchStore.getState().clearNavigation()}
+        />
+      )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {/* scrollRef is forwarded so BlockFeed's §20.1 drag-marquee selection can
             auto-scroll near the top/bottom edges and resolve block positions against

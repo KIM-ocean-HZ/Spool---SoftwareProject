@@ -16,7 +16,6 @@ export function useSearch(): void {
   const results = useSearchStore((s) => s.results);
   const runSearch = useSearchStore((s) => s.runSearch);
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
-  const navigatorOpen = useSearchStore((s) => s.navigatorOpen);
   const activeNavBlockId = useSearchStore((s) => s.activeNavigationBlockId);
 
   useEffect(() => {
@@ -59,19 +58,29 @@ export function useSearch(): void {
   useEffect(() => {
     if (!highlightBlockId) return;
     const hit = lastResultsRef.current.find((h) => h.blockId === highlightBlockId);
-    if (!hit || hit.hitOffsets.length === 0) return;
+    if (!hit) return;
     const current = useSearchStore.getState();
     if (current.activeNavigationBlockId === highlightBlockId) return;
-    current.startNavigation(highlightBlockId, hit.hitOffsets);
+    current.startNavigation(highlightBlockId, hit.hitOffsets, current.query.trim());
   }, [highlightBlockId]);
 
-  // v2.9 §14.1: Cmd/Ctrl+G next, +Shift prev, F3 mirrors. Gated on
-  // `navigatorOpen` per spec: shortcuts stand down once the pill is dismissed,
-  // so Cmd+G never steals the key when no navigator is mounted.
+  // v2.9 §14.1: Cmd/Ctrl+G next, +Shift prev, F3 mirrors; Esc clears nav.
+  // Gated on `activeNavigationBlockId` so the shortcuts only fire while the
+  // find bar is mounted — Cmd+G never steals the key otherwise.
   useEffect(() => {
-    if (!navigatorOpen) return;
+    if (!activeNavBlockId) return;
     const onKey = (e: KeyboardEvent) => {
-      const { nextHit, prevHit } = useSearchStore.getState();
+      const { nextHit, prevHit, clearNavigation } = useSearchStore.getState();
+      if (e.key === 'Escape') {
+        if (e.defaultPrevented) return;
+        // Don't steal Esc from an active textarea / input — the field's own
+        // Esc cancel handler should run first; nav clear can wait.
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) return;
+        e.preventDefault();
+        clearNavigation();
+        return;
+      }
       const isMod = e.metaKey || e.ctrlKey;
       if (isMod && (e.key === 'g' || e.key === 'G')) {
         e.preventDefault();
@@ -84,25 +93,6 @@ export function useSearch(): void {
         if (e.shiftKey) prevHit();
         else nextHit();
       }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [navigatorOpen]);
-
-  // Esc clears the active-navigation state even after `✕` dismissed the pill —
-  // Part B explicitly lists Esc as one of (scroll-away / click-outside / Esc).
-  // Gated on `activeNavigationBlockId` (not `navigatorOpen`) so highlights
-  // remaining after a `✕` dismissal still respond to Esc.
-  useEffect(() => {
-    if (!activeNavBlockId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // Don't fight a textarea's own Esc cancel.
-      if (e.defaultPrevented) return;
-      const ae = document.activeElement;
-      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) return;
-      e.preventDefault();
-      useSearchStore.getState().clearNavigation();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
