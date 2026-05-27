@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   isCurrentlyHighlighted,
   isHighlightable,
@@ -44,6 +45,19 @@ interface Props {
 const COLLAPSED_LINES = 6;
 
 const isUrl = (s: string): boolean => /^https?:\/\//i.test(s.trim());
+
+// v2.9 §14.3 / §19.19: walk up to the nearest scrollable ancestor (the feed's
+// overflow-y-auto wrapper in LogView). Used to capture and restore scrollTop
+// around the read-only → editable DOM swap so the viewport stays put.
+const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
+  let cur = el?.parentElement ?? null;
+  while (cur) {
+    const overflowY = getComputedStyle(cur).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+};
 
 // Phase 10: ref blocks have an entirely different UI (no edit, source, annotation,
 // attachments), so dispatch by kind rather than branching mid-component — keeps each
@@ -150,7 +164,9 @@ function TextBlockItem({
   useEffect(() => {
     if (editingContent && contentRef.current) {
       const el = contentRef.current;
-      el.focus();
+      // v2.9 §14.3 / §19.19: preventScroll suppresses the browser's default
+      // scrollIntoView-on-focus, which was one half of the edit-entry viewport jump.
+      el.focus({ preventScroll: true });
       el.setSelectionRange(el.value.length, el.value.length);
     }
   }, [editingContent]);
@@ -161,7 +177,7 @@ function TextBlockItem({
     // default. Auto-focus the annotation only when it's the standalone ✑ entry point.
     if (editingAnnotation && !editingContent && annotationRef.current) {
       const el = annotationRef.current;
-      el.focus();
+      el.focus({ preventScroll: true });
       el.setSelectionRange(el.value.length, el.value.length);
     }
   }, [editingAnnotation, editingContent]);
@@ -262,6 +278,29 @@ function TextBlockItem({
       document.removeEventListener('keydown', onKey);
     };
   }, [readOnly, editingContent, highlightPrompt, block.content]);
+
+  // v2.9 §14.3 / §19.19: the read-only → editable swap changes the block's
+  // intrinsic height (textarea vs. wrapped prose), which can shift the article's
+  // viewport position. flushSync forces React to commit the state update in this
+  // same tick so we can re-measure and compensate scrollTop before the browser
+  // paints. Pairs with focus({ preventScroll: true }) above — both halves are
+  // needed: this one covers layout shift, that one covers focus auto-scroll.
+  const enterEditMode = (apply: () => void): void => {
+    const article = articleRef.current;
+    const scrollContainer = findScrollContainer(article);
+    const beforeRect = article?.getBoundingClientRect() ?? null;
+    const beforeScrollTop = scrollContainer?.scrollTop ?? null;
+
+    flushSync(apply);
+
+    if (article && scrollContainer && beforeRect && beforeScrollTop !== null) {
+      const afterRect = article.getBoundingClientRect();
+      const delta = afterRect.top - beforeRect.top;
+      if (delta !== 0) {
+        scrollContainer.scrollTop = beforeScrollTop + delta;
+      }
+    }
+  };
 
   const commitContent = async (): Promise<void> => {
     const next = contentDraft;
@@ -532,13 +571,13 @@ function TextBlockItem({
             canHighlight={highlightableSelection !== null}
             selectionAlreadyHighlighted={selectionAlreadyHighlighted}
             onTogglePin={() => onTogglePin?.()}
-            onEdit={() => setEditingContent(true)}
+            onEdit={() => enterEditMode(() => setEditingContent(true))}
             onAttachFile={() => void handleAttachFile()}
             onAttachUrl={() => setAttachingUrl((v) => !v)}
             onHighlight={() => void runHighlightFromToolbar()}
             onAnnotate={() => {
               setActive(block.id);
-              setEditingAnnotation(true);
+              enterEditMode(() => setEditingAnnotation(true));
             }}
             onCopy={() => onCopy?.()}
             onDelete={() => onDelete?.()}
@@ -577,8 +616,10 @@ function TextBlockItem({
                 ? undefined
                 : () => {
                     setActive(block.id);
-                    setEditingContent(true);
-                    setEditingAnnotation(true);
+                    enterEditMode(() => {
+                      setEditingContent(true);
+                      setEditingAnnotation(true);
+                    });
                   }
             }
             // v2.8 §20.5: capture selection on mouseup so the prompt anchors to the
