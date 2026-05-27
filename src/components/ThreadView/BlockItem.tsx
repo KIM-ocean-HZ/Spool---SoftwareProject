@@ -110,6 +110,7 @@ function TextBlockItem({
   // Smart truncation: detect overflow against the collapsed cap. Re-measure when the
   // content text changes (the block could just have been edited).
   const measureRef = useRef<HTMLDivElement>(null);
+  const articleRef = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(true);
   const [needsTruncation, setNeedsTruncation] = useState(false);
 
@@ -175,6 +176,23 @@ function TextBlockItem({
     if (!el) return;
     setNeedsTruncation(el.scrollHeight - el.clientHeight > 1);
   }, [block.content, collapsed, editingContent]);
+
+  // Auto-collapse on outside-click: once a block is expanded, a mousedown anywhere
+  // outside its article snaps it back to truncated view. Skipped while editing —
+  // the textarea covers the truncation path, so the listener firing mid-edit would
+  // leave the block silently collapsed and the user would land on a re-truncated
+  // view after blur. Only attached when the listener has work to do.
+  useEffect(() => {
+    if (collapsed || editingContent || editingAnnotation) return;
+    const onDocMouseDown = (e: MouseEvent): void => {
+      const article = articleRef.current;
+      if (!article) return;
+      if (article.contains(e.target as Node)) return;
+      setCollapsed(true);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [collapsed, editingContent, editingAnnotation]);
 
   // v2.8 §20.5: track the live selection so (a) the floating prompt dismisses when
   // it becomes stale and (b) the toolbar's highlight button enables/disables based
@@ -447,6 +465,7 @@ function TextBlockItem({
 
   return (
     <article
+      ref={articleRef}
       data-block-id={block.id}
       onMouseEnter={readOnly ? undefined : () => setHovered(true)}
       onMouseLeave={readOnly ? undefined : () => setHovered(false)}
