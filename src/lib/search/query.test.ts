@@ -6,7 +6,7 @@ import { __setTestDb } from '@/lib/db/client';
 import schemaSql from '@/lib/db/schema.sql?raw';
 import { createThread } from '@/lib/db/threads';
 import { createWorkspace } from '@/lib/db/workspaces';
-import { buildSnippet, search } from './query';
+import { buildHitOffsets, buildSnippet, search } from './query';
 
 // node:sqlite is a Node builtin that Vite's transform pipeline won't resolve as a
 // static import — load it via createRequire so the specifier stays opaque to Vite.
@@ -141,5 +141,113 @@ describe('FTS index stays in sync after edits (§19.5)', () => {
     const hits = await search('蓝莓松饼');
     expect(hits.map((h) => h.blockId)).toEqual([blockId]);
     expect(hits[0]!.field).toBe('annotation');
+  });
+});
+
+// PLAN_EN.md §9.10 v2.9 / §18 rule 10: hitOffsets must carry every match across
+// both fields so BlockItem can wrap each occurrence in <mark> and the
+// InBlockNavigator can step through them.
+describe('buildHitOffsets', () => {
+  it('returns a single offset for one match', () => {
+    const offsets = buildHitOffsets('the keyword here', null, 'keyword');
+    expect(offsets).toEqual([{ field: 'content', start: 4, end: 11 }]);
+  });
+
+  it('returns every offset in source order for multiple content matches', () => {
+    const offsets = buildHitOffsets('Spool spools the spool', null, 'spool');
+    expect(offsets).toEqual([
+      { field: 'content', start: 0, end: 5 },
+      { field: 'content', start: 6, end: 11 },
+      { field: 'content', start: 17, end: 22 },
+    ]);
+  });
+
+  it('tags the field as annotation when only the annotation matches', () => {
+    const offsets = buildHitOffsets('正文里没有', '批注里有关键词', '关键词');
+    expect(offsets).toEqual([{ field: 'annotation', start: 4, end: 7 }]);
+  });
+
+  it('returns offsets from both fields when both match (content first)', () => {
+    const offsets = buildHitOffsets('Spool one', 'note about Spool', 'spool');
+    expect(offsets).toEqual([
+      { field: 'content', start: 0, end: 5 },
+      { field: 'annotation', start: 11, end: 16 },
+    ]);
+  });
+});
+
+describe('search() hitOffsets (FTS5 path)', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  const seed = async (content: string, annotation: string | null = null) => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, '脉络');
+    const block = await createBlock({ threadId: thread.id, content, annotation });
+    return block.id;
+  };
+
+  it('carries every match in a multi-hit block back through search()', async () => {
+    const blockId = await seed('Spool spools the spool again');
+    const hits = await search('spool');
+    expect(hits.map((h) => h.blockId)).toEqual([blockId]);
+    expect(hits[0]!.hitOffsets).toEqual([
+      { field: 'content', start: 0, end: 5 },
+      { field: 'content', start: 6, end: 11 },
+      { field: 'content', start: 17, end: 22 },
+    ]);
+  });
+
+  it('returns content + annotation offsets together when both fields match', async () => {
+    const blockId = await seed('Spool capture', 'second Spool in annotation');
+    const hits = await search('spool');
+    expect(hits.map((h) => h.blockId)).toEqual([blockId]);
+    expect(hits[0]!.hitOffsets).toEqual([
+      { field: 'content', start: 0, end: 5 },
+      { field: 'annotation', start: 7, end: 12 },
+    ]);
+  });
+});
+
+describe('search() hitOffsets (LIKE fallback, 1-2 char query)', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  it('returns every offset for a short query that falls back to LIKE', async () => {
+    // FTS5 trigram needs ≥3 chars; 2-char Chinese forces the LIKE path.
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, '脉络');
+    const block = await createBlock({
+      threadId: thread.id,
+      content: '结论一：结论二。结论三',
+      annotation: null,
+    });
+    const hits = await search('结论');
+    expect(hits.map((h) => h.blockId)).toEqual([block.id]);
+    expect(hits[0]!.hitOffsets).toEqual([
+      { field: 'content', start: 0, end: 2 },
+      { field: 'content', start: 4, end: 6 },
+      { field: 'content', start: 8, end: 10 },
+    ]);
   });
 });

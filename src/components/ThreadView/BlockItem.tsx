@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import {
+  HIGHLIGHT_RE,
   isCurrentlyHighlighted,
   isHighlightable,
   toggleHighlight,
@@ -8,11 +9,14 @@ import {
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
+import type { HitOffset } from '@/lib/search/query';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
+import { useSearchStore } from '@/stores/searchStore';
+import InBlockNavigator from '../Search/InBlockNavigator';
 import BlockActions from './BlockActions';
 import BlockAttachments from './BlockAttachments';
 import RefBlockItem from './RefBlockItem';
@@ -59,6 +63,111 @@ const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
   return null;
 };
 
+// v2.9 §9.10 / §19.17: how far the user must scroll away from the destination
+// block before in-block navigation auto-dismisses. Long enough that an
+// incidental wheel nudge doesn't drop the highlights mid-read.
+const NAV_SCROLL_DISMISS_PX = 200;
+
+// Render `text` with every search-hit position wrapped in <mark> and any
+// pre-existing `==…==` highlight preserved. The renderer is a single pass over
+// the union of mark intervals (== caps stripped, highlight content kept, hits
+// overlayed) so a hit inside an existing highlight still nests both wrappers.
+//
+// `activeHitIndex` identifies which hit currently owns the 900ms amber fade
+// (§13.3); `flashTick` is embedded in its React key so each ▲/▼ press
+// remounts the active <mark> and restarts the animation — including the
+// wrap-around case where the index doesn't change.
+const renderWithHits = (
+  text: string,
+  hits: ReadonlyArray<{ start: number; end: number; idx: number }>,
+  activeHitIndex: number,
+  flashTick: number,
+): ReactNode => {
+  if (hits.length === 0 && !text.includes('==')) return text;
+
+  type Interval =
+    | { kind: 'hit'; start: number; end: number; idx: number }
+    | { kind: 'highlight'; start: number; end: number }
+    | { kind: 'cap'; start: number; end: number };
+
+  const intervals: Interval[] = [];
+  // Persistent ==…== highlights: emit the inner span as a highlight interval
+  // and the surrounding two-char markers as caps (stripped from the output).
+  for (const m of text.matchAll(HIGHLIGHT_RE)) {
+    const s = m.index ?? 0;
+    const e = s + m[0].length;
+    intervals.push({ kind: 'cap', start: s, end: s + 2 });
+    intervals.push({ kind: 'highlight', start: s + 2, end: e - 2 });
+    intervals.push({ kind: 'cap', start: e - 2, end: e });
+  }
+  for (const h of hits) {
+    intervals.push({ kind: 'hit', start: h.start, end: h.end, idx: h.idx });
+  }
+
+  const breakpoints = new Set<number>([0, text.length]);
+  for (const it of intervals) {
+    breakpoints.add(it.start);
+    breakpoints.add(it.end);
+  }
+  const sorted = [...breakpoints].sort((a, b) => a - b);
+
+  const parts: ReactNode[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const segStart = sorted[i]!;
+    const segEnd = sorted[i + 1]!;
+    if (segStart >= segEnd) continue;
+    if (intervals.some((it) => it.kind === 'cap' && segStart >= it.start && segEnd <= it.end)) {
+      continue; // == cap chars: never render visibly
+    }
+    const segText = text.slice(segStart, segEnd);
+    const hit = intervals.find(
+      (it): it is Extract<Interval, { kind: 'hit' }> =>
+        it.kind === 'hit' && segStart >= it.start && segEnd <= it.end,
+    );
+    const inHighlight = intervals.some(
+      (it) => it.kind === 'highlight' && segStart >= it.start && segEnd <= it.end,
+    );
+
+    if (hit) {
+      const isActive = hit.idx === activeHitIndex;
+      const key = isActive ? `${i}-${flashTick}` : `${i}`;
+      parts.push(
+        <mark
+          key={key}
+          data-hit-index={hit.idx}
+          className={`rounded-sm bg-[var(--selection)] px-0.5 text-ink ${isActive ? 'flash' : ''}`}
+        >
+          {segText}
+        </mark>,
+      );
+    } else if (inHighlight) {
+      parts.push(
+        <mark key={i} className="rounded-sm bg-[var(--selection)] px-0.5 text-ink">
+          {segText}
+        </mark>,
+      );
+    } else {
+      parts.push(<Fragment key={i}>{segText}</Fragment>);
+    }
+  }
+  return <Fragment>{parts}</Fragment>;
+};
+
+// Filter the flat hits array down to one field and keep each hit's global
+// index in the original array — InBlockNavigator counts and the active-index
+// comparison still operate over the unified order.
+const hitsForField = (
+  hits: readonly HitOffset[],
+  field: 'content' | 'annotation',
+): Array<{ start: number; end: number; idx: number }> => {
+  const out: Array<{ start: number; end: number; idx: number }> = [];
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i]!;
+    if (h.field === field) out.push({ start: h.start, end: h.end, idx: i });
+  }
+  return out;
+};
+
 // Phase 10: ref blocks have an entirely different UI (no edit, source, annotation,
 // attachments), so dispatch by kind rather than branching mid-component — keeps each
 // renderer's hook order unconditional.
@@ -100,6 +209,17 @@ function TextBlockItem({
   // block, so the user keeps orientation across edit / collapse / annotate cycles.
   const isActive = useActiveBlockStore((s) => s.activeBlockId === block.id);
   const setActive = useActiveBlockStore((s) => s.setActive);
+
+  // v2.9 §9.10 / §19.17: in-block search navigation. When this block is the
+  // active target, force-expand the truncation, render content + annotation
+  // with hit-marks, and mount the InBlockNavigator pill. `navigatorOpen` is
+  // separate so `✕` can dismiss the pill while keeping the highlights up — they
+  // clear with `activeNavigationBlockId` on Esc / scroll-away / click-outside.
+  const isNavTarget = useSearchStore((s) => s.activeNavigationBlockId === block.id);
+  const navHits = useSearchStore((s) => s.activeHits);
+  const navHitIndex = useSearchStore((s) => s.activeHitIndex);
+  const navigatorOpen = useSearchStore((s) => s.navigatorOpen);
+  const flashTick = useSearchStore((s) => s.flashTick);
 
   // Inline-edit state for the captured text. We commit on blur/Enter (per §9.3) so
   // the user never has to look for a Save button. Esc reverts to the pre-edit value.
@@ -192,6 +312,64 @@ function TextBlockItem({
     if (!el) return;
     setNeedsTruncation(el.scrollHeight - el.clientHeight > 1);
   }, [block.content, collapsed, editingContent]);
+
+  // v2.9 §9.10 / §19.17: while this block owns the active search navigation,
+  // override the collapsed truncation so every hit is visible (auto-expand).
+  // The user's own toggle resumes control as soon as navigation clears — the
+  // override is read-only on `collapsed`, not a write, so the prior value is
+  // preserved.
+  const showCollapsed = collapsed && !isNavTarget;
+
+  // Search-navigation also triggers the active-block tint per §13.3, so the
+  // destination block reads orientation just like any other deliberate action.
+  useEffect(() => {
+    if (isNavTarget) setActive(block.id);
+  }, [isNavTarget, block.id, setActive]);
+
+  // Bring the currently-active hit into view as ▲/▼ move through them. Runs
+  // on every activeHitIndex tick (via flashTick) so wrap-around still scrolls.
+  useEffect(() => {
+    if (!isNavTarget) return;
+    const article = articleRef.current;
+    if (!article) return;
+    const mark = article.querySelector(`mark[data-hit-index="${navHitIndex}"]`);
+    if (mark instanceof HTMLElement) {
+      mark.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [isNavTarget, navHitIndex, flashTick]);
+
+  // >200px scroll dismissal. Anchored to the scroll position at the moment
+  // this block became the navigation target, so a fresh scrollIntoView during
+  // landing doesn't immediately count against the threshold.
+  useEffect(() => {
+    if (!isNavTarget) return;
+    const article = articleRef.current;
+    const scrollContainer = findScrollContainer(article);
+    if (!scrollContainer) return;
+    const anchor = scrollContainer.scrollTop;
+    const onScroll = () => {
+      if (Math.abs(scrollContainer.scrollTop - anchor) > NAV_SCROLL_DISMISS_PX) {
+        useSearchStore.getState().clearNavigation();
+      }
+    };
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    return () => scrollContainer.removeEventListener('scroll', onScroll);
+  }, [isNavTarget]);
+
+  // Click outside the destination block clears navigation. Buttons inside the
+  // navigator pill (and any other in-article controls) live within articleRef
+  // so the listener correctly leaves the state intact for them.
+  useEffect(() => {
+    if (!isNavTarget) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      const article = articleRef.current;
+      if (!article) return;
+      if (article.contains(e.target as Node)) return;
+      useSearchStore.getState().clearNavigation();
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [isNavTarget]);
 
   // Auto-collapse on outside-click: once a block is expanded, a mousedown anywhere
   // outside its article snaps it back to truncated view. Skipped while editing —
@@ -534,6 +712,16 @@ function TextBlockItem({
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
       )}
 
+      {isNavTarget && navigatorOpen && (
+        <InBlockNavigator
+          index={navHitIndex}
+          total={navHits.length}
+          onPrev={() => useSearchStore.getState().prevHit()}
+          onNext={() => useSearchStore.getState().nextHit()}
+          onDismiss={() => useSearchStore.getState().dismissNavigator()}
+        />
+      )}
+
       <div className="mb-1 flex items-center gap-2 text-[10px] text-muted">
         {/* v2.8 §20.1 selection checkbox: visible on hover, and on every block once any
             block is selected (so the user can see what's already in the set). */}
@@ -627,7 +815,7 @@ function TextBlockItem({
             onMouseUp={readOnly ? undefined : onContentMouseUp}
             title={readOnly ? undefined : '双击编辑（含批注）'}
             style={
-              collapsed
+              showCollapsed
                 ? {
                     display: '-webkit-box',
                     WebkitLineClamp: COLLAPSED_LINES,
@@ -642,8 +830,21 @@ function TextBlockItem({
                 segment annotation marker render as a list of segments with each
                 annotation visually attached. Un-merged blocks (and merged blocks
                 without per-segment annotations) take SegmentedContent's fast path
-                and render identically to HighlightedContent. */}
-            <SegmentedContent content={block.content} />
+                and render identically to HighlightedContent.
+
+                v2.9 §9.10 / §19.17: when this block is the search-navigation
+                target, route content through the hit-aware renderer so every
+                match is wrapped in <mark> (active one amber-fading). The
+                renderer still preserves ==…== highlights — no styling regression
+                during nav. */}
+            {isNavTarget
+              ? renderWithHits(
+                  block.content,
+                  hitsForField(navHits, 'content'),
+                  navHitIndex,
+                  flashTick,
+                )
+              : <SegmentedContent content={block.content} />}
           </div>
           {highlightPrompt && (
             <button
@@ -664,7 +865,7 @@ function TextBlockItem({
               {selectionAlreadyHighlighted ? '取消重点?' : '标为重点?'}
             </button>
           )}
-          {(needsTruncation || !collapsed) && (
+          {(needsTruncation || !showCollapsed) && !isNavTarget && (
             <button
               type="button"
               onClick={() => {
@@ -709,7 +910,14 @@ function TextBlockItem({
           />
         ) : (
           <div className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2">
-            {block.annotation}
+            {isNavTarget && block.annotation
+              ? renderWithHits(
+                  block.annotation,
+                  hitsForField(navHits, 'annotation'),
+                  navHitIndex,
+                  flashTick,
+                )
+              : block.annotation}
           </div>
         ))}
 

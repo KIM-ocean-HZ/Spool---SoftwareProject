@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { SearchHit, SearchSnippetLine } from '@/lib/search/query';
+import { useSearchStore } from '@/stores/searchStore';
 import { formatBlockTime } from '@/lib/utils/time';
 
 interface Props {
@@ -36,11 +37,22 @@ export default function SearchResultItem({ hit, selected, onSelect, onActivate }
     if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
 
+  // v2.9 §9.10 / §19.17: kick off in-block navigation BEFORE the overlay's
+  // existing navigate(thread switch + scroll). BlockItem reads activeHits the
+  // moment it mounts in the destination thread and renders highlights + the
+  // navigator pill in one paint — no flash-of-unhighlighted block.
+  const activate = () => {
+    if (hit.hitOffsets.length > 0) {
+      useSearchStore.getState().startNavigation(hit.blockId, hit.hitOffsets);
+    }
+    onActivate();
+  };
+
   return (
     <div
       ref={ref}
       onMouseEnter={onSelect}
-      onClick={onActivate}
+      onClick={activate}
       className={`cursor-pointer rounded-md border px-3 py-2 transition-colors ${
         selected ? 'border-accent bg-paper-2' : 'border-transparent hover:bg-paper-2/50'
       }`}

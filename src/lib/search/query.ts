@@ -26,6 +26,16 @@ export interface SearchSnippetLine {
   match?: { start: number; end: number };
 }
 
+// v2.9 §9.10 / §19.17: every position the query matches within a hit block, used
+// for in-block <mark> rendering and InBlockNavigator stepping. Offsets are
+// UTF-16 character indices into the field's text, ordered by field then by
+// appearance (content offsets first, then annotation offsets).
+export interface HitOffset {
+  field: SearchField;
+  start: number;
+  end: number;
+}
+
 export interface SearchHit {
   blockId: string;
   threadId: string;
@@ -35,6 +45,9 @@ export interface SearchHit {
   createdAt: number;
   field: SearchField; // which field the keyword was found in
   snippet: SearchSnippetLine[]; // up to 3 lines: hit line ± one line of context
+  // All literal substring matches across both fields. The snippet is for the
+  // search-result preview; these drive in-block highlighting + navigation.
+  hitOffsets: HitOffset[];
 }
 
 interface Row {
@@ -125,6 +138,40 @@ export const buildSnippet = (
   return { field, snippet };
 };
 
+// Locate every literal occurrence of `query` within `text` (case-insensitive
+// substring match — same semantics as buildSnippet's hit-line locator). Tagged
+// with `field` so content + annotation offsets remain distinguishable downstream.
+const findAllOffsets = (
+  text: string,
+  query: string,
+  field: SearchField,
+): HitOffset[] => {
+  if (!text || !query) return [];
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const out: HitOffset[] = [];
+  let from = 0;
+  while (true) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx < 0) break;
+    out.push({ field, start: idx, end: idx + query.length });
+    // Advance past the match so we don't infinitely re-find a zero-width
+    // location. (query.trim() guarantees length ≥ 1 here, but the +1 is a
+    // belt-and-braces guard.)
+    from = idx + Math.max(1, query.length);
+  }
+  return out;
+};
+
+export const buildHitOffsets = (
+  content: string,
+  annotation: string | null,
+  query: string,
+): HitOffset[] => [
+  ...findAllOffsets(content, query, 'content'),
+  ...(annotation ? findAllOffsets(annotation, query, 'annotation') : []),
+];
+
 // Wrap a query as an FTS5 phrase literal: doubled quotes, surrounding quotes. A
 // quoted phrase is always valid FTS5 syntax and forces a contiguous (substring)
 // trigram match rather than a loose AND of individual trigrams.
@@ -167,6 +214,7 @@ const toHit = (r: Row, query: string): SearchHit => {
     createdAt: r.created_at,
     field,
     snippet,
+    hitOffsets: buildHitOffsets(r.content, r.annotation, query),
   };
 };
 
