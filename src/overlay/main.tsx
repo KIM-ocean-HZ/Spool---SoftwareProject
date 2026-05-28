@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import CaptureOverlay from './CaptureOverlay';
-import CollectOverlay from './CollectOverlay';
 import './style.css';
 
 window.addEventListener('unhandledrejection', (e) => {
@@ -16,13 +15,11 @@ if (!root) {
   throw new Error('overlay.html missing #root');
 }
 
-// v2.8 §20 Track B: both overlays render in the same window, but only one is mounted
-// at a time (CaptureOverlay null-returns when there is no toast/notice; CollectOverlay
-// null-returns when staging is closed). The overlay window's React root simply mounts
-// both — whichever has content wins the visible card.
+// The overlay window hosts the capture toast / failure notice / undo confirmation.
+// Collect mode (§20.9) moved to its own dedicated window (collect.html) in Phase 11.5
+// step 5 — it no longer shares the overlay.
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <CaptureOverlay />
-    <CollectOverlay />
   </React.StrictMode>,
 );

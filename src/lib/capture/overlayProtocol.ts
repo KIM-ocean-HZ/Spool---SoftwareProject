@@ -39,32 +39,6 @@ export interface OverlayUndoPayload {
   canRedo: boolean;
 }
 
-// v2.8 §20 Track B: collect-mode (staging toast) event/command names. The overlay
-// listens for `collect:open` to render staging UI and `collect:append` to add items;
-// it emits `collect:closed` back to main so the main window can clear its mode flag.
-export const COLLECT_OPEN_EVENT = 'collect:open';
-export const COLLECT_APPEND_EVENT = 'collect:append';
-export const COLLECT_CLOSED_EVENT = 'collect:closed';
-export const SHOW_COLLECT_OVERLAY_COMMAND = 'show_collect_overlay';
-export const APPEND_COLLECT_ITEM_COMMAND = 'append_collect_item';
-
-export interface CollectAppendPayload {
-  text: string;
-  source: string | null;
-}
-
-// Emitted by the overlay back to main once the staging toast closes (Send completed,
-// or Cancel discarded). Carries the new block (when Send succeeded) so main can drop
-// it into its blocksStore and focus the window. `discarded` = true means user cancelled
-// and nothing was written.
-export type CollectClosedPayload =
-  | {
-      kind: 'sent';
-      block: Block;
-      threadId: string;
-    }
-  | { kind: 'discarded' };
-
 export interface CaptureOverlayPayload {
   blockId: string;
   threadId: string;

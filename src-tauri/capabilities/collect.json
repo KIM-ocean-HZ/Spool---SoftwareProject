@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "collect",
+  "description": "Capability for the §20.9 collect-mode staging panel window. Needs SQL for its own connection (Send writes one merged block to the capture target, like the overlay's Redirect) and core:default for Tauri events + custom invoke commands.",
+  "windows": ["collect"],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select"
+  ]
+}

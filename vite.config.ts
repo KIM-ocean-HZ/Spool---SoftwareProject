@@ -19,12 +19,14 @@ export default defineConfig({
     target: 'es2021',
     minify: 'esbuild',
     sourcemap: false,
-    // Multi-page: the main app and the capture overlay live in separate Tauri windows
-    // with separate JS contexts, so they need separate HTML entries and Rollup chunks.
+    // Multi-page: the main app, the capture overlay, and the §20.9 collect panel live in
+    // separate Tauri windows with separate JS contexts, so each needs its own HTML entry
+    // and Rollup chunk.
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
         overlay: path.resolve(__dirname, 'overlay.html'),
+        collect: path.resolve(__dirname, 'collect.html'),
       },
     },
   },

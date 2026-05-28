@@ -648,7 +648,9 @@ fn reactivate_app_async(name: String) {
 // Find the monitor containing the system cursor — that's "the screen the user is
 // looking at." Falls back to the primary monitor when cursor coords are unavailable
 // (e.g. headless CI) or none of the available monitors contains the cursor.
-fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> {
+// pub(crate) so the collect-panel window (collect.rs, §20.9) can anchor itself to the
+// same "active screen" the capture overlay uses.
+pub(crate) fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> {
     // We need *some* window to query cursor_position; the overlay itself works fine
     // even if hidden. Prefer overlay, then main.
     let probe = app
@@ -790,52 +792,6 @@ pub fn show_undo_overlay<R: Runtime>(
     app.emit_to(OVERLAY_LABEL, "overlay:undo", payload)
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-// v2.8 §20 Track B: position + show the overlay window in collect/staging mode. No
-// capture payload — the overlay listens for the separate `collect:open` event and
-// renders its staging UI. Sequence mirrors show_capture_overlay (reset size →
-// reposition → emit → show) so the geometry stays consistent.
-#[tauri::command]
-pub fn show_collect_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
-    win.set_size(LogicalSize::new(
-        OVERLAY_WIDTH as f64,
-        OVERLAY_HEIGHT_COLLAPSED as f64,
-    ))
-    .map_err(|e| e.to_string())?;
-    position_overlay_top_right(&app)?;
-    // The collect panel is persistent (§20.9) — it must NOT auto-dismiss on an outside
-    // click, so make sure the capture-toast dismiss watch is off.
-    #[cfg(target_os = "macos")]
-    crate::double_tap::disarm_overlay_dismiss();
-    app.emit_to(OVERLAY_LABEL, "collect:open", ())
-        .map_err(|e| e.to_string())?;
-    win.show().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-// v2.8 §20 Track B: relay one captured-while-collecting item into the overlay's
-// staging list. The main window invokes this when its capture-trigger handler sees
-// collect mode is active — text comes from the clipboard, source from the foreground
-// app. Nothing touches the blocks table here; the item is transient until Send.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CollectAppendPayload {
-    pub text: String,
-    pub source: Option<String>,
-}
-
-#[tauri::command]
-pub fn append_collect_item<R: Runtime>(
-    app: AppHandle<R>,
-    payload: CollectAppendPayload,
-) -> Result<(), String> {
-    app.emit_to(OVERLAY_LABEL, "collect:append", payload)
-        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

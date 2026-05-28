@@ -1,24 +1,23 @@
 import { create } from 'zustand';
 
-// v2.8 §20 Track B — collect mode is a separate capture mode that holds clipboard
-// captures in a transient staging toast (in the overlay window) until the user
-// explicitly Sends them as one merged block. While `active` is true, useCapture's
-// capture-trigger handler skips the DB write and forwards the captured text to the
-// overlay's staging list instead. Toggled on by long-press ⌥, toggled off when the
-// overlay confirms the staging toast was sent or discarded.
+// §20.9 collect-mode coordination flag, owned by the MAIN window. `panelOpen` mirrors
+// whether the dedicated collect panel window (label "collect") is currently shown:
+// useCollect sets it from Rust's `collect-trigger` (open) and the panel's `collect:closed`
+// (close). Main reads it on the capture hot path to decide whether a ⌥-capture should be
+// staged in the panel rather than written straight to the DB — a synchronous local flag
+// is far cheaper than asking the panel window over IPC per capture.
 //
-// State lives in main (not the overlay) because main is the only place that owns the
-// capture-trigger listener — checking a synchronous local flag is much cheaper than
-// asking the overlay over IPC on the hot path.
-
+// The capture routing + the panel's own staging buffer / local undo land in 5b/5c; the
+// buffer lives in the collect window's process (separate JS context), so this store is
+// only the main-side flag.
 interface CollectState {
-  active: boolean;
+  panelOpen: boolean;
   open: () => void;
   close: () => void;
 }
 
 export const useCollectStore = create<CollectState>((set) => ({
-  active: false,
-  open: () => set({ active: true }),
-  close: () => set({ active: false }),
+  panelOpen: false,
+  open: () => set({ panelOpen: true }),
+  close: () => set({ panelOpen: false }),
 }));
