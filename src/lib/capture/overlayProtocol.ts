@@ -28,6 +28,9 @@ export const RESIZE_OVERLAY_COMMAND = 'resize_capture_overlay';
 export const UPDATE_OVERLAY_SOURCE_COMMAND = 'update_overlay_source';
 export const SHOW_OVERLAY_NOTICE_COMMAND = 'show_capture_notice';
 export const SHOW_UNDO_OVERLAY_COMMAND = 'show_undo_overlay';
+// Disarms the click-outside dismiss watch when the user starts dragging the toast (so the
+// relocated toast isn't dismissed by a click on its new position).
+export const DISARM_DISMISS_COMMAND = 'disarm_capture_dismiss';
 
 // v2.9 §9.13: the undo/redo confirmation card rendered in the overlay window. `op = 'empty'`
 // is the "没有可撤销的操作" state; `mode` distinguishes 已撤销 from 已重做; `canRedo` gates

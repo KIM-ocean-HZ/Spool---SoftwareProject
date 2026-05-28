@@ -1,10 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
-import { emit } from '@tauri-apps/api/event';
-import { Pin, Send, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Maximize2, Minimize2, Pin, Send, X } from 'lucide-react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import {
   CLOSE_COLLECT_PANEL_COMMAND,
   COLLECT_CLOSED_EVENT,
+  COLLECT_OPEN_EVENT,
   RESIZE_COLLECT_PANEL_COMMAND,
   type CollectClosedPayload,
 } from '@/lib/collect/protocol';
@@ -27,27 +36,42 @@ const MAX_PANEL_HEIGHT = 540;
 // Tiny extra so the card's drop shadow isn't clipped by the OS window's bottom edge.
 const SHADOW_ALLOWANCE = 8;
 
+// Drag the panel by its header / collapsed pill so the user can move it off content. The
+// window is non-activating; acceptFirstMouse lets the drag start without focusing it.
+const startPanelDrag = (e: ReactMouseEvent): void => {
+  if (e.button !== 0) return;
+  void getCurrentWindow()
+    .startDragging()
+    .catch((err) => console.warn('[collect] panel drag failed', err));
+};
+
 // §20.9 collect-mode staging panel — its own Tauri window (label "collect"), distinct
 // from the capture overlay. Holds clipboard captures as transient, editable items until
 // the user Sends them as one merged block, or Discards. Each item exposes a VISIBLE
 // annotation slot (§2.5.1 design bias) and Tab cycles those slots straight to Send.
+//
+// The panel is draggable (header / collapsed pill) and collapsible to a compact pill, so
+// it can sit discreetly on the desktop while a long collection session runs.
 export default function CollectPanel() {
   useCollectMode(); // listens for collect:open (reset) + collect:append (stage)
   const items = useSyncExternalStore(subscribe, getAll);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Auto-size the OS window to the card's measured height (capped), so the rounded bottom
-  // corner is always visible. The window is bottom-anchored in Rust, so growth extends up.
+  // Auto-size the OS window to the measured content height (capped), so the rounded bottom
+  // corner is always visible. The window is top-anchored in Rust, so growth/shrink extends
+  // downward and never disturbs a position the user dragged the panel to. The wrapper div
+  // (cardRef) is always mounted, so the observer survives the collapse/expand swap.
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
     const apply = (): void => {
-      const h = Math.min(MAX_PANEL_HEIGHT, Math.ceil(el.getBoundingClientRect().height)) +
-        SHADOW_ALLOWANCE;
+      const h =
+        Math.min(MAX_PANEL_HEIGHT, Math.ceil(el.getBoundingClientRect().height)) + SHADOW_ALLOWANCE;
       void invoke(RESIZE_COLLECT_PANEL_COMMAND, { height: h }).catch((e) => {
         console.warn('[collect] resize failed', e);
       });
@@ -56,6 +80,24 @@ export default function CollectPanel() {
     const ro = new ResizeObserver(apply);
     ro.observe(el);
     return () => ro.disconnect();
+    // Re-subscribe when collapsed toggles: the collapsed pill and expanded card are
+    // different root elements, so the observer must re-attach to the one now mounted.
+  }, [collapsed]);
+
+  // A fresh long-press (collect:open) starts a new session expanded, even if the previous
+  // one ended collapsed. (useCollectMode clears the buffer on the same event.)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen(COLLECT_OPEN_EVENT, () => setCollapsed(false));
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
   }, []);
 
   // When a new item is staged, scroll the list to its bottom so the newest is in view.
@@ -143,87 +185,126 @@ export default function CollectPanel() {
 
   const annotatedCount = items.filter((it) => it.annotation.trim().length > 0).length;
 
-  return (
-    <div
-      ref={cardRef}
-      className="collect-in flex w-full flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"
-      style={{ boxShadow: 'var(--shadow-toast)', maxHeight: MAX_PANEL_HEIGHT }}
-    >
-      <header className="flex flex-none items-center justify-between border-b border-line bg-paper-2/40 px-3 py-1.5">
-        <div className="font-ui text-[11px] text-ink">
-          <span className="font-serif text-[12px]">正在收集</span>
-          {items.length > 0 && <span className="ml-1.5 text-muted">· {items.length}</span>}
+  if (collapsed) {
+    return (
+      <div ref={cardRef} className="flex w-full justify-end">
+        <div
+          onMouseDown={startPanelDrag}
+          className="collect-in flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
+          style={{ boxShadow: 'var(--shadow-toast)' }}
+        >
+          <span className="font-serif text-[12px] text-ink">正在收集</span>
+          <span className="font-mono text-[11px] text-muted">· {items.length}</span>
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setCollapsed(false)}
+            title="展开面板"
+            aria-label="展开"
+            className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
+          >
+            <Maximize2 size={11} />
+          </button>
         </div>
-      </header>
+      </div>
+    );
+  }
 
-      <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
-        {items.length === 0 ? (
-          <p className="px-1 py-2 font-ui text-[11px] leading-relaxed text-muted">
-            暂存中。下次 ⌥-捕获将加入这里。
-          </p>
+  return (
+    <div ref={cardRef} className="w-full">
+      <div
+        className="collect-in flex w-full flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"
+        style={{ boxShadow: 'var(--shadow-toast)', maxHeight: MAX_PANEL_HEIGHT }}
+      >
+        <header
+          onMouseDown={startPanelDrag}
+          className="flex flex-none cursor-grab items-center justify-between border-b border-line bg-paper-2/40 px-3 py-1.5 active:cursor-grabbing"
+        >
+          <div className="font-ui text-[11px] text-ink">
+            <span className="font-serif text-[12px]">正在收集</span>
+            {items.length > 0 && <span className="ml-1.5 text-muted">· {items.length}</span>}
+          </div>
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setCollapsed(true)}
+            title="收起为小标签"
+            aria-label="收起"
+            className="rounded p-1 text-muted/80 hover:bg-paper hover:text-ink"
+          >
+            <Minimize2 size={11} />
+          </button>
+        </header>
+
+        <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
+          {items.length === 0 ? (
+            <p className="px-1 py-2 font-ui text-[11px] leading-relaxed text-muted">
+              暂存中。下次 ⌥-捕获将加入这里。
+            </p>
+          ) : (
+            items.map((it) => (
+              <StagingItemCard
+                key={it.id}
+                item={it}
+                onContentChange={(v) => updateItemContent(it.id, v)}
+                onAnnotationChange={(v) => updateItemAnnotation(it.id, v)}
+                onTogglePin={() => togglePin(it.id)}
+                onRemove={() => removeItem(it.id)}
+              />
+            ))
+          )}
+        </div>
+
+        {confirming ? (
+          <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
+            <span className="text-muted">丢弃 {items.length} 条暂存内容？</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => setConfirming(false)}
+                className="rounded px-2 py-0.5 text-muted hover:bg-paper hover:text-ink"
+              >
+                再想想
+              </button>
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => close({ kind: 'discarded' })}
+                className="rounded border border-urgent/60 bg-paper px-2 py-0.5 text-urgent hover:bg-urgent/10"
+              >
+                确认丢弃
+              </button>
+            </div>
+          </footer>
         ) : (
-          items.map((it) => (
-            <StagingItemCard
-              key={it.id}
-              item={it}
-              onContentChange={(v) => updateItemContent(it.id, v)}
-              onAnnotationChange={(v) => updateItemAnnotation(it.id, v)}
-              onTogglePin={() => togglePin(it.id)}
-              onRemove={() => removeItem(it.id)}
-            />
-          ))
+          <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={requestDiscard}
+              className="rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
+            >
+              丢弃
+            </button>
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={items.length === 0 || sending}
+              className="flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:border-line disabled:bg-paper-2 disabled:text-muted/60"
+            >
+              <Send size={11} />
+              <span>
+                {sending
+                  ? '发送中…'
+                  : annotatedCount > 0
+                    ? `发送（${annotatedCount} 条已批注）`
+                    : '发送'}
+              </span>
+            </button>
+          </footer>
         )}
       </div>
-
-      {confirming ? (
-        <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
-          <span className="text-muted">丢弃 {items.length} 条暂存内容？</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              tabIndex={-1}
-              onClick={() => setConfirming(false)}
-              className="rounded px-2 py-0.5 text-muted hover:bg-paper hover:text-ink"
-            >
-              再想想
-            </button>
-            <button
-              type="button"
-              tabIndex={-1}
-              onClick={() => close({ kind: 'discarded' })}
-              className="rounded border border-urgent/60 bg-paper px-2 py-0.5 text-urgent hover:bg-urgent/10"
-            >
-              确认丢弃
-            </button>
-          </div>
-        </footer>
-      ) : (
-        <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={requestDiscard}
-            className="rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
-          >
-            丢弃
-          </button>
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={items.length === 0 || sending}
-            className="flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:border-line disabled:bg-paper-2 disabled:text-muted/60"
-          >
-            <Send size={11} />
-            <span>
-              {sending
-                ? '发送中…'
-                : annotatedCount > 0
-                  ? `发送（${annotatedCount} 条已批注）`
-                  : '发送'}
-            </span>
-          </button>
-        </footer>
-      )}
     </div>
   );
 }

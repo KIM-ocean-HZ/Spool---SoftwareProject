@@ -25,15 +25,12 @@ const COLLECT_INITIAL_HEIGHT: u32 = 132;
 // Margin from the screen edges, in logical pixels — matches OVERLAY_SCREEN_MARGIN.
 const COLLECT_SCREEN_MARGIN: i32 = 20;
 
-// Anchor the collect panel at the BOTTOM-right of the active monitor (§20.9). The
-// capture overlay deliberately uses top-right to dodge the dock for a transient toast;
-// the persistent staging panel is specced bottom-right. We anchor the bottom edge, so
-// the window height enters the math: growing the panel (resize_collect_panel) extends it
-// upward while the bottom edge stays pinned above the margin.
-fn position_collect_bottom_right<R: Runtime>(
-    app: &AppHandle<R>,
-    height: u32,
-) -> Result<(), String> {
+// Anchor the collect panel at the TOP-right of the active monitor — same corner as the
+// capture overlay. (The original §20.9 bottom-right placement was hidden behind the macOS
+// dock in dogfooding, so it moves to top-right; the user can then drag it anywhere via the
+// panel header.) Top-anchored, so resize_collect_panel grows the panel downward and never
+// needs to reposition — which is what lets a user-dragged position stick.
+fn position_collect_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let win = app
         .get_webview_window(COLLECT_LABEL)
         .ok_or_else(|| "collect window not found".to_string())?;
@@ -45,9 +42,8 @@ fn position_collect_bottom_right<R: Runtime>(
     let m_left = mpos.x as f64 / scale;
     let m_top = mpos.y as f64 / scale;
     let m_width = msize.width as f64 / scale;
-    let m_height = msize.height as f64 / scale;
     let target_x = m_left + m_width - COLLECT_WIDTH as f64 - COLLECT_SCREEN_MARGIN as f64;
-    let target_y = m_top + m_height - height as f64 - COLLECT_SCREEN_MARGIN as f64;
+    let target_y = m_top + COLLECT_SCREEN_MARGIN as f64;
     win.set_position(LogicalPosition::new(target_x, target_y))
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -68,7 +64,7 @@ pub fn open_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         COLLECT_INITIAL_HEIGHT as f64,
     ))
     .map_err(|e| e.to_string())?;
-    position_collect_bottom_right(&app, COLLECT_INITIAL_HEIGHT)?;
+    position_collect_top_right(&app)?;
     app.emit_to(COLLECT_LABEL, "collect:open", ())
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
@@ -85,8 +81,9 @@ pub fn close_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> 
     Ok(())
 }
 
-// Resize the panel to its measured content height and re-anchor bottom-right (since the
-// bottom edge is pinned, this grows/shrinks the panel upward). Width is fixed.
+// Resize the panel to its measured content height. Width is fixed; the window is
+// top-anchored, so this grows/shrinks downward WITHOUT repositioning — preserving any
+// position the user dragged the panel to (and the collapse/expand toggle's geometry).
 #[tauri::command]
 pub fn resize_collect_panel<R: Runtime>(app: AppHandle<R>, height: u32) -> Result<(), String> {
     let win = app
@@ -94,7 +91,6 @@ pub fn resize_collect_panel<R: Runtime>(app: AppHandle<R>, height: u32) -> Resul
         .ok_or_else(|| "collect window not found".to_string())?;
     win.set_size(LogicalSize::new(COLLECT_WIDTH as f64, height as f64))
         .map_err(|e| e.to_string())?;
-    position_collect_bottom_right(&app, height)?;
     Ok(())
 }
 

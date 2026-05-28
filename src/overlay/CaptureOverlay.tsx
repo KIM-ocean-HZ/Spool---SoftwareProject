@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, RotateCw, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import {
@@ -11,6 +12,7 @@ import {
   updateBlockAnnotation,
 } from '@/lib/db/blocks';
 import {
+  DISARM_DISMISS_COMMAND,
   HIDE_OVERLAY_COMMAND,
   OVERLAY_ACTION_EVENT,
   OVERLAY_DISMISS_EVENT,
@@ -73,6 +75,16 @@ const emitAction = (action: OverlayAction): void => {
   void emit(OVERLAY_ACTION_EVENT, action).catch((e) => {
     console.warn('overlay:action emit failed', e);
   });
+};
+
+// Drag the toast by its body so it can be moved off content it's covering. Disarms the
+// click-outside dismiss watch first (the frame is about to go stale — see capture.rs).
+const startToastDrag = (e: ReactMouseEvent): void => {
+  if (e.button !== 0) return;
+  void invoke(DISARM_DISMISS_COMMAND).catch(() => {});
+  void getCurrentWindow()
+    .startDragging()
+    .catch((err) => console.warn('[overlay] toast drag failed', err));
 };
 
 // Discriminated content state. Toast (successful capture) and notice (failure) are
@@ -535,7 +547,7 @@ export default function CaptureOverlay() {
         <X size={11} />
       </button>
 
-      <div className="px-3.5 pb-2 pt-3 pr-7">
+      <div className="cursor-grab px-3.5 pb-2 pt-3 pr-7 active:cursor-grabbing" onMouseDown={startToastDrag}>
         <div className="font-ui text-[14px] leading-snug text-ink">
           <span className="text-muted">「</span>
           {toast.preview}
@@ -561,6 +573,7 @@ export default function CaptureOverlay() {
           <button
             type="button"
             onClick={() => setExpanded(true)}
+            onMouseDown={(e) => e.stopPropagation()}
             title="点击展开：可置顶 / 添加批注"
             className="mt-1.5 flex items-center gap-1 rounded text-[11px] text-muted hover:text-accent"
           >

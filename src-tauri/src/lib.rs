@@ -25,6 +25,7 @@ pub fn run() {
             capture::resize_capture_overlay,
             capture::update_overlay_source,
             capture::show_capture_notice,
+            capture::disarm_capture_dismiss,
             capture::set_shortcuts,
             capture::probe_browser_automation,
             collect::open_collect_panel,

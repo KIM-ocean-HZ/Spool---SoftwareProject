@@ -795,6 +795,17 @@ pub fn show_undo_overlay<R: Runtime>(
     Ok(())
 }
 
+// Disarm the §9.13 click-outside dismiss watch from the frontend. Called when the user
+// starts dragging the capture toast: the toast's on-screen frame is about to change, so
+// the armed frame would go stale and a click on the relocated toast would read as
+// "outside" and wrongly dismiss it. A deliberately-repositioned toast keeps itself up —
+// ✕ / Esc / the auto-dismiss timer still close it. No-op when nothing is armed.
+#[tauri::command]
+pub fn disarm_capture_dismiss() {
+    #[cfg(target_os = "macos")]
+    crate::double_tap::disarm_overlay_dismiss();
+}
+
 // Resize the overlay window's height (e.g. expand for the Redirect dropdown). Since
 // the window is top-anchored, growing the height just extends downward — the
 // position stays put. Width is fixed; the toast layout assumes OVERLAY_WIDTH.
