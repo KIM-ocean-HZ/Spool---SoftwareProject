@@ -13,6 +13,7 @@
 // Step 5a owns only the show / position / hide lifecycle. Staging + Send/Discard land in
 // 5b; NSWorkspace window-following + undo integration in 5c.
 
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime};
 
 const COLLECT_LABEL: &str = "collect";
@@ -94,5 +95,26 @@ pub fn resize_collect_panel<R: Runtime>(app: AppHandle<R>, height: u32) -> Resul
     win.set_size(LogicalSize::new(COLLECT_WIDTH as f64, height as f64))
         .map_err(|e| e.to_string())?;
     position_collect_bottom_right(&app, height)?;
+    Ok(())
+}
+
+// Relay a captured-while-collecting item into the collect panel's staging buffer. The
+// main window invokes this from its capture-trigger handler when the panel is open AND
+// the trigger was a ⌥ double-tap (not the ⌘⇧C escape hatch). Nothing touches the blocks
+// table here — the item is transient in the panel's memory until Send.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectAppendPayload {
+    pub text: String,
+    pub source: Option<String>,
+}
+
+#[tauri::command]
+pub fn append_collect_item<R: Runtime>(
+    app: AppHandle<R>,
+    payload: CollectAppendPayload,
+) -> Result<(), String> {
+    app.emit_to(COLLECT_LABEL, "collect:append", payload)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

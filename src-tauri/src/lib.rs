@@ -30,6 +30,7 @@ pub fn run() {
             collect::open_collect_panel,
             collect::close_collect_panel,
             collect::resize_collect_panel,
+            collect::append_collect_item,
         ]);
 
     #[cfg(desktop)]
@@ -70,7 +71,10 @@ pub fn run() {
                         // [capture] trigger, the emit/listener path is the suspect.
                         eprintln!("[shortcut] capture state={:?}", event.state());
                         if event.state() == ShortcutState::Pressed {
-                            let _ = app.emit("capture-trigger", ());
+                            // Payload `true` marks this as the ⌘⇧C path so the frontend can
+                            // keep it a direct-write escape hatch even while the §20.9 collect
+                            // panel is open (double-tap ⌥ sends a null payload and stages).
+                            let _ = app.emit("capture-trigger", true);
                         }
                     } else if shortcut == &search_acc {
                         eprintln!("[shortcut] search state={:?}", event.state());
