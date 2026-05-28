@@ -5,7 +5,8 @@ import { useBlocksStore } from '@/stores/blocksStore';
 // v2.8 §20.1: floating toolbar that appears when ≥1 block is selected for merge.
 // "合并" only enables at ≥2; "取消" drops the selection without merging (deliberately
 // not "清除" — that label is reserved for destructive data-wipe actions and would read
-// ambiguously here). A confirm gate sits in front of the actual merge — no undo in v1.
+// ambiguously here). A confirm gate sits in front of the actual merge; v2.9 §9.13 makes
+// the merge reversible via Cmd+Z, so the confirm copy advertises it.
 export default function MergeToolbar() {
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const clearSelection = useBlocksStore((s) => s.clearSelection);
@@ -19,7 +20,7 @@ export default function MergeToolbar() {
 
   const handleMerge = async (): Promise<void> => {
     if (!canMerge || merging) return;
-    if (!window.confirm(`合并 ${count} 个 block 为一个？此操作无法自动撤销。`)) return;
+    if (!window.confirm(`合并 ${count} 个 block 为一个？可用 ⌘Z 撤销。`)) return;
     setMerging(true);
     try {
       await mergeBlocks([...selectedBlockIds]);

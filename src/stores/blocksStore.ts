@@ -9,6 +9,7 @@ import type {
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
 import { computeMergedFields } from '@/lib/db/blocks';
+import { buildDeleteUndo, buildMergeUndo, useUndoStore } from './undoStore';
 import { useSettingsStore } from './settingsStore';
 import { toast } from './toastStore';
 
@@ -156,7 +157,27 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
     },
 
     remove: async (id) => {
+      // §9.13: snapshot the block + its attachments BEFORE the destructive delete so the
+      // undo entry captures pre-state (the FK cascade will drop the attachment rows).
+      const before = get();
+      let snapshot: Block | undefined;
+      for (const list of Object.values(before.byThread)) {
+        const found = list.find((b) => b.id === id);
+        if (found) {
+          snapshot = found;
+          break;
+        }
+      }
+      const snapshotAttachments = before.attachmentsByBlock[id] ?? [];
+
       await db.deleteBlock(id);
+
+      if (snapshot) {
+        useUndoStore.getState().pushUndo(
+          buildDeleteUndo({ block: snapshot, attachments: snapshotAttachments }),
+        );
+      }
+
       const state = get();
       const next: Record<string, Block[]> = {};
       for (const [tId, list] of Object.entries(state.byThread)) {
@@ -182,6 +203,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
     setContent: async (id, content) => {
       await db.updateBlockContent(id, content);
+      // §9.13: a content edit invalidates any prior undo entry for this block — the
+      // user's most-recent edit wins, so Cmd+Z won't silently revert it.
+      useUndoStore.getState().invalidateForBlock(id);
       const state = get();
       const next: Record<string, Block[]> = {};
       for (const [tId, list] of Object.entries(state.byThread)) {
@@ -192,6 +216,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
     setAnnotation: async (id, annotation) => {
       await db.updateBlockAnnotation(id, annotation);
+      // §9.13: an annotation edit invalidates any prior undo entry for this block (same
+      // rationale as setContent). Pin/source edits do NOT — those are reversible by the
+      // reverse action, so they leave undo entries intact.
+      useUndoStore.getState().invalidateForBlock(id);
       const state = get();
       const next: Record<string, Block[]> = {};
       for (const [tId, list] of Object.entries(state.byThread)) {
@@ -335,6 +363,21 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const threadId = found[0]!.threadId;
 
       const merged = computeMergedFields(found.map((x) => x.block));
+
+      // §9.13: snapshot pre-merge state for undo. sourceBlocks are the full rows BEFORE
+      // the merge mutates the survivor; movedAttachments are the attachments the forward
+      // merge re-points from each non-survivor onto the survivor (the attachmentsByBlock
+      // index is fully hydrated for the active thread, which is the only thread merge can
+      // select from).
+      const sourceBlocks = found.map((x) => x.block);
+      const movedAttachments: { id: string; originalBlockId: string }[] = [];
+      for (const { block: b } of found) {
+        if (b.id === merged.survivorId) continue;
+        for (const a of get().attachmentsByBlock[b.id] ?? []) {
+          movedAttachments.push({ id: a.id, originalBlockId: b.id });
+        }
+      }
+
       try {
         await db.mergeBlocks(
           merged.survivorId,
@@ -349,6 +392,15 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         toast.error(`合并失败：${e instanceof Error ? e.message : String(e)}`);
         return;
       }
+
+      useUndoStore.getState().pushUndo(
+        buildMergeUndo({
+          survivorId: merged.survivorId,
+          threadId,
+          sourceBlocks,
+          movedAttachments,
+        }),
+      );
       // Clear selection and reload — simpler and safer than reconstructing the merged
       // block + reparented attachments in-memory across two indexes.
       set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));

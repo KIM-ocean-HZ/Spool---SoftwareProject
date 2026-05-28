@@ -141,6 +141,47 @@ export const deleteBlock = async (id: string): Promise<void> => {
   await db.execute('DELETE FROM blocks WHERE id = $1', [id]);
 };
 
+// §9.13 Undo: re-insert a block verbatim from an undo snapshot, preserving its original
+// id and created_at so it lands back at the same feed position. The blocks_ai FTS trigger
+// re-indexes it on insert (a fresh rowid is assigned — fine, FTS is rebuilt from it).
+// Used to undo a delete, and to recreate the non-survivor blocks when undoing a merge.
+export const restoreBlock = async (block: Block): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      block.id,
+      block.threadId,
+      block.kind,
+      block.content,
+      block.annotation,
+      block.refThreadId,
+      block.source,
+      block.pinned ? 1 : 0,
+      block.createdAt,
+    ],
+  );
+};
+
+// §9.13 Undo (merge): revert the merge survivor's mutable fields to their pre-merge
+// values in place. The survivor kept its id / created_at / feed position through the
+// merge, so an UPDATE is the exact inverse of the forward merge's survivor write — no
+// destructive delete + recreate (which has no transaction to protect it here).
+export const restoreBlockFields = async (
+  id: string,
+  content: string,
+  annotation: string | null,
+  pinned: boolean,
+  source: string | null,
+): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE blocks SET content = $1, annotation = $2, pinned = $3, source = $4 WHERE id = $5',
+    [content, annotation, pinned ? 1 : 0, source, id],
+  );
+};
+
 // v2.8 §20.1: pure helper computing the survivor + merged fields for a multi-block merge.
 // Earliest-created block stays as survivor — keeps its id, created_at, and feed position.
 // Contents are joined chronologically; if any source differs across the set, non-survivor

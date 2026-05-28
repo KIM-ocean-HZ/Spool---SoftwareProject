@@ -279,14 +279,11 @@ export default function CaptureOverlay() {
 
   const toast = content.data;
 
-  const onUndo = async (): Promise<void> => {
-    try {
-      await deleteBlock(toast.blockId);
-    } catch (e) {
-      console.error('[overlay] undo failed', e);
-      return;
-    }
-    emitAction({ kind: 'undo', blockId: toast.blockId, threadId: toast.threadId });
+  // v2.9 §9.13: route through the main window's shared undo machinery instead of deleting
+  // the block here. The main window owns the undo log (it wrote the capture block), so it
+  // pops the entry, reverses it, and shows the UndoToast — same path as Cmd+Z.
+  const onUndo = (): void => {
+    emitAction({ kind: 'undo' });
     setContent(null);
     hideOverlay();
   };

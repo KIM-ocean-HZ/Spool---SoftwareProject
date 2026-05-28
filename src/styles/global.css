@@ -47,6 +47,16 @@ body {
   50%      { opacity: 1; }
 }
 
+/* v2.9 §13.2: UndoToast slide-in — matches the capture overlay's 220ms feel (§13.3). */
+@keyframes undoToastIn {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.undo-toast-in {
+  animation: undoToastIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 .pulse-dim {
   animation: pulseDim 1.2s ease-in-out infinite;
 }

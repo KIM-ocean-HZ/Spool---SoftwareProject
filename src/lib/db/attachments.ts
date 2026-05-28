@@ -152,3 +152,38 @@ export const deleteAttachment = async (id: string): Promise<void> => {
   const db = await getDb();
   await db.execute('DELETE FROM attachments WHERE id = $1', [id]);
 };
+
+// §9.13 Undo (delete): re-insert an attachment verbatim from an undo snapshot, preserving
+// every column (incl. extracted_text and include_in_pack). Used when undoing a block
+// delete — the forward delete cascade-removed the block's attachments, so they must be
+// recreated rather than re-pointed.
+export const restoreAttachment = async (a: Attachment): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO attachments
+       (id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      a.id,
+      a.blockId,
+      a.kind,
+      a.target,
+      a.label,
+      a.extractedText,
+      a.extractedAt,
+      a.extractionKind,
+      a.includeInPack ? 1 : 0,
+      a.createdAt,
+    ],
+  );
+};
+
+// §9.13 Undo (merge): move an attachment back to its original owner block. The forward
+// merge re-pointed it onto the survivor via UPDATE block_id; this is the inverse.
+export const reassignAttachmentBlock = async (
+  id: string,
+  blockId: string,
+): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE attachments SET block_id = $1 WHERE id = $2', [blockId, id]);
+};

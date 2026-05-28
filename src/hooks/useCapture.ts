@@ -24,7 +24,9 @@ import { buildPreview, useCaptureStore } from '@/stores/captureStore';
 import { useCollectStore } from '@/stores/collectStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
+import { buildCaptureUndo, useUndoStore } from '@/stores/undoStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
+import { runUndo } from '@/hooks/useUndo';
 
 // Max wait in the *hot path* for the parallel foreground-app query. If osascript hasn't
 // answered by then, we skip focus restoration this round — better to show the toast
@@ -65,16 +67,11 @@ const showNoticeInOverlay = (payload: OverlayNotice): void => {
 
 const applyOverlayAction = (action: OverlayAction): void => {
   if (action.kind === 'undo') {
-    useBlocksStore.setState((s) => {
-      const list = s.byThread[action.threadId];
-      if (!list) return s;
-      return {
-        byThread: {
-          ...s.byThread,
-          [action.threadId]: list.filter((b) => b.id !== action.blockId),
-        },
-      };
-    });
+    // §9.13: the capture toast's Undo and Cmd+Z hit the SAME machinery. The overlay no
+    // longer deletes the block itself — it asks the main window to run undoStore.undo(),
+    // which pops the last valid entry (the capture), reverses it, refreshes blocksStore,
+    // and shows the UndoToast.
+    void runUndo();
     return;
   }
   if (action.kind === 'redirect') {
@@ -231,6 +228,17 @@ export function useCapture(): void {
               [result.threadId]: [...(s.byThread[result.threadId] ?? []), result.block],
             },
           }));
+
+          // §9.13: record the capture so Cmd+Z (and the toast's Undo, which now routes
+          // through the same undoStore) can delete the block. Pushed here in the main
+          // window — the capture DB write happens here, not in the overlay.
+          useUndoStore.getState().pushUndo(
+            buildCaptureUndo({
+              blockId: result.block.id,
+              threadId: result.threadId,
+              content: result.block.content,
+            }),
+          );
 
           const ws = useWorkspacesStore
             .getState()

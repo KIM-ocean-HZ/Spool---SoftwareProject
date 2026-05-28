@@ -4,11 +4,13 @@ import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
+import UndoToast from '@/components/Undo/UndoToast';
 import ToastRack from '@/components/ui/Toast';
 import { useCapture } from '@/hooks/useCapture';
 import { useCollect } from '@/hooks/useCollect';
 import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
+import { useUndo } from '@/hooks/useUndo';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -36,6 +38,7 @@ export default function App() {
   useCollect();
   useTrayMenu();
   useSearch();
+  useUndo();
 
   useEffect(() => {
     void (async () => {
@@ -164,6 +167,7 @@ export default function App() {
       <SearchOverlay />
       <Settings />
       <ToastRack />
+      <UndoToast />
     </>
   );
 }

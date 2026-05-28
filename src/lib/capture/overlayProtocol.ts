@@ -78,7 +78,10 @@ export interface OverlayNotice {
 // Discriminated union of every action the overlay can take. Main listens and applies
 // the deltas to its own stores — DB writes are already done by the overlay.
 export type OverlayAction =
-  | { kind: 'undo'; blockId: string; threadId: string }
+  // v2.9 §9.13: a request for the main window to run undoStore.undo(). The overlay no
+  // longer deletes the block itself — both the toast Undo and Cmd+Z share one reversal
+  // path — so no blockId/threadId is needed.
+  | { kind: 'undo' }
   | {
       kind: 'redirect';
       oldBlockId: string;
