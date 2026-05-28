@@ -5,6 +5,7 @@
 
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
+import type { StagingItem } from '@/lib/collect/stagingBuffer';
 
 export type UndoOpKind = 'capture' | 'merge' | 'delete' | 'collect_send';
 
@@ -37,6 +38,9 @@ export interface CollectSendPayload {
   blockId: string;
   threadId: string;
   content: string;
+  // Pre-merge staging items, kept so an undo can re-stage them into the panel when it is
+  // still open and empty (§9.13). They are not needed to delete the merged block.
+  originalStagingItems: StagingItem[];
 }
 
 interface BaseEntry {

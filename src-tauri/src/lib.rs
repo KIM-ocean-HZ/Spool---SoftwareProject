@@ -31,6 +31,7 @@ pub fn run() {
             collect::open_collect_panel,
             collect::close_collect_panel,
             collect::resize_collect_panel,
+            collect::reposition_collect_panel,
             collect::append_collect_item,
         ]);
 

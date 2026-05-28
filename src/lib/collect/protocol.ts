@@ -1,4 +1,5 @@
 import type { Block } from '@/lib/db/blocks';
+import type { StagingItem } from './stagingBuffer';
 
 // Cross-window contract for the §20.9 collect-mode panel (window label "collect").
 //
@@ -8,11 +9,12 @@ import type { Block } from '@/lib/db/blocks';
 //
 // The command names must stay in sync with src-tauri/src/collect.rs.
 
-// main → Rust: show / hide / resize the dedicated collect panel window, and forward a
-// captured-while-collecting item into it.
+// main → Rust: show / hide / resize / reposition the dedicated collect panel window, and
+// forward a captured-while-collecting item into it.
 export const OPEN_COLLECT_PANEL_COMMAND = 'open_collect_panel';
 export const CLOSE_COLLECT_PANEL_COMMAND = 'close_collect_panel';
 export const RESIZE_COLLECT_PANEL_COMMAND = 'resize_collect_panel';
+export const REPOSITION_COLLECT_PANEL_COMMAND = 'reposition_collect_panel';
 export const APPEND_COLLECT_ITEM_COMMAND = 'append_collect_item';
 
 // Rust → collect window: long-press fired and the window was shown; the panel resets to
@@ -22,9 +24,15 @@ export const COLLECT_OPEN_EVENT = 'collect:open';
 // clipboard text + source); the panel stages it as a new item.
 export const COLLECT_APPEND_EVENT = 'collect:append';
 // collect window → main: the panel closed. `discarded` = nothing written; `sent` carries
-// the merged block so main mirrors it into its stores and pushes the collect_send undo
-// entry into the MAIN undo ring (§9.13 cross-window contract).
+// the merged block (so main mirrors it + pushes the collect_send undo entry into the MAIN
+// undo ring) plus the pre-merge staging items (so an undo can re-stage them — §9.13).
 export const COLLECT_CLOSED_EVENT = 'collect:closed';
+// collect window → main: Cmd+Z was pressed in the panel and its local sub-undo log was
+// empty, so fall through to the main undo ring (§9.13).
+export const COLLECT_UNDO_MAIN_EVENT = 'collect:undo-main';
+// main → collect window: a collect_send op was undone while the panel is open and empty,
+// so re-stage the original items (§9.13).
+export const COLLECT_RESTAGE_EVENT = 'collect:restage';
 
 export interface CollectAppendPayload {
   text: string;
@@ -33,4 +41,8 @@ export interface CollectAppendPayload {
 
 export type CollectClosedPayload =
   | { kind: 'discarded' }
-  | { kind: 'sent'; block: Block; threadId: string };
+  | { kind: 'sent'; block: Block; threadId: string; items: StagingItem[] };
+
+export interface CollectRestagePayload {
+  items: StagingItem[];
+}

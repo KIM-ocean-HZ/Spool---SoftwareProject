@@ -137,7 +137,10 @@ const reverseAndBuildRedo = async (
       const block = await getBlockById(entry.payload.blockId);
       const attachments = block ? await listAttachmentsByBlock(block.id) : [];
       await deleteBlock(entry.payload.blockId);
-      // TODO(step-5): collect_send redo should also re-stage items if the panel is open.
+      // §9.13: undoing a collect_send deletes the merged block here. Re-staging the
+      // original items into the panel (when it is open + empty) is handled by the
+      // orchestration layer (hooks/useUndo.ts runUndo), which can reach the collect
+      // window over an event — this store stays free of cross-window/IPC concerns.
       return async () => {
         if (!block) return;
         await restoreBlock(block);

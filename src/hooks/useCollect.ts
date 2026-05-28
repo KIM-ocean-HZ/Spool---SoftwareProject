@@ -4,7 +4,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect } from 'react';
 import {
   COLLECT_CLOSED_EVENT,
+  COLLECT_UNDO_MAIN_EVENT,
   OPEN_COLLECT_PANEL_COMMAND,
+  REPOSITION_COLLECT_PANEL_COMMAND,
   type CollectClosedPayload,
 } from '@/lib/collect/protocol';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -12,11 +14,12 @@ import { useCaptureStore } from '@/stores/captureStore';
 import { useCollectStore } from '@/stores/collectStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { buildCollectSendUndo, useUndoStore } from '@/stores/undoStore';
+import { runUndo } from '@/hooks/useUndo';
 
 // §20.9 — the MAIN-window side of collect mode. Long-press ⌥ (Rust emits `collect-trigger`
 // from the CGEventTap in double_tap.rs) opens the dedicated collect panel window. A 2nd
-// long-press while the panel is already open is a no-op (§14.4) — a held key must not
-// spawn a second panel or close an in-flight collection.
+// long-press while it's open never spawns a second panel (§14.4); instead it brings the
+// existing panel to the user's current monitor/Space (window-following last-resort).
 //
 // The panel emits `collect:closed` when it closes:
 // - `discarded`: nothing was written; just clear the main-side flag.
@@ -28,12 +31,18 @@ export function useCollect(): void {
   useEffect(() => {
     let unlistenTrigger: (() => void) | null = null;
     let unlistenClosed: (() => void) | null = null;
+    let unlistenFallthrough: (() => void) | null = null;
     let cancelled = false;
 
     void (async () => {
       const dispose1 = await listen('collect-trigger', () => {
         if (useCollectStore.getState().panelOpen) {
-          // §14.4: already open — ignore so a held ⌥ can't accidentally re-open.
+          // §20.9 last-resort follow: a 2nd long-press while open doesn't spawn a second
+          // panel (§14.4) — it brings the existing one to the user's current monitor/Space
+          // (a no-op when it's already there, so a dragged position is preserved).
+          void invoke(REPOSITION_COLLECT_PANEL_COMMAND).catch((e) =>
+            console.warn('[collect] reposition_collect_panel failed', e),
+          );
           return;
         }
         useCollectStore.getState().open();
@@ -48,7 +57,7 @@ export function useCollect(): void {
       const dispose2 = await listen<CollectClosedPayload>(COLLECT_CLOSED_EVENT, (e) => {
         useCollectStore.getState().close();
         if (e.payload.kind === 'discarded') return;
-        const { block, threadId } = e.payload;
+        const { block, threadId, items } = e.payload;
         useBlocksStore.setState((s) => ({
           byThread: {
             ...s.byThread,
@@ -56,7 +65,12 @@ export function useCollect(): void {
           },
         }));
         useUndoStore.getState().pushUndo(
-          buildCollectSendUndo({ blockId: block.id, threadId, content: block.content }),
+          buildCollectSendUndo({
+            blockId: block.id,
+            threadId,
+            content: block.content,
+            originalStagingItems: items,
+          }),
         );
         useCaptureStore.getState().setFlash(threadId, block.id);
         void useThreadsStore.getState().patch(threadId, {});
@@ -66,12 +80,21 @@ export function useCollect(): void {
       });
       if (cancelled) dispose2();
       else unlistenClosed = dispose2;
+
+      // §9.13: Cmd+Z in the panel with an empty local sub-undo log falls through to the
+      // MAIN undo ring — the panel asks main to run the same reversal Cmd+Z does here.
+      const dispose3 = await listen(COLLECT_UNDO_MAIN_EVENT, () => {
+        void runUndo();
+      });
+      if (cancelled) dispose3();
+      else unlistenFallthrough = dispose3;
     })();
 
     return () => {
       cancelled = true;
       if (unlistenTrigger) unlistenTrigger();
       if (unlistenClosed) unlistenClosed();
+      if (unlistenFallthrough) unlistenFallthrough();
     };
   }, []);
 }

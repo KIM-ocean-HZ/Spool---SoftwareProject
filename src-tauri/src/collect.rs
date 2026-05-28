@@ -65,8 +65,37 @@ pub fn open_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     ))
     .map_err(|e| e.to_string())?;
     position_collect_top_right(&app)?;
+    // §20.9 window-following: show the panel on every Space so switching desktops never
+    // hides it (the dogfooding bug). This is the primary follow mechanism — deterministic
+    // and macOS-native, where an NSWorkspace activation subscription would be brittle.
+    // Multi-monitor "bring it to me" is the long-press reposition (reposition_collect_panel).
+    let _ = win.set_visible_on_all_workspaces(true);
     app.emit_to(COLLECT_LABEL, "collect:open", ())
         .map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// §20.9 last-resort window-following: a 2nd long-press ⌥ while the panel is open brings it
+// to the user. It re-asserts visible-on-all-workspaces (covers Spaces), and physically
+// moves the panel to the active monitor's top-right ONLY when it's stranded on a different
+// monitor — if it's already on the monitor the user is on, it stays put so a position the
+// user dragged it to is preserved (§14.4: same screen → effectively a no-op).
+#[tauri::command]
+pub fn reposition_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let win = app
+        .get_webview_window(COLLECT_LABEL)
+        .ok_or_else(|| "collect window not found".to_string())?;
+    let _ = win.set_visible_on_all_workspaces(true);
+    let active = crate::capture::active_monitor(&app);
+    let current = win.current_monitor().ok().flatten();
+    let same_monitor = match (active.as_ref(), current.as_ref()) {
+        (Some(a), Some(c)) => a.position() == c.position(),
+        _ => false,
+    };
+    if !same_monitor {
+        position_collect_top_right(&app)?;
+    }
     win.show().map_err(|e| e.to_string())?;
     Ok(())
 }
