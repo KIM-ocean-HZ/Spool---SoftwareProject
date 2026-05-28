@@ -26,7 +26,7 @@ import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
 import { buildCaptureUndo, useUndoStore } from '@/stores/undoStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
-import { runUndo } from '@/hooks/useUndo';
+import { runRedo, runUndo } from '@/hooks/useUndo';
 
 // Max wait in the *hot path* for the parallel foreground-app query. If osascript hasn't
 // answered by then, we skip focus restoration this round — better to show the toast
@@ -69,9 +69,14 @@ const applyOverlayAction = (action: OverlayAction): void => {
   if (action.kind === 'undo') {
     // §9.13: the capture toast's Undo and Cmd+Z hit the SAME machinery. The overlay no
     // longer deletes the block itself — it asks the main window to run undoStore.undo(),
-    // which pops the last valid entry (the capture), reverses it, refreshes blocksStore,
-    // and shows the UndoToast.
+    // which reverses the op, refreshes blocksStore, and replaces the toast with the undo
+    // confirmation card (shown in the overlay, over the user's current window).
     void runUndo();
+    return;
+  }
+  if (action.kind === 'redo') {
+    // §9.13: 重做 button on the undo-confirmation card → re-apply the last undone op.
+    void runRedo();
     return;
   }
   if (action.kind === 'redirect') {
@@ -334,6 +339,26 @@ export function useCapture(): void {
     void (async () => {
       const dispose = await listen<OverlayAction>(OVERLAY_ACTION_EVENT, (e) => {
         applyOverlayAction(e.payload);
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  // §9.13: Rust emits `undo-trigger` when the global undo shortcut fires (registered only
+  // while a toast is up). Run the same reversal as Cmd+Z / the toast's Undo button —
+  // runUndo replaces the capture toast with the undo-confirmation card in the overlay, so
+  // the user gets feedback over their current window without switching back to Spool.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen('undo-trigger', () => {
+        void runUndo();
       });
       if (cancelled) dispose();
       else unlisten = dispose;

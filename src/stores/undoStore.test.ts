@@ -53,7 +53,7 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     sqlite.exec(schemaSql);
     __setTestDb(makeAdapter(sqlite));
     clearUndoLog();
-    useUndoStore.setState({ entries: [], undoToast: null });
+    useUndoStore.setState({ entries: [], redoable: null });
   });
 
   afterEach(() => {
@@ -187,6 +187,66 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect((await listAttachmentsByBlock(b3.id)).map((a) => a.id)).toEqual([a3.id]);
     // Survivor should no longer hold the re-pointed attachments.
     expect(await listAttachmentsByBlock(b1.id)).toHaveLength(0);
+  });
+
+  it('redo() re-creates a captured block after its undo deleted it', async () => {
+    const ws = await createWorkspace('W');
+    const thread = await createThread(ws.id, 'T');
+    const block = await createBlock({ threadId: thread.id, content: 'captured' });
+
+    useUndoStore.getState().pushUndo(
+      buildCaptureUndo({ blockId: block.id, threadId: thread.id, content: block.content }),
+    );
+    await useUndoStore.getState().undo();
+    expect(await listBlocksByThread(thread.id)).toHaveLength(0);
+
+    const redone = await useUndoStore.getState().redo();
+    expect(redone?.kind).toBe('capture');
+    const after = await listBlocksByThread(thread.id);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe(block.id);
+    expect(after[0]!.content).toBe('captured');
+    // After redo the op is undoable again.
+    expect(useUndoStore.getState().redoable).toBeNull();
+    await useUndoStore.getState().undo();
+    expect(await listBlocksByThread(thread.id)).toHaveLength(0);
+  });
+
+  it('redo() re-merges after an undone merge', async () => {
+    const ws = await createWorkspace('W');
+    const thread = await createThread(ws.id, 'T');
+    const b1 = await createBlock({ threadId: thread.id, content: 'first' });
+    await tick();
+    await createBlock({ threadId: thread.id, content: 'second' });
+
+    const sourceBlocks = await listBlocksByThread(thread.id);
+    const merged = computeMergedFields(sourceBlocks);
+    await mergeBlocks(
+      merged.survivorId,
+      merged.content,
+      merged.annotation,
+      merged.pinned,
+      merged.source,
+      merged.nonSurvivorIds,
+    );
+    useUndoStore.getState().pushUndo(
+      buildMergeUndo({
+        survivorId: merged.survivorId,
+        threadId: thread.id,
+        sourceBlocks,
+        movedAttachments: [],
+      }),
+    );
+
+    await useUndoStore.getState().undo();
+    expect(await listBlocksByThread(thread.id)).toHaveLength(2);
+
+    const redone = await useUndoStore.getState().redo();
+    expect(redone?.kind).toBe('merge');
+    const after = await listBlocksByThread(thread.id);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe(b1.id);
+    expect(after[0]!.content).toBe('first\n\nsecond');
   });
 
   it('undo() skips an invalidated entry and returns null', async () => {

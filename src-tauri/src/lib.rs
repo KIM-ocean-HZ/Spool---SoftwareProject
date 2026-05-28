@@ -20,6 +20,7 @@ pub fn run() {
             capture::cursor_in_main_webview,
             capture::show_capture_overlay,
             capture::hide_capture_overlay,
+            capture::show_undo_overlay,
             capture::resize_capture_overlay,
             capture::update_overlay_source,
             capture::show_capture_notice,
@@ -52,7 +53,15 @@ pub fn run() {
                     };
                     let capture_acc = *cfg.capture.lock().unwrap();
                     let search_acc = *cfg.search.lock().unwrap();
-                    if shortcut == &capture_acc {
+                    let undo_acc = *cfg.undo.lock().unwrap();
+                    if Some(*shortcut) == undo_acc {
+                        // §9.13 frictionless undo: registered only while the capture toast
+                        // is up, so a press here means "undo the capture I just made" —
+                        // works from any app without switching back to Spool.
+                        if event.state() == ShortcutState::Pressed {
+                            let _ = app.emit("undo-trigger", ());
+                        }
+                    } else if shortcut == &capture_acc {
                         // Log every state change (Pressed AND Released) so a missing
                         // capture can be triaged: if stderr shows neither, macOS dropped
                         // the keypress before us; if it shows Pressed but JS doesn't see
@@ -153,6 +162,8 @@ pub fn run() {
                 app.manage(capture::ShortcutConfig {
                     capture: std::sync::Mutex::new(capture::capture_accelerator()),
                     search: std::sync::Mutex::new(capture::search_accelerator()),
+                    // §9.13: registered on demand while the capture toast is visible.
+                    undo: std::sync::Mutex::new(None),
                 });
                 if let Err(e) = app
                     .global_shortcut()

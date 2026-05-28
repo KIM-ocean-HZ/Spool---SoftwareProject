@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
-import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, X } from 'lucide-react';
+import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, RotateCw, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
@@ -13,14 +13,17 @@ import {
 import {
   HIDE_OVERLAY_COMMAND,
   OVERLAY_ACTION_EVENT,
+  OVERLAY_DISMISS_EVENT,
   OVERLAY_NOTICE_EVENT,
   OVERLAY_SHOW_EVENT,
   OVERLAY_SOURCE_UPDATE_EVENT,
+  OVERLAY_UNDO_EVENT,
   RESIZE_OVERLAY_COMMAND,
   type CaptureOverlayPayload,
   type OverlayAction,
   type OverlayNotice,
   type OverlaySourceUpdate,
+  type OverlayUndoPayload,
 } from '@/lib/capture/overlayProtocol';
 import type { Thread } from '@/lib/db/threads';
 import { createThread, listAllThreads } from '@/lib/db/threads';
@@ -34,6 +37,16 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // Increased from 2.5s (too short for note typing) to 8s on Ocean's feedback.
 const TOAST_AUTO_DISMISS_MS = 8000;
 const NOTICE_AUTO_DISMISS_MS = 2200;
+// v2.9 §9.13: undo/redo confirmation dwell — short, paused on hover so the user can click 重做.
+const UNDO_AUTO_DISMISS_MS = 2500;
+
+const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
+  capture: '捕获',
+  merge: '合并',
+  delete: '删除',
+  collect_send: '暂存合并',
+  empty: '',
+};
 // Window width must match Rust's OVERLAY_WIDTH (capture.rs). Heights are now
 // driven by ResizeObserver to match the toast's actual rendered height — fixes a
 // dogfooding bug where long attribution lines wrapped past the fixed 100px and
@@ -68,6 +81,7 @@ const emitAction = (action: OverlayAction): void => {
 type OverlayContent =
   | { kind: 'toast'; data: CaptureOverlayPayload }
   | { kind: 'notice'; data: OverlayNotice }
+  | { kind: 'undo'; data: OverlayUndoPayload }
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
@@ -171,6 +185,28 @@ export default function CaptureOverlay() {
     };
   }, []);
 
+  // v2.9 §9.13: undo/redo confirmation pushed from the main window after a reversal.
+  // Shown here so it floats over the user's current app, replacing any capture toast.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen<OverlayUndoPayload>(OVERLAY_UNDO_EVENT, (e) => {
+        setContent({ kind: 'undo', data: e.payload });
+        setHover(false);
+        setPickerOpen(false);
+        setSuggestionActive(false);
+        setExpanded(false);
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // Listen for source backfill updates from the main window.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -199,7 +235,12 @@ export default function CaptureOverlay() {
   useEffect(() => {
     if (!content) return;
     if (hover || pickerOpen || suggestionActive || expanded) return;
-    const ms = content.kind === 'notice' ? NOTICE_AUTO_DISMISS_MS : TOAST_AUTO_DISMISS_MS;
+    const ms =
+      content.kind === 'notice'
+        ? NOTICE_AUTO_DISMISS_MS
+        : content.kind === 'undo'
+          ? UNDO_AUTO_DISMISS_MS
+          : TOAST_AUTO_DISMISS_MS;
     const t = setTimeout(() => {
       setContent(null);
       hideOverlay();
@@ -249,6 +290,26 @@ export default function CaptureOverlay() {
     return () => window.removeEventListener('keydown', onKey);
   }, [content]);
 
+  // v2.9 §9.13: Rust's mouse-down tap fires this when the user clicks outside the toast
+  // (resuming work). Dismiss the same way Esc / × does — let the user keep working.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen(OVERLAY_DISMISS_EVENT, () => {
+        setContent(null);
+        setExpanded(false);
+        hideOverlay();
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // Focus the annotation textarea on expand so the user can start typing without an
   // extra click. The pin button keeps tab-order priority by being declared first.
   useEffect(() => {
@@ -277,15 +338,51 @@ export default function CaptureOverlay() {
     );
   }
 
+  if (content.kind === 'undo') {
+    const u = content.data;
+    const verb = u.mode === 'redone' ? '已重做' : '已撤销';
+    const label = u.op === 'empty' ? '没有可撤销的操作' : `${verb}:${UNDO_OP_LABEL[u.op]}`;
+    return (
+      <div
+        ref={cardRef}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        className="overlay-in flex w-full items-center gap-2 rounded-lg border border-line-strong bg-paper px-3.5 py-2.5"
+        style={{ boxShadow: 'var(--shadow-toast)' }}
+        role="status"
+      >
+        <RotateCcw size={13} className="shrink-0 text-muted" />
+        <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <span className="shrink-0 font-ui text-[13px] text-ink">{label}</span>
+          {u.op !== 'empty' && u.preview && (
+            <span className="min-w-0 truncate font-ui text-[12px] text-muted">
+              「{u.preview}」
+            </span>
+          )}
+        </div>
+        {u.canRedo && (
+          <button
+            type="button"
+            onClick={() => emitAction({ kind: 'redo' })}
+            title="重做刚才的撤销"
+            className="flex shrink-0 items-center gap-1 rounded px-2 py-1 font-ui text-[11px] text-muted hover:bg-paper-2 hover:text-ink"
+          >
+            <RotateCw size={11} />
+            <span>重做</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   const toast = content.data;
 
-  // v2.9 §9.13: route through the main window's shared undo machinery instead of deleting
-  // the block here. The main window owns the undo log (it wrote the capture block), so it
-  // pops the entry, reverses it, and shows the UndoToast — same path as Cmd+Z.
+  // v2.9 §9.13: route through the main window's shared undo machinery. The main window
+  // reverses the op, then pushes the undo-confirmation card back into this overlay
+  // (replacing this toast) — so we just emit and let that replacement happen; no local
+  // hide (which would flash the window closed then open again).
   const onUndo = (): void => {
     emitAction({ kind: 'undo' });
-    setContent(null);
-    hideOverlay();
   };
 
   // Move the just-captured block to a different (existing) thread. We delete +

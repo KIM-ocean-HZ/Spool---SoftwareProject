@@ -4,7 +4,6 @@ import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
-import UndoToast from '@/components/Undo/UndoToast';
 import ToastRack from '@/components/ui/Toast';
 import { useCapture } from '@/hooks/useCapture';
 import { useCollect } from '@/hooks/useCollect';
@@ -167,7 +166,6 @@ export default function App() {
       <SearchOverlay />
       <Settings />
       <ToastRack />
-      <UndoToast />
     </>
   );
 }

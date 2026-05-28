@@ -1,7 +1,18 @@
 import { nanoid } from 'nanoid';
 import { create } from 'zustand';
-import { reassignAttachmentBlock, restoreAttachment } from '@/lib/db/attachments';
-import { deleteBlock, restoreBlock, restoreBlockFields } from '@/lib/db/blocks';
+import {
+  listAttachmentsByBlock,
+  reassignAttachmentBlock,
+  restoreAttachment,
+} from '@/lib/db/attachments';
+import {
+  computeMergedFields,
+  deleteBlock,
+  getBlockById,
+  mergeBlocks,
+  restoreBlock,
+  restoreBlockFields,
+} from '@/lib/db/blocks';
 import * as undoLog from '@/lib/undo/undoLog';
 import type {
   CapturePayload,
@@ -9,29 +20,29 @@ import type {
   DeletePayload,
   MergePayload,
   UndoEntry,
-  UndoOpKind,
 } from '@/lib/undo/undoLog';
 
-// The UndoToast surface (§13.2). 'empty' = the "没有可撤销的操作" state; otherwise the op
-// kind + a short content preview. `id` forces a remount so a repeated undo re-triggers
-// the slide-in + auto-dismiss even when the kind/preview are identical.
-export type UndoToastState =
-  | { id: number; kind: UndoOpKind; preview: string }
-  | { id: number; kind: 'empty' }
-  | null;
+// The single most-recent undo, kept so the overlay confirmation's 重做 (redo) action can
+// re-apply it.
+// Cleared when a new forward op pushes an undo entry (a fresh action invalidates redo) or
+// once the redo is consumed. Only one level deep — §9.13 is a safety net, not a full
+// editor history (the redo addition is a v2.9 follow-up Ocean requested on the toast).
+interface RedoAction {
+  entry: UndoEntry;
+  apply: () => Promise<void>;
+}
 
 interface UndoStoreState {
   entries: UndoEntry[];
-  undoToast: UndoToastState;
+  redoable: RedoAction | null;
   pushUndo: (entry: UndoEntry) => void;
-  // Pops the last valid entry, applies the reversal, and returns it (null if nothing to
-  // undo OR the reversal failed — both surface as "Nothing to undo" per §14.4). Does NOT
-  // refresh blocksStore or show the toast; runUndo() in hooks/useUndo.ts orchestrates
-  // those so this store stays decoupled from the UI stores.
+  // Pops the last valid entry, reverses it, and returns it (null if nothing to undo OR the
+  // reversal failed). Records a RedoAction so the reversal can be re-applied. Does NOT
+  // refresh blocksStore or show the toast — runUndo() in hooks/useUndo.ts orchestrates UI.
   undo: () => Promise<UndoEntry | null>;
+  // Re-applies the last undone op and returns its entry (null if nothing redoable / failed).
+  redo: () => Promise<UndoEntry | null>;
   invalidateForBlock: (blockId: string) => void;
-  showUndoToast: (entry: UndoEntry | null) => void;
-  dismissUndoToast: () => void;
 }
 
 // --- Entry builders. Callers snapshot pre-state, then push one of these. ---
@@ -101,7 +112,6 @@ export const previewForEntry = (entry: UndoEntry): string => {
     case 'delete':
       return previewText(entry.payload.block.content);
     case 'merge': {
-      // The earliest source block is the survivor — the most representative restored block.
       const survivor =
         entry.payload.sourceBlocks.find((b) => b.id === entry.payload.survivorId) ??
         entry.payload.sourceBlocks[0];
@@ -110,35 +120,43 @@ export const previewForEntry = (entry: UndoEntry): string => {
   }
 };
 
-// Apply the reversal for one entry. Every branch is composed of additive (INSERT) or
-// idempotent (UPDATE) writes ordered parent-before-child — there is no intermediate
-// destructive delete, so a partial failure can at worst leave some attachments
-// unrestored, never lose existing data. (tauri-plugin-sql's sqlx pool can't honour an
-// explicit BEGIN/COMMIT across statements — see db/threads.ts:141 — so this ordering is
-// how §9.13's "no half-applied reversal" is met without a real transaction.)
-const applyReversal = async (entry: UndoEntry): Promise<void> => {
+// Reverse one entry and return a closure that RE-APPLIES the original operation (redo).
+// Every branch is composed of additive (INSERT) or idempotent (UPDATE) writes ordered
+// parent-before-child — no intermediate destructive delete — so a partial failure can at
+// worst leave some attachments unrestored, never lose existing data. (tauri-plugin-sql's
+// sqlx pool can't honour BEGIN/COMMIT across statements — see db/threads.ts:141 — so this
+// ordering is how §9.13's "no half-applied reversal" is met without a real transaction.)
+const reverseAndBuildRedo = async (
+  entry: UndoEntry,
+): Promise<() => Promise<void>> => {
   switch (entry.kind) {
     case 'capture':
+    case 'collect_send': {
+      // Snapshot the live block (source may have been back-filled since capture) so redo
+      // restores it faithfully, then delete it.
+      const block = await getBlockById(entry.payload.blockId);
+      const attachments = block ? await listAttachmentsByBlock(block.id) : [];
       await deleteBlock(entry.payload.blockId);
-      return;
-    case 'collect_send':
-      // TODO(step-5): if the collect panel is still open and empty, re-stage the original
-      // items into it (§20.9). Step 4's reversal only deletes the written merged block.
-      await deleteBlock(entry.payload.blockId);
-      return;
+      // TODO(step-5): collect_send redo should also re-stage items if the panel is open.
+      return async () => {
+        if (!block) return;
+        await restoreBlock(block);
+        for (const a of attachments) await restoreAttachment(a);
+      };
+    }
     case 'delete': {
       const { block, attachments } = entry.payload;
       await restoreBlock(block);
       for (const a of attachments) await restoreAttachment(a);
-      return;
+      return async () => {
+        await deleteBlock(block.id);
+      };
     }
     case 'merge': {
       const { survivorId, sourceBlocks, movedAttachments } = entry.payload;
-      // 1. Recreate the non-survivor blocks the forward merge hard-deleted.
       for (const b of sourceBlocks) {
         if (b.id !== survivorId) await restoreBlock(b);
       }
-      // 2. Revert the survivor in place to its pre-merge fields.
       const survivor = sourceBlocks.find((b) => b.id === survivorId);
       if (survivor) {
         await restoreBlockFields(
@@ -149,24 +167,32 @@ const applyReversal = async (entry: UndoEntry): Promise<void> => {
           survivor.source,
         );
       }
-      // 3. Move each re-pointed attachment back to its original owner (now recreated).
       for (const m of movedAttachments) {
         await reassignAttachmentBlock(m.id, m.originalBlockId);
       }
-      return;
+      return async () => {
+        const merged = computeMergedFields(sourceBlocks);
+        await mergeBlocks(
+          merged.survivorId,
+          merged.content,
+          merged.annotation,
+          merged.pinned,
+          merged.source,
+          merged.nonSurvivorIds,
+        );
+      };
     }
   }
 };
 
-let toastSeq = 1;
-
-export const useUndoStore = create<UndoStoreState>((set) => ({
+export const useUndoStore = create<UndoStoreState>((set, get) => ({
   entries: [],
-  undoToast: null,
+  redoable: null,
 
   pushUndo: (entry) => {
     undoLog.push(entry);
-    set({ entries: undoLog.snapshot() });
+    // A fresh forward operation invalidates any pending redo.
+    set({ entries: undoLog.snapshot(), redoable: null });
   },
 
   undo: async () => {
@@ -174,7 +200,8 @@ export const useUndoStore = create<UndoStoreState>((set) => ({
     set({ entries: undoLog.snapshot() });
     if (!entry) return null;
     try {
-      await applyReversal(entry);
+      const apply = await reverseAndBuildRedo(entry);
+      set({ redoable: { entry, apply } });
     } catch (e) {
       console.error('[undo] reversal failed', e);
       return null;
@@ -182,19 +209,23 @@ export const useUndoStore = create<UndoStoreState>((set) => ({
     return entry;
   },
 
+  redo: async () => {
+    const r = get().redoable;
+    if (!r) return null;
+    try {
+      await r.apply();
+    } catch (e) {
+      console.error('[redo] re-apply failed', e);
+      return null;
+    }
+    // The op exists again — make it undoable, and clear the (now consumed) redo.
+    undoLog.push(r.entry);
+    set({ entries: undoLog.snapshot(), redoable: null });
+    return r.entry;
+  },
+
   invalidateForBlock: (blockId) => {
     undoLog.invalidate(blockId);
     set({ entries: undoLog.snapshot() });
   },
-
-  showUndoToast: (entry) => {
-    const id = toastSeq++;
-    set({
-      undoToast: entry
-        ? { id, kind: entry.kind, preview: previewForEntry(entry) }
-        : { id, kind: 'empty' },
-    });
-  },
-
-  dismissUndoToast: () => set({ undoToast: null }),
 }));

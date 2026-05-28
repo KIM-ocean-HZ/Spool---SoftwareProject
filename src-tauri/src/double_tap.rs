@@ -40,9 +40,47 @@ use core_graphics::event::{
 use foreign_types::ForeignType;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
+
+// =============================================================================
+// §9.13 click-outside-to-dismiss
+// =============================================================================
+//
+// While the capture toast is showing, capture.rs arms this watch with the toast's frame
+// (global logical points). The same CGEventTap that detects ⌥ also observes left mouse
+// downs; a click that lands OUTSIDE the armed frame dismisses the toast so the user can
+// keep working. A click inside (the toast's own buttons / picker) is left alone. The
+// watch is disarmed the moment the toast hides, so normal clicks are never intercepted.
+
+const OVERLAY_LABEL: &str = "overlay";
+
+// (x, y, w, h) of the toast in global logical points; None when no toast is up.
+static OVERLAY_FRAME: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
+
+pub fn arm_overlay_dismiss(x: f64, y: f64, w: f64, h: f64) {
+    *OVERLAY_FRAME.lock().unwrap() = Some((x, y, w, h));
+}
+
+pub fn update_overlay_dismiss_height(h: f64) {
+    if let Some(frame) = OVERLAY_FRAME.lock().unwrap().as_mut() {
+        frame.3 = h;
+    }
+}
+
+pub fn disarm_overlay_dismiss() {
+    *OVERLAY_FRAME.lock().unwrap() = None;
+}
+
+// True only when armed AND the point is outside the toast frame.
+fn click_outside_overlay(px: f64, py: f64) -> bool {
+    match *OVERLAY_FRAME.lock().unwrap() {
+        Some((x, y, w, h)) => px < x || px > x + w || py < y || py > y + h,
+        None => false,
+    }
+}
 
 // Hardware key codes for the left/right ⌥ (Option) keys — layout-independent.
 const KEYCODE_OPT_LEFT: i64 = 58;
@@ -112,6 +150,15 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                          event: &CGEvent|
           -> Option<CGEvent> {
         match ev_type {
+            CGEventType::LeftMouseDown => {
+                // §9.13: dismiss the capture toast when the user clicks anywhere outside
+                // it (resuming work). Disarmed = the watch returns false, so this is a
+                // cheap no-op for every normal click when no toast is up.
+                let loc = event.location();
+                if click_outside_overlay(loc.x, loc.y) {
+                    let _ = app.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
+                }
+            }
             CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
                 let reason = match ev_type {
                     CGEventType::TapDisabledByTimeout => "timeout",
@@ -242,12 +289,13 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
         CGEventTapLocation::Session,
         CGEventTapPlacement::HeadInsertEventTap,
         CGEventTapOptions::ListenOnly,
-        // ONLY FlagsChanged here. Per Apple docs, TapDisabledByTimeout and
-        // TapDisabledByUserInput are delivered to every tap regardless of the mask —
-        // and including them PANICS at startup because their numeric values
-        // (0xFFFFFFFE / 0xFFFFFFFF) overflow core-graphics 0.23.2's `1 << ev as u64`
-        // mask builder. The callback still handles them when they arrive automatically.
-        vec![CGEventType::FlagsChanged],
+        // FlagsChanged (⌥ double-tap / long-press) + LeftMouseDown (§9.13 click-outside
+        // dismiss). Per Apple docs, TapDisabledByTimeout and TapDisabledByUserInput are
+        // delivered to every tap regardless of the mask — and including them PANICS at
+        // startup because their numeric values (0xFFFFFFFE / 0xFFFFFFFF) overflow
+        // core-graphics 0.23.2's `1 << ev as u64` mask builder. The callback still
+        // handles them when they arrive automatically.
+        vec![CGEventType::FlagsChanged, CGEventType::LeftMouseDown],
         callback,
     ) {
         Ok(t) => t,

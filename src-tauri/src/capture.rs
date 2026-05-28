@@ -281,6 +281,28 @@ pub fn search_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
     Shortcut::new(Some(mods), Code::KeyF)
 }
 
+// §9.13 frictionless undo: the *preferred* global undo accelerator — ⌘Z (Ctrl+Z off
+// macOS). Registered only while the capture toast is showing (see register_undo_shortcut)
+// so it doesn't shadow every other app's Cmd+Z; for those few seconds it lets the user
+// undo a mis-capture without switching back to Spool.
+#[cfg(desktop)]
+pub fn undo_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+    #[cfg(target_os = "macos")]
+    let mods = Modifiers::SUPER;
+    #[cfg(not(target_os = "macos"))]
+    let mods = Modifiers::CONTROL;
+    Shortcut::new(Some(mods), Code::KeyZ)
+}
+
+// Fallback global undo accelerator — ⌥Z (Option+Z) — used only if ⌘Z can't be grabbed.
+// ⌥ is rarely a primary modifier, so this never collides with another app's undo.
+#[cfg(desktop)]
+pub fn undo_fallback_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+    Shortcut::new(Some(Modifiers::ALT), Code::KeyZ)
+}
+
 // =============================================================================
 // Runtime-configurable shortcuts (PLAN_EN.md §19.1)
 // =============================================================================
@@ -294,6 +316,54 @@ pub fn search_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
 pub struct ShortcutConfig {
     pub capture: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
     pub search: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
+    // §9.13: the undo accelerator currently registered (Some while the capture toast is
+    // visible), or None when no toast is up. Time-boxed registration keeps ⌘Z usable in
+    // every other app outside the toast window.
+    pub undo: std::sync::Mutex<Option<tauri_plugin_global_shortcut::Shortcut>>,
+}
+
+// Register the global undo shortcut while the capture toast is visible. Tries ⌘Z first
+// (the user's stated preference); if the OS refuses it, falls back to ⌥Z. Idempotent —
+// a second capture while one toast is already up is a no-op.
+#[cfg(desktop)]
+pub fn register_undo_shortcut<R: Runtime>(app: &AppHandle<R>) {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let Some(cfg) = app.try_state::<ShortcutConfig>() else {
+        return;
+    };
+    let mut slot = cfg.undo.lock().unwrap();
+    if slot.is_some() {
+        return;
+    }
+    let gs = app.global_shortcut();
+    let primary = undo_accelerator();
+    let chosen = if gs.register(primary).is_ok() {
+        Some(primary)
+    } else {
+        let fallback = undo_fallback_accelerator();
+        if gs.register(fallback).is_ok() {
+            eprintln!("[undo] ⌘Z unavailable — registered ⌥Z fallback for global undo");
+            Some(fallback)
+        } else {
+            eprintln!("[undo] failed to register any global undo shortcut");
+            None
+        }
+    };
+    *slot = chosen;
+}
+
+// Release the global undo shortcut once the toast is gone, so ⌘Z returns to the
+// foreground app. No-op if nothing was registered.
+#[cfg(desktop)]
+pub fn unregister_undo_shortcut<R: Runtime>(app: &AppHandle<R>) {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let Some(cfg) = app.try_state::<ShortcutConfig>() else {
+        return;
+    };
+    let mut slot = cfg.undo.lock().unwrap();
+    if let Some(acc) = slot.take() {
+        let _ = app.global_shortcut().unregister(acc);
+    }
 }
 
 // Parse an accelerator in the frontend's grammar (see src/lib/capture/shortcut.ts):
@@ -608,7 +678,9 @@ fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> {
 // hidden by the macOS dock, top-right matches the system notification convention.
 // Since we anchor the *top* edge, window height doesn't enter the math (resizing
 // for the picker grows the window downward instead of upward).
-fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+// Returns the chosen top-left origin in global logical points, so the caller can arm the
+// click-outside dismiss watch (§9.13) against the overlay's exact on-screen frame.
+fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f64), String> {
     let win = app
         .get_webview_window(OVERLAY_LABEL)
         .ok_or_else(|| "overlay window not found".to_string())?;
@@ -623,7 +695,7 @@ fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(), Stri
     let target_y = m_top + OVERLAY_SCREEN_MARGIN as f64;
     win.set_position(LogicalPosition::new(target_x, target_y))
         .map_err(|e| e.to_string())?;
-    Ok(())
+    Ok((target_x, target_y))
 }
 
 // Show the overlay over the user's active screen with a fresh capture payload.
@@ -644,7 +716,20 @@ pub fn show_capture_overlay<R: Runtime>(
         OVERLAY_HEIGHT_COLLAPSED as f64,
     ))
     .map_err(|e| e.to_string())?;
-    position_overlay_top_right(&app)?;
+    let (origin_x, origin_y) = position_overlay_top_right(&app)?;
+    // §9.13: arm the click-outside dismiss watch over the toast's frame, and grab the
+    // global undo shortcut for the toast's lifetime. The ResizeObserver in the overlay
+    // refines the height moments later via resize_capture_overlay.
+    #[cfg(target_os = "macos")]
+    crate::double_tap::arm_overlay_dismiss(
+        origin_x,
+        origin_y,
+        OVERLAY_WIDTH as f64,
+        OVERLAY_HEIGHT_COLLAPSED as f64,
+    );
+    #[cfg(not(target_os = "macos"))]
+    let _ = (origin_x, origin_y); // click-outside dismiss is macOS-only (CGEventTap)
+    register_undo_shortcut(&app);
     // Stash the source app *before* show — show() activates Spool as a side effect, so
     // querying after would always return "Spool".
     #[cfg(target_os = "macos")]
@@ -662,9 +747,49 @@ pub fn show_capture_overlay<R: Runtime>(
 
 #[tauri::command]
 pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    // §9.13: tear down the toast-scoped undo machinery before hiding, so ⌘Z returns to
+    // the foreground app and a stray click no longer dismisses a now-hidden toast.
+    #[cfg(target_os = "macos")]
+    crate::double_tap::disarm_overlay_dismiss();
+    unregister_undo_shortcut(&app);
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
         win.hide().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+// §9.13: show the undo/redo confirmation in the overlay so it floats over the user's
+// current window (not just the hidden main app). Mirrors show_capture_overlay's geometry
+// and re-arms the click-outside dismiss watch; the undo shortcut stays registered so the
+// user can keep pressing ⌘Z to chain-undo without switching back to Spool. The payload is
+// forwarded verbatim to the overlay (OverlayUndoPayload).
+#[tauri::command]
+pub fn show_undo_overlay<R: Runtime>(
+    app: AppHandle<R>,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    let win = app
+        .get_webview_window(OVERLAY_LABEL)
+        .ok_or_else(|| "overlay window not found".to_string())?;
+    win.set_size(LogicalSize::new(
+        OVERLAY_WIDTH as f64,
+        OVERLAY_HEIGHT_COLLAPSED as f64,
+    ))
+    .map_err(|e| e.to_string())?;
+    let (origin_x, origin_y) = position_overlay_top_right(&app)?;
+    #[cfg(target_os = "macos")]
+    crate::double_tap::arm_overlay_dismiss(
+        origin_x,
+        origin_y,
+        OVERLAY_WIDTH as f64,
+        OVERLAY_HEIGHT_COLLAPSED as f64,
+    );
+    #[cfg(not(target_os = "macos"))]
+    let _ = (origin_x, origin_y);
+    register_undo_shortcut(&app);
+    app.emit_to(OVERLAY_LABEL, "overlay:undo", payload)
+        .map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -683,6 +808,10 @@ pub fn show_collect_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     ))
     .map_err(|e| e.to_string())?;
     position_overlay_top_right(&app)?;
+    // The collect panel is persistent (§20.9) — it must NOT auto-dismiss on an outside
+    // click, so make sure the capture-toast dismiss watch is off.
+    #[cfg(target_os = "macos")]
+    crate::double_tap::disarm_overlay_dismiss();
     app.emit_to(OVERLAY_LABEL, "collect:open", ())
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
@@ -720,6 +849,10 @@ pub fn resize_capture_overlay<R: Runtime>(app: AppHandle<R>, height: u32) -> Res
         .ok_or_else(|| "overlay window not found".to_string())?;
     win.set_size(LogicalSize::new(OVERLAY_WIDTH as f64, height as f64))
         .map_err(|e| e.to_string())?;
+    // §9.13: keep the click-outside dismiss frame in sync with the real toast height
+    // (e.g. when the Redirect dropdown grows the window). No-op when not armed.
+    #[cfg(target_os = "macos")]
+    crate::double_tap::update_overlay_dismiss_height(height as f64);
     Ok(())
 }
 

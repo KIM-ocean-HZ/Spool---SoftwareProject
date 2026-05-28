@@ -7,6 +7,7 @@
 // The Rust command names + the OverlayCapturePayload field shape must stay in sync
 // with src-tauri/src/capture.rs (where serde renames to camelCase).
 
+import type { UndoOpKind } from '@/lib/undo/undoLog';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 
@@ -14,12 +15,29 @@ export const OVERLAY_SHOW_EVENT = 'overlay:show';
 export const OVERLAY_ACTION_EVENT = 'overlay:action';
 export const OVERLAY_SOURCE_UPDATE_EVENT = 'overlay:source-update';
 export const OVERLAY_NOTICE_EVENT = 'overlay:notice';
+// v2.9 §9.13: Rust emits this (from the mouse-down event tap) when the user clicks
+// outside the capture toast, so the overlay dismisses itself and lets work continue.
+export const OVERLAY_DISMISS_EVENT = 'overlay:dismiss';
+// v2.9 §9.13: undo/redo confirmation shown in the overlay (floats over the user's current
+// window, not just the main app) — carries OverlayUndoPayload.
+export const OVERLAY_UNDO_EVENT = 'overlay:undo';
 
 export const SHOW_OVERLAY_COMMAND = 'show_capture_overlay';
 export const HIDE_OVERLAY_COMMAND = 'hide_capture_overlay';
 export const RESIZE_OVERLAY_COMMAND = 'resize_capture_overlay';
 export const UPDATE_OVERLAY_SOURCE_COMMAND = 'update_overlay_source';
 export const SHOW_OVERLAY_NOTICE_COMMAND = 'show_capture_notice';
+export const SHOW_UNDO_OVERLAY_COMMAND = 'show_undo_overlay';
+
+// v2.9 §9.13: the undo/redo confirmation card rendered in the overlay window. `op = 'empty'`
+// is the "没有可撤销的操作" state; `mode` distinguishes 已撤销 from 已重做; `canRedo` gates
+// the 重做 quick-action button.
+export interface OverlayUndoPayload {
+  op: UndoOpKind | 'empty';
+  preview: string;
+  mode: 'undone' | 'redone';
+  canRedo: boolean;
+}
 
 // v2.8 §20 Track B: collect-mode (staging toast) event/command names. The overlay
 // listens for `collect:open` to render staging UI and `collect:append` to add items;
@@ -82,6 +100,8 @@ export type OverlayAction =
   // longer deletes the block itself — both the toast Undo and Cmd+Z share one reversal
   // path — so no blockId/threadId is needed.
   | { kind: 'undo' }
+  // v2.9 §9.13: 重做 button on the undo-confirmation card → re-apply the last undone op.
+  | { kind: 'redo' }
   | {
       kind: 'redirect';
       oldBlockId: string;

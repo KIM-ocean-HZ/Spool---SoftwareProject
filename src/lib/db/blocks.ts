@@ -52,6 +52,15 @@ const fromRow = (r: Row): Block => ({
 const SELECT_COLS =
   'id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at';
 
+export const getBlockById = async (id: string): Promise<Block | null> => {
+  const db = await getDb();
+  const rows = await db.select<Row[]>(
+    `SELECT ${SELECT_COLS} FROM blocks WHERE id = $1`,
+    [id],
+  );
+  return rows[0] ? fromRow(rows[0]) : null;
+};
+
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();
   const rows = await db.select<Row[]>(
