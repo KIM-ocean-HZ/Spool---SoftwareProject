@@ -740,9 +740,17 @@ pub fn show_capture_overlay<R: Runtime>(
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
     // Re-activate the user's source app so their next ⌘C goes there, not to Spool.
+    // BUT never re-activate Spool itself: when the user captured while Spool was the
+    // frontmost app, `prev_source_app` is "Spool", and `tell application "Spool" to
+    // activate` makes LaunchServices *launch* the bundled Spool.app as a SECOND instance.
+    // That second process opens the same SQLite file and the two contend for it
+    // ("database is locked"). There is also nothing to restore focus to — the user is
+    // already in Spool — so skipping the reactivation is correct, not just safe.
     #[cfg(target_os = "macos")]
     if let Some(name) = prev_app {
-        reactivate_app_async(name);
+        if !name.eq_ignore_ascii_case("spool") {
+            reactivate_app_async(name);
+        }
     }
     Ok(())
 }
