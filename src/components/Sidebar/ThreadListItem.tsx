@@ -1,6 +1,6 @@
 import { Pin } from 'lucide-react';
 import type { DragEvent, MouseEvent } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
 import DeleteButton from '@/components/ui/DeleteButton';
 import StatusDot from '@/components/ui/StatusDot';
@@ -26,6 +26,44 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
   const flash = useCaptureStore((s) => s.flashThreadId === thread.id);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const patchThread = useThreadsStore((s) => s.patch);
+  const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
+
+  // Inline rename (§9.1 double-click pattern; §8.3 debounced save). Esc cancels (§14.1).
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(thread.title);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  // Set when Esc abandons the edit so the trailing debounce + revert don't persist it.
+  const canceledRef = useRef(false);
+
+  useEffect(() => {
+    if (!editingTitle) setTitleInput(thread.title);
+  }, [thread.title, editingTitle]);
+
+  useEffect(() => {
+    if (editingTitle) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [editingTitle]);
+
+  useEffect(() => {
+    if (!editingTitle || canceledRef.current) return;
+    if (titleInput === thread.title) return;
+    const t = setTimeout(() => void patchThread(thread.id, { title: titleInput }), 200);
+    return () => clearTimeout(t);
+  }, [titleInput, thread.title, thread.id, editingTitle, patchThread]);
+
+  const enterRename = (): void => {
+    canceledRef.current = false;
+    setTitleInput(thread.title);
+    setEditingTitle(true);
+  };
+  const commitRename = (): void => setEditingTitle(false); // debounce already persisted
+  const cancelRename = (): void => {
+    canceledRef.current = true;
+    setTitleInput(thread.title);
+    setEditingTitle(false);
+  };
 
   // Right-click → move-to-workspace menu (§9.2; the other move path is drag). Tracked by
   // viewport coords so the menu anchors to the cursor regardless of sidebar scroll.
@@ -58,7 +96,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
 
   return (
     <li
-      draggable
+      draggable={!editingTitle}
       onDragStart={onDragStart}
       onContextMenu={onContextMenu}
       onClick={onSelect}
@@ -71,16 +109,63 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
       )}
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-sm text-ink">{title}</span>
-            {thread.isCaptureTarget && (
-              <Pin size={11} className="flex-none text-accent" aria-label="捕捉目标" />
-            )}
-          </div>
+          {editingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={titleInput}
+              onChange={(e) => setTitleInput(e.target.value)}
+              onBlur={commitRename}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelRename();
+                }
+              }}
+              placeholder="无标题"
+              spellCheck={false}
+              className="w-full bg-transparent text-sm text-ink outline-none"
+            />
+          ) : (
+            <span
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                enterRename();
+              }}
+              className="block truncate text-sm text-ink"
+              title="双击重命名"
+            >
+              {title}
+            </span>
+          )}
         </div>
         <div className="flex flex-none items-center gap-1.5">
           <StatusDot status={thread.status} />
           {thread.deadline != null && <CountdownBadge deadline={thread.deadline} />}
+          {/* One marker for capture target (§9.2 / §10.2): a filled accent pin that's
+              always visible while this thread IS the target, and a quiet hover-only
+              "set as target" button otherwise. Click sets the target without selecting
+              or navigating (separate actions). */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!thread.isCaptureTarget) void setCaptureTarget(thread.id);
+            }}
+            aria-label={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
+            title={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
+            className={`flex-none rounded p-0.5 transition-colors ${
+              thread.isCaptureTarget
+                ? 'text-accent'
+                : 'invisible text-muted hover:bg-paper-2 hover:text-ink group-hover:visible'
+            }`}
+          >
+            <Pin size={11} className={thread.isCaptureTarget ? 'fill-current' : ''} />
+          </button>
           <DeleteButton
             onConfirm={onDelete}
             title="删除脉络"
