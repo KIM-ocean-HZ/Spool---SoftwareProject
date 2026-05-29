@@ -7,7 +7,14 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { StagingItem } from '@/lib/collect/stagingBuffer';
 
-export type UndoOpKind = 'capture' | 'merge' | 'delete' | 'collect_send';
+export type UndoOpKind =
+  | 'capture'
+  | 'merge'
+  | 'delete'
+  | 'collect_send'
+  | 'highlight'
+  | 'thread_delete'
+  | 'workspace_delete';
 
 // Per-kind payloads. §8.2 types the schema-level payload as `unknown` for storage
 // flexibility; at every usage site we narrow it via the discriminated UndoEntry union
@@ -43,6 +50,29 @@ export interface CollectSendPayload {
   originalStagingItems: StagingItem[];
 }
 
+// Step 6 §20.5: a select-to-highlight gesture mutated stored content. Reversal restores
+// the pre-gesture string. Invalidated (skipped) if the block is edited afterward.
+export interface HighlightPayload {
+  blockId: string;
+  threadId: string;
+  beforeContent: string;
+}
+
+// Step 6 §8.1: thread soft-delete (deleted_at). Reversal clears it; the thread's blocks
+// have no deleted_at, so they return with it automatically.
+export interface ThreadDeletePayload {
+  threadId: string;
+  title: string;
+}
+
+// Step 6 §8.1: workspace soft-delete cascades to its active threads with one shared
+// timestamp. Reversal clears deleted_at only where it equals that timestamp, so threads
+// the user had deleted earlier stay deleted.
+export interface WorkspaceDeletePayload {
+  workspaceId: string;
+  deleteTimestamp: number;
+}
+
 interface BaseEntry {
   id: string;
   timestamp: number;
@@ -66,12 +96,27 @@ export interface CollectSendUndoEntry extends BaseEntry {
   kind: 'collect_send';
   payload: CollectSendPayload;
 }
+export interface HighlightUndoEntry extends BaseEntry {
+  kind: 'highlight';
+  payload: HighlightPayload;
+}
+export interface ThreadDeleteUndoEntry extends BaseEntry {
+  kind: 'thread_delete';
+  payload: ThreadDeletePayload;
+}
+export interface WorkspaceDeleteUndoEntry extends BaseEntry {
+  kind: 'workspace_delete';
+  payload: WorkspaceDeletePayload;
+}
 
 export type UndoEntry =
   | CaptureUndoEntry
   | DeleteUndoEntry
   | MergeUndoEntry
-  | CollectSendUndoEntry;
+  | CollectSendUndoEntry
+  | HighlightUndoEntry
+  | ThreadDeleteUndoEntry
+  | WorkspaceDeleteUndoEntry;
 
 const CAPACITY = 10;
 

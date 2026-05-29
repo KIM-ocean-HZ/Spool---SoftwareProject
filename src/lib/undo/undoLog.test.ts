@@ -65,4 +65,19 @@ describe('undoLog ring buffer (§9.13)', () => {
     expect(snapshot()).toHaveLength(0);
     expect(peekLastValid()).toBeNull();
   });
+
+  it('invalidates a highlight entry when its block is edited afterward (§9.13)', () => {
+    const highlight: UndoEntry = {
+      id: 'h',
+      kind: 'highlight',
+      timestamp: Date.now(),
+      payload: { blockId: 'h', threadId: 't', beforeContent: 'before' },
+      affectedBlockIds: ['h'],
+      invalidated: false,
+    };
+    push(highlight);
+    invalidate('h'); // a later content/annotation edit to the block
+    expect(peekLastValid()).toBeNull();
+    expect(popLastValid()).toBeNull();
+  });
 });

@@ -12,14 +12,20 @@ import {
   mergeBlocks,
   restoreBlock,
   restoreBlockFields,
+  updateBlockContent,
 } from '@/lib/db/blocks';
+import { restoreThread, softDeleteThread } from '@/lib/db/threads';
+import { restoreWorkspace, softDeleteWorkspace } from '@/lib/db/workspaces';
 import * as undoLog from '@/lib/undo/undoLog';
 import type {
   CapturePayload,
   CollectSendPayload,
   DeletePayload,
+  HighlightPayload,
   MergePayload,
+  ThreadDeletePayload,
   UndoEntry,
+  WorkspaceDeletePayload,
 } from '@/lib/undo/undoLog';
 
 // The single most-recent undo, kept so the overlay confirmation's 重做 (redo) action can
@@ -85,6 +91,37 @@ export const buildCollectSendUndo = (payload: CollectSendPayload): UndoEntry => 
   invalidated: false,
 });
 
+// Step 6 §20.5: highlight gesture. Tracks the block so a later content/annotation edit
+// invalidates this entry (the user's edit wins).
+export const buildHighlightUndo = (payload: HighlightPayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'highlight',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: [payload.blockId],
+  invalidated: false,
+});
+
+// Step 6 §8.1: thread / workspace deletes affect no single block, so they carry no
+// affectedBlockIds — a block edit never invalidates them.
+export const buildThreadDeleteUndo = (payload: ThreadDeletePayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'thread_delete',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: [],
+  invalidated: false,
+});
+
+export const buildWorkspaceDeleteUndo = (payload: WorkspaceDeletePayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'workspace_delete',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: [],
+  invalidated: false,
+});
+
 // --- Pure helpers over an entry (exported for runUndo / the toast). ---
 
 export const threadIdForEntry = (entry: UndoEntry): string => {
@@ -92,9 +129,16 @@ export const threadIdForEntry = (entry: UndoEntry): string => {
     case 'capture':
     case 'collect_send':
     case 'merge':
+    case 'highlight':
       return entry.payload.threadId;
     case 'delete':
       return entry.payload.block.threadId;
+    case 'thread_delete':
+      return entry.payload.threadId;
+    case 'workspace_delete':
+      // No single thread — the orchestration layer (runUndo) refreshes the workspace and
+      // thread stores instead of a block feed, so this is never used for this kind.
+      return '';
   }
 };
 
@@ -117,6 +161,12 @@ export const previewForEntry = (entry: UndoEntry): string => {
         entry.payload.sourceBlocks[0];
       return survivor ? previewText(survivor.content) : '';
     }
+    case 'highlight':
+      return previewText(entry.payload.beforeContent);
+    case 'thread_delete':
+      return previewText(entry.payload.title);
+    case 'workspace_delete':
+      return '';
   }
 };
 
@@ -183,6 +233,30 @@ const reverseAndBuildRedo = async (
           merged.source,
           merged.nonSurvivorIds,
         );
+      };
+    }
+    case 'highlight': {
+      const { blockId, beforeContent } = entry.payload;
+      // Snapshot the highlighted (after) content first so redo can re-apply it.
+      const after = (await getBlockById(blockId))?.content ?? beforeContent;
+      await updateBlockContent(blockId, beforeContent);
+      return async () => {
+        await updateBlockContent(blockId, after);
+      };
+    }
+    case 'thread_delete': {
+      const { threadId } = entry.payload;
+      await restoreThread(threadId);
+      return async () => {
+        await softDeleteThread(threadId);
+      };
+    }
+    case 'workspace_delete': {
+      const { workspaceId, deleteTimestamp } = entry.payload;
+      await restoreWorkspace(workspaceId, deleteTimestamp);
+      // Redo re-stamps with the SAME timestamp so a following undo still matches.
+      return async () => {
+        await softDeleteWorkspace(workspaceId, deleteTimestamp);
       };
     }
   }

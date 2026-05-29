@@ -76,11 +76,37 @@ export const reorderWorkspaces = async (orderedIds: string[]): Promise<void> => 
 // Soft-delete a workspace and cascade-soft-delete its threads. Deleting the workspace
 // that holds the capture target is permitted — the caller restores a target afterwards
 // (ensureBaseData + ensureCaptureTarget), recreating the Inbox if nothing is left.
-export const softDeleteWorkspace = async (id: string): Promise<void> => {
+//
+// §9.13 undo: the workspace AND its currently-active threads are stamped with ONE shared
+// timestamp (returned), so a later restore can bring back exactly the threads this delete
+// removed. Threads the user had deleted earlier carry a different deleted_at and are left
+// untouched. `at` is overridable so a redo can re-stamp with the original timestamp.
+export const softDeleteWorkspace = async (
+  id: string,
+  at: number = Date.now(),
+): Promise<number> => {
   const db = await getDb();
-  const now = Date.now();
-  await db.execute('UPDATE workspaces SET deleted_at = $1 WHERE id = $2', [now, id]);
-  await db.execute('UPDATE threads SET deleted_at = $1 WHERE workspace_id = $2', [now, id]);
+  await db.execute('UPDATE workspaces SET deleted_at = $1 WHERE id = $2', [at, id]);
+  await db.execute(
+    'UPDATE threads SET deleted_at = $1 WHERE workspace_id = $2 AND deleted_at IS NULL',
+    [at, id],
+  );
+  return at;
+};
+
+// §9.13 undo: reverse softDeleteWorkspace. Clears deleted_at on the workspace and ONLY the
+// threads stamped by that same delete (matching timestamp). is_capture_target is cleared on
+// the restored threads so an undo can't resurrect a second active target.
+export const restoreWorkspace = async (id: string, timestamp: number): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE workspaces SET deleted_at = NULL WHERE id = $1 AND deleted_at = $2',
+    [id, timestamp],
+  );
+  await db.execute(
+    'UPDATE threads SET deleted_at = NULL, is_capture_target = 0 WHERE workspace_id = $1 AND deleted_at = $2',
+    [id, timestamp],
+  );
 };
 
 export { INBOX_WORKSPACE_TITLE };

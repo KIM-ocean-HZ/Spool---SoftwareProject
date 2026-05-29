@@ -180,3 +180,14 @@ export const softDeleteThread = async (id: string): Promise<void> => {
   const db = await getDb();
   await db.execute('UPDATE threads SET deleted_at = $1 WHERE id = $2', [Date.now(), id]);
 };
+
+// §9.13 undo: clear the soft-delete so the thread (and its blocks, which were never
+// deleted) returns. Also clears is_capture_target — deleting the capture target re-promotes
+// another, so restoring it must not leave two active targets; the user can re-set it.
+export const restoreThread = async (id: string): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE threads SET deleted_at = NULL, is_capture_target = 0 WHERE id = $1',
+    [id],
+  );
+};

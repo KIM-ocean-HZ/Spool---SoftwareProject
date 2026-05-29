@@ -17,6 +17,7 @@ import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
+import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
 import BlockActions from './BlockActions';
 import BlockAttachments from './BlockAttachments';
 import RefBlockItem from './RefBlockItem';
@@ -546,11 +547,17 @@ function TextBlockItem({
       setContentDraft(next);
       return;
     }
-    // Display-mode path: persist immediately via the store.
+    // Display-mode path: persist immediately via the store, then record an undo entry
+    // (§9.13 / Step 6). setContent invalidates the block's prior undo entries first, so
+    // pushing afterward leaves this highlight entry valid until the block is next edited.
+    const before = block.content;
     const { content: next, changed } = toggleHighlight(block.content, trimmed);
     if (!changed) return;
     try {
       await setContent(block.id, next);
+      useUndoStore.getState().pushUndo(
+        buildHighlightUndo({ blockId: block.id, threadId: block.threadId, beforeContent: before }),
+      );
     } catch (e) {
       console.error('[highlight] save failed', e);
     }

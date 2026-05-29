@@ -3,6 +3,7 @@ import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/workspaces';
 import type { Workspace } from '@/lib/db/workspaces';
 import { useThreadsStore } from './threadsStore';
+import { buildWorkspaceDeleteUndo, useUndoStore } from './undoStore';
 
 interface WorkspacesState {
   workspaces: Workspace[];
@@ -61,10 +62,15 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   remove: async (id) => {
-    // Cascade-soft-deletes the workspace's threads too. Restore a usable base afterwards
-    // (recreates the Inbox if this was the last workspace), then refresh both stores —
-    // threads were deleted and the capture target may need re-promoting.
-    await db.softDeleteWorkspace(id);
+    // Cascade-soft-deletes the workspace's currently-active threads with one shared
+    // timestamp; the undo entry keeps it so a restore brings back exactly those (§9.13).
+    const deleteTimestamp = await db.softDeleteWorkspace(id);
+    useUndoStore.getState().pushUndo(
+      buildWorkspaceDeleteUndo({ workspaceId: id, deleteTimestamp }),
+    );
+    // Restore a usable base afterwards (recreates the Inbox if this was the last
+    // workspace), then refresh both stores — threads were deleted and the capture target
+    // may need re-promoting.
     await ensureBaseData();
     await get().load();
     await useThreadsStore.getState().loadAll();

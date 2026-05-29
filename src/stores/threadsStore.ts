@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/threads';
 import type { Thread, ThreadPatch } from '@/lib/db/threads';
+import { buildThreadDeleteUndo, useUndoStore } from './undoStore';
 
 interface ThreadsState {
   threadsByWorkspace: Record<string, Thread[]>;
@@ -120,7 +121,10 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   },
 
   remove: async (id) => {
+    // Snapshot the title before deleting so the undo toast can name the project (§9.13).
+    const title = selectThreadById(id)(get())?.title ?? '';
     await db.softDeleteThread(id);
+    useUndoStore.getState().pushUndo(buildThreadDeleteUndo({ threadId: id, title }));
     // If that was the capture target (or the last thread), restore a usable base + target;
     // loadAll then re-promotes a target and recomputes captureTargetId / activeId.
     await ensureBaseData();

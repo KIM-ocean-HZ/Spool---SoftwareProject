@@ -12,6 +12,25 @@ import {
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCollectStore } from '@/stores/collectStore';
 import { previewForEntry, threadIdForEntry, useUndoStore } from '@/stores/undoStore';
+import { useThreadsStore } from '@/stores/threadsStore';
+import { useWorkspacesStore } from '@/stores/workspacesStore';
+import type { UndoEntry } from '@/lib/undo/undoLog';
+
+// After a reversal (or re-apply), refresh whatever the op touched. Thread/workspace deletes
+// move sidebar rows, not a block feed; everything else changes a thread's blocks.
+const refreshAfterUndoRedo = async (entry: UndoEntry): Promise<void> => {
+  switch (entry.kind) {
+    case 'thread_delete':
+      await useThreadsStore.getState().loadAll();
+      break;
+    case 'workspace_delete':
+      await useWorkspacesStore.getState().load();
+      await useThreadsStore.getState().loadAll();
+      break;
+    default:
+      await useBlocksStore.getState().load(threadIdForEntry(entry));
+  }
+};
 
 // §9.13: the undo/redo confirmation is shown in the OVERLAY window so it floats over the
 // user's current app (frictionless feedback even when Spool is hidden), not only inside
@@ -28,7 +47,7 @@ const showUndoOverlay = (payload: OverlayUndoPayload): void => {
 export const runUndo = async (): Promise<void> => {
   const entry = await useUndoStore.getState().undo();
   if (entry) {
-    await useBlocksStore.getState().load(threadIdForEntry(entry));
+    await refreshAfterUndoRedo(entry);
     // §9.13: undoing a collect_send re-stages its original items into the panel when the
     // panel is still open (the collect window only re-stages into an empty buffer).
     // Otherwise this is just the merged-block delete handled in undoStore.
@@ -54,7 +73,7 @@ export const runUndo = async (): Promise<void> => {
 export const runRedo = async (): Promise<void> => {
   const entry = await useUndoStore.getState().redo();
   if (!entry) return;
-  await useBlocksStore.getState().load(threadIdForEntry(entry));
+  await refreshAfterUndoRedo(entry);
   showUndoOverlay({
     op: entry.kind,
     preview: previewForEntry(entry),

@@ -28,11 +28,9 @@ import {
   undoLocal,
   updateItemAnnotation,
   updateItemContent,
-  type LocalUndoKind,
   type StagingItem,
 } from '@/lib/collect/stagingBuffer';
 import { getCaptureTargetThread } from '@/lib/db/threads';
-import UndoToast from '@/components/Undo/UndoToast';
 import { useCollectMode } from '@/hooks/useCollectMode';
 
 // Cap so a long collection scrolls inside the panel instead of growing off-screen; the
@@ -40,14 +38,6 @@ import { useCollectMode } from '@/hooks/useCollectMode';
 const MAX_PANEL_HEIGHT = 540;
 // Tiny extra so the card's drop shadow isn't clipped by the OS window's bottom edge.
 const SHADOW_ALLOWANCE = 8;
-const UNDO_FLASH_MS = 2500;
-
-const LOCAL_UNDO_LABEL: Record<LocalUndoKind, string> = {
-  add: '已撤销添加',
-  remove: '已撤销移除',
-  content: '已撤销编辑',
-  annotation: '已撤销批注',
-};
 
 // Drag the panel by its header / collapsed pill so the user can move it off content. The
 // window is non-activating; acceptFirstMouse lets the drag start without focusing it.
@@ -72,17 +62,15 @@ export default function CollectPanel() {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [undoFlash, setUndoFlash] = useState<{ label: string; preview: string } | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const flashTimer = useRef<number | null>(null);
 
   // Auto-size the OS window to the measured content height (capped), so the rounded bottom
   // corner is always visible. The window is top-anchored in Rust, so growth/shrink extends
   // downward and never disturbs a position the user dragged the panel to. cardRef is a
-  // stable wrapper around the collapsed pill / expanded card / undo toast, so the observer
-  // catches every height change (collapse, item add/remove, toast appear).
+  // stable wrapper around the collapsed pill / expanded card, so the observer catches
+  // every height change (collapse, item add/remove).
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
@@ -200,9 +188,11 @@ export default function CollectPanel() {
     return () => window.removeEventListener('keydown', onKey);
   }, [confirming, items.length]);
 
-  // Cmd+Z (§9.13): reverse the last panel-local staging op (add / remove / edit). When the
-  // local sub-undo log is empty, fall through to the MAIN undo ring. Native text undo wins
-  // while a staging textarea is focused (so a typing run is undone there, not the op log).
+  // Cmd+Z (§9.13 cross-window contract): native text undo wins while a staging textarea is
+  // focused (a typing run is undone there, not the op log); otherwise reverse the last
+  // panel-local staging op (add / remove / edit) SILENTLY — the panel visibly updates, so
+  // collect-internal undo needs no toast (Ocean). When the local sub-undo log is empty,
+  // fall through to the MAIN undo ring.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const isUndo =
@@ -213,32 +203,18 @@ export default function CollectPanel() {
         return;
       }
       e.preventDefault();
-      const res = undoLocal();
-      if (res) {
-        setUndoFlash({ label: LOCAL_UNDO_LABEL[res.kind], preview: res.preview });
-        if (flashTimer.current) window.clearTimeout(flashTimer.current);
-        flashTimer.current = window.setTimeout(() => setUndoFlash(null), UNDO_FLASH_MS);
-      } else {
+      if (!undoLocal()) {
         void emit(COLLECT_UNDO_MAIN_EVENT).catch(() => {});
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const annotatedCount = items.filter((it) => it.annotation.trim().length > 0).length;
 
   return (
     <div ref={cardRef} className="w-full">
-      {undoFlash && (
-        <div className="collect-in mb-1.5">
-          <UndoToast label={undoFlash.label} preview={undoFlash.preview} />
-        </div>
-      )}
-
       {collapsed ? (
         <div className="flex justify-end">
           <div
