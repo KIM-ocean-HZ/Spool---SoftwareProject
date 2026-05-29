@@ -145,7 +145,12 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
         </div>
         <div className="flex flex-none items-center gap-1.5">
           <StatusDot status={thread.status} />
-          {thread.deadline != null && <CountdownBadge deadline={thread.deadline} />}
+          {/* A completed project has no live deadline — never show a countdown / 逾期 on it
+              (mirrors FocusSection's done filter). The deadline itself is kept and still
+              editable in the thread header. */}
+          {thread.deadline != null && thread.status !== 'done' && (
+            <CountdownBadge deadline={thread.deadline} />
+          )}
           {/* One marker for capture target (§9.2 / §10.2): a filled accent pin that's
               always visible while this thread IS the target, and a quiet hover-only
               "set as target" button otherwise. Click sets the target without selecting
