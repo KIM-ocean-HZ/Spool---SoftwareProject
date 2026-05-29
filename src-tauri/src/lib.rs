@@ -7,7 +7,22 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance MUST be the first plugin: when a second Spool process is launched
+    // (a stray `open -a Spool` / `tell application "Spool"`, an old bundle, a double-
+    // click), it hands off to the already-running instance and exits BEFORE opening
+    // sqlite:spool.db. That makes it impossible for two processes to contend for the DB —
+    // the root of the "database is locked" + data-wipe incident (2026-05-29). The
+    // callback just surfaces the existing window.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            capture::show_main_window(app);
+        }));
+    }
+
+    builder = builder
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
