@@ -62,6 +62,37 @@ const applySchema = async (db: Database): Promise<void> => {
 // ALTER TABLE migrations that leave every row of user data intact. Any other
 // mismatch — including a brand-new database at user_version 0 — falls back to
 // dropping every table and rebuilding from schema.sql.
+// Best-effort consistent snapshot taken before any schema change. VACUUM INTO copies the
+// live database through the SQL engine (correct even with an open WAL) and needs no fs
+// permission. A failure here must never block startup, so everything is swallowed.
+const backupDbBeforeMigration = async (db: Database, fromVersion: number): Promise<void> => {
+  try {
+    const { appConfigDir, join } = await import('@tauri-apps/api/path');
+    const dir = await appConfigDir();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = await join(dir, `spool.pre-migration-v${fromVersion}-${stamp}.db`);
+    await db.execute(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
+    console.info(`[db] pre-migration backup written: ${dest}`);
+  } catch (e) {
+    console.error('[db] pre-migration backup FAILED (continuing without one):', e);
+  }
+};
+
+// How many real user rows exist right now. Each table is counted independently so a
+// brand-new database (where a table may not exist yet) reports zero instead of throwing.
+const countExistingUserRows = async (db: Database): Promise<number> => {
+  let total = 0;
+  for (const t of ['blocks', 'attachments', 'threads', 'workspaces']) {
+    try {
+      const r = await db.select<{ c: number }[]>(`SELECT COUNT(*) AS c FROM ${t}`);
+      total += r[0]?.c ?? 0;
+    } catch {
+      // Table absent on a fresh database — counts as zero, not an error.
+    }
+  }
+  return total;
+};
+
 const migrateSchema = async (db: Database): Promise<void> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
   const current = rows[0]?.user_version ?? 0;
@@ -69,6 +100,10 @@ const migrateSchema = async (db: Database): Promise<void> => {
     console.info(`[db] schema version ${current} matches; no rebuild`);
     return;
   }
+
+  // The schema is about to change. Snapshot first so every path below — the additive
+  // ALTER migrations AND the destructive rebuild — is recoverable.
+  await backupDbBeforeMigration(db, current);
 
   // v2 → v3: drop `threads.progress` and `threads.next_step` (PLAN_EN.md §8.1).
   // Each DROP COLUMN is guarded independently — on a fresh or already-migrated
@@ -124,7 +159,24 @@ const migrateSchema = async (db: Database): Promise<void> => {
     return;
   }
 
-  console.warn(`[db] schema version ${current} != ${SCHEMA_VERSION}; rebuilding from scratch`);
+  // Unrecognized schema version — the one path that can destroy everything. It must never
+  // run against a populated database. A version we don't know how to migrate from is almost
+  // always a build/database skew (e.g. launching an older commit whose SCHEMA_VERSION is
+  // below this database's user_version); silently dropping here is exactly how real user
+  // data was lost on 2026-05-29. Only a genuinely empty database (fresh install, no rows)
+  // is safe to build from scratch.
+  const existing = await countExistingUserRows(db);
+  if (existing > 0) {
+    throw new Error(
+      `[db] refusing to rebuild: on-disk schema version ${current} is not recognized ` +
+        `(expected ${SCHEMA_VERSION}) and the database already holds ${existing} user rows. ` +
+        `No tables were dropped. This usually means the app was started from a build whose ` +
+        `SCHEMA_VERSION differs from this database — open the matching build, or migrate ` +
+        `deliberately. A snapshot was just written next to spool.db.`,
+    );
+  }
+
+  console.warn(`[db] schema version ${current} != ${SCHEMA_VERSION}; empty DB, building fresh`);
   for (const t of TABLES_TO_DROP) {
     await db.execute(`DROP TABLE IF EXISTS ${t}`);
   }
