@@ -60,4 +60,12 @@ describe('tokenizeContent', () => {
       { text: 'hello world', spine: false, highlight: false, hit: null },
     ]);
   });
+
+  it('never leaks literal == markers into any run (read mode is always highlight)', () => {
+    // §20.5: read mode must never show raw markers, regardless of collapse state — both
+    // states feed the same tokenizer.
+    const runs = tokenizeContent('start ==one== mid ==two== end', { withSpine: true });
+    expect(runs.some((r) => r.text.includes('='))).toBe(false);
+    expect(runs.filter((r) => r.highlight).map((r) => r.text)).toEqual(['one', 'two']);
+  });
 });

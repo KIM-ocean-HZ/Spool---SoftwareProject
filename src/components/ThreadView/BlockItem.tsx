@@ -760,7 +760,12 @@ function TextBlockItem({
                 hits compose as styled text runs (display-only, §2.6). Merged blocks
                 whose content carries the per-segment annotation marker keep their
                 segmented layout (SegmentedContent); search-nav flattens them so every
-                hit is reachable. */}
+                hit is reachable.
+
+                Step 3 §20.5: this is the single READ-mode renderer for content, used in
+                BOTH collapse states — so a ==…== span reads identically collapsed and
+                expanded, never as literal markers. EDIT mode (the textarea below) keeps
+                the raw == source on purpose: editing returns to source. */}
             {hasSegmentAnnotations(block.content) && !isNavTarget ? (
               <SegmentedContent content={block.content} />
             ) : (
@@ -836,15 +841,14 @@ function TextBlockItem({
           />
         ) : (
           <div className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2">
-            {isNavTarget && block.annotation ? (
-              <ContentRuns
-                content={block.annotation}
-                hits={hitsForField(navHits, 'annotation')}
-                activeHitIndex={navHitIndex}
-              />
-            ) : (
-              block.annotation
-            )}
+            {/* Step 3 §20.5: annotations are a read surface too — route through the same
+                tokenizer so a ==…== span (and search hits when navigated) renders as a
+                highlight, never literal markers. No spine on annotations. */}
+            <ContentRuns
+              content={block.annotation ?? ''}
+              hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
+              activeHitIndex={navHitIndex}
+            />
           </div>
         ))}
 
