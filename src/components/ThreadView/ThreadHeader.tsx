@@ -1,13 +1,4 @@
-import {
-  CalendarDays,
-  CheckCircle2,
-  Package,
-  Pin,
-  RefreshCw,
-  RotateCcw,
-  Sparkles,
-  X,
-} from 'lucide-react';
+import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { router } from '@/lib/ai/router';
 import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
@@ -110,40 +101,97 @@ export default function ThreadHeader({
     void patch(thread.id, { title: v }),
   );
 
-  // Status summary (§11.3). The summary is disposable decoration: a failed call
-  // silently reverts the loading state and leaves any cached summary untouched.
+  // Status summary (§9.11). Disposable decoration (§6.3): auto-generated once in the
+  // background, user-editable, silently absent when it can't be produced.
   const [summarizing, setSummarizing] = useState(false);
-  // Staleness is tracked only within this session, starting from a user-triggered
-  // generation — so a new block bumps the "可能已过期" dot without false positives
-  // from the async block load on a thread switch.
-  const [genBaseline, setGenBaseline] = useState<number | null>(null);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(thread.summary ?? '');
+  // Shown once, inline, when the user reaches for the summary affordance but AI is off.
+  const [aiHint, setAiHint] = useState(false);
+  const summaryRef = useRef<HTMLTextAreaElement>(null);
+  // Fires the auto-generate at most once per thread (per session) so block changes can't
+  // re-trigger it mid-flight; keyed by the thread id we attempted.
+  const attemptedRef = useRef<string | null>(null);
+  // Skips the trailing debounce when Esc abandons an edit.
+  const summaryCanceledRef = useRef(false);
+
+  const nonRefBlockCount = blocks.reduce((n, b) => (b.kind !== 'ref' ? n + 1 : n), 0);
+
   useEffect(() => {
-    setGenBaseline(null);
     setSummarizing(false);
+    setEditingSummary(false);
+    setAiHint(false);
   }, [thread.id]);
 
-  const summaryStale =
-    thread.summary != null && genBaseline != null && blocks.length > genBaseline;
+  useEffect(() => {
+    if (!editingSummary) setSummaryDraft(thread.summary ?? '');
+  }, [thread.summary, editingSummary]);
 
-  const canSummarize =
-    thread.status !== 'done' && aiAvailable && blocks.length > 0;
-
-  const handleSummarize = async (): Promise<void> => {
-    if (summarizing) return;
-    setSummarizing(true);
-    try {
-      const { text } = await router.quality(
-        buildStatusPrompt(thread, blocks as Block[], attachmentsByBlock),
-      );
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      await setSummary(thread.id, trimmed);
-      setGenBaseline(blocks.length);
-    } catch {
-      // §6.3 / §18 rule 9: silent degradation — no toast, cached summary kept.
-    } finally {
-      setSummarizing(false);
+  useEffect(() => {
+    if (editingSummary && summaryRef.current) {
+      const el = summaryRef.current;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
     }
+  }, [editingSummary]);
+
+  // Auto-generate once on open (§9.11), background + non-blocking + silent on failure
+  // (§18.9). Only when there's no summary yet, the thread is active, AI is available, and
+  // there are ≥2 non-ref blocks to summarize. Routes Quality→Local with the LRU cache
+  // (§6.5). Generate-once: no staleness tracking, no auto-regeneration.
+  useEffect(() => {
+    if (thread.status === 'done') return;
+    if (thread.summary != null && thread.summary !== '') return;
+    if (editingSummary) return;
+    if (!aiAvailable) return;
+    if (nonRefBlockCount < 2) return;
+    if (attemptedRef.current === thread.id) return;
+    attemptedRef.current = thread.id;
+    const tid = thread.id;
+    setSummarizing(true);
+    void (async () => {
+      try {
+        const { text } = await router.quality(
+          buildStatusPrompt(thread, blocks as Block[], attachmentsByBlock),
+          { cache: true },
+        );
+        const trimmed = text.trim();
+        if (trimmed) await setSummary(tid, trimmed);
+      } catch {
+        // §6.3 / §18.9: silent degradation — no toast, no error styling.
+      } finally {
+        if (attemptedRef.current === tid) setSummarizing(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.id, thread.status, thread.summary, aiAvailable, nonRefBlockCount, editingSummary]);
+
+  // Inline edit: click the summary (or the "write one" affordance) → debounced save (§8.3).
+  useEffect(() => {
+    if (!editingSummary || summaryCanceledRef.current) return;
+    if (summaryDraft === (thread.summary ?? '')) return;
+    const t = setTimeout(() => {
+      const trimmed = summaryDraft.trim();
+      void setSummary(thread.id, trimmed.length > 0 ? trimmed : null);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [summaryDraft, thread.summary, thread.id, editingSummary, setSummary]);
+
+  const enterSummaryEdit = (): void => {
+    summaryCanceledRef.current = false;
+    setSummaryDraft(thread.summary ?? '');
+    setEditingSummary(true);
+    if (!aiAvailable) setAiHint(true);
+  };
+  const commitSummary = (): void => {
+    setEditingSummary(false);
+    setAiHint(false);
+  };
+  const cancelSummary = (): void => {
+    summaryCanceledRef.current = true;
+    setSummaryDraft(thread.summary ?? '');
+    setEditingSummary(false);
+    setAiHint(false);
   };
 
   return (
@@ -155,18 +203,6 @@ export default function ThreadHeader({
           placeholder="无标题"
           className="min-w-0 flex-1 bg-transparent font-serif text-2xl text-ink outline-none placeholder:text-muted/50"
         />
-
-        {canSummarize && thread.summary == null && (
-          <button
-            onClick={() => void handleSummarize()}
-            disabled={summarizing}
-            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-            title="概括当前状态"
-          >
-            <Sparkles size={11} />
-            <span>{summarizing ? '生成中…' : '状态摘要'}</span>
-          </button>
-        )}
 
         <button
           onClick={onPack}
@@ -218,30 +254,55 @@ export default function ThreadHeader({
         </button>
       </div>
 
-      {thread.status !== 'done' && thread.summary != null && (
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <p
-            className="min-w-0 flex-1 truncate text-xs italic text-muted"
-            title={thread.summary}
-          >
-            {summarizing ? '摘要刷新中…' : thread.summary}
-          </p>
-          {summaryStale && !summarizing && (
-            <span
-              className="h-1.5 w-1.5 flex-none rounded-full bg-muted/60"
-              title="有新信息块，摘要可能已过期"
-              aria-label="可能已过期"
-            />
-          )}
-          {canSummarize && (
+      {/* Status summary — visually subordinate/optional (§9.11). Click to edit; auto-fills
+          in the background when AI is available; a quiet affordance when it's empty so the
+          area is never just blank. Hidden for done threads (digest takes over). */}
+      {thread.status !== 'done' && (
+        <div className="mt-1.5">
+          {editingSummary ? (
+            <>
+              <textarea
+                ref={summaryRef}
+                value={summaryDraft}
+                onChange={(e) => setSummaryDraft(e.target.value)}
+                onBlur={commitSummary}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    commitSummary();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelSummary();
+                  }
+                }}
+                rows={2}
+                placeholder="写一句话摘要…"
+                spellCheck={false}
+                className="w-full resize-none bg-transparent text-xs italic leading-snug text-ink-2 outline-none placeholder:text-muted/50"
+              />
+              {aiHint && !aiAvailable && (
+                <p className="text-[11px] text-muted/80">
+                  未配置 AI。可到设置配置，或在此手动写一句。
+                </p>
+              )}
+            </>
+          ) : thread.summary ? (
             <button
-              onClick={() => void handleSummarize()}
-              disabled={summarizing}
-              className="flex flex-none items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted transition-colors hover:text-accent disabled:opacity-50"
-              title="重新生成摘要"
+              onClick={enterSummaryEdit}
+              className="block w-full truncate text-left text-xs italic text-muted transition-colors hover:text-ink-2"
+              title="点击编辑摘要"
             >
-              <RefreshCw size={10} />
-              <span>刷新</span>
+              {thread.summary}
+            </button>
+          ) : summarizing ? (
+            <p className="text-xs italic text-muted/70">正在生成摘要…</p>
+          ) : (
+            <button
+              onClick={enterSummaryEdit}
+              className="text-xs italic text-muted/60 transition-colors hover:text-muted"
+              title="写一句话摘要"
+            >
+              ＋ 写一句话摘要
             </button>
           )}
         </div>
