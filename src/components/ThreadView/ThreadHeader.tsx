@@ -13,7 +13,6 @@ import { router } from '@/lib/ai/router';
 import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread, ThreadStatus } from '@/lib/db/threads';
-import type { Workspace } from '@/lib/db/workspaces';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -23,7 +22,6 @@ export type ThreadViewMode = 'log' | 'digest';
 interface Props {
   thread: Thread;
   blocks: readonly Block[];
-  workspaces: Workspace[];
   onPack: () => void;
   onComplete: () => void;
   onReopen: () => void;
@@ -96,7 +94,6 @@ const fromDateInput = (s: string): number => {
 export default function ThreadHeader({
   thread,
   blocks,
-  workspaces,
   onPack,
   onComplete,
   onReopen,
@@ -173,17 +170,17 @@ export default function ThreadHeader({
 
         <button
           onClick={onPack}
-          className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+          className="flex flex-none items-center gap-1 rounded-full border border-accent bg-accent px-3 py-1 text-xs font-medium text-paper transition-colors hover:border-[var(--accent-2)] hover:bg-[var(--accent-2)]"
           title="打包上下文（⌘⇧P）"
         >
-          <Package size={11} />
+          <Package size={12} />
           <span>打包</span>
         </button>
 
         {thread.status === 'done' ? (
           <button
             onClick={onReopen}
-            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
             title="重新打开（清除完成时间和结论）"
           >
             <RotateCcw size={11} />
@@ -192,7 +189,7 @@ export default function ThreadHeader({
         ) : (
           <button
             onClick={onComplete}
-            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
             title="完成项目"
           >
             <CheckCircle2 size={11} />
@@ -203,15 +200,21 @@ export default function ThreadHeader({
         <button
           onClick={() => void setCaptureTarget(thread.id)}
           disabled={thread.isCaptureTarget}
-          className={`flex flex-none items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+          className={`flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs transition-colors ${
             thread.isCaptureTarget
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-line text-muted hover:border-accent hover:text-accent'
+              ? 'text-ink-2'
+              : 'text-muted hover:border-line-strong hover:text-ink-2'
           }`}
           title={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
         >
-          <Pin size={11} />
+          <Pin size={11} className={thread.isCaptureTarget ? 'fill-current' : ''} />
           <span>{thread.isCaptureTarget ? '捕捉目标' : '设为目标'}</span>
+          {thread.isCaptureTarget && (
+            <span
+              className="h-1.5 w-1.5 flex-none rounded-full bg-accent"
+              aria-hidden
+            />
+          )}
         </button>
       </div>
 
@@ -306,21 +309,6 @@ export default function ThreadHeader({
               <X size={11} />
             </button>
           )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-1.5 text-muted">
-          <span>工作区</span>
-          <select
-            value={thread.workspaceId}
-            onChange={(e) => void patch(thread.id, { workspaceId: e.target.value })}
-            className="rounded border border-line bg-paper px-1.5 py-0.5 text-xs text-ink outline-none focus:border-line-strong"
-          >
-            {workspaces.map((ws) => (
-              <option key={ws.id} value={ws.id}>
-                {ws.title || '未命名'}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
     </header>

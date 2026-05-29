@@ -4,7 +4,6 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
-import { useWorkspacesStore } from '@/stores/workspacesStore';
 import CompleteThreadPanel from './CompleteThreadPanel';
 import DigestView from './DigestView';
 import LogView from './LogView';
@@ -15,7 +14,6 @@ const EMPTY: readonly Block[] = [];
 export default function ThreadView() {
   const activeId = useThreadsStore((s) => s.activeId);
   const thread = useThreadsStore(selectThreadById(activeId));
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
   const patch = useThreadsStore((s) => s.patch);
 
   const blocks = useBlocksStore((s) =>
@@ -93,7 +91,6 @@ export default function ThreadView() {
       <ThreadHeader
         thread={thread}
         blocks={blocks}
-        workspaces={workspaces}
         onPack={() => setPackOpen(true)}
         onComplete={() => setCompleteOpen(true)}
         onReopen={handleReopen}
