@@ -1,4 +1,4 @@
-# Spool — Implementation Blueprint v2.9
+# Spool — Implementation Blueprint v2.10
 
 ---
 
@@ -558,9 +558,10 @@ Blocks persist immediately on creation. Workspace/thread metadata edits, block c
 |---|---|---|
 | Create | "+" in workspace / Cmd+N | Empty thread, focus title |
 | Select | Click sidebar item | Load block feed |
-| Move workspace | Drag item / right-click | Update workspace_id |
+| Rename | Double-click sidebar title (or header) | Inline edit, debounced; Esc cancels (v2.10) |
+| Move workspace | Drag item / right-click menu | Update workspace_id |
 | Edit metadata | Header controls | Debounced write |
-| Set capture target | Header pin / tray | Transactional toggle |
+| Set capture target | Sidebar hover button / header pin / tray | Transactional toggle (v2.10: one-click on sidebar; does not select/navigate) |
 | Complete | Header button | See §9.8 |
 | Delete | Header menu + confirm | Soft-delete; "Unsorted" undeletable |
 
@@ -577,9 +578,10 @@ Blocks persist immediately on creation. Workspace/thread metadata edits, block c
   - Only ONE block active at a time; a new action transfers the highlight.
   - This is the ONLY persistent visual diff between an under-attention block and siblings. Border/shadow/shape uniform — the bias is "find your place," not "this block is special."
   - Pinned-amber-bar and active-tint coexist independently.
-- **Source-category icon** at the source-badge head (v2.6): single mono lucide-react glyph by source string match (Globe / Sparkles / FileText / Code2 / MessageSquare / Terminal / fallback dot). Case-insensitive contains-match on a small lookup. No colors.
+- **Source-category icon** at the source-badge head (v2.6): single mono lucide-react glyph by source string match (Globe / Sparkles / FileText / Code2 / MessageSquare / Terminal / fallback dot). Case-insensitive contains-match on a small lookup. No colors. (v2.10: short ambiguous tokens — `ai`, `arc`, `edge`, `word` — are word-boundary anchored so they no longer mis-fire on ordinary words like "main" / "research" / "knowledge".)
+- **First-line spine** (v2.10, display-only): a `text` block renders its opening line — the first paragraph if there is a blank line, else the first physical line — at a slightly heavier weight (font-weight 500, §13.4). Computed at render time from the content string; never stored, no markdown-heading parsing, not applied to `ref` blocks (§2.6).
 - **Date dividers between days.** Thin horizontal divider with date in small mono ("5月17日 周六"); `1px var(--line)`; the dominant scanning aid in long threads.
-- **Smart truncation**: text block > ~6 lines truncated with "show more / show less." On search-navigation, the block auto-expands (§9.10, v2.9). Toggle fires the active-state highlight so the user keeps orientation.
+- **Smart truncation** (v2.10 softened): a block collapses to ~6 lines only when it meaningfully exceeds them (> ~8 lines) — never to hide just 1–2 lines. The collapsed cut is a soft mask fade to `--paper` over the last lines (not a hard clip / ellipsis), with a quiet "展开全部 / 收起" control below. On search-navigation, the block auto-expands (§9.10, v2.9). Toggle fires the active-state highlight so the user keeps orientation.
 - **Hover actions** (`BlockActions`): 📌 pin / ✎ edit / 📎 attach / ✑ annotate / copy / delete.
 - `Composer`: persistent input; Enter appends a `text` block, Shift+Enter newline. `@` triggers mention (§9.7).
 - **Feed sort**: chronological by default. A "by source" toggle reorders the same linear feed. This is a reordering, not a new view — growing it into grouping/filtering/separate-pane is rejected under §2.6 (§19.10). In source-sort mode date dividers are hidden.
@@ -607,7 +609,7 @@ Trigger flow (default capture): read clipboard text → get foreground app + bro
 
 ### 9.5 Context Packer (the crown feature)
 
-"Pack context" button on thread header (Cmd+Shift+P).
+"Pack context" button on thread header (Cmd+Shift+P). v2.10: Pack is the **accent / primary action** in the header (the North Star, §2.2); 「完成项目」 stays neutral and 「捕捉目标」 is a quiet stateful toggle (filled pin + amber dot when this thread is the target, muted outline otherwise). The persistent workspace-selector dropdown was removed from the header — move a thread via sidebar drag or its right-click menu (§9.2).
 
 - **Core assembly is the pure function `assemble.ts` — no AI, no network.**
 - Template (in `templates.ts`) embeds an **English instruction header** before user content. Header in English regardless of UI language because LLMs follow English instructions more reliably (§19.13). User content stays in original language. Header's final line asks AI to respond in user's preferred language.
@@ -717,7 +719,7 @@ In pack (§9.5): a block's opted-in attachments inline beneath it; all attachmen
   1. `SidebarSummary`: "X active · Y due this week · Z parked"
   2. `FocusSection`: across workspaces, deadlined not-done, sorted by countdown, ~5 max. <48h red, overdue dark red
   3. Workspace tree: collapsible groups. Within: active/parked top (deadline-urgent first then `updated_at`), done dimmed bottom. Draggable between groups
-- `ThreadListItem` right side: `StatusDot` + `CountdownBadge`.
+- `ThreadListItem` right side: `StatusDot` + `CountdownBadge` + capture-target pin. The `CountdownBadge` is hidden on `done` threads — a completed project is never overdue (v2.10 fix; `FocusSection` already excludes done).
 
 ### 9.10 Full-Text Search (v2.9 enhanced)
 
@@ -745,7 +747,7 @@ In pack (§9.5): a block's opted-in attachments inline beneath it; all attachmen
 
 Two **optional, non-blocking** features; entry points hidden silently in privacy mode or with no model.
 
-- **Status summary**: header button → `router.quality` → ~50 chars into `threads.summary`. Marked stale after new block. On failure → silently not shown.
+- **Status summary** (v2.10 — was a manual header button): **auto-generated once** on thread open — background, non-blocking, fire-and-forget, silent on failure (§18.9) — ONLY when `summary` is empty, the thread is active, AI is available, and there are ≥2 non-ref blocks. Routes `router.quality` (Quality→Local) with the LRU cache (§6.5); an attempt-ref fires it once so block changes can't re-trigger or clobber it. **Generate-once**: no staleness tracking, no auto-regeneration (the live newest-at-bottom feed is the real "where you left off", §3.3). The text is **click-to-edit** (debounced save, §8.3); a user-written summary is never overwritten (the empty guard). When AI is unavailable, a quiet "＋ 写一句话摘要" affordance shows instead of nothing, with a one-line inline hint on click (no popup/error styling, §14.4). Stays visually subordinate (italic subtitle); the `summarizeStatus` prompt body is unchanged (§18.5).
 - **Conclusion summary**: §9.8 optional at completion. On failure/`NO_DIGEST` → section silently hidden; digest view still complete on pins + attachments.
 - **Capture classification**: background `router.fast` after capture. Only at high/medium confidence does `RouteSuggestion` appear. One click moves; ignore leaves. **Never auto-moves.**
 
@@ -772,17 +774,20 @@ Keys via `tauri-plugin-store`.
 
 > Promoted from "planned follow-up" (Strategic Brief §6) to formal spec. Closes a long-standing gap: a user who fat-fingers a delete, an unintended merge, or a stray double-tap ⌥ that captured the wrong clipboard should have a one-key way back. The mechanism is intentionally **narrow** — a small safety net, not a general undo stack — so it stays predictable and cheap to maintain.
 
-**Shortcut**: Cmd+Z (Ctrl+Z on Win/Linux) anywhere in the main window AND inside the collect-mode panel window (§20.9).
+**Shortcut**: Cmd+Z (Ctrl+Z on Win/Linux) anywhere in the main window AND inside the collect-mode panel window (§20.9). **Focus-split (v2.10)**: when focus is in a text input / textarea / contentEditable, Cmd+Z falls through to the browser's **native** text undo (per-keystroke, Word-like, IME-safe) — the operation ring runs only when focus is NOT in an editable field. (All edit textareas are pure-passthrough controlled inputs, so native undo history stays intact — no uncontrolled-ref pattern needed.)
 
 **Scope** — last ~10 of these operations is reversible:
 - **Capture** → undo deletes the most recently captured block (same effect as capture toast's existing Undo action; Cmd+Z is a global second path).
 - **Merge** (§20.1) → restores source blocks at their original feed positions, deletes the survivor. Annotations, attachments, pinned state restored to original owners.
 - **Delete** (BlockActions trash) → restores deleted block with attachments and annotations. Position by `created_at`.
 - **Collect-mode Send** (§20.9) → deletes the block the panel just merged-and-wrote. If the panel is still open and empty, original staging items are re-staged into it; if a new panel session has started, undo only deletes the written block.
+- **Highlight** (§20.5, v2.10) → restores the block's pre-gesture content. Payload `{ blockId, beforeContent }`; skipped if the block was edited since (same invalidation as below).
+- **Thread delete** (v2.10) → clears the thread's soft-delete `deleted_at`; its blocks (which have no `deleted_at`) return with it. Payload `{ threadId, title }`.
+- **Workspace delete** (v2.10) → clears `deleted_at` on the workspace AND only the threads that delete stamped with one shared timestamp, so threads the user had deleted earlier stay deleted. Payload `{ workspaceId, deleteTimestamp }`. (Inbox is undeletable, so it never produces this entry.)
 
 **Out of scope** (NOT undoable via Cmd+Z):
 - Block content edit / annotation edit / source-badge edit / pin-unpin — reversible by reverse action.
-- Workspace/thread create/rename/move/delete — lower-volume; recovery via reverse action or future Trash surface (§17 v1.5).
+- Workspace/thread create / rename / move — lower-volume; recovery via reverse action. (Thread + workspace **delete** ARE undoable as of v2.10 — see Scope above.)
 
 **Storage**: in-memory ring in `lib/undo/undoLog.ts`, capacity 10. Lost on app restart. Persisting undo across restarts is NOT a goal — this is "I just did the wrong thing, fix it now," not "yesterday I made a mistake."
 
@@ -794,14 +799,14 @@ Keys via `tauri-plugin-store`.
 - All entries empty or invalidated → quiet "Nothing to undo" toast.
 
 **Feedback**: every successful undo shows `UndoToast` (in `Undo/UndoToast.tsx`) in the same corner as capture toast:
-- "已撤销:捕获 / 已撤销:合并 / 已撤销:删除 / 已撤销:暂存合并" + first ~12 chars of restored block.
+- "已撤销:捕获 / 已撤销:合并 / 已撤销:删除 / 已撤销:暂存合并" + first ~12 chars of restored block. v2.10 adds "已撤销:高亮", "已撤销:删除项目「<title>」", "已撤销:删除工作区".
 - Auto-dismiss ~2.5s, paused on hover.
 - Shown in the window where Cmd+Z was pressed.
 - NO "redo" action.
 
 **Cross-window contract**:
 - Capture via overlay → main SQLite; main window's Cmd+Z can undo it (undo log shared via `undoStore` listening on Tauri event from `capture.rs`).
-- Collect panel runs its own local sub-undo for staging ops (add/remove/edit staging item). Cmd+Z in panel first checks local sub-undo; if empty, falls through to main undo log. A user can repeatedly undo within a staging session without affecting committed blocks.
+- Collect panel runs its own local sub-undo for staging ops (add/remove/edit staging item). Cmd+Z in panel first checks field-focus (→ native text undo, v2.10), then the local sub-undo, then falls through to the main undo log. A user can repeatedly undo within a staging session without affecting committed blocks. v2.10: the local sub-undo is **silent** — no `UndoToast`; the panel visibly updates, so collect-internal undo needs no feedback.
 - A `collect_send` op enters the MAIN undo log (it persists a block); panel-local staging ops do not.
 
 **Interaction with the existing toast Undo**: both reach the same `undoLog.ts` machinery. The toast Undo is discoverable; Cmd+Z is muscle-memory. Both fire identical reversal.
@@ -1430,7 +1435,7 @@ Dogfooding showed users don't use the separate ✑ annotate hover action — the
 
 **Gesture, not syntax.** Select text within a block; a small floating prompt appears ("标为重点?"); on confirm, the app wraps the selection in `==...==` **in the stored content string**. Resolves two failure modes: users don't memorize Markdown syntax (the gesture does it), and the highlight survives editing (stored as plain-text markers, not fragile selection offsets).
 
-- Display: `==...==` renders as quiet highlight (e.g. `--selection`). Editing the block shows raw `==` markers (edit returns to source).
+- **Read mode** (v2.10): `==...==` renders as a quiet highlight (`--selection`) in BOTH collapsed and expanded states — never literal markers — through the shared content **run-tokenizer** (the same display-only `<mark>` mechanism as search highlighting, §9.10; a run can be highlight / search-hit / spine, or any combination). Annotations render through the same path, so no read surface shows raw `==`. **Edit mode** keeps the raw `==` source (editing returns to source; no contentEditable, §2.6). This fixed the bug where an expanded block showed raw `==XXX==` while the collapsed view showed the highlight.
 - Pack: `assemble.ts` recognizes `==(.+?)==`; pack header (§9.5) gains a line telling AI these are user-emphasized key points to prioritize. Relationship to pin: pin = whole block is core; highlight = sentence within a block is key. They coexist; header mentions both without double-emphasizing.
 - **NOT the rejected rich-text editor (§2.6).** Storage is plain-text Markdown markers, not a rich-text document model. No toolbar, no WYSIWYG, no offset tracking. The gesture is sugar over a text mutation.
 
@@ -1529,5 +1534,5 @@ macOS only: when user switches active app/space, the staging panel must follow.
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.9 (supersedes v2.8; changes in this revision: (1) Collect Mode promoted from Strategic-Brief informality into PLAN proper as §20.9 with window-following fix and full Send/Discard contract — Track B → graduating; (2) §2.5.1 Design Bias on Personal Annotation added — bias, not 7th principle; (3) §9.13 Undo Operation formalized — Cmd+Z, ~10-deep ring, covers capture/merge/delete/collect-send, main + collect panel; (4) §9.10 Search gains auto-expand on navigate + multi-occurrence highlight + vscode-style next-match navigator; (5) §19.17 / 19.18 / 19.19 bug entries added as dogfooding-found fixes; (6) Phase 11.5 inserted into roadmap. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.)
-Last updated: 2026-05-27
+Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.)
+Last updated: 2026-05-29
