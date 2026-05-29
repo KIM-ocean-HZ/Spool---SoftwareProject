@@ -6,16 +6,18 @@ import type { LucideIcon } from 'lucide-react';
 // blocks" idea (§2.6).
 //
 // Case-insensitive contains-match, first hit wins. The chat-assistant rule is
-// checked last on purpose: its bare `ai` token is a substring of common words —
-// notably "mail" — so every more specific category gets first refusal. §19.11
-// tracks tuning this table against real dogfooding data.
+// checked last on purpose. Short tokens that are substrings of ordinary words are
+// word-boundary anchored so the wrong glyph never renders: bare `ai` matched
+// "main"/"domain", `arc` matched "search"/"research", `edge` matched "knowledge",
+// `word` matched "keyword". `openai` is kept explicitly since `\bai\b` no longer
+// catches it. §19.11 tracks broadening this table against real dogfooding data.
 const RULES: readonly [RegExp, LucideIcon][] = [
-  [/safari|chrome|edge|brave|arc|firefox|http/i, Globe],
-  [/preview|word|pdf|pages|keynote/i, FileText],
+  [/safari|chrome|\bedge\b|brave|\barc\b|firefox|http/i, Globe],
+  [/preview|\bword\b|pdf|pages|keynote/i, FileText],
   [/vscode|xcode|jetbrains|sublime|cursor/i, Code2],
   [/mail|wechat|slack|messages|discord|telegram/i, MessageSquare],
   [/terminal|iterm|warp/i, Terminal],
-  [/chatgpt|gpt|gemini|claude|copilot|ai/i, Sparkles],
+  [/chatgpt|gpt|gemini|claude|copilot|openai|\bai\b/i, Sparkles],
 ];
 
 // Unknown source / no match → a small filled dot, rendered muted at the badge head.

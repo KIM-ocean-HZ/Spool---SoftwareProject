@@ -1,11 +1,12 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import { ContentRuns } from '@/lib/blocks/contentRuns';
 import {
-  HIGHLIGHT_RE,
   isCurrentlyHighlighted,
   isHighlightable,
   toggleHighlight,
 } from '@/lib/blocks/highlight';
+import { hasSegmentAnnotations } from '@/lib/blocks/segments';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
@@ -40,12 +41,17 @@ interface Props {
   onDelete?: () => void;
 }
 
-// Collapsed line cap for smart truncation (PLAN_EN.md §9.3 / §Phase 6). 6 lines is
-// enough that a paragraph-sized capture reads in full while a long PDF dump or chat
-// snippet still earns the toggle. Compared via DOM scrollHeight vs clientHeight in a
-// layout effect — driving it off `content.split('\n').length` alone misses wrap-long
-// single lines and reports false positives on short blocks with display newlines.
+// Collapsed display height for smart truncation (PLAN_EN.md §9.3 / §Phase 6) — a
+// collapsed block shows ~6 lines, with the last fading out (.feed-fade) instead of a
+// hard cut. Step 2: truncation only ENGAGES past TRUNCATE_AT_LINES so a block is never
+// collapsed just to hide 1–2 lines. Overflow is measured via DOM scrollHeight (full
+// content height even under the max-height clamp) against the line height — driving it
+// off `content.split('\n').length` alone misses wrap-long single lines.
 const COLLAPSED_LINES = 6;
+const TRUNCATE_AT_LINES = 8;
+// Em line-height matching the content's `leading-[1.65]`, used to derive the collapsed
+// max-height from COLLAPSED_LINES without a JS measurement round-trip.
+const LINE_HEIGHT_EM = 1.65;
 
 const isUrl = (s: string): boolean => /^https?:\/\//i.test(s.trim());
 
@@ -66,93 +72,6 @@ const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
 // block before in-block navigation auto-dismisses. Long enough that an
 // incidental wheel nudge doesn't drop the highlights mid-read.
 const NAV_SCROLL_DISMISS_PX = 200;
-
-// Render `text` with every search-hit position wrapped in <mark> and any
-// pre-existing `==…==` highlight preserved. The renderer is a single pass over
-// the union of mark intervals (== caps stripped, highlight content kept, hits
-// overlayed) so a hit inside an existing highlight still nests both wrappers.
-//
-// Active hit gets a brighter amber background (--highlight) plus an inset
-// accent ring so it stays visually loud after the user lands — orientation
-// holds even when the .flash animation isn't running. CSS transition smooths
-// the active↔inactive swap as ▲/▼ moves through hits.
-const renderWithHits = (
-  text: string,
-  hits: ReadonlyArray<{ start: number; end: number; idx: number }>,
-  activeHitIndex: number,
-): ReactNode => {
-  if (hits.length === 0 && !text.includes('==')) return text;
-
-  type Interval =
-    | { kind: 'hit'; start: number; end: number; idx: number }
-    | { kind: 'highlight'; start: number; end: number }
-    | { kind: 'cap'; start: number; end: number };
-
-  const intervals: Interval[] = [];
-  // Persistent ==…== highlights: emit the inner span as a highlight interval
-  // and the surrounding two-char markers as caps (stripped from the output).
-  for (const m of text.matchAll(HIGHLIGHT_RE)) {
-    const s = m.index ?? 0;
-    const e = s + m[0].length;
-    intervals.push({ kind: 'cap', start: s, end: s + 2 });
-    intervals.push({ kind: 'highlight', start: s + 2, end: e - 2 });
-    intervals.push({ kind: 'cap', start: e - 2, end: e });
-  }
-  for (const h of hits) {
-    intervals.push({ kind: 'hit', start: h.start, end: h.end, idx: h.idx });
-  }
-
-  const breakpoints = new Set<number>([0, text.length]);
-  for (const it of intervals) {
-    breakpoints.add(it.start);
-    breakpoints.add(it.end);
-  }
-  const sorted = [...breakpoints].sort((a, b) => a - b);
-
-  const parts: ReactNode[] = [];
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const segStart = sorted[i]!;
-    const segEnd = sorted[i + 1]!;
-    if (segStart >= segEnd) continue;
-    if (intervals.some((it) => it.kind === 'cap' && segStart >= it.start && segEnd <= it.end)) {
-      continue; // == cap chars: never render visibly
-    }
-    const segText = text.slice(segStart, segEnd);
-    const hit = intervals.find(
-      (it): it is Extract<Interval, { kind: 'hit' }> =>
-        it.kind === 'hit' && segStart >= it.start && segEnd <= it.end,
-    );
-    const inHighlight = intervals.some(
-      (it) => it.kind === 'highlight' && segStart >= it.start && segEnd <= it.end,
-    );
-
-    if (hit) {
-      const isActive = hit.idx === activeHitIndex;
-      parts.push(
-        <mark
-          key={i}
-          data-hit-index={hit.idx}
-          className={`rounded-sm px-0.5 text-ink transition-colors duration-200 ${
-            isActive
-              ? 'bg-[var(--highlight)] shadow-[inset_0_0_0_1px_var(--accent-2)]'
-              : 'bg-[var(--selection)]'
-          }`}
-        >
-          {segText}
-        </mark>,
-      );
-    } else if (inHighlight) {
-      parts.push(
-        <mark key={i} className="rounded-sm bg-[var(--selection)] px-0.5 text-ink">
-          {segText}
-        </mark>,
-      );
-    } else {
-      parts.push(<Fragment key={i}>{segText}</Fragment>);
-    }
-  }
-  return <Fragment>{parts}</Fragment>;
-};
 
 // Filter the flat hits array down to one field and keep each hit's global
 // index in the original array — InBlockNavigator counts and the active-index
@@ -309,15 +228,20 @@ function TextBlockItem({
     if (editingContent) return; // measurement only applies to the rendered prose path
     const el = measureRef.current;
     if (!el) return;
-    setNeedsTruncation(el.scrollHeight - el.clientHeight > 1);
-  }, [block.content, collapsed, editingContent]);
+    // scrollHeight reports the full content height even under the max-height clamp, so
+    // this is stable across collapse toggles. Step 2: only truncate when the content is
+    // meaningfully longer than the collapsed view (> TRUNCATE_AT_LINES), never to hide a
+    // line or two.
+    const lineHeightPx = parseFloat(getComputedStyle(el).lineHeight) || 24;
+    setNeedsTruncation(el.scrollHeight > lineHeightPx * TRUNCATE_AT_LINES + 1);
+  }, [block.content, editingContent]);
 
   // v2.9 §9.10 / §19.17: while this block owns the active search navigation,
   // override the collapsed truncation so every hit is visible (auto-expand).
   // The user's own toggle resumes control as soon as navigation clears — the
   // override is read-only on `collapsed`, not a write, so the prior value is
-  // preserved.
-  const showCollapsed = collapsed && !isNavTarget;
+  // preserved. Also gated on needsTruncation so short blocks never get clamped/faded.
+  const showCollapsed = collapsed && needsTruncation && !isNavTarget;
 
   // Search-navigation also triggers the active-block tint per §13.3, so the
   // destination block reads orientation just like any other deliberate action.
@@ -822,29 +746,31 @@ function TextBlockItem({
             style={
               showCollapsed
                 ? {
-                    display: '-webkit-box',
-                    WebkitLineClamp: COLLAPSED_LINES,
-                    WebkitBoxOrient: 'vertical',
+                    maxHeight: `${COLLAPSED_LINES * LINE_HEIGHT_EM}em`,
                     overflow: 'hidden',
                   }
                 : undefined
             }
-            className="whitespace-pre-wrap break-words font-ui text-[15px] leading-[1.65] text-ink"
+            className={`whitespace-pre-wrap break-words font-ui text-[15px] leading-[1.65] text-ink ${
+              showCollapsed ? 'feed-fade' : ''
+            }`}
           >
-            {/* v2.8 §20.1 follow-up: merged blocks whose content carries the per-
-                segment annotation marker render as a list of segments with each
-                annotation visually attached. Un-merged blocks (and merged blocks
-                without per-segment annotations) take SegmentedContent's fast path
-                and render identically to HighlightedContent.
-
-                v2.9 §9.10 / §19.17: when this block is the search-navigation
-                target, route content through the hit-aware renderer so every
-                match is wrapped in <mark> (active one amber-fading). The
-                renderer still preserves ==…== highlights — no styling regression
-                during nav. */}
-            {isNavTarget
-              ? renderWithHits(block.content, hitsForField(navHits, 'content'), navHitIndex)
-              : <SegmentedContent content={block.content} />}
+            {/* Step 2 §9.3 / §13.4: content renders through the run tokenizer
+                (ContentRuns) — the first-line spine, ==…== highlights, and search
+                hits compose as styled text runs (display-only, §2.6). Merged blocks
+                whose content carries the per-segment annotation marker keep their
+                segmented layout (SegmentedContent); search-nav flattens them so every
+                hit is reachable. */}
+            {hasSegmentAnnotations(block.content) && !isNavTarget ? (
+              <SegmentedContent content={block.content} />
+            ) : (
+              <ContentRuns
+                content={block.content}
+                hits={isNavTarget ? hitsForField(navHits, 'content') : undefined}
+                activeHitIndex={navHitIndex}
+                withSpine
+              />
+            )}
           </div>
           {highlightPrompt && (
             <button
@@ -865,7 +791,7 @@ function TextBlockItem({
               {selectionAlreadyHighlighted ? '取消重点?' : '标为重点?'}
             </button>
           )}
-          {(needsTruncation || !showCollapsed) && !isNavTarget && (
+          {needsTruncation && !isNavTarget && (
             <button
               type="button"
               onClick={() => {
@@ -910,13 +836,15 @@ function TextBlockItem({
           />
         ) : (
           <div className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2">
-            {isNavTarget && block.annotation
-              ? renderWithHits(
-                  block.annotation,
-                  hitsForField(navHits, 'annotation'),
-                  navHitIndex,
-                )
-              : block.annotation}
+            {isNavTarget && block.annotation ? (
+              <ContentRuns
+                content={block.annotation}
+                hits={hitsForField(navHits, 'annotation')}
+                activeHitIndex={navHitIndex}
+              />
+            ) : (
+              block.annotation
+            )}
           </div>
         ))}
 

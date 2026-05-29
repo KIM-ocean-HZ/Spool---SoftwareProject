@@ -50,4 +50,22 @@ describe('sourceIcon', () => {
     expect(sourceIcon('')).toBe(Circle);
     expect(sourceIcon('面试笔记')).toBe(Circle);
   });
+
+  it('does not let short substring tokens steal the wrong glyph (Step 2)', () => {
+    // "arc" is embedded in research/search; only the standalone Arc browser is Globe.
+    expect(sourceIcon('Research.docx — Word')).toBe(FileText);
+    expect(sourceIcon('Search Results')).toBe(Circle);
+    // "ai" is embedded in main/domain; only standalone "AI" / named products are Sparkles.
+    expect(sourceIcon('main.rs')).toBe(Circle);
+    expect(sourceIcon('Domain modeling')).toBe(Circle);
+    // "edge" in knowledge, "word" in keyword.
+    expect(sourceIcon('Knowledge Base')).toBe(Circle);
+    expect(sourceIcon('Keyword research')).toBe(Circle);
+  });
+
+  it('still matches standalone AI, named assistants, and the Edge browser', () => {
+    expect(sourceIcon('Perplexity AI')).toBe(Sparkles);
+    expect(sourceIcon('OpenAI')).toBe(Sparkles);
+    expect(sourceIcon('Microsoft Edge')).toBe(Globe);
+  });
 });
