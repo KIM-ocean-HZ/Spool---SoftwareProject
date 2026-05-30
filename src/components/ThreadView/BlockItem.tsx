@@ -825,27 +825,42 @@ function TextBlockItem({
           show a barely-there input rather than competing for attention. */}
       {(block.annotation || editingAnnotation) &&
         (editingAnnotation ? (
-          <textarea
-            ref={annotationRef}
-            value={annotationDraft}
-            onChange={(e) => setAnnotationDraft(e.target.value)}
-            onBlur={() => void commitAnnotation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
-                if (editingContent) cancelAll();
-                else cancelAnnotation();
-              } else if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void commitAnnotation();
-              }
-            }}
-            rows={2}
-            placeholder="批注（可选）"
-            className="mt-1.5 w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
-            spellCheck={false}
-          />
+          <div className="mt-1.5">
+            <textarea
+              ref={annotationRef}
+              value={annotationDraft}
+              onChange={(e) => setAnnotationDraft(e.target.value)}
+              onBlur={() => void commitAnnotation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
+                  if (editingContent) cancelAll();
+                  else cancelAnnotation();
+                }
+                // §3.6: Enter inserts a newline (commit is the 完成 button or blur). This is
+                // also why a Chinese-IME Enter that confirms a candidate no longer ends the
+                // note prematurely — Enter never commits here.
+              }}
+              rows={2}
+              placeholder="批注（可选）"
+              className="w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
+              spellCheck={false}
+            />
+            <div className="mt-1 flex justify-end">
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()} // don't blur the textarea first
+                onClick={() => {
+                  if (editingContent) void commitContent();
+                  void commitAnnotation();
+                }}
+                className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-accent hover:bg-accent/10"
+              >
+                完成
+              </button>
+            </div>
+          </div>
         ) : (
           <div
             // Double-click the annotation itself to edit just the annotation in place

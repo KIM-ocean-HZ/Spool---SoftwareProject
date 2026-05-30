@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, RotateCw, X } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { Forward, Pin, RotateCcw, RotateCw, X } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import {
@@ -28,7 +28,7 @@ import {
   type OverlayUndoPayload,
 } from '@/lib/capture/overlayProtocol';
 import type { Thread } from '@/lib/db/threads';
-import { createThread, listAllThreads } from '@/lib/db/threads';
+import { listAllThreads } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { listWorkspaces } from '@/lib/db/workspaces';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -362,11 +362,6 @@ export default function CaptureOverlay() {
     }
   }, [expanded]);
 
-  const inboxWs = useMemo(
-    () => workspaces.find((w) => (w.title || '').includes('收件箱')) ?? workspaces[0],
-    [workspaces],
-  );
-
   if (!content) return null;
 
   if (content.kind === 'notice') {
@@ -484,34 +479,6 @@ export default function CaptureOverlay() {
     });
   };
 
-  const onSaveAsNew = async (): Promise<void> => {
-    if (!inboxWs) return;
-    let newThread: Thread;
-    let newBlock: Block;
-    try {
-      newThread = await createThread(inboxWs.id, '');
-      await deleteBlock(toast.blockId);
-      newBlock = await createBlock({
-        threadId: newThread.id,
-        kind: 'text',
-        content: toast.fullContent,
-        source: toast.source,
-      });
-    } catch (e) {
-      console.error('[overlay] save-as-new failed', e);
-      return;
-    }
-    emitAction({
-      kind: 'save-as-new',
-      oldBlockId: toast.blockId,
-      oldThreadId: toast.threadId,
-      newBlock,
-      newThread,
-    });
-    setContent(null);
-    hideOverlay();
-  };
-
   // v2.8 §20.6: pin the just-captured block from the expanded toast. Local state
   // updates immediately so the icon feedback feels instant; DB write + cross-window
   // sync follow. togglePinDb returns the new value — we trust it over the local guess.
@@ -542,6 +509,18 @@ export default function CaptureOverlay() {
     hideOverlay();
   };
 
+  // Finish editing the note: commit + collapse (so auto-dismiss can resume). Cancel: discard
+  // the draft + collapse. Same shape as a block's annotation editor (§3.6 unification).
+  const finishNote = (): void => {
+    flushPendingNote();
+    setExpanded(false);
+  };
+  const cancelNote = (): void => {
+    pendingNoteRef.current = null;
+    setAnnotationDraft('');
+    setExpanded(false);
+  };
+
   return (
     <div
       ref={cardRef}
@@ -550,114 +529,117 @@ export default function CaptureOverlay() {
       className="overlay-in relative w-full rounded-lg border border-line-strong bg-paper"
       style={{ boxShadow: 'var(--shadow-toast)' }}
     >
-      {/* × close — explicit dismiss. */}
-      <button
-        type="button"
-        onClick={dismissToast}
-        title="关闭 (Esc)"
-        aria-label="关闭"
-        className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-muted/70 hover:bg-paper-2 hover:text-ink"
-      >
-        <X size={11} />
-      </button>
-
-      <div className="cursor-grab px-3.5 pb-2 pt-3 pr-7 active:cursor-grabbing" onMouseDown={startToastDrag}>
-        <div className="font-ui text-[14px] leading-snug text-ink">
-          <span className="text-muted">「</span>
-          {toast.preview}
-          <span className="text-muted">」</span>
-        </div>
-        <div className="mt-1.5 text-[11px] text-muted">
-          已存入 <span className="text-ink">{toast.workspaceTitle}</span>
-          <span className="text-muted/60"> / </span>
-          <span className="text-ink">{toast.threadTitle}</span>
-          {toast.source && (
-            <>
-              <span className="text-muted/60"> · </span>
-              <span className="text-ink-2">来自 {toast.source}</span>
-            </>
-          )}
-        </div>
-        {/* v2.8 §20.6 follow-up: explicit affordance for the expand interaction.
-            Dogfooding showed users didn't realise clicking the toast body opened
-            a pin/note panel. Now an inline "+ 添加批注·置顶" button advertises it
-            with a chevron; the prior click-anywhere-to-expand model was an
-            invisible behaviour and is removed. */}
-        {!expanded && (
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            onMouseDown={(e) => e.stopPropagation()}
-            title="点击展开：可置顶 / 添加批注"
-            className="mt-1.5 flex items-center gap-1 rounded text-[11px] text-muted hover:text-accent"
-          >
-            <MessageSquarePlus size={11} />
-            <span>添加批注 · 置顶</span>
-            <ChevronDown size={11} />
-          </button>
-        )}
+      {/* Top-right cluster: one-click 📌 pin (no longer bundled with the note) + × close. */}
+      <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-0.5">
+        <button
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => void onTogglePin()}
+          title={pinned ? '取消置顶' : '置顶'}
+          aria-label={pinned ? '取消置顶' : '置顶'}
+          className={`rounded p-1 transition-colors ${
+            pinned ? 'text-accent' : 'text-muted/70 hover:bg-paper-2 hover:text-ink'
+          }`}
+        >
+          <Pin size={12} className={pinned ? 'fill-current' : ''} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={dismissToast}
+          title="关闭 (Esc)"
+          aria-label="关闭"
+          className="rounded p-1 text-muted/70 hover:bg-paper-2 hover:text-ink"
+        >
+          <X size={11} />
+        </button>
       </div>
 
-      {/* v2.8 §20.6: pin + annotation surface, mounted only after the user clicks
-          the explicit affordance above. Default state never shows these controls
-          so the toast stays glanceable per §10.3. */}
+      {/* Body — the captured content takes the lead; attribution is a quiet condensed line.
+          Drag to move; double-click anywhere to reveal the note editor (no visible affordance,
+          per the redesign — keeps the toast clean). */}
+      <div
+        className="cursor-grab px-3.5 pb-2 pt-2.5 pr-14 active:cursor-grabbing"
+        onMouseDown={startToastDrag}
+        onDoubleClick={() => setExpanded(true)}
+        title="双击添加批注"
+      >
+        <div className="line-clamp-2 whitespace-pre-wrap break-words font-ui text-[14px] leading-snug text-ink">
+          {toast.fullContent}
+        </div>
+        <div
+          className="mt-1 truncate font-mono text-[10px] text-muted"
+          title={`${toast.workspaceTitle} / ${toast.threadTitle}${toast.source ? ` · ${toast.source}` : ''}`}
+        >
+          {toast.workspaceTitle}
+          <span className="text-muted/50"> / </span>
+          {toast.threadTitle}
+          {toast.source && <span className="text-muted/50"> · {toast.source}</span>}
+        </div>
+      </div>
+
+      {/* Note editor — revealed by double-clicking the body. Enter = newline; 「完成」 (or
+          click-away / Tab) commits; Esc cancels — identical to a block's annotation (§3.6). */}
       {expanded && (
         <div className="border-t border-line px-3.5 py-2.5">
-          <div className="flex items-start gap-2">
+          <textarea
+            ref={annotationRef}
+            value={annotationDraft}
+            onChange={(e) => {
+              setAnnotationDraft(e.target.value);
+              // Mirror the draft into the ref each keystroke so a click-away / dismiss path
+              // (which may not fire onBlur) can still flush it.
+              pendingNoteRef.current = {
+                blockId: toast.blockId,
+                threadId: toast.threadId,
+                draft: e.target.value,
+              };
+            }}
+            onBlur={finishNote}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation(); // keep the window-level Esc from dismissing the toast
+                cancelNote();
+              }
+            }}
+            placeholder="批注（可选）"
+            rows={2}
+            spellCheck={false}
+            className="w-full resize-none rounded-md border border-line bg-paper-2/40 px-2 py-1.5 font-ui text-[12px] leading-[1.5] text-ink-2 placeholder:text-muted/70 outline-none focus:border-line-strong focus:bg-paper focus:text-ink"
+          />
+          <div className="mt-1.5 flex justify-end">
             <button
               type="button"
-              onClick={() => void onTogglePin()}
-              title={pinned ? '取消置顶' : '标为重点 (置顶)'}
-              aria-label={pinned ? '取消置顶' : '置顶'}
-              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                pinned
-                  ? 'border-accent bg-accent-soft text-accent'
-                  : 'border-line-strong bg-paper text-muted hover:border-accent hover:text-accent'
-              }`}
+              onMouseDown={(e) => e.preventDefault()} // don't blur the textarea first
+              onClick={finishNote}
+              className="rounded-md border border-accent bg-accent-soft px-2.5 py-0.5 text-[11px] text-accent hover:bg-accent/10"
             >
-              <Pin size={11} className={pinned ? 'fill-current' : ''} />
+              完成
             </button>
-            <textarea
-              ref={annotationRef}
-              value={annotationDraft}
-              onChange={(e) => {
-                setAnnotationDraft(e.target.value);
-                // Mirror the draft into the ref each keystroke so a dismiss-by-click-outside
-                // (which never fires onBlur) can still flush it.
-                pendingNoteRef.current = {
-                  blockId: toast.blockId,
-                  threadId: toast.threadId,
-                  draft: e.target.value,
-                };
-              }}
-              onBlur={flushPendingNote}
-              placeholder="批注（可选） — Tab 或点击外部保存"
-              rows={2}
-              spellCheck={false}
-              className="flex-1 resize-none rounded-md border border-line bg-paper-2/40 px-2 py-1.5 font-ui text-[12px] leading-[1.5] text-ink-2 placeholder:text-muted/70 outline-none focus:border-line-strong focus:bg-paper focus:text-ink"
-            />
           </div>
         </div>
       )}
 
-      <div className="flex items-center gap-1 border-t border-line bg-paper-2/30 px-2 py-1.5 text-[11px]">
+      {/* Footer — concise, icon-only: ↩ undo, ⤳ redirect (dropdown). */}
+      <div className="flex items-center gap-1 border-t border-line bg-paper-2/30 px-2 py-1">
         <button
           onClick={() => void onUndo()}
-          className="flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
+          className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
           title="撤销刚才的捕捉"
+          aria-label="撤销"
         >
-          <RotateCcw size={11} />
-          <span>撤销</span>
+          <RotateCcw size={13} />
         </button>
 
         <div className="relative" ref={pickerRef}>
           <button
             onClick={() => setPickerOpen((v) => !v)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
+            className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
             title="改投到其它脉络"
+            aria-label="改投"
           >
-            <span>改投</span>
-            <ChevronDown size={11} />
+            <Forward size={13} />
           </button>
           {pickerOpen && (
             <div
@@ -692,15 +674,6 @@ export default function CaptureOverlay() {
             </div>
           )}
         </div>
-
-        <button
-          onClick={() => void onSaveAsNew()}
-          className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-muted hover:bg-paper hover:text-accent"
-          title="把这条作为新脉络的第一块"
-        >
-          <Plus size={11} />
-          <span>另存为新脉络</span>
-        </button>
       </div>
 
       <RouteSuggestion

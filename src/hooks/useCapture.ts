@@ -96,29 +96,6 @@ const applyOverlayAction = (action: OverlayAction): void => {
     void useThreadsStore.getState().patch(action.targetThreadId, {});
     return;
   }
-  if (action.kind === 'save-as-new') {
-    useThreadsStore.setState((s) => {
-      const list = s.threadsByWorkspace[action.newThread.workspaceId] ?? [];
-      return {
-        threadsByWorkspace: {
-          ...s.threadsByWorkspace,
-          [action.newThread.workspaceId]: [action.newThread, ...list],
-        },
-      };
-    });
-    useBlocksStore.setState((s) => {
-      const oldList = s.byThread[action.oldThreadId] ?? [];
-      return {
-        byThread: {
-          ...s.byThread,
-          [action.oldThreadId]: oldList.filter((b) => b.id !== action.oldBlockId),
-          [action.newThread.id]: [action.newBlock],
-        },
-      };
-    });
-    useThreadsStore.getState().select(action.newThread.id);
-    return;
-  }
   if (action.kind === 'suggestion-move') {
     // The DB reparent already happened in the overlay; mirror it into the stores.
     // Main holds the full Block under the old thread, so we just move that object.

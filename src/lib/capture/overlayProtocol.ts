@@ -9,7 +9,6 @@
 
 import type { UndoOpKind } from '@/lib/undo/undoLog';
 import type { Block } from '@/lib/db/blocks';
-import type { Thread } from '@/lib/db/threads';
 
 export const OVERLAY_SHOW_EVENT = 'overlay:show';
 export const OVERLAY_ACTION_EVENT = 'overlay:action';
@@ -85,13 +84,6 @@ export type OverlayAction =
       oldThreadId: string;
       newBlock: Block;
       targetThreadId: string;
-    }
-  | {
-      kind: 'save-as-new';
-      oldBlockId: string;
-      oldThreadId: string;
-      newBlock: Block;
-      newThread: Thread;
     }
   // The user accepted an AI capture-classification suggestion (§11.5). Unlike
   // 'redirect' this reparents in place (thread_id update, same block id) — main
