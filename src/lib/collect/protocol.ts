@@ -49,9 +49,9 @@ export interface CollectAppendPayload {
 
 export type CollectClosedPayload =
   | { kind: 'discarded' }
-  // v2.10: Send writes ONE block per staging item (independent annotations), so it reports
-  // the full list. `items` are the pre-send staging items, kept so an undo can re-stage them.
-  | { kind: 'sent'; blocks: Block[]; threadId: string; items: StagingItem[] };
+  // Send merges the buffer into ONE block (per-item annotations kept as inline segments).
+  // `items` are the pre-send staging items, kept so an undo can re-stage them (§9.13).
+  | { kind: 'sent'; block: Block; threadId: string; items: StagingItem[] };
 
 export interface CollectRestagePayload {
   items: StagingItem[];

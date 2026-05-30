@@ -57,23 +57,22 @@ export function useCollect(): void {
       const dispose2 = await listen<CollectClosedPayload>(COLLECT_CLOSED_EVENT, (e) => {
         useCollectStore.getState().close();
         if (e.payload.kind === 'discarded') return;
-        const { blocks, threadId, items } = e.payload;
-        if (blocks.length === 0) return;
+        const { block, threadId, items } = e.payload;
         useBlocksStore.setState((s) => ({
           byThread: {
             ...s.byThread,
-            [threadId]: [...(s.byThread[threadId] ?? []), ...blocks],
+            [threadId]: [...(s.byThread[threadId] ?? []), block],
           },
         }));
         useUndoStore.getState().pushUndo(
           buildCollectSendUndo({
-            blockIds: blocks.map((b) => b.id),
+            blockId: block.id,
             threadId,
-            content: blocks[0]!.content,
+            content: block.content,
             originalStagingItems: items,
           }),
         );
-        useCaptureStore.getState().setFlash(threadId, blocks[blocks.length - 1]!.id);
+        useCaptureStore.getState().setFlash(threadId, block.id);
         void useThreadsStore.getState().patch(threadId, {});
         void getCurrentWindow()
           .setFocus()

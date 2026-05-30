@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseSegments } from '@/lib/blocks/segments';
 import { listAttachmentsByBlock } from '@/lib/db/attachments';
 import { listBlocksByThread } from '@/lib/db/blocks';
 import { __setTestDb } from '@/lib/db/client';
@@ -46,7 +47,7 @@ const att = (label: string): StagingAttachment => ({
   label,
 });
 
-describe('sendStaging — one independent block per item (§20.9 v2.10)', () => {
+describe('sendStaging — one merged block, per-item annotations kept independent (§20.9 v2.10)', () => {
   let sqlite: Sqlite;
 
   beforeEach(() => {
@@ -60,11 +61,11 @@ describe('sendStaging — one independent block per item (§20.9 v2.10)', () => 
     sqlite.close();
   });
 
-  it('writes one block per staging item, in order, each keeping its OWN annotation', async () => {
+  it('merges into ONE block whose content carries each item’s own annotation as a segment note', async () => {
     const ws = await createWorkspace('W');
     const thread = await createThread(ws.id, 'T');
 
-    const blocks = await sendStaging(
+    const block = await sendStaging(
       [
         item({ content: 'first', annotation: 'note A', source: 'Safari' }),
         item({ content: 'second', annotation: '   ' }),
@@ -72,25 +73,30 @@ describe('sendStaging — one independent block per item (§20.9 v2.10)', () => 
       ],
       thread.id,
     );
-    expect(blocks).toHaveLength(3);
+    expect(block).not.toBeNull();
 
     const feed = await listBlocksByThread(thread.id);
-    expect(feed.map((b) => b.content)).toEqual(['first', 'second', 'third']);
-    // Annotations stay INDEPENDENT per block (not merged into one); blank ones → null.
-    expect(feed.find((b) => b.content === 'first')!.annotation).toBe('note A');
-    expect(feed.find((b) => b.content === 'second')!.annotation).toBeNull();
-    expect(feed.find((b) => b.content === 'third')!.annotation).toBe('note C');
-    // Per-item pinned + source are preserved on the individual blocks.
-    expect(feed.find((b) => b.content === 'third')!.pinned).toBe(true);
-    expect(feed.find((b) => b.content === 'first')!.source).toBe('Safari');
-    expect(feed.find((b) => b.content === 'second')!.pinned).toBe(false);
+    // ONE block — not split into three.
+    expect(feed).toHaveLength(1);
+    const merged = feed[0]!;
+
+    // The per-item annotations live inline as independent segment notes (not flattened into
+    // one top-level annotation, which stays null).
+    expect(merged.annotation).toBeNull();
+    const segments = parseSegments(merged.content);
+    expect(segments.map((s) => s.text)).toEqual(['first', 'second', 'third']);
+    expect(segments.map((s) => s.annotation)).toEqual(['note A', null, 'note C']);
+
+    // pinned if ANY item was pinned; source = the first item's.
+    expect(merged.pinned).toBe(true);
+    expect(merged.source).toBe('Safari');
   });
 
-  it('keeps each item attachments on that item own block', async () => {
+  it('collects every item’s attachments onto the one merged block', async () => {
     const ws = await createWorkspace('W');
     const thread = await createThread(ws.id, 'T');
 
-    const blocks = await sendStaging(
+    const block = await sendStaging(
       [
         item({ content: 'a', attachments: [att('one'), att('two')] }),
         item({ content: 'b' }),
@@ -99,18 +105,14 @@ describe('sendStaging — one independent block per item (§20.9 v2.10)', () => 
       thread.id,
     );
 
-    const a0 = await listAttachmentsByBlock(blocks[0]!.id);
-    const a1 = await listAttachmentsByBlock(blocks[1]!.id);
-    const a2 = await listAttachmentsByBlock(blocks[2]!.id);
-    expect(a0.map((a) => a.label)).toEqual(['one', 'two']);
-    expect(a1).toHaveLength(0);
-    expect(a2.map((a) => a.label)).toEqual(['three']);
+    const atts = await listAttachmentsByBlock(block!.id);
+    expect(atts.map((a) => a.label).sort()).toEqual(['one', 'three', 'two']);
   });
 
-  it('empty buffer → no blocks written', async () => {
+  it('empty buffer → no block written', async () => {
     const ws = await createWorkspace('W');
     const thread = await createThread(ws.id, 'T');
-    expect(await sendStaging([], thread.id)).toEqual([]);
+    expect(await sendStaging([], thread.id)).toBeNull();
     expect(await listBlocksByThread(thread.id)).toHaveLength(0);
   });
 });
