@@ -325,36 +325,40 @@ export default function CollectPanel() {
     // the window's right edge before the OS window resizes to match.
     <div ref={cardRef} className="ml-auto w-fit">
       {collapsed ? (
-        <div
-          onMouseDown={startPanelDrag}
-          className="collect-in group flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
-          style={{ boxShadow: 'var(--shadow-toast)' }}
-        >
-          <span className="font-serif text-[12px] text-ink">正在收集</span>
-          <span className="font-mono text-[11px] text-muted">· {items.length}</span>
+        // Stack the pill + the transient "已加入·撤销" chip vertically (right-aligned) so the
+        // chip appearing never stretches the pill — the pill keeps its exact shape.
+        <div className="flex flex-col items-end gap-1.5">
+          <div
+            onMouseDown={startPanelDrag}
+            className="collect-in group flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
+            style={{ boxShadow: 'var(--shadow-toast)' }}
+          >
+            <span className="font-serif text-[12px] text-ink">正在收集</span>
+            <span className="font-mono text-[11px] text-muted">· {items.length}</span>
+            {/* Send straight from the pill without expanding — revealed on hover. */}
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => void send()}
+              disabled={items.length === 0 || sending}
+              title="发送"
+              aria-label="发送"
+              className="hidden rounded p-1 text-accent hover:bg-accent/10 disabled:text-muted/50 group-hover:inline-flex"
+            >
+              <Send size={11} />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => setCollapsed(false)}
+              title="展开面板"
+              aria-label="展开"
+              className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
+            >
+              <Maximize2 size={11} />
+            </button>
+          </div>
           {undoChip}
-          {/* Send straight from the pill without expanding — revealed on hover. */}
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => void send()}
-            disabled={items.length === 0 || sending}
-            title="发送"
-            aria-label="发送"
-            className="hidden rounded p-1 text-accent hover:bg-accent/10 disabled:text-muted/50 group-hover:inline-flex"
-          >
-            <Send size={11} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => setCollapsed(false)}
-            title="展开面板"
-            aria-label="展开"
-            className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
-          >
-            <Maximize2 size={11} />
-          </button>
         </div>
       ) : (
         <div
