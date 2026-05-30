@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Maximize2, Minimize2, Pin, Send, X } from 'lucide-react';
+import { Maximize2, Minimize2, Pin, Send, Undo2, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -16,6 +16,7 @@ import {
   CLOSE_COLLECT_PANEL_COMMAND,
   COLLECT_CLOSED_EVENT,
   COLLECT_OPEN_EVENT,
+  COLLECT_TOGGLE_COLLAPSE_EVENT,
   COLLECT_UNDO_MAIN_EVENT,
   RESIZE_COLLECT_PANEL_COMMAND,
   type CollectClosedPayload,
@@ -70,6 +71,11 @@ export default function CollectPanel() {
   const [target, setTarget] = useState<{ workspaceTitle: string; threadTitle: string } | null>(
     null,
   );
+  // Transient "已加入 · 撤销" affordance shown after each capture appends an item — the only
+  // feedback when the panel is collapsed (the list is hidden), and the undo entry point the
+  // expanded panel previously lacked. Auto-fades; 撤销 runs the panel-local sub-undo.
+  const [showAddedUndo, setShowAddedUndo] = useState(false);
+  const addedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -108,19 +114,21 @@ export default function CollectPanel() {
   // ResizeObserver never fires — leaving the panel clipped to that too-short initial height
   // until the first capture changes the height. The rAF lets the expand render first.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
     let cancelled = false;
+    const disposers: Array<() => void> = [];
     void (async () => {
-      const dispose = await listen(COLLECT_OPEN_EVENT, () => {
+      const d1 = await listen(COLLECT_OPEN_EVENT, () => {
         setCollapsed(false);
         requestAnimationFrame(measureAndResize);
       });
-      if (cancelled) dispose();
-      else unlisten = dispose;
+      cancelled ? d1() : disposers.push(d1);
+      // §20.9 v2.10: a single clean ⌥ tap (Rust) toggles the pill ↔ full card.
+      const d2 = await listen(COLLECT_TOGGLE_COLLAPSE_EVENT, () => setCollapsed((v) => !v));
+      cancelled ? d2() : disposers.push(d2);
     })();
     return () => {
       cancelled = true;
-      if (unlisten) unlisten();
+      for (const d of disposers) d();
     };
   }, [measureAndResize]);
 
@@ -162,17 +170,35 @@ export default function CollectPanel() {
     };
   }, [refreshTarget]);
 
-  // When a new item is staged, scroll the list to its bottom so the newest is in view.
+  // When a new item is staged: scroll the list to its bottom (if expanded), and surface the
+  // transient "已加入 · 撤销" affordance — the only "something landed" signal while collapsed.
   const prevLenRef = useRef(0);
   useEffect(() => {
-    if (items.length > prevLenRef.current && listRef.current) {
-      requestAnimationFrame(() => {
-        const el = listRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+    if (items.length > prevLenRef.current) {
+      setShowAddedUndo(true);
+      if (addedTimerRef.current) clearTimeout(addedTimerRef.current);
+      addedTimerRef.current = setTimeout(() => setShowAddedUndo(false), 3500);
+      if (listRef.current) {
+        requestAnimationFrame(() => {
+          const el = listRef.current;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
     }
     prevLenRef.current = items.length;
   }, [items.length]);
+
+  useEffect(() => () => {
+    if (addedTimerRef.current) clearTimeout(addedTimerRef.current);
+  }, []);
+
+  // 撤销 on the added-affordance: reverse the last panel-local op (the just-staged item, same
+  // as Cmd+Z in the panel) and hide the affordance.
+  const handleUndoAdd = (): void => {
+    undoLocal();
+    setShowAddedUndo(false);
+    if (addedTimerRef.current) clearTimeout(addedTimerRef.current);
+  };
 
   const close = (payload: CollectClosedPayload): void => {
     setConfirming(false);
@@ -272,6 +298,23 @@ export default function CollectPanel() {
 
   const annotatedCount = items.filter((it) => it.annotation.trim().length > 0).length;
 
+  // "已加入 · 撤销" affordance, shared by the collapsed pill and the expanded header.
+  const undoChip = showAddedUndo ? (
+    <div className="collect-in flex flex-none items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-accent">
+      <span>已加入</span>
+      <button
+        type="button"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={handleUndoAdd}
+        title="撤销刚加入的一条"
+        className="flex items-center gap-0.5 underline-offset-2 hover:underline"
+      >
+        <Undo2 size={10} />
+        撤销
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div ref={cardRef} className="w-full">
       {collapsed ? (
@@ -283,6 +326,7 @@ export default function CollectPanel() {
           >
             <span className="font-serif text-[12px] text-ink">正在收集</span>
             <span className="font-mono text-[11px] text-muted">· {items.length}</span>
+            {undoChip}
             <button
               type="button"
               onMouseDown={(e) => e.stopPropagation()}

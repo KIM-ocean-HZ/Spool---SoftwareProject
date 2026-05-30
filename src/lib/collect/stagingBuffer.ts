@@ -74,6 +74,27 @@ const preview = (raw: string): string => {
   return one.length <= PREVIEW_MAX ? one : `${one.slice(0, PREVIEW_MAX)}…`;
 };
 
+// Guard the capture-append path against the SAME item being staged twice from one capture —
+// a duplicate `collect:append` delivery, or a dev HMR-leaked listener firing the handler more
+// than once. A genuine re-capture of identical text is always far more than this apart, so
+// this never drops a real second item. Restage (undo) bypasses this and calls addItem directly.
+let lastAppend: { content: string; source: string | null; at: number } | null = null;
+const APPEND_DEDUP_MS = 400;
+
+export const stageCapturedItem = (content: string, source: string | null): void => {
+  const now = Date.now();
+  if (
+    lastAppend &&
+    lastAppend.content === content &&
+    lastAppend.source === source &&
+    now - lastAppend.at < APPEND_DEDUP_MS
+  ) {
+    return; // duplicate delivery — ignore
+  }
+  lastAppend = { content, source, at: now };
+  addItem({ content, source });
+};
+
 export const addItem = (seed: Partial<StagingItem>): StagingItem => {
   const item: StagingItem = {
     id: seed.id ?? nanoid(),

@@ -33,6 +33,9 @@ export const COLLECT_UNDO_MAIN_EVENT = 'collect:undo-main';
 // main → collect window: a collect_send op was undone while the panel is open and empty,
 // so re-stage the original items (§9.13).
 export const COLLECT_RESTAGE_EVENT = 'collect:restage';
+// Rust → collect window: a single clean ⌥ tap while the panel is open (§20.9 v2.10) —
+// toggle the panel between the compact pill and the full card.
+export const COLLECT_TOGGLE_COLLAPSE_EVENT = 'collect:toggle-collapse';
 // main → collect window: the capture target changed (sidebar / header / tray toggle, §9.2).
 // The panel re-reads the target so its destination header stays current while open — the
 // toggle is a pure state change (§9.2), so the target can move mid-session. No payload; the

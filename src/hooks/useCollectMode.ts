@@ -7,7 +7,7 @@ import {
   type CollectAppendPayload,
   type CollectRestagePayload,
 } from '@/lib/collect/protocol';
-import { addItem, clear, getAll } from '@/lib/collect/stagingBuffer';
+import { addItem, clear, getAll, stageCapturedItem } from '@/lib/collect/stagingBuffer';
 
 // Collect-window side of §20.9. The dedicated panel window listens for:
 // - `collect:open` (Rust, on long-press show): start a fresh staging session.
@@ -34,7 +34,9 @@ export function useCollectMode(): void {
       else unlistenOpen = dispose1;
 
       const dispose2 = await listen<CollectAppendPayload>(COLLECT_APPEND_EVENT, (e) => {
-        addItem({ content: e.payload.text, source: e.payload.source });
+        // Deduped path (§20.9 v2.10): one capture stages exactly one item even if the event
+        // is delivered more than once (e.g. a dev HMR-leaked listener).
+        stageCapturedItem(e.payload.text, e.payload.source);
       });
       if (cancelled) dispose2();
       else unlistenAppend = dispose2;

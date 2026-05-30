@@ -14,9 +14,19 @@
 // 5b; NSWorkspace window-following + undo integration in 5c.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime};
 
 const COLLECT_LABEL: &str = "collect";
+
+// v2.10 §20.9: mirrors whether the collect panel window is currently shown. Set by
+// open/close below; read by double_tap.rs so a single ⌥ tap only toggles the panel's
+// collapse while the panel is actually open (never spams the closed/hidden window).
+static COLLECT_PANEL_OPEN: AtomicBool = AtomicBool::new(false);
+
+pub fn collect_panel_open() -> bool {
+    COLLECT_PANEL_OPEN.load(Ordering::Relaxed)
+}
 // Matches the capture overlay's width so the two windows feel like one family.
 const COLLECT_WIDTH: u32 = 340;
 // Initial height; the frontend refines it via resize_collect_panel once the panel's
@@ -73,6 +83,7 @@ pub fn open_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     app.emit_to(COLLECT_LABEL, "collect:open", ())
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
+    COLLECT_PANEL_OPEN.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -104,6 +115,7 @@ pub fn reposition_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), Str
 // destroyed on app quit; hiding keeps the webview warm for the next session.
 #[tauri::command]
 pub fn close_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    COLLECT_PANEL_OPEN.store(false, Ordering::Relaxed);
     if let Some(win) = app.get_webview_window(COLLECT_LABEL) {
         win.hide().map_err(|e| e.to_string())?;
     }

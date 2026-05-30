@@ -97,6 +97,12 @@ const DOUBLE_TAP_WINDOW_MS: u64 = 500;
 // per the prompt so the kill criterion in §20.8 reads as one tunable.
 const LONG_PRESS_THRESHOLD_MS: u64 = 600;
 
+// v2.10 §20.9: a clean isolated ⌥ tap (no 2nd tap, not held into a long-press) toggles the
+// collect panel's collapse — but only while the panel is open. Kept well under the full
+// double-tap window so the collapse feels responsive; real capture double-taps land far
+// faster than this, so the first tap of one almost never mis-fires a collapse.
+const SINGLE_TAP_SETTLE_MS: u64 = 300;
+
 const NANOS_PER_MS: u64 = 1_000_000;
 
 // CGEventGetTimestamp value (nanoseconds) of the last observed clean ⌥ press. Atomic
@@ -112,6 +118,11 @@ static LAST_OPT_PRESS_NS: AtomicU64 = AtomicU64::new(0);
 // a stray double-tap can't accidentally also trip the long-press.
 static OPT_PRESS_ID: AtomicU64 = AtomicU64::new(0);
 static OPT_IS_DOWN: AtomicBool = AtomicBool::new(false);
+
+// v2.10 §20.9: press_id of the press that last fired a double-tap capture. That press's
+// single-tap timer reads this to know it was the 2nd of a pair (not a lone tap) and skip
+// the collapse-toggle.
+static LAST_DOUBLE_TAP_PRESS_ID: AtomicU64 = AtomicU64::new(0);
 
 // CFMachPortRef of the installed tap, stashed so the callback can re-enable in place
 // after macOS disables it (§19.4). Null until run_tap() finishes setup. Storing a
@@ -248,6 +259,9 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                         // Reset so a third tap doesn't immediately re-trigger off the
                         // second tap's timestamp.
                         LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                        // Mark this press as a double-tap consumer so its single-tap timer
+                        // (spawned below) won't also fire a collapse-toggle.
+                        LAST_DOUBLE_TAP_PRESS_ID.store(press_id, Ordering::Relaxed);
                     } else {
                         eprintln!(
                             "[double-tap] ⌥ too-slow gap={gap}ms > {DOUBLE_TAP_WINDOW_MS}ms — count restarts"
@@ -276,6 +290,32 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                     LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
                     eprintln!("[long-press] TRIGGER after {LONG_PRESS_THRESHOLD_MS}ms hold");
                     let _ = app_for_timer.emit("collect-trigger", ());
+                });
+
+                // v2.10 §20.9: single-tap detector. After the double-tap window settles,
+                // toggle the collect panel's collapse iff this was a clean lone tap — and
+                // only while the panel is open. Conditions: no later press (press_id
+                // unchanged), the key was released (a tap, not a hold heading for the
+                // long-press), and this press wasn't the 2nd of a double-tap (which already
+                // fired capture). Emitted straight to the collect window.
+                let app_for_single = app.clone();
+                thread::spawn(move || {
+                    thread::sleep(Duration::from_millis(SINGLE_TAP_SETTLE_MS));
+                    if !crate::collect::collect_panel_open() {
+                        return;
+                    }
+                    if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
+                        return;
+                    }
+                    if OPT_IS_DOWN.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if LAST_DOUBLE_TAP_PRESS_ID.load(Ordering::Relaxed) == press_id {
+                        return;
+                    }
+                    eprintln!("[single-tap] ⌥ clean tap — toggle collect collapse");
+                    // "collect" = COLLECT_LABEL in collect.rs.
+                    let _ = app_for_single.emit_to("collect", "collect:toggle-collapse", ());
                 });
             }
             _ => {}
