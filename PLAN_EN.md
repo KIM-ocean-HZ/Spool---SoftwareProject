@@ -490,7 +490,7 @@ export interface Block {
 
 // src/lib/db/attachments.ts
 export type AttachmentKind = 'file' | 'folder' | 'url';
-export type AttachmentExtractionKind = 'pdf' | 'docx' | 'plaintext' | 'failed' | null;
+export type AttachmentExtractionKind = 'pdf' | 'docx' | 'plaintext' | 'image_ocr' | 'failed' | null;
 export interface Attachment {
   id: string;
   blockId: string;
@@ -600,12 +600,14 @@ Trigger flow (default capture): read clipboard text → get foreground app + bro
 
 **Dedicated overlay window** — second Tauri window: borderless, transparent, always-on-top, non-activating (must NOT steal keyboard focus). Frontend separate Vite entry (`overlay.html` → `src/overlay/main.tsx` → `CaptureOverlay.tsx`); own SQLite access for Redirect.
 
-`CaptureToast` spec: bottom-right of active screen, ~2.5s auto-dismiss (paused on hover):
-- **Content preview**: first ~12 chars of captured content (stripped of leading/trailing whitespace), ellipsized.
-- **Attribution**: `Saved to 「<Workspace> / <Thread>」` — two-tier.
-- **Three inline actions**: Undo (also reachable via Cmd+Z anywhere as of v2.9 §9.13) / Redirect (dropdown grouped by workspace) / Save as new thread.
+`CaptureToast` spec: bottom-right of active screen, ~2.5s auto-dismiss (paused on hover or while the note editor is open). v2.10 slimmed the toast (dogfooding):
+- **Content preview**: the captured content leads — full text clamped to two lines (was a ~12-char single line), so the user sees what landed, not a sliver.
+- **Attribution**: one quiet, condensed, truncating line `<Workspace> / <Thread> · <source>` (mono/muted) — no longer a tall two-line `Saved to` block.
+- **One-click 📌 pin** in the top-right cluster (next to ×) — a standalone toggle, NOT bundled behind any expansion.
+- **Footer actions (icon-only)**: Undo (↩, also Cmd+Z anywhere per §9.13) / Redirect (⤳ dropdown grouped by workspace, across all workspaces). The old "Save as new thread" action was removed (v2.10).
+- **Note**: double-click the toast body to reveal a quiet annotation editor (no visible affordance — keeps the default toast clean); Enter = newline, 「完成」 / click-away commits, Esc discards (the same annotation contract as a block, §20.4).
 - AI classification suggestion runs in the background while the toast is visible.
-- Appearing does NOT steal focus.
+- Appearing does NOT steal focus; setting the capture target (sidebar / header / tray) is a pure state toggle that also never pulls the window forward (§14.3).
 
 ### 9.5 Context Packer (the crown feature)
 
@@ -735,11 +737,12 @@ In pack (§9.5): a block's opted-in attachments inline beneath it; all attachmen
 - **Auto-expand on navigate**: when a search result navigates to a truncated block (>6 lines, collapsed), the block is **automatically expanded** before the highlight fires. User should never land on a collapsed block and have to manually expand.
 - **Highlight all occurrences within destination block**: `query.ts` returns not just hit line offset but ALL character offsets where the query matches in content+annotation. On navigation, every occurrence wrapped in `<mark>` (using `--selection` background). The FIRST occurrence additionally gets a brief amber fade (~900ms) so the eye lands first but immediately sees the others.
 - **In-block navigator (vscode-style)**: a small floating `InBlockNavigator` appears top-right of destination block: `1/N ▲ ▼ ✕`:
-  - `▼` / Cmd+G / F3: jump to next match within block (amber fade on the new active match).
-  - `▲` / Cmd+Shift+G / Shift+F3: previous match.
+  - `▼` / Cmd+G / F3: next match. **v2.10**: stepping past the block's last match continues into the NEXT matching block — and its thread — instead of being trapped in one block (selects that thread + flashes the block, same as a result click).
+  - `▲` / Cmd+Shift+G / Shift+F3: previous match; past the first, into the previous matching block/thread (landing on its last match).
   - `✕` / Esc: dismiss navigator (highlights remain visible).
-  - Wraps at first/last.
-  - Counter updates as user moves.
+  - Wraps around the whole result set at the ends.
+  - Counter updates as user moves (per-block `index/total`).
+  - **v2.10 — 全部 list**: the match-count chip opens a dropdown of every block that contains the text, across ALL workspaces (the kept result set, surviving the overlay's close); picking one jumps straight to that block/thread. The cross-block ▲/▼ and this list share one `searchStore.jumpToResult` / `goToHit` path.
 - Navigator dismisses on >200px scroll away from destination, or click outside the block.
 - `<mark>` wrappers are display-only — no schema change, no edit to block content. Computed in `BlockItem` when active search-hit context detected.
 
@@ -767,6 +770,7 @@ Modal, entered via gear at sidebar bottom.
 | Today's quota | Read-only bars | — | From quotaStore |
 | Launch at login | Toggle | off | |
 | Clear all data | Danger button + confirm | — | |
+| 图片文字提取 (Gemini) | Toggle | off | §20.10 experiment; opt-in cloud OCR for image attachments; warn that Gemini free tier trains on data; no effect in privacy mode |
 
 Keys via `tauri-plugin-store`.
 
@@ -835,10 +839,10 @@ When using an LLM / looking things up / reading email, the user already presses 
 Mental model: **Cmd+Shift+C = "copy and remember."**
 
 Paired with three zero-decision mechanisms:
-- **Always a capture target.** Tray menu shows + switches with one click.
+- **Always a capture target.** Tray menu shows + switches with one click (a pure state toggle — never selects, navigates, or pulls the window forward, §9.2 / §14.3).
 - **Classification is after-the-fact, non-blocking.**
-- **"Save as new thread"** covers the brand-new-work startup scenario (§9.4).
 - (v2.9) **Collect mode (§20.9)** covers per-unit batching — the user wants to consolidate several captures + annotations into ONE block before committing.
+  (The old "Save as new thread" toast action was removed in v2.10 — §9.4.)
 
 ### 10.3 Capture Confirmation Is Part of Zero-Friction
 
@@ -1205,6 +1209,7 @@ Produced the dogfooding findings that drove v2.7/v2.8/v2.9 revisions.
 - Virtual scrolling when blocks > 200; unify error handling; empty states.
 - Build .dmg; README + screenshots + API-key acquisition guide.
 - **Acceptance**: .dmg installs and runs; shortcuts changeable; privacy mode verified zero outbound; a friend can pick it up.
+- Note: §20.10 (image OCR) ships its Settings toggle here, but the feature is a fenced §20 experiment (default OFF). The .dmg therefore retains "zero outbound by default"; OCR fires only on explicit opt-in.
 
 ### Phase 13 (optional) — Release
 
@@ -1271,7 +1276,7 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | E2EE sync | v2 | per-block `nonce` column + key layer |
 | Browser extension | v2 | extension talks to app over local port |
 | File attachment preview UI (inline PDF viewer, image thumbs) | v2 | extracted text cached (v2.7); preview is rendering layer |
-| OCR for image attachments | v2 | would put AI in pack hot path (§6.4 rule 2) |
+| OCR for image attachments | **§20.10 (Track B experiment, NEW)** | Now an attach-time, cached extraction (like PDF/docx) via opt-in Gemini vision — so it does NOT put AI in the pack hot path. Fenced; off by default; kill criterion in §20.8 |
 | Cross-app file watch / re-extract | v2 | FSEvents/inotify watcher |
 | **Trash / soft-delete recovery surface** (v2.9 addition) | v1.5 | Workspace/thread deletes are already soft. Cmd+Z intentionally does NOT cover them (low-volume, recover via reverse action). Trash view recovering ~30 days is the proper home. No schema change |
 
@@ -1388,7 +1393,7 @@ Fix landed (§14.3): capture block's bounding rect BEFORE the swap, perform swap
 
 > **This section is not like §1–§19.** Everything above is settled product. Everything here is provisional — built to be dogfooded, explicitly allowed to be cut. §20 features are NOT part of the Product Constitution (§2). §2.7's filter is *suspended* for them — they are being built precisely to learn whether they would pass it. Each carries a **kill criterion** (§20.8). Code for §20 features must be written behind clear boundaries so ripping one out is a clean, near-single-commit revert.
 >
-> **Tracks**. Track A (§20.1–§20.4): cheap, low-risk, clearly-good; built to stay unless dogfooding actively surfaces a problem. Track B (§20.5–§20.7, §20.9): genuine interaction bets; built to learn. The honest default expectation is that **at least one Track B feature gets cut.** That is not failure — that is the track working.
+> **Tracks**. Track A (§20.1–§20.4): cheap, low-risk, clearly-good; built to stay unless dogfooding actively surfaces a problem. Track B (§20.5–§20.7, §20.9, §20.10): genuine interaction bets; built to learn. The honest default expectation is that **at least one Track B feature gets cut.** That is not failure — that is the track working.
 
 ### 20.1 (Track A) Merge blocks
 
@@ -1399,7 +1404,7 @@ The problem: fragmented sources (especially PPT) produce several tiny, individua
   - Survivor `content` = chronological join with blank lines between.
   - Survivor keeps its own id, created_at, feed position (merge doesn't reorder timeline).
   - All attachments move to the survivor.
-  - Annotations from merged blocks **appended to the survivor's annotation, newline-joined — never silently dropped**.
+  - Annotations from merged blocks are **preserved per-segment, never silently dropped**: each segment's note is kept as a `↪ note:` marker on its own segment inside the survivor's content (segments.ts), and the survivor's top-level `annotation` column is set null (carrying both would render the note twice). `SegmentedContent` then shows each segment's annotation independently. (v2.8 §20.1 follow-up — the same mechanism collect Send uses, §20.9.)
   - pinned = true if ANY merged block was pinned.
   - source: if all share one source, keep it; if they differ, keep survivor's and prepend `[from <source>]` to each segment head.
   - Non-survivor blocks hard-deleted.
@@ -1427,6 +1432,8 @@ Status summary (§12.1) must **respect include_in_pack** — only inline opted-i
 Dogfooding showed users don't use the separate ✑ annotate hover action — they double-click and type into content. So: make annotation part of the natural edit flow, while keeping `blocks.annotation` separate in data so pack still classifies it as 💭 Personal.
 
 - Double-click a block → edit mode shows content textarea on top + **quiet, visually-subordinate annotation area at the bottom** ("批注(可选)" placeholder, smaller, muted, clearly secondary).
+- **v2.10**: double-clicking the read-only annotation itself opens the annotation alone for editing (the ✑ hover action still does too) — you don't have to go through the content.
+- **Commit contract (v2.10, shared with the capture toast §9.4)**: Enter inserts a **newline**; a 「完成」 button (or blur / click-away) commits; Esc cancels. Enter no longer commits — which also fixes a Chinese-IME bug where pressing Enter to confirm a candidate prematurely ended the note.
 - Most blocks have no annotation; the bottom area is present but unobtrusive — visible enough that the user learns it exists, quiet enough that it never demands attention.
 - ✑ hover action stays as alternative entry or removed — decide after dogfooding.
 - Data model unchanged: still writes `blocks.annotation`; pack still renders annotation as user's note.
@@ -1443,11 +1450,13 @@ Dogfooding showed users don't use the separate ✑ annotate hover action — the
 
 ### 20.6 (Track B) Capture toast — optional expansion (pin / note)
 
-Capture toast must stay glanceable and non-activating by default (§10.3). This adds **optional** depth without breaking that: default path is still "lands, glance, gone, zero action." A subtle affordance lets the user, if they choose, expand the toast (a deliberate click — already focuses the overlay per §14.3) into:
-- a **pin** toggle (pin this just-captured block — closes the "pin 存在感低" gap at the highest-leverage moment),
-- a **note** input (annotate at capture time, when context is freshest — directly serves §2.5.1).
+Capture toast must stay glanceable and non-activating by default (§10.3). This adds **optional** depth without breaking that: default path is still "lands, glance, gone, zero action." Pin + note let the user, if they choose, act at the freshest moment (§2.5.1).
 
-**Hard constraint**: toast's default rendered state is byte-for-byte as quiet as today's. Pin/note controls live behind the expand interaction, never shown by default, never required. If implementing this makes the default toast heavier or slower-to-dismiss, the feature is wrong — stop and reconsider.
+**v2.10 split (supersedes the original single "expand" affordance — the "添加批注 · 置顶" button is gone):**
+- **Pin** is a **one-click** 📌 in the toast's top-right cluster — always visible, never bundled with the note (pinning should not require, or drag along, annotation).
+- **Note** is revealed by **double-clicking the toast body** — zero visible affordance so the default toast stays clean. The editor follows the §20.4 contract (Enter = newline, 「完成」 / click-away commits, Esc discards). The note commits/collapses on blur so the toast can resume its auto-dismiss.
+
+**Hard constraint**: the toast's default rendered state stays glanceable — the note editor is never shown until the deliberate double-click, never required.
 
 The overlay already has its own SQLite access, so writing pin/annotation back is straightforward; emit existing cross-window event so main-window stores update.
 
@@ -1480,6 +1489,7 @@ Each §20 feature reviewed at the end of Phase 11.5's 3-week dogfooding window. 
 **Logging**: paper log next to the desk per §19.14–§19.16. Per feature, note usage count and any friction.
 
 **On graduation**: a §20 feature that survives review and proves clearly valuable gets *promoted* — moved into the relevant §1–§19 section and re-examined against §2 if it touches the core. Until promoted, it stays fenced. Promotion is deliberate, recorded in the changelog — not silent drift.
+- **20.10 Image OCR** (NEW): cut if Gemini math/formula OCR proves poor (§19.15-style garbled-output monitoring), OR usage near zero, OR the free-tier-trains-on-data privacy tradeoff feels wrong. Off by default, Gemini-only, attach-time — removal is clean (the toggle + the image branch; PDF/docx extraction untouched).
 
 ### 20.9 (Track B → graduating) Collect Mode (NEW in v2.9)
 
@@ -1496,11 +1506,19 @@ While the staging panel is open:
 - Items held outside the blocks table — purely in memory of the collect-window's process. **Nothing persists to DB until Send.**
 - Panel shows Send and Discard actions.
 
+**Panel UI (v2.10)**
+- **Destination line**: the panel header shows where Send lands — a quiet `→ 「<Workspace> / <Thread>」` (mirrors the §9.4 two-tier attribution). Re-read on open and on a `capture-target:changed` broadcast, so it stays current if the target is toggled while the panel is open.
+- **Single-tap ⌥ toggles collapse** (only while the panel is open): a clean lone ⌥ tap flips the panel between the full card and a compact pill. Detected after the double-tap window settles so the first tap of a capture double-tap can't trip it; a `COLLECT_PANEL_OPEN` flag gates it so a stray ⌥ never pokes a closed panel. The header carries a quiet "单击 ⌥ 收起" hint.
+- **Collapsed pill**: hovering it reveals a Send button (commit without expanding); a capture-while-collapsed shows a transient "已加入 · 撤销" chip stacked **below** the pill (so the pill keeps its shape — never stretched by the chip). 撤销 runs the panel-local sub-undo.
+- The OS window is sized to the measured content footprint (the pill's own width when collapsed, the card's when expanded), top-right anchored — so a collapsed pill leaves no transparent strip swallowing clicks beside it.
+- **Append is idempotent**: a duplicate `collect:append` delivery (e.g. a dev HMR-leaked listener) stages the same capture only once.
+
 **On Send**:
-- All staging items merge into ONE block (consistent with §20.1 merge semantics: chronological order, blank lines between, annotations newline-joined, attachments collected on survivor).
+- All staging items merge into ONE block: contents joined chronologically with a blank line between, all items' attachments collected onto it, pinned if any item was pinned, source = the first item's.
+- **Each item's annotation stays INDEPENDENT (v2.10 fix)**: it is preserved as that segment's own per-segment `↪ note:` marker (§20.1 segments.ts), NOT flattened into one newline-joined note. The feed's `SegmentedContent` then renders every item's annotation independently inside the single merged block. (Earlier v2.10 work briefly split items into separate blocks — wrong; collect merges into one block.)
 - Merged block written to current capture target thread.
 - Panel closes; items discarded from memory.
-- Send is logged in the §9.13 main undo ring.
+- Send is logged in the §9.13 main undo ring (undo deletes the one merged block).
 
 **On Discard**:
 - Items discarded with no DB write. A confirmation toast in the panel before closing: "已丢弃 N 条暂存内容". Discard is NOT undoable (items never persisted).
@@ -1531,8 +1549,41 @@ macOS only: when user switches active app/space, the staging panel must follow.
 - Remaining concerns: (a) long-press trigger flakiness against double-tap; (b) window-following implementation reliability across all macOS versions.
 - 3-week dogfooding window post-implementation. If no flakiness reports AND window-following lands clean → promote into §1–§19 in v3.0 (likely as a new §9.14, with §3.3 capture-mode list updated to formally include it).
 
+### 20.10 (Track B) Image OCR via opt-in cloud vision (NEW)
+
+> Dogfooding showed image attachment (screenshots of slides, handwriting, formula-heavy notes) is useful, but images are currently pointer-only (§9.6) — their text never enters search or pack. This experiment makes an image attachment's text an indexed content source, exactly like the v2.7 PDF/docx extraction — but via cloud vision, because math-formula OCR is cloud-or-nothing (local 8B models can't do it). **Built fenced; off by default; explicitly allowed to be cut.**
+
+**Mechanism**
+- A new Settings toggle **「图片文字提取(Gemini)」, default OFF** (§9.12). When OFF, images stay pointer-only (current §9.6 behavior) — zero outbound.
+- When ON, and NOT in privacy mode, and a Gemini key is present: on attaching an image FILE (the existing §9.6 image-attach path), Spool reads the file, base64-encodes it, and calls Gemini vision (reusing the existing `router`/Gemini provider + quotaStore) with a transcription prompt that renders math as LaTeX. Result cached in `attachments.extracted_text`, `extraction_kind = 'image_ocr'`, `extracted_at = now`.
+- **Runs at ATTACH time, cached — NEVER in the pack hot path** (§6.4 rule 2). Pack just reads the cached text, identical to PDF/docx.
+- **Pack inlining flows through the existing `include_in_pack` toggle** (§20.2) — no new pack-path code. Default OFF per attachment, same as other extracted text.
+- **NO local fallback** — vision needs Gemini (qwen3:8b is text-only). If Gemini is unavailable / key missing / privacy mode on, OCR simply does not run; the image stays a usable pointer attachment, silently.
+- **Best-effort, like PDF extraction**: on failure → `extraction_kind = 'failed'`, image stays a pointer, no error popup (§14.4).
+
+**Scope boundaries (so removal is a clean near-single-commit revert per §20)**
+- IN scope: OCR for image FILE attachments only.
+- OUT of scope (separate future items, NOT this experiment): clipboard-image-data capture (writing image bytes to disk — a binary-storage concern), collect-panel image drag, and the "pass the raw image straight to the receiving AI" route (that belongs to the deferred MCP/extension channel, §17 / Strategic Brief §8).
+
+**Constitution compliance**
+- **Principle 2**: OFF by default + privacy-mode-respecting → "local-first, private by default" intact; OCR is an explicit opt-in online feature, same category as the existing status-summary/classification calls. Settings copy MUST warn that Gemini's free tier trains on submitted data.
+- **Principle 5**: transcription, not authoring — like PDF extraction. Degrades to pointer when absent. AI does not generate content; it reads what the user attached.
+- This is a §20 experiment prompt, not a §12 prompt — it is tunable and NOT subject to the §12 verbatim rule.
+
+**Kill criterion** (§20.8): cut if (a) Gemini's math/formula transcription is poor in real use (garbled LaTeX — same §19.15 monitoring), OR (b) Ocean's own usage is near zero, OR (c) the privacy/training tradeoff feels wrong. 3-week dogfooding window. If clean AND math is good → graduate into §9.6 (image attachments gain extraction) + remove the "OCR is v2" row from §17, in v3.0.
+
+### 20.11 (Track A) Forward (copy) blocks to another thread (NEW, v2.10)
+
+> Manual, user-driven cross-thread placement — the explicit "what we do instead" of the rejected auto-linking (§2.6). Distinct from @-mention (which makes a `ref` pointer, §9.7): forward puts the actual content in the target. COPY-only, so it is purely additive and can never mutate the user's irreplaceable source data.
+
+- Reuses the existing merge multi-select (§20.1): with ≥1 block selected, the action bar gains a **「复制到…」** action beside 合并.
+- Opens a quiet, fuzzy, keyboard-navigable thread picker grouped by workspace **across ALL workspaces** (cross-workspace allowed — unlike @-mention's same-workspace limit). Done threads and the source thread are excluded. Esc / click-outside cancel.
+- **COPY semantics**: each selected block is inserted as a NEW block in the target (new id, target `thread_id`, `created_at` = now +1ms per block to keep order; `kind` / `content` / `annotation` / `source` / `pinned` / `ref_thread_id` copied verbatim), with its attachments copied too (cached extraction values copied, no re-extraction). Originals are never read-modify-written — **INSERT-only**, no schema change (SCHEMA_VERSION stays 5).
+- Confirmation toast: `已复制 <N> 个块到「<Workspace> / <Thread>」`; the selection clears.
+- **Undoable** (§9.13, `forward` `UndoOpKind`): undo deletes ONLY the new copies (their copied attachments cascade); it never touches the originals. UndoToast: `已撤销:复制`.
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.)
-Last updated: 2026-05-29
+Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.(post-v2.10: added §20.10 image-OCR experiment — opt-in Gemini vision, attach-time/cached, off by default, fenced with kill criterion; TS AttachmentExtractionKind gains 'image_ocr'; no schema change, no new dependency.))
+(post-v2.10 UI/UX batch, reconciled into the sections above: capture-target toggle is a pure state change — no navigate / no focus-steal (§9.4/§10.2/§14.3); capture toast slimmed — content-led 2-line preview, condensed attribution, one-click 📌 pin, icon-only undo/redirect, "Save as new thread" removed, note via double-click (§9.4/§20.6); annotation commit unified (block + toast) — Enter = newline, 「完成」/blur commits, Esc cancels, fixing the IME Enter mis-commit; double-click a block's annotation edits it alone (§20.4); §20.1 merge and §20.9 collect Send both keep per-item annotations independent via per-segment `↪ note:` markers (collect merges into ONE block — it does not split items); collect panel — destination line, single-tap ⌥ collapse/expand, collapsed-pill Send-on-hover + 已加入/撤销 chip stacked below, window sized to content footprint, idempotent append (§20.9); search ▲/▼ continues across blocks/threads + a 全部 cross-workspace match list (§9.10); §20.11 forward/copy multi-selected blocks to another thread (additive, undoable). Schema unchanged at version 5.)
+Last updated: 2026-05-30
