@@ -5,6 +5,7 @@ import {
   reassignAttachmentBlock,
   restoreAttachment,
 } from '@/lib/db/attachments';
+import type { Attachment } from '@/lib/db/attachments';
 import {
   computeMergedFields,
   deleteBlock,
@@ -14,6 +15,7 @@ import {
   restoreBlockFields,
   updateBlockContent,
 } from '@/lib/db/blocks';
+import type { Block } from '@/lib/db/blocks';
 import { restoreThread, softDeleteThread } from '@/lib/db/threads';
 import { restoreWorkspace, softDeleteWorkspace } from '@/lib/db/workspaces';
 import * as undoLog from '@/lib/undo/undoLog';
@@ -81,14 +83,14 @@ export const buildMergeUndo = (payload: MergePayload): UndoEntry => ({
   invalidated: false,
 });
 
-// Step 5 (§20.9) will build + push collect_send entries; the builder lives here so the
-// emission site only has to call it. Unused in Step 4.
+// §20.9: a Send writes one block per staging item; the entry tracks them all so undo
+// removes every written block and an edit to any of them invalidates it (§9.13).
 export const buildCollectSendUndo = (payload: CollectSendPayload): UndoEntry => ({
   id: nanoid(),
   kind: 'collect_send',
   timestamp: Date.now(),
   payload,
-  affectedBlockIds: [payload.blockId],
+  affectedBlockIds: payload.blockIds,
   invalidated: false,
 });
 
@@ -199,21 +201,35 @@ const reverseAndBuildRedo = async (
   entry: UndoEntry,
 ): Promise<() => Promise<void>> => {
   switch (entry.kind) {
-    case 'capture':
-    case 'collect_send': {
+    case 'capture': {
       // Snapshot the live block (source may have been back-filled since capture) so redo
       // restores it faithfully, then delete it.
       const block = await getBlockById(entry.payload.blockId);
       const attachments = block ? await listAttachmentsByBlock(block.id) : [];
       await deleteBlock(entry.payload.blockId);
-      // §9.13: undoing a collect_send deletes the merged block here. Re-staging the
-      // original items into the panel (when it is open + empty) is handled by the
-      // orchestration layer (hooks/useUndo.ts runUndo), which can reach the collect
-      // window over an event — this store stays free of cross-window/IPC concerns.
       return async () => {
         if (!block) return;
         await restoreBlock(block);
         for (const a of attachments) await restoreAttachment(a);
+      };
+    }
+    case 'collect_send': {
+      // §20.9: a Send wrote one block per staging item — delete them all. Snapshot each
+      // (with attachments) first so redo restores them. Re-staging the original items into
+      // the panel (when it is open + empty) is handled by the orchestration layer
+      // (hooks/useUndo.ts runUndo), which can reach the collect window over an event — this
+      // store stays free of cross-window/IPC concerns.
+      const snapshots: { block: Block; attachments: Attachment[] }[] = [];
+      for (const id of entry.payload.blockIds) {
+        const block = await getBlockById(id);
+        if (block) snapshots.push({ block, attachments: await listAttachmentsByBlock(id) });
+      }
+      for (const id of entry.payload.blockIds) await deleteBlock(id);
+      return async () => {
+        for (const { block, attachments } of snapshots) {
+          await restoreBlock(block);
+          for (const a of attachments) await restoreAttachment(a);
+        }
       };
     }
     case 'delete': {

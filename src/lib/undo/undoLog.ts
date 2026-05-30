@@ -43,11 +43,12 @@ export interface MergePayload {
 }
 
 export interface CollectSendPayload {
-  blockId: string;
+  // v2.10: Send writes one block per staging item, so undo deletes them all.
+  blockIds: string[];
   threadId: string;
-  content: string;
-  // Pre-merge staging items, kept so an undo can re-stage them into the panel when it is
-  // still open and empty (§9.13). They are not needed to delete the merged block.
+  content: string; // first block's content — for the undo-toast preview
+  // Pre-send staging items, kept so an undo can re-stage them into the panel when it is
+  // still open and empty (§9.13). They are not needed to delete the written blocks.
   originalStagingItems: StagingItem[];
 }
 

@@ -242,21 +242,21 @@ export default function CollectPanel() {
       setSending(false);
       return;
     }
-    let block: Awaited<ReturnType<typeof sendStaging>>;
+    let blocks: Awaited<ReturnType<typeof sendStaging>>;
     try {
-      block = await sendStaging(items, target.id);
+      blocks = await sendStaging(items, target.id);
     } catch (e) {
       console.error('[collect] send failed', e);
       setSending(false);
       return;
     }
-    if (!block) {
+    if (blocks.length === 0) {
       setSending(false);
       return;
     }
-    // Main pushes the collect_send undo entry + mirrors the block into its stores. The
-    // pre-merge items ride along so an undo can re-stage them (§9.13).
-    close({ kind: 'sent', block, threadId: target.id, items });
+    // Main pushes the collect_send undo entry + mirrors the blocks into its stores. The
+    // pre-send items ride along so an undo can re-stage them (§9.13).
+    close({ kind: 'sent', blocks, threadId: target.id, items });
   };
 
   // Esc: cancel a pending confirm, else discard (empty → close; with items → confirm).
