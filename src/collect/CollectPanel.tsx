@@ -327,12 +327,24 @@ export default function CollectPanel() {
       {collapsed ? (
         <div
           onMouseDown={startPanelDrag}
-          className="collect-in flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
+          className="collect-in group flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
           style={{ boxShadow: 'var(--shadow-toast)' }}
         >
           <span className="font-serif text-[12px] text-ink">正在收集</span>
           <span className="font-mono text-[11px] text-muted">· {items.length}</span>
           {undoChip}
+          {/* Send straight from the pill without expanding — revealed on hover. */}
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => void send()}
+            disabled={items.length === 0 || sending}
+            title="发送"
+            aria-label="发送"
+            className="hidden rounded p-1 text-accent hover:bg-accent/10 disabled:text-muted/50 group-hover:inline-flex"
+          >
+            <Send size={11} />
+          </button>
           <button
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
@@ -367,16 +379,19 @@ export default function CollectPanel() {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => setCollapsed(true)}
-              title="收起为小标签"
-              aria-label="收起"
-              className="rounded p-1 text-muted/80 hover:bg-paper hover:text-ink"
-            >
-              <Minimize2 size={11} />
-            </button>
+            <div className="flex flex-none items-center gap-1.5">
+              <span className="font-mono text-[10px] text-muted/60">单击 ⌥ 收起</span>
+              <button
+                type="button"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setCollapsed(true)}
+                title="收起为小标签（或单击 ⌥）"
+                aria-label="收起"
+                className="rounded p-1 text-muted/80 hover:bg-paper hover:text-ink"
+              >
+                <Minimize2 size={11} />
+              </button>
+            </div>
           </header>
 
           <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
