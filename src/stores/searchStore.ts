@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { search } from '@/lib/search/query';
 import type { HitOffset, SearchHit } from '@/lib/search/query';
+import { useThreadsStore } from './threadsStore';
 
 // How long a navigated-to block keeps its highlight. Slightly longer than the
 // .flash CSS animation (900ms) so the class isn't pulled mid-animation.
@@ -30,6 +31,12 @@ interface SearchState {
   // Bumps on every hit advance — used by BlockItem's scroll-active-into-view
   // effect so the same-index wrap-around still re-scrolls.
   flashTick: number;
+  // v2.10: snapshot of the last search's result set + query, kept alive after the overlay
+  // closes (which wipes `results`). Lets ▲/▼ step from the current block's last/first match
+  // straight into the next/previous matching block — and its thread — instead of being
+  // trapped inside one block.
+  navResults: SearchHit[];
+  navQuery: string;
 
   openSearch: () => void;
   closeSearch: () => void;
@@ -45,7 +52,33 @@ interface SearchState {
   prevHit: () => void;
 }
 
-export const useSearchStore = create<SearchState>((set, get) => ({
+export const useSearchStore = create<SearchState>((set, get) => {
+  // Step into the next (dir=1) / previous (dir=-1) matching block in the kept result set,
+  // selecting its thread if it differs and flashing it into view — same orchestration as a
+  // search-result click (select + highlight). Wraps around the whole result list.
+  const advanceBlock = (dir: 1 | -1): void => {
+    const s = get();
+    const list = s.navResults;
+    if (list.length === 0) return;
+    const cur = list.findIndex((h) => h.blockId === s.activeNavigationBlockId);
+    if (cur < 0) return;
+    const next = list[(cur + dir + list.length) % list.length];
+    if (!next) return;
+    if (next.threadId !== useThreadsStore.getState().activeId) {
+      useThreadsStore.getState().select(next.threadId);
+    }
+    set({
+      activeNavigationBlockId: next.blockId,
+      activeHits: next.hitOffsets,
+      // Forward → land on the first match; backward → the last, so stepping reads continuously.
+      activeHitIndex: dir > 0 ? 0 : Math.max(0, next.hitOffsets.length - 1),
+      activeQuery: s.navQuery,
+      flashTick: s.flashTick + 1,
+    });
+    get().highlight(next.blockId);
+  };
+
+  return {
   open: false,
   query: '',
   results: [],
@@ -57,6 +90,8 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   activeHitIndex: 0,
   activeQuery: '',
   flashTick: 0,
+  navResults: [],
+  navQuery: '',
 
   openSearch: () => set({ open: true }),
 
@@ -74,7 +109,9 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const results = await search(q);
-      set({ results, loading: false });
+      // navResults/navQuery mirror the results but survive closeSearch, so cross-block ▲/▼
+      // still has the full match list after the overlay is gone.
+      set({ results, navResults: results, navQuery: q, loading: false });
     } catch (e) {
       console.error('[search] query failed', e);
       set({ error: e instanceof Error ? e.message : String(e), results: [], loading: false });
@@ -113,22 +150,26 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       activeQuery: '',
     }),
 
-  nextHit: () =>
-    set((s) => {
-      if (s.activeHits.length === 0) return s;
-      return {
-        activeHitIndex: (s.activeHitIndex + 1) % s.activeHits.length,
-        flashTick: s.flashTick + 1,
-      };
-    }),
+  // Step to the next match: within the current block until its last hit, then on into the
+  // next matching block/thread (§9.10 v2.10 — no longer trapped in one block).
+  nextHit: () => {
+    const s = get();
+    if (s.activeHitIndex < s.activeHits.length - 1) {
+      set({ activeHitIndex: s.activeHitIndex + 1, flashTick: s.flashTick + 1 });
+    } else {
+      advanceBlock(1);
+    }
+  },
 
-  prevHit: () =>
-    set((s) => {
-      if (s.activeHits.length === 0) return s;
-      return {
-        activeHitIndex:
-          (s.activeHitIndex - 1 + s.activeHits.length) % s.activeHits.length,
-        flashTick: s.flashTick + 1,
-      };
-    }),
-}));
+  // Step to the previous match: backward within the block to its first hit, then into the
+  // previous matching block/thread (landing on that block's last hit).
+  prevHit: () => {
+    const s = get();
+    if (s.activeHitIndex > 0) {
+      set({ activeHitIndex: s.activeHitIndex - 1, flashTick: s.flashTick + 1 });
+    } else {
+      advanceBlock(-1);
+    }
+  },
+  };
+});
