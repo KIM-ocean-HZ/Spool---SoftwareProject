@@ -227,11 +227,13 @@ pub fn build_tray_menu<R: Runtime>(
 
 pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     if let Some(thread_id) = id.strip_prefix(SET_TARGET_PREFIX) {
+        // Pure state toggle (§9.2 v2.10): emit so the store flips is_capture_target, but do
+        // NOT show/focus the main window — toggling the target while working elsewhere must
+        // never pull Spool forward (§14.3). The hidden main window's listener still applies it.
         let _ = app.emit(
             "tray-action",
             serde_json::json!({ "kind": "set_target", "id": thread_id }),
         );
-        show_main_window(app);
         return;
     }
     match id {
