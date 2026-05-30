@@ -42,6 +42,10 @@ import { useCollectMode } from '@/hooks/useCollectMode';
 const MAX_PANEL_HEIGHT = 540;
 // Tiny extra so the card's drop shadow isn't clipped by the OS window's bottom edge.
 const SHADOW_ALLOWANCE = 8;
+// Fixed width of the expanded card. The OS window is then sized to the measured content
+// width (this when expanded, the pill's own width when collapsed) so the collapsed pill
+// doesn't leave a transparent, click-blocking strip beside it.
+const PANEL_WIDTH = 340;
 
 // Drag the panel by its header / collapsed pill so the user can move it off content. The
 // window is non-activating; acceptFirstMouse lets the drag start without focusing it.
@@ -88,9 +92,10 @@ export default function CollectPanel() {
   const measureAndResize = useCallback((): void => {
     const el = cardRef.current;
     if (!el) return;
-    const h =
-      Math.min(MAX_PANEL_HEIGHT, Math.ceil(el.getBoundingClientRect().height)) + SHADOW_ALLOWANCE;
-    void invoke(RESIZE_COLLECT_PANEL_COMMAND, { height: h }).catch((e) => {
+    const rect = el.getBoundingClientRect();
+    const width = Math.ceil(rect.width);
+    const height = Math.min(MAX_PANEL_HEIGHT, Math.ceil(rect.height)) + SHADOW_ALLOWANCE;
+    void invoke(RESIZE_COLLECT_PANEL_COMMAND, { width, height }).catch((e) => {
       console.warn('[collect] resize failed', e);
     });
   }, []);
@@ -316,33 +321,33 @@ export default function CollectPanel() {
   ) : null;
 
   return (
-    <div ref={cardRef} className="w-full">
+    // w-fit so the wrapper shrinks to the active content (pill or card); ml-auto keeps it at
+    // the window's right edge before the OS window resizes to match.
+    <div ref={cardRef} className="ml-auto w-fit">
       {collapsed ? (
-        <div className="flex justify-end">
-          <div
-            onMouseDown={startPanelDrag}
-            className="collect-in flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
-            style={{ boxShadow: 'var(--shadow-toast)' }}
+        <div
+          onMouseDown={startPanelDrag}
+          className="collect-in flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
+          style={{ boxShadow: 'var(--shadow-toast)' }}
+        >
+          <span className="font-serif text-[12px] text-ink">正在收集</span>
+          <span className="font-mono text-[11px] text-muted">· {items.length}</span>
+          {undoChip}
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setCollapsed(false)}
+            title="展开面板"
+            aria-label="展开"
+            className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
           >
-            <span className="font-serif text-[12px] text-ink">正在收集</span>
-            <span className="font-mono text-[11px] text-muted">· {items.length}</span>
-            {undoChip}
-            <button
-              type="button"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => setCollapsed(false)}
-              title="展开面板"
-              aria-label="展开"
-              className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
-            >
-              <Maximize2 size={11} />
-            </button>
-          </div>
+            <Maximize2 size={11} />
+          </button>
         </div>
       ) : (
         <div
-          className="collect-in flex w-full flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"
-          style={{ boxShadow: 'var(--shadow-toast)', maxHeight: MAX_PANEL_HEIGHT }}
+          className="collect-in flex flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"
+          style={{ boxShadow: 'var(--shadow-toast)', maxHeight: MAX_PANEL_HEIGHT, width: PANEL_WIDTH }}
         >
           <header
             onMouseDown={startPanelDrag}

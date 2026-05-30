@@ -52,7 +52,11 @@ fn position_collect_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(), Stri
     let m_left = mpos.x as f64 / scale;
     let m_top = mpos.y as f64 / scale;
     let m_width = msize.width as f64 / scale;
-    let target_x = m_left + m_width - COLLECT_WIDTH as f64 - COLLECT_SCREEN_MARGIN as f64;
+    // Use the window's CURRENT width (not COLLECT_WIDTH) so a collapsed pill — whose window
+    // has been shrunk to its own footprint — still hugs the right edge.
+    let win_scale = win.scale_factor().map_err(|e| e.to_string())?;
+    let win_w = win.outer_size().map_err(|e| e.to_string())?.width as f64 / win_scale;
+    let target_x = m_left + m_width - win_w - COLLECT_SCREEN_MARGIN as f64;
     let target_y = m_top + COLLECT_SCREEN_MARGIN as f64;
     win.set_position(LogicalPosition::new(target_x, target_y))
         .map_err(|e| e.to_string())?;
@@ -122,15 +126,31 @@ pub fn close_collect_panel<R: Runtime>(app: AppHandle<R>) -> Result<(), String> 
     Ok(())
 }
 
-// Resize the panel to its measured content height. Width is fixed; the window is
-// top-anchored, so this grows/shrinks downward WITHOUT repositioning — preserving any
-// position the user dragged the panel to (and the collapse/expand toggle's geometry).
+// Resize the panel to its measured content size, anchored at the TOP-RIGHT corner. For a
+// height-only change (item add/remove) the width is unchanged, so new_x == cur_x and the
+// window just grows/shrinks downward — preserving any position the user dragged it to. On a
+// collapse/expand the width changes: shrinking to the pill's own footprint removes the
+// transparent left strip that otherwise sat in the 340-wide window and swallowed clicks meant
+// for whatever was behind it. Right-anchored so the pill stays put at the right edge.
 #[tauri::command]
-pub fn resize_collect_panel<R: Runtime>(app: AppHandle<R>, height: u32) -> Result<(), String> {
+pub fn resize_collect_panel<R: Runtime>(
+    app: AppHandle<R>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
     let win = app
         .get_webview_window(COLLECT_LABEL)
         .ok_or_else(|| "collect window not found".to_string())?;
-    win.set_size(LogicalSize::new(COLLECT_WIDTH as f64, height as f64))
+    let scale = win.scale_factor().map_err(|e| e.to_string())?;
+    let pos = win.outer_position().map_err(|e| e.to_string())?;
+    let size = win.outer_size().map_err(|e| e.to_string())?;
+    let cur_x = pos.x as f64 / scale;
+    let cur_y = pos.y as f64 / scale;
+    let cur_w = size.width as f64 / scale;
+    let new_x = cur_x + cur_w - width; // keep the right edge fixed
+    win.set_size(LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    win.set_position(LogicalPosition::new(new_x, cur_y))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
