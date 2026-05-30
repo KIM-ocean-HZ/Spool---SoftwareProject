@@ -109,6 +109,40 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
   return b;
 };
 
+// §20.1 forward (copy to thread): INSERT pre-built copy blocks. INSERT-ONLY — never reads,
+// updates, or deletes an existing row, so a forward cannot touch the source thread's blocks
+// (the feature's hard data-safety constraint). The caller builds the rows with fresh ids, the
+// target thread_id, and now-based created_at. One multi-row INSERT keeps the whole batch a
+// single atomic statement (tauri-plugin-sql's sqlx pool can't honour BEGIN/COMMIT across
+// statements — see threads.ts:141 — but a single statement is itself atomic). The blocks_ai
+// FTS trigger indexes each new row.
+export const insertBlocks = async (blocks: Block[]): Promise<void> => {
+  if (blocks.length === 0) return;
+  const db = await getDb();
+  const COLS = 9;
+  const tuples = blocks
+    .map((_, i) => {
+      const o = i * COLS;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9})`;
+    })
+    .join(', ');
+  const params = blocks.flatMap((b) => [
+    b.id,
+    b.threadId,
+    b.kind,
+    b.content,
+    b.annotation,
+    b.refThreadId,
+    b.source,
+    b.pinned ? 1 : 0,
+    b.createdAt,
+  ]);
+  await db.execute(
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at) VALUES ${tuples}`,
+    params,
+  );
+};
+
 export const updateBlockSource = async (id: string, source: string | null): Promise<void> => {
   const db = await getDb();
   await db.execute('UPDATE blocks SET source = $1 WHERE id = $2', [source, id]);

@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import { create } from 'zustand';
 import { extractAttachmentText } from '@/lib/attachments/extractor';
 import * as adb from '@/lib/db/attachments';
@@ -9,7 +10,7 @@ import type {
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
 import { computeMergedFields } from '@/lib/db/blocks';
-import { buildDeleteUndo, buildMergeUndo, useUndoStore } from './undoStore';
+import { buildDeleteUndo, buildForwardUndo, buildMergeUndo, useUndoStore } from './undoStore';
 import { useSettingsStore } from './settingsStore';
 import { toast } from './toastStore';
 
@@ -48,6 +49,12 @@ interface BlocksState {
   // newline-joins annotations, OR-aggregates pinned. Hard-deletes non-survivors. Reloads
   // the thread afterwards so the store reflects the new shape in one round trip.
   mergeBlocks: (ids: string[]) => Promise<void>;
+  // §20.1 forward: COPY the given blocks into another thread (cross-workspace allowed).
+  // Strictly additive — inserts NEW block + attachment rows and never mutates or deletes the
+  // originals. Copies append to the target's bottom (created_at = now, +1ms per block to keep
+  // their relative order). Pushes a forward undo (deletes only the copies) and returns the
+  // number of blocks copied (0 if none resolved).
+  forwardToThread: (ids: string[], targetThreadId: string) => Promise<number>;
 }
 
 const removeAttachmentsForBlock = (
@@ -405,6 +412,85 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       // block + reparented attachments in-memory across two indexes.
       set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));
       await get().load(threadId);
+    },
+
+    forwardToThread: async (ids, targetThreadId) => {
+      if (ids.length === 0) return 0;
+      const state = get();
+      // Resolve the selected source blocks from the loaded feeds (in practice the active
+      // thread — selection is per-feed). Sort by createdAt so the copies append to the
+      // target in the same relative order they had in the source.
+      const wanted = new Set(ids);
+      const sources: Block[] = [];
+      for (const list of Object.values(state.byThread)) {
+        for (const b of list) {
+          if (wanted.has(b.id)) sources.push(b);
+        }
+      }
+      if (sources.length === 0) return 0;
+      sources.sort((a, b) => a.createdAt - b.createdAt);
+
+      // Build the NEW rows: fresh ids, target thread_id, now-based created_at (+i ms per
+      // block to preserve order → they append to the target's bottom chronologically). Every
+      // other field is copied verbatim. Attachments come from the hydrated index — the source
+      // thread is fully loaded (same assumption as mergeBlocks). Nothing here reads back or
+      // mutates a source row; the originals are strictly read-only.
+      const base = Date.now();
+      const copyBlocks: Block[] = [];
+      const copyAttachments: Attachment[] = [];
+      sources.forEach((src, i) => {
+        const newId = nanoid();
+        copyBlocks.push({
+          id: newId,
+          threadId: targetThreadId,
+          kind: src.kind,
+          content: src.content,
+          annotation: src.annotation,
+          refThreadId: src.refThreadId,
+          source: src.source,
+          pinned: src.pinned,
+          createdAt: base + i,
+        });
+        for (const a of state.attachmentsByBlock[src.id] ?? []) {
+          copyAttachments.push({
+            id: nanoid(),
+            blockId: newId,
+            kind: a.kind,
+            target: a.target,
+            label: a.label,
+            extractedText: a.extractedText,
+            extractedAt: a.extractedAt,
+            extractionKind: a.extractionKind,
+            includeInPack: a.includeInPack,
+            createdAt: base + i,
+          });
+        }
+      });
+
+      // INSERT-only, blocks before attachments (FK). A failure leaves at worst orphan copy
+      // blocks (cleaned up by the forward undo) — never a touched original.
+      try {
+        await db.insertBlocks(copyBlocks);
+        await adb.insertAttachments(copyAttachments);
+      } catch (e) {
+        console.error('[forward] copy failed', e);
+        toast.error(`复制失败：${e instanceof Error ? e.message : String(e)}`);
+        return 0;
+      }
+
+      useUndoStore.getState().pushUndo(
+        buildForwardUndo({
+          threadId: targetThreadId,
+          blocks: copyBlocks,
+          attachments: copyAttachments,
+        }),
+      );
+
+      // Clear the selection and refresh the TARGET feed so the copies show if it's open. The
+      // source feed is unchanged (additive), so it needs no reload.
+      set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));
+      await get().load(targetThreadId);
+      return copyBlocks.length;
     },
   };
 });

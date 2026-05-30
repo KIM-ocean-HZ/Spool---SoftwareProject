@@ -3,12 +3,14 @@ import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createAttachment,
+  insertAttachments,
   listAttachmentsByBlock,
 } from '@/lib/db/attachments';
 import {
   computeMergedFields,
   createBlock,
   deleteBlock,
+  insertBlocks,
   listBlocksByThread,
   mergeBlocks,
   togglePin,
@@ -22,6 +24,7 @@ import { clear as clearUndoLog } from '@/lib/undo/undoLog';
 import {
   buildCaptureUndo,
   buildDeleteUndo,
+  buildForwardUndo,
   buildHighlightUndo,
   buildMergeUndo,
   buildThreadDeleteUndo,
@@ -316,6 +319,76 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     const entry = await useUndoStore.getState().undo();
     expect(entry?.kind).toBe('thread_delete');
     expect((await listAllThreads()).some((t) => t.id === thread.id)).toBe(true);
+  });
+
+  it('forward(copy) is additive — copies land in the target, the source is untouched, undo removes only the copies', async () => {
+    const ws = await createWorkspace('W');
+    const source = await createThread(ws.id, 'Source');
+    const target = await createThread(ws.id, 'Target');
+
+    const b1 = await createBlock({ threadId: source.id, content: 'one', annotation: 'note one' });
+    await tick();
+    const b2 = await createBlock({ threadId: source.id, content: 'two' });
+    await togglePin(b2.id);
+    await tick();
+    const b3 = await createBlock({ threadId: source.id, content: 'three' });
+    const att = await createAttachment({
+      blockId: b3.id,
+      kind: 'url',
+      target: 'https://e.com',
+      label: 'e',
+    });
+
+    // Build the copies exactly as blocksStore.forwardToThread does: fresh ids, target
+    // thread_id, verbatim fields, now-based created_at (+i ms). Then INSERT them (additive)
+    // and record the forward undo entry. The copy of b3 (the 3rd source, index 2) is copy-2.
+    const sources = await listBlocksByThread(source.id);
+    const srcAtts = await listAttachmentsByBlock(b3.id);
+    const base = Date.now();
+    const copyBlocks = sources.map((src, i) => ({
+      ...src,
+      id: `copy-${i}`,
+      threadId: target.id,
+      createdAt: base + i,
+    }));
+    const copyAttachments = srcAtts.map((a, i) => ({
+      ...a,
+      id: `copyatt-${i}`,
+      blockId: 'copy-2',
+      createdAt: base,
+    }));
+    await insertBlocks(copyBlocks);
+    await insertAttachments(copyAttachments);
+
+    // Copies landed in the target with pin / annotation / attachment preserved, appended in
+    // source order — with brand-new ids.
+    const copies = await listBlocksByThread(target.id);
+    expect(copies.map((c) => c.content)).toEqual(['one', 'two', 'three']);
+    expect(copies.every((c) => ![b1.id, b2.id, b3.id].includes(c.id))).toBe(true);
+    expect(copies.find((c) => c.content === 'one')!.annotation).toBe('note one');
+    expect(copies.find((c) => c.content === 'two')!.pinned).toBe(true);
+    const copy3Atts = await listAttachmentsByBlock('copy-2');
+    expect(copy3Atts.map((a) => a.target)).toEqual(['https://e.com']);
+    expect(copy3Atts[0]!.id).not.toBe(att.id); // a fresh attachment row
+
+    // The source is strictly read-only through the forward.
+    expect((await listBlocksByThread(source.id)).map((b) => b.id).sort()).toEqual(
+      [b1.id, b2.id, b3.id].sort(),
+    );
+
+    useUndoStore.getState().pushUndo(
+      buildForwardUndo({ threadId: target.id, blocks: copyBlocks, attachments: copyAttachments }),
+    );
+    const entry = await useUndoStore.getState().undo();
+    expect(entry?.kind).toBe('forward');
+
+    // Undo deleted ONLY the copies; the source still holds all three originals intact.
+    expect(await listBlocksByThread(target.id)).toHaveLength(0);
+    const sourceAfter = await listBlocksByThread(source.id);
+    expect(sourceAfter.map((b) => b.id).sort()).toEqual([b1.id, b2.id, b3.id].sort());
+    expect(sourceAfter.find((b) => b.id === b2.id)!.pinned).toBe(true);
+    expect(sourceAfter.find((b) => b.id === b1.id)!.annotation).toBe('note one');
+    expect((await listAttachmentsByBlock(b3.id)).map((a) => a.id)).toEqual([att.id]);
   });
 
   it('undo(workspace_delete) restores only the threads that delete removed', async () => {

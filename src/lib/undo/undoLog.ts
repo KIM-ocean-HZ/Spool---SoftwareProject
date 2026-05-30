@@ -14,7 +14,8 @@ export type UndoOpKind =
   | 'collect_send'
   | 'highlight'
   | 'thread_delete'
-  | 'workspace_delete';
+  | 'workspace_delete'
+  | 'forward';
 
 // Per-kind payloads. §8.2 types the schema-level payload as `unknown` for storage
 // flexibility; at every usage site we narrow it via the discriminated UndoEntry union
@@ -73,6 +74,16 @@ export interface WorkspaceDeletePayload {
   deleteTimestamp: number;
 }
 
+// §20.1 forward (copy to another thread): the forward is purely additive — it INSERTed these
+// NEW copy blocks (+ their copied attachments) into a target thread; the originals were never
+// touched. Reversal deletes ONLY the copies (their attachments cascade with them); redo
+// re-inserts them verbatim, so both arrays hold the copies, not the originals.
+export interface ForwardPayload {
+  threadId: string; // target thread — for feed refresh on undo/redo
+  blocks: Block[];
+  attachments: Attachment[];
+}
+
 interface BaseEntry {
   id: string;
   timestamp: number;
@@ -108,6 +119,10 @@ export interface WorkspaceDeleteUndoEntry extends BaseEntry {
   kind: 'workspace_delete';
   payload: WorkspaceDeletePayload;
 }
+export interface ForwardUndoEntry extends BaseEntry {
+  kind: 'forward';
+  payload: ForwardPayload;
+}
 
 export type UndoEntry =
   | CaptureUndoEntry
@@ -116,7 +131,8 @@ export type UndoEntry =
   | CollectSendUndoEntry
   | HighlightUndoEntry
   | ThreadDeleteUndoEntry
-  | WorkspaceDeleteUndoEntry;
+  | WorkspaceDeleteUndoEntry
+  | ForwardUndoEntry;
 
 const CAPACITY = 10;
 

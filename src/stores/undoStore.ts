@@ -21,6 +21,7 @@ import type {
   CapturePayload,
   CollectSendPayload,
   DeletePayload,
+  ForwardPayload,
   HighlightPayload,
   MergePayload,
   ThreadDeletePayload,
@@ -122,6 +123,19 @@ export const buildWorkspaceDeleteUndo = (payload: WorkspaceDeletePayload): UndoE
   invalidated: false,
 });
 
+// §20.1 forward (copy to thread). The copies are the affected blocks: editing a copy after
+// the forward invalidates this entry, so Cmd+Z won't delete an edited copy (the user's most-
+// recent edit wins, §9.13). The originals are never in affectedBlockIds — undo never touches
+// them.
+export const buildForwardUndo = (payload: ForwardPayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'forward',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: payload.blocks.map((b) => b.id),
+  invalidated: false,
+});
+
 // --- Pure helpers over an entry (exported for runUndo / the toast). ---
 
 export const threadIdForEntry = (entry: UndoEntry): string => {
@@ -130,6 +144,7 @@ export const threadIdForEntry = (entry: UndoEntry): string => {
     case 'collect_send':
     case 'merge':
     case 'highlight':
+    case 'forward':
       return entry.payload.threadId;
     case 'delete':
       return entry.payload.block.threadId;
@@ -167,6 +182,10 @@ export const previewForEntry = (entry: UndoEntry): string => {
       return previewText(entry.payload.title);
     case 'workspace_delete':
       return '';
+    case 'forward': {
+      const first = entry.payload.blocks[0];
+      return first ? previewText(first.content) : '';
+    }
   }
 };
 
@@ -257,6 +276,18 @@ const reverseAndBuildRedo = async (
       // Redo re-stamps with the SAME timestamp so a following undo still matches.
       return async () => {
         await softDeleteWorkspace(workspaceId, deleteTimestamp);
+      };
+    }
+    case 'forward': {
+      // §20.1: a forward only ever ADDED these copy blocks. Undo deletes ONLY the copies
+      // (their copied attachments cascade-delete with them via the FK); the source blocks
+      // and their attachments are never referenced here, so they stay untouched. Redo
+      // re-inserts the copies verbatim (blocks before attachments for the FK).
+      const { blocks, attachments } = entry.payload;
+      for (const b of blocks) await deleteBlock(b.id);
+      return async () => {
+        for (const b of blocks) await restoreBlock(b);
+        for (const a of attachments) await restoreAttachment(a);
       };
     }
   }

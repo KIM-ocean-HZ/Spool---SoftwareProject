@@ -119,6 +119,39 @@ export const createAttachment = async (args: CreateAttachmentArgs): Promise<Atta
   return a;
 };
 
+// §20.1 forward (copy to thread): INSERT pre-built copy attachments (one multi-row, atomic
+// statement — additive only, same data-safety contract as blocks.insertBlocks). The caller
+// builds the rows with fresh ids pointing at the new copy blocks; every cached field
+// (extracted_text, extracted_at, extraction_kind, include_in_pack) is copied verbatim, so no
+// re-extraction runs.
+export const insertAttachments = async (attachments: Attachment[]): Promise<void> => {
+  if (attachments.length === 0) return;
+  const db = await getDb();
+  const COLS = 10;
+  const tuples = attachments
+    .map((_, i) => {
+      const o = i * COLS;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
+    })
+    .join(', ');
+  const params = attachments.flatMap((a) => [
+    a.id,
+    a.blockId,
+    a.kind,
+    a.target,
+    a.label,
+    a.extractedText,
+    a.extractedAt,
+    a.extractionKind,
+    a.includeInPack ? 1 : 0,
+    a.createdAt,
+  ]);
+  await db.execute(
+    `INSERT INTO attachments (id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at) VALUES ${tuples}`,
+    params,
+  );
+};
+
 // v2.7: record the result of a text-extraction pass on an attachment. Called by the
 // extraction pipeline once `extractAttachmentText` resolves — with the text and the
 // extractor kind on success, or `(null, 'failed')` on failure / unsupported type.

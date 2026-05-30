@@ -73,8 +73,9 @@ export default function LogView({ threadId }: Props) {
             the same scroll container. */}
         <BlockFeed threadId={threadId} scrollRef={scrollRef} />
         {/* §20.1 merge toolbar — sticky bottom of the scroll area, only appears when
-            ≥1 block is selected (component returns null otherwise). */}
-        <MergeToolbar />
+            ≥1 block is selected (component returns null otherwise). threadId is the
+            forward source, excluded from the "复制到…" picker. */}
+        <MergeToolbar threadId={threadId} />
       </div>
       <Composer threadId={threadId} />
     </div>

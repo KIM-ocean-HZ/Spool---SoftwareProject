@@ -50,6 +50,7 @@ const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
   highlight: '高亮',
   thread_delete: '删除项目',
   workspace_delete: '删除工作区',
+  forward: '复制',
   empty: '',
 };
 // Window width must match Rust's OVERLAY_WIDTH (capture.rs). Heights are now
