@@ -77,31 +77,44 @@ export default function CollectPanel() {
   // Auto-size the OS window to the measured content height (capped), so the rounded bottom
   // corner is always visible. The window is top-anchored in Rust, so growth/shrink extends
   // downward and never disturbs a position the user dragged the panel to. cardRef is a
-  // stable wrapper around the collapsed pill / expanded card, so the observer catches
-  // every height change (collapse, item add/remove).
-  useLayoutEffect(() => {
+  // stable wrapper around the collapsed pill / expanded card. Extracted to a stable callback
+  // so collect:open can re-assert it (see below).
+  const measureAndResize = useCallback((): void => {
     const el = cardRef.current;
     if (!el) return;
-    const apply = (): void => {
-      const h =
-        Math.min(MAX_PANEL_HEIGHT, Math.ceil(el.getBoundingClientRect().height)) + SHADOW_ALLOWANCE;
-      void invoke(RESIZE_COLLECT_PANEL_COMMAND, { height: h }).catch((e) => {
-        console.warn('[collect] resize failed', e);
-      });
-    };
-    apply();
-    const ro = new ResizeObserver(apply);
+    const h =
+      Math.min(MAX_PANEL_HEIGHT, Math.ceil(el.getBoundingClientRect().height)) + SHADOW_ALLOWANCE;
+    void invoke(RESIZE_COLLECT_PANEL_COMMAND, { height: h }).catch((e) => {
+      console.warn('[collect] resize failed', e);
+    });
+  }, []);
+
+  // The observer catches every content-height change (collapse, item add/remove, the target
+  // line landing).
+  useLayoutEffect(() => {
+    measureAndResize();
+    const el = cardRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(measureAndResize);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [measureAndResize]);
 
   // A fresh long-press (collect:open) starts a new session expanded, even if the previous
   // one ended collapsed. (useCollectMode clears the buffer on the same event.)
+  //
+  // Also re-measure here: Rust resets the window to a fixed initial height on every open, but
+  // a fresh session's empty content height usually MATCHES the last measurement, so the
+  // ResizeObserver never fires — leaving the panel clipped to that too-short initial height
+  // until the first capture changes the height. The rAF lets the expand render first.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
-      const dispose = await listen(COLLECT_OPEN_EVENT, () => setCollapsed(false));
+      const dispose = await listen(COLLECT_OPEN_EVENT, () => {
+        setCollapsed(false);
+        requestAnimationFrame(measureAndResize);
+      });
       if (cancelled) dispose();
       else unlisten = dispose;
     })();
@@ -109,7 +122,7 @@ export default function CollectPanel() {
       cancelled = true;
       if (unlisten) unlisten();
     };
-  }, []);
+  }, [measureAndResize]);
 
   // Resolve the current capture target (+ its workspace). No target → null, render nothing.
   const refreshTarget = useCallback(async (): Promise<void> => {
