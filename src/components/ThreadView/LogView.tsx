@@ -42,6 +42,7 @@ export default function LogView({ threadId }: Props) {
   const navHits = useSearchStore((s) => s.activeHits);
   const navHitIndex = useSearchStore((s) => s.activeHitIndex);
   const navQuery = useSearchStore((s) => s.activeQuery);
+  const navResults = useSearchStore((s) => s.navResults);
   const threadBlocks = useBlocksStore((s) => s.byThread[threadId]);
   const showNavBar =
     navBlockId !== null && (threadBlocks?.some((b) => b.id === navBlockId) ?? false);
@@ -53,6 +54,9 @@ export default function LogView({ threadId }: Props) {
           query={navQuery}
           index={navHitIndex}
           total={navHits.length}
+          results={navResults}
+          currentBlockId={navBlockId}
+          onPickResult={(blockId) => useSearchStore.getState().jumpToResult(blockId)}
           onQueryChange={(next) => {
             // Live in-block re-search: recompute hit positions on the
             // destination block as the user types. Falls through to the

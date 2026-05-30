@@ -50,32 +50,39 @@ interface SearchState {
   clearNavigation: () => void;
   nextHit: () => void;
   prevHit: () => void;
+  // Jump straight to a chosen matching block (from the find bar's cross-thread result list),
+  // selecting its thread if needed. No-op if the id isn't in the kept result set.
+  jumpToResult: (blockId: string) => void;
 }
 
 export const useSearchStore = create<SearchState>((set, get) => {
-  // Step into the next (dir=1) / previous (dir=-1) matching block in the kept result set,
-  // selecting its thread if it differs and flashing it into view — same orchestration as a
-  // search-result click (select + highlight). Wraps around the whole result list.
+  // Land in-block navigation on `hit` at `hitIndex`, selecting its thread if it differs and
+  // flashing it into view — the same orchestration as a search-result click (select +
+  // highlight). Shared by ▲/▼ stepping and the find bar's result list.
+  const goToHit = (hit: SearchHit, hitIndex: number): void => {
+    if (hit.threadId !== useThreadsStore.getState().activeId) {
+      useThreadsStore.getState().select(hit.threadId);
+    }
+    set((s) => ({
+      activeNavigationBlockId: hit.blockId,
+      activeHits: hit.hitOffsets,
+      activeHitIndex: hitIndex,
+      activeQuery: s.navQuery,
+      flashTick: s.flashTick + 1,
+    }));
+    get().highlight(hit.blockId);
+  };
+
+  // Step into the next (dir=1) / previous (dir=-1) matching block in the kept result set.
+  // Wraps around the whole list. Forward → land on the first match; backward → the last.
   const advanceBlock = (dir: 1 | -1): void => {
-    const s = get();
-    const list = s.navResults;
+    const list = get().navResults;
     if (list.length === 0) return;
-    const cur = list.findIndex((h) => h.blockId === s.activeNavigationBlockId);
+    const cur = list.findIndex((h) => h.blockId === get().activeNavigationBlockId);
     if (cur < 0) return;
     const next = list[(cur + dir + list.length) % list.length];
     if (!next) return;
-    if (next.threadId !== useThreadsStore.getState().activeId) {
-      useThreadsStore.getState().select(next.threadId);
-    }
-    set({
-      activeNavigationBlockId: next.blockId,
-      activeHits: next.hitOffsets,
-      // Forward → land on the first match; backward → the last, so stepping reads continuously.
-      activeHitIndex: dir > 0 ? 0 : Math.max(0, next.hitOffsets.length - 1),
-      activeQuery: s.navQuery,
-      flashTick: s.flashTick + 1,
-    });
-    get().highlight(next.blockId);
+    goToHit(next, dir > 0 ? 0 : Math.max(0, next.hitOffsets.length - 1));
   };
 
   return {
@@ -170,6 +177,11 @@ export const useSearchStore = create<SearchState>((set, get) => {
     } else {
       advanceBlock(-1);
     }
+  },
+
+  jumpToResult: (blockId) => {
+    const hit = get().navResults.find((h) => h.blockId === blockId);
+    if (hit) goToHit(hit, 0);
   },
   };
 });
