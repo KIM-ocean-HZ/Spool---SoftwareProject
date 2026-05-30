@@ -847,7 +847,20 @@ function TextBlockItem({
             spellCheck={false}
           />
         ) : (
-          <div className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2">
+          <div
+            // Double-click the annotation itself to edit just the annotation in place
+            // (separate from double-clicking the content, which opens both fields).
+            onDoubleClick={
+              readOnly
+                ? undefined
+                : () => {
+                    setActive(block.id);
+                    enterEditMode(() => setEditingAnnotation(true));
+                  }
+            }
+            title={readOnly ? undefined : '双击编辑批注'}
+            className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2"
+          >
             {/* Step 3 §20.5: annotations are a read surface too — route through the same
                 tokenizer so a ==…== span (and search hits when navigated) renders as a
                 highlight, never literal markers. No spine on annotations. */}
