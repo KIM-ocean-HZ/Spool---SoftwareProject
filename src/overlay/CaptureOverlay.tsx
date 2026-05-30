@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ChevronDown, MessageSquarePlus, Pin, Plus, RotateCcw, RotateCw, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import {
@@ -125,6 +125,28 @@ export default function CaptureOverlay() {
   const [pinned, setPinned] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState('');
   const annotationRef = useRef<HTMLTextAreaElement>(null);
+  // Latest pending note, mirrored to a ref so a dismiss path can flush it. A toast note
+  // only committed on the textarea's onBlur — but clicking outside (the documented
+  // "点击外部保存"), Esc, and × all unmount the textarea via setContent(null), and React
+  // never fires onBlur on unmount, so the note was silently lost. flushPendingNote reads
+  // this ref (never a stale closure) and is called on every dismiss path + onBlur.
+  const pendingNoteRef = useRef<{ blockId: string; threadId: string; draft: string } | null>(null);
+
+  // v2.8 §20.6: flush a pending toast note to the DB + main window. Stable (reads only the
+  // ref + module-level fns) so the dismiss listeners can call it without a stale draft, and
+  // fire-and-forget — the webview stays alive when the window hides, so the write completes
+  // even after the toast unmounts. No-op unless the user actually typed a note. Clears the
+  // ref first so the multiple dismiss paths can't double-write.
+  const flushPendingNote = useCallback((): void => {
+    const p = pendingNoteRef.current;
+    pendingNoteRef.current = null;
+    if (!p) return;
+    const trimmed = p.draft.trim();
+    const next: string | null = trimmed.length > 0 ? trimmed : null;
+    void updateBlockAnnotation(p.blockId, next)
+      .then(() => emitAction({ kind: 'annotate', blockId: p.blockId, threadId: p.threadId, annotation: next }))
+      .catch((e) => console.error('[overlay] annotation save failed', e));
+  }, []);
   // ResizeObserver target — the visible card root. Used to match the OS window
   // height to the toast's actual rendered height so the rounded bottom corner
   // is always visible regardless of attribution-line wrap or expansion state.
@@ -160,6 +182,9 @@ export default function CaptureOverlay() {
     let cancelled = false;
     void (async () => {
       const dispose = await listen<CaptureOverlayPayload>(OVERLAY_SHOW_EVENT, (e) => {
+        // Save a still-pending note from the previous toast before this capture replaces it
+        // (rapid re-capture without dismissing would otherwise drop it).
+        flushPendingNote();
         setContent({ kind: 'toast', data: e.payload });
         setHover(false);
         setPickerOpen(false);
@@ -169,6 +194,7 @@ export default function CaptureOverlay() {
         setExpanded(false);
         setPinned(false);
         setAnnotationDraft('');
+        pendingNoteRef.current = null;
         void refresh();
       });
       if (cancelled) dispose();
@@ -297,6 +323,7 @@ export default function CaptureOverlay() {
     if (!content) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        flushPendingNote();
         setContent(null);
         setExpanded(false);
         hideOverlay();
@@ -304,7 +331,7 @@ export default function CaptureOverlay() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [content]);
+  }, [content, flushPendingNote]);
 
   // v2.9 §9.13: Rust's mouse-down tap fires this when the user clicks outside the toast
   // (resuming work). Dismiss the same way Esc / × does — let the user keep working.
@@ -313,6 +340,7 @@ export default function CaptureOverlay() {
     let cancelled = false;
     void (async () => {
       const dispose = await listen(OVERLAY_DISMISS_EVENT, () => {
+        flushPendingNote();
         setContent(null);
         setExpanded(false);
         hideOverlay();
@@ -324,7 +352,7 @@ export default function CaptureOverlay() {
       cancelled = true;
       if (unlisten) unlisten();
     };
-  }, []);
+  }, [flushPendingNote]);
 
   // Focus the annotation textarea on expand so the user can start typing without an
   // extra click. The pin button keeps tab-order priority by being declared first.
@@ -507,26 +535,8 @@ export default function CaptureOverlay() {
     });
   };
 
-  // v2.8 §20.6: annotate the just-captured block from the expanded toast. Commits
-  // on blur so the user can write a multi-line note without each keystroke writing.
-  const onCommitAnnotation = async (): Promise<void> => {
-    const trimmed = annotationDraft.trim();
-    const next: string | null = trimmed.length > 0 ? trimmed : null;
-    try {
-      await updateBlockAnnotation(toast.blockId, next);
-    } catch (e) {
-      console.error('[overlay] annotation save failed', e);
-      return;
-    }
-    emitAction({
-      kind: 'annotate',
-      blockId: toast.blockId,
-      threadId: toast.threadId,
-      annotation: next,
-    });
-  };
-
   const dismissToast = (): void => {
+    flushPendingNote();
     setContent(null);
     setExpanded(false);
     hideOverlay();
@@ -610,8 +620,17 @@ export default function CaptureOverlay() {
             <textarea
               ref={annotationRef}
               value={annotationDraft}
-              onChange={(e) => setAnnotationDraft(e.target.value)}
-              onBlur={() => void onCommitAnnotation()}
+              onChange={(e) => {
+                setAnnotationDraft(e.target.value);
+                // Mirror the draft into the ref each keystroke so a dismiss-by-click-outside
+                // (which never fires onBlur) can still flush it.
+                pendingNoteRef.current = {
+                  blockId: toast.blockId,
+                  threadId: toast.threadId,
+                  draft: e.target.value,
+                };
+              }}
+              onBlur={flushPendingNote}
               placeholder="批注（可选） — Tab 或点击外部保存"
               rows={2}
               spellCheck={false}
