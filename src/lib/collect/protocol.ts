@@ -33,6 +33,11 @@ export const COLLECT_UNDO_MAIN_EVENT = 'collect:undo-main';
 // main → collect window: a collect_send op was undone while the panel is open and empty,
 // so re-stage the original items (§9.13).
 export const COLLECT_RESTAGE_EVENT = 'collect:restage';
+// main → collect window: the capture target changed (sidebar / header / tray toggle, §9.2).
+// The panel re-reads the target so its destination header stays current while open — the
+// toggle is a pure state change (§9.2), so the target can move mid-session. No payload; the
+// collect window has its own DB access and re-queries the target itself.
+export const CAPTURE_TARGET_CHANGED_EVENT = 'capture-target:changed';
 
 export interface CollectAppendPayload {
   text: string;

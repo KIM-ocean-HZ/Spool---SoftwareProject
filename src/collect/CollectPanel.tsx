@@ -3,6 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Maximize2, Minimize2, Pin, Send, X } from 'lucide-react';
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
+  CAPTURE_TARGET_CHANGED_EVENT,
   CLOSE_COLLECT_PANEL_COMMAND,
   COLLECT_CLOSED_EVENT,
   COLLECT_OPEN_EVENT,
@@ -31,6 +33,7 @@ import {
   type StagingItem,
 } from '@/lib/collect/stagingBuffer';
 import { getCaptureTargetThread } from '@/lib/db/threads';
+import { listWorkspaces } from '@/lib/db/workspaces';
 import { useCollectMode } from '@/hooks/useCollectMode';
 
 // Cap so a long collection scrolls inside the panel instead of growing off-screen; the
@@ -62,6 +65,11 @@ export default function CollectPanel() {
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  // Where Send lands — mirrors the CaptureToast two-tier attribution (§9.4) so the panel
+  // says, quietly, what it's collecting into. null → no target (shouldn't happen): show nothing.
+  const [target, setTarget] = useState<{ workspaceTitle: string; threadTitle: string } | null>(
+    null,
+  );
 
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -102,6 +110,44 @@ export default function CollectPanel() {
       if (unlisten) unlisten();
     };
   }, []);
+
+  // Resolve the current capture target (+ its workspace). No target → null, render nothing.
+  const refreshTarget = useCallback(async (): Promise<void> => {
+    try {
+      const t = await getCaptureTargetThread();
+      if (!t) {
+        setTarget(null);
+        return;
+      }
+      const ws = await listWorkspaces();
+      setTarget({
+        workspaceTitle: ws.find((w) => w.id === t.workspaceId)?.title.trim() || '未命名',
+        threadTitle: t.title.trim() || '无标题',
+      });
+    } catch (e) {
+      console.warn('[collect] capture-target lookup failed', e);
+    }
+  }, []);
+
+  // Keep the destination line current: read on mount, on each fresh session (collect:open),
+  // and whenever the target is toggled from the main window (§9.2 — a pure state change, so
+  // it can move while the panel sits open).
+  useEffect(() => {
+    void refreshTarget();
+    let cancelled = false;
+    const disposers: Array<() => void> = [];
+    void (async () => {
+      for (const evt of [COLLECT_OPEN_EVENT, CAPTURE_TARGET_CHANGED_EVENT]) {
+        const dispose = await listen(evt, () => void refreshTarget());
+        if (cancelled) dispose();
+        else disposers.push(dispose);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      for (const d of disposers) d();
+    };
+  }, [refreshTarget]);
 
   // When a new item is staged, scroll the list to its bottom so the newest is in view.
   const prevLenRef = useRef(0);
@@ -245,9 +291,19 @@ export default function CollectPanel() {
             onMouseDown={startPanelDrag}
             className="flex flex-none cursor-grab items-center justify-between border-b border-line bg-paper-2/40 px-3 py-1.5 active:cursor-grabbing"
           >
-            <div className="font-ui text-[11px] text-ink">
-              <span className="font-serif text-[12px]">正在收集</span>
-              {items.length > 0 && <span className="ml-1.5 text-muted">· {items.length}</span>}
+            <div className="min-w-0 font-ui text-[11px] text-ink">
+              <div>
+                <span className="font-serif text-[12px]">正在收集</span>
+                {items.length > 0 && <span className="ml-1.5 text-muted">· {items.length}</span>}
+              </div>
+              {target && (
+                <div
+                  className="mt-0.5 truncate font-mono text-[10px] text-muted"
+                  title={`${target.workspaceTitle} / ${target.threadTitle}`}
+                >
+                  → 「{target.workspaceTitle} / {target.threadTitle}」
+                </div>
+              )}
             </div>
             <button
               type="button"
