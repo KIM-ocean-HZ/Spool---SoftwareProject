@@ -1262,9 +1262,9 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | Feature | When | Hook |
 |---|---|---|
 | Always-on desktop floating widget | v1.5 candidate | Overlay window + non-activating-window groundwork already established (capture overlay + v2.9 collect panel) |
-| Pack range selector (pinned only / last N days) | v1.5 | `assemble.ts` takes a filter param |
+| Pack range selector (pinned only / last N days) | ✅ shipped 2026-07-06 | `filterBlocksForRange` pre-filter in `assemble.ts`; PackDialog 打包范围 pills (全部/仅置顶/近7天/近30天) |
 | Cross-session scroll memory | v1.5 if dogfooding shows gap | `threads.last_scroll_block_id` column |
-| AI pack compression | v1.5 | router ready; add compress prompt |
+| AI pack compression | ✅ shipped 2026-07-06 | `compressPack.ts` prompt (tunable, not §12-locked) + PackDialog AI 压缩 button; deterministic pack stays default, compressed text is a togglable second view |
 | Auto-copy selection on capture | v1.5 | settings option + branch in capture.rs |
 | Source URL capture | v1.5 | same AppleScript path as tab-title; enrich `blocks.source` or add column |
 | @-mention specific block | v1.5 | `ref_block_id` column |
@@ -1279,8 +1279,9 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | OCR for image attachments | **§20.10 (Track B experiment, NEW)** | Now an attach-time, cached extraction (like PDF/docx) via opt-in Gemini vision — so it does NOT put AI in the pack hot path. Fenced; off by default; kill criterion in §20.8 |
 | Cross-app file watch / re-extract | v2 | FSEvents/inotify watcher |
 | **Trash / soft-delete recovery surface** (v2.9 addition) | v1.5 | Workspace/thread deletes are already soft. Cmd+Z intentionally does NOT cover them (low-volume, recover via reverse action). Trash view recovering ~30 days is the proper home. No schema change |
+| **MCP local server — zero-paste re-brief** | **§20.12 (Track B, chartered 2026-07-06, NOT yet built)** | Read-only faucet over `assemble.ts`; charter, boundaries and kill criterion in §20.12 |
 
-> Items already promoted into v1 from this table: double-tap-modifier capture trigger (now ⌥); smarter source auto-detection via browser tab title.
+> Items already promoted into v1 from this table: double-tap-modifier capture trigger (now ⌥); smarter source auto-detection via browser tab title; pack range selector and AI pack compression (both 2026-07-06).
 
 ---
 
@@ -1490,6 +1491,7 @@ Each §20 feature reviewed at the end of Phase 11.5's 3-week dogfooding window. 
 
 **On graduation**: a §20 feature that survives review and proves clearly valuable gets *promoted* — moved into the relevant §1–§19 section and re-examined against §2 if it touches the core. Until promoted, it stays fenced. Promotion is deliberate, recorded in the changelog — not silent drift.
 - **20.10 Image OCR** (NEW): cut if Gemini math/formula OCR proves poor (§19.15-style garbled-output monitoring), OR usage near zero, OR the free-tier-trains-on-data privacy tradeoff feels wrong. Off by default, Gemini-only, attach-time — removal is clean (the toggle + the image branch; PDF/docx extraction untouched).
+- **20.12 MCP local server** (chartered 2026-07-06, not yet built): cut if Ocean's own zero-paste pulls stay near zero after 3 weeks, or if server lifecycle friction exceeds the paste it saves. Full charter in §20.12.
 
 ### 20.9 (Track B → graduating) Collect Mode (NEW in v2.9)
 
@@ -1581,9 +1583,43 @@ macOS only: when user switches active app/space, the staging panel must follow.
 - **COPY semantics**: each selected block is inserted as a NEW block in the target (new id, target `thread_id`, `created_at` = now +1ms per block to keep order; `kind` / `content` / `annotation` / `source` / `pinned` / `ref_thread_id` copied verbatim), with its attachments copied too (cached extraction values copied, no re-extraction). Originals are never read-modify-written — **INSERT-only**, no schema change (SCHEMA_VERSION stays 5).
 - Confirmation toast: `已复制 <N> 个块到「<Workspace> / <Thread>」`; the selection clears.
 - **Undoable** (§9.13, `forward` `UndoOpKind`): undo deletes ONLY the new copies (their copied attachments cascade); it never touches the originals. UndoToast: `已撤销:复制`.
+
+### 20.12 (Track B — chartered 2026-07-06, NOT yet built) MCP local server — "zero-paste re-brief"
+
+> **Charter only.** Ocean approved opening this project on 2026-07-06 (execution order: after the §17 range-selector and AI-compression pulls landed). Implementation must NOT start until the open design questions below are resolved with Ocean — in particular, any new dependency needs §4 sign-off first.
+
+**The bet.** Pack's "single paste" becomes "zero paste": MCP-capable AI clients (Claude, Cursor, and the growing MCP ecosystem) pull thread context directly from Spool. The receiving AI asks Spool for the pack; the user just @-mentions their project inside whatever AI they're already talking to. This is §2.2 taken to its limit — and the sharpest competitive position available: notes apps have no zero-friction capture, clipboard managers have no project structure, and neither has a deterministic, AI-facing context faucet.
+
+**Mechanism (proposed).**
+- A local-only MCP server exposing exactly two **read-only** tools:
+  - `list_threads` — workspaces + threads (title, status, updated_at) so the client can discover/pick.
+  - `get_pack(thread_id, range?)` — returns the §9.5 pack text via the SAME pure `assemble.ts` the PackDialog uses (range values mirror the §17 selector; default `all`).
+- Off by default: a Settings toggle 「MCP 服务」 (default OFF) + a copy-paste client-config snippet.
+- No remote binding, ever. Localhost/stdio only.
+
+**Constitution compliance.**
+- Principle 2 (local-first): off by default; data flows only into the user's own AI client by the user's own explicit configuration — same consent category as the existing cloud-AI features.
+- Principle 4 (deterministic retrieval): the server is a thin faucet over `assemble.ts`; no AI inside Spool's own path.
+- Principle 5 (librarian): Spool still authors nothing; the external AI consumes.
+- §6.4: not in any hot path; a passive listener.
+- §2.7: fits Pack; directly cuts re-entry cost; conflicts with no principle; not on the §2.6 rejected list; the product stays complete without it (hence Track B, not core).
+
+**Scope boundaries (clean-revert rule per §20).**
+- IN: the two read-only tools, the Settings toggle, the client-config snippet, docs.
+- OUT (explicitly): any write tool (capture-via-MCP is a separate future question needing its own §2 review), remote transports, per-block granularity, streaming, auth schemes beyond whatever the local transport minimally requires.
+
+**Open design questions (resolve with Ocean before building).**
+1. Rust-side MCP implementation vs. bundled sidecar — and the exact dependency budget (§4).
+2. stdio vs. localhost SSE/HTTP: stdio means the AI client launches/owns the server process; SSE means Spool must be running. Client-compatibility survey first.
+3. Should `get_pack` also accept the §20.7 template param?
+4. Freshness: read SQLite per call (leaning yes — single source of truth, queries are already fast).
+
+**Kill criterion (§20.8).** 3-week dogfooding window post-implementation: cut if Ocean's own zero-paste pulls stay near zero, OR if server lifecycle friction (startup, config, port conflicts) exceeds the paste it saves. Graduation target: a new §9.14 in v3.0.
+
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
 Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.(post-v2.10: added §20.10 image-OCR experiment — opt-in Gemini vision, attach-time/cached, off by default, fenced with kill criterion; TS AttachmentExtractionKind gains 'image_ocr'; no schema change, no new dependency.))
 (post-v2.10 UI/UX batch, reconciled into the sections above: capture-target toggle is a pure state change — no navigate / no focus-steal (§9.4/§10.2/§14.3); capture toast slimmed — content-led 2-line preview, condensed attribution, one-click 📌 pin, icon-only undo/redirect, "Save as new thread" removed, note via double-click (§9.4/§20.6); annotation commit unified (block + toast) — Enter = newline, 「完成」/blur commits, Esc cancels, fixing the IME Enter mis-commit; double-click a block's annotation edits it alone (§20.4); §20.1 merge and §20.9 collect Send both keep per-item annotations independent via per-segment `↪ note:` markers (collect merges into ONE block — it does not split items); collect panel — destination line, single-tap ⌥ collapse/expand, collapsed-pill Send-on-hover + 已加入/撤销 chip stacked below, window sized to content footprint, idempotent append (§20.9); search ▲/▼ continues across blocks/threads + a 全部 cross-workspace match list (§9.10); §20.11 forward/copy multi-selected blocks to another thread (additive, undoable). Schema unchanged at version 5.)
-Last updated: 2026-05-30
+(2026-07-06 batch: release-readiness + pack utility. IME composition guard extended app-wide (composer/renames/pickers/editors + window-level Esc); overlay Redirect keeps pin+note; merge confirm inlined (no native dialog); design fonts bundled (OFL); strict CSP enabled; §19.3 named migration registry landed (sequential v2→5 walk, checkpointed, tested); distribution decided — notarized Developer ID .dmg, NOT Mac App Store (sandbox conflicts: CGEventTap / private-API windows / browser AppleScript); docs/PRIVACY.md + docs/RELEASE.md added. §17 pulls shipped: pack range selector + AI pack compression (compressPack.ts prompt is tunable, not §12-locked). §20.12 chartered: MCP local server experiment — charter only, not built. Schema unchanged at version 5.)
+Last updated: 2026-07-06
