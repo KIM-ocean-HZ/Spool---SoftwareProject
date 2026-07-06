@@ -5,12 +5,10 @@ import schemaSql from './schema.sql?raw';
 export const INBOX_WORKSPACE_TITLE = '收件箱';
 export const UNSORTED_THREAD_TITLE = '未分类';
 
-// Bump this whenever schema.sql changes. On startup the database's PRAGMA
-// user_version is compared against this. The v2 → v3, v3 → v4, and v4 → v5 steps
-// each run additive ALTER TABLE migrations (see migrateSchema) that preserve all
-// user data; any other mismatch falls back to DROP-and-recreate — acceptable for
-// an unreleased personal tool with no production data (PLAN_EN.md §5, §8.1).
-// §19.3 tracks the fuller migration framework still owed before any preview release.
+// Bump this whenever schema.sql changes, and add a named step to MIGRATIONS that
+// carries a database from the previous version to the new one. On startup the
+// database's PRAGMA user_version is compared against this and every applicable step
+// runs in sequence, each stamping user_version as its own checkpoint (§19.3).
 const SCHEMA_VERSION = 5;
 
 // Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
@@ -93,69 +91,94 @@ const countExistingUserRows = async (db: Database): Promise<number> => {
   return total;
 };
 
+// Named migration registry (§19.3). Each step carries a database exactly one version
+// forward and is individually idempotent (guarded ALTERs), so a crash between steps
+// resumes cleanly on next startup from the checkpointed user_version. Steps run in
+// sequence — a v2 database walks 2→3→4→5 in one startup pass. (The previous if-chain
+// stamped a v2 database straight to 5 after only the v2→3 ALTERs, silently skipping
+// the v3→4/v4→5 attachment columns; the sequential walk fixes that.)
+interface Migration {
+  from: number;
+  to: number;
+  name: string;
+  run: (db: Database) => Promise<void>;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    // v2.6 design rollback (PLAN_EN.md §8.1): manual progress / next_step removed.
+    // Each DROP COLUMN guarded — the column may already be absent.
+    from: 2,
+    to: 3,
+    name: 'drop-thread-progress-and-next-step',
+    run: async (db) => {
+      for (const col of ['progress', 'next_step']) {
+        try {
+          await db.execute(`ALTER TABLE threads DROP COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] ${col}: not dropped (likely absent)`, e);
+        }
+      }
+    },
+  },
+  {
+    // v2.7 attachment text extraction (PLAN_EN.md §8.1). ADD COLUMN guarded — the
+    // column may already exist on a database that saw a partial earlier pass.
+    from: 3,
+    to: 4,
+    name: 'add-attachment-extraction-columns',
+    run: async (db) => {
+      for (const col of ['extracted_text TEXT', 'extracted_at INTEGER', 'extraction_kind TEXT']) {
+        try {
+          await db.execute(`ALTER TABLE attachments ADD COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] ${col}: not added (likely exists)`, e);
+        }
+      }
+    },
+  },
+  {
+    // v2.8 §20.2 extraction/inline split. Default 0 — existing extracted rows stop
+    // auto-inlining into pack/summaries until the user opts each one in (intentional).
+    from: 4,
+    to: 5,
+    name: 'add-attachment-include-in-pack',
+    run: async (db) => {
+      try {
+        await db.execute(
+          'ALTER TABLE attachments ADD COLUMN include_in_pack INTEGER NOT NULL DEFAULT 0',
+        );
+      } catch (e) {
+        console.info('[db] include_in_pack: not added (likely exists)', e);
+      }
+    },
+  },
+];
+
 const migrateSchema = async (db: Database): Promise<void> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
-  const current = rows[0]?.user_version ?? 0;
+  let current = rows[0]?.user_version ?? 0;
   if (current === SCHEMA_VERSION) {
     console.info(`[db] schema version ${current} matches; no rebuild`);
     return;
   }
 
   // The schema is about to change. Snapshot first so every path below — the additive
-  // ALTER migrations AND the destructive rebuild — is recoverable.
+  // registry steps AND the destructive rebuild — is recoverable.
   await backupDbBeforeMigration(db, current);
 
-  // v2 → v3: drop `threads.progress` and `threads.next_step` (PLAN_EN.md §8.1).
-  // Each DROP COLUMN is guarded independently — on a fresh or already-migrated
-  // database a column may be absent, which is not an error.
-  if (current === 2) {
-    console.warn('[db] schema version 2 -> 3; additive ALTER TABLE migration');
-    for (const col of ['progress', 'next_step']) {
-      try {
-        await db.execute(`ALTER TABLE threads DROP COLUMN ${col}`);
-      } catch (e) {
-        console.info(`[db] v2->3: column threads.${col} not dropped (likely absent)`, e);
-      }
-    }
-    await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    const after = await db.select<{ user_version: number }[]>('PRAGMA user_version');
-    console.info(`[db] v2->3 migration complete; user_version now ${after[0]?.user_version}`);
-    return;
+  // Walk the registry. Each completed step checkpoints user_version (PRAGMA doesn't
+  // accept bound parameters; `to` is a code-local integer).
+  while (current < SCHEMA_VERSION) {
+    const step = MIGRATIONS.find((m) => m.from === current);
+    if (!step) break;
+    console.warn(`[db] migration ${step.name}: v${step.from} -> v${step.to}`);
+    await step.run(db);
+    await db.execute(`PRAGMA user_version = ${step.to}`);
+    current = step.to;
   }
-
-  // v3 → v4: add `extracted_text`, `extracted_at`, `extraction_kind` to `attachments`
-  // (PLAN_EN.md §8.1, v2.7 text extraction). Each ADD COLUMN is guarded independently —
-  // on an already-migrated database the column exists, which is not an error. We then
-  // fall through to v4 → v5 (instead of returning) so a v3 database lands at the current
-  // SCHEMA_VERSION in one startup pass.
-  if (current === 3) {
-    console.warn('[db] schema version 3 -> 4; additive ALTER TABLE migration');
-    for (const col of ['extracted_text TEXT', 'extracted_at INTEGER', 'extraction_kind TEXT']) {
-      try {
-        await db.execute(`ALTER TABLE attachments ADD COLUMN ${col}`);
-      } catch (e) {
-        console.info(`[db] v3->4: column attachments.${col} not added (likely exists)`, e);
-      }
-    }
-    // Fall through to v4 → v5 below.
-  }
-
-  // v4 → v5: add `include_in_pack` to `attachments` (PLAN_EN.md §8.1, v2.8 §20.2). Default
-  // 0 — existing extracted rows stop auto-inlining into pack/summaries until the user
-  // explicitly opts each one in. ADD COLUMN is guarded for idempotency, same as v3 → v4.
-  // Reached either directly (current === 4) or via fall-through from the v3 → v4 branch.
-  if (current === 3 || current === 4) {
-    console.warn(`[db] schema version ${current} -> 5; additive ALTER TABLE migration`);
-    try {
-      await db.execute(
-        'ALTER TABLE attachments ADD COLUMN include_in_pack INTEGER NOT NULL DEFAULT 0',
-      );
-    } catch (e) {
-      console.info('[db] v4->5: column attachments.include_in_pack not added (likely exists)', e);
-    }
-    await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    const after = await db.select<{ user_version: number }[]>('PRAGMA user_version');
-    console.info(`[db] -> 5 migration complete; user_version now ${after[0]?.user_version}`);
+  if (current === SCHEMA_VERSION) {
+    console.info(`[db] migrations complete; user_version now ${current}`);
     return;
   }
 
@@ -181,10 +204,13 @@ const migrateSchema = async (db: Database): Promise<void> => {
     await db.execute(`DROP TABLE IF EXISTS ${t}`);
   }
   await applySchema(db);
-  // PRAGMA does not accept bound parameters; SCHEMA_VERSION is a code-local integer.
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   console.info(`[db] schema rebuilt; user_version set to ${SCHEMA_VERSION}`);
 };
+
+// Test-only export (§19.3): lets the node:sqlite-backed Vitest cases drive the real
+// migration walk against historical schemas. Never called outside tests.
+export const __migrateSchemaForTest = migrateSchema;
 
 // Idempotent base-data guarantee: at least one workspace (the Inbox) and at least one
 // thread (the capture target). Runs at startup, and again after a deletion — so deleting
