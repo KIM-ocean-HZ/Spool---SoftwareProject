@@ -1,0 +1,37 @@
+/* Bundled design fonts (§13.4) — Geist / Geist Mono (variable weight) and Instrument
+   Serif, from the google/fonts OFL trees (licenses alongside the files in
+   src/assets/fonts/). Until now the tokens' font stacks silently fell through to the
+   PingFang / Songti fallbacks because nothing ever loaded the primary families.
+   Bundled locally: no network fetch (Principle 2), and font-src 'self' under CSP. */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../assets/fonts/Geist[wght].ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../assets/fonts/GeistMono[wght].ttf') format('truetype-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('../assets/fonts/InstrumentSerif-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('../assets/fonts/InstrumentSerif-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}

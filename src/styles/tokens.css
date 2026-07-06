@@ -1,3 +1,7 @@
+/* All three window entry stylesheets import tokens.css, so loading the bundled font
+   faces here covers main + overlay + collect without touching each entry. */
+@import './fonts.css';
+
 :root {
   /* paper & ink */
   --paper:        #faf7f0;
