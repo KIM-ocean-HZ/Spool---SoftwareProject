@@ -1,3 +1,4 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
 import schemaSql from './schema.sql?raw';
@@ -253,13 +254,36 @@ export const ensureBaseData = async (): Promise<void> => {
   await seedDefaults(await getDb());
 };
 
+// Only the main window initializes the database (migrations + base-data seeding). The
+// overlay and collect windows run their own JS contexts and also open the DB at startup
+// (the collect panel reads the capture target on mount) — on a FRESH install their
+// seedDefaults raced the main window's (both saw count 0, both inserted), leaving a
+// duplicate 收件箱/未分类, both flagged capture target; reproduced ~1 in 4 first
+// launches. The fresh-DB rebuild inside migrateSchema is racy the same way (a late
+// second rebuild would drop the first window's just-seeded rows). Single-writer init
+// closes both: non-main windows open the connection and read; until main finishes, a
+// fresh install's reads fail or return nothing and those surfaces already degrade
+// quietly. Outside a Tauri window (tests calling initDb directly) the label probe
+// throws — default to initializing.
+const isMainWindow = (): boolean => {
+  try {
+    return getCurrentWindow().label === 'main';
+  } catch {
+    return true;
+  }
+};
+
 const initDb = async (): Promise<Database> => {
   console.info('[db] loading sqlite:spool.db');
   const db = await Database.load('sqlite:spool.db');
-  console.info('[db] loaded; checking schema version');
-  await migrateSchema(db);
-  console.info('[db] schema ready; seeding defaults');
-  await seedDefaults(db);
+  if (isMainWindow()) {
+    console.info('[db] loaded; checking schema version');
+    await migrateSchema(db);
+    console.info('[db] schema ready; seeding defaults');
+    await seedDefaults(db);
+  } else {
+    console.info('[db] loaded; non-main window skips migration + seeding');
+  }
   console.info('[db] ready');
   return db;
 };
