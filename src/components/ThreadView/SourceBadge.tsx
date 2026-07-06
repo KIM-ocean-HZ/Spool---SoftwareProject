@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sourceIcon } from '@/lib/blocks/sourceIcon';
 import type { Block } from '@/lib/db/blocks';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useBlocksStore } from '@/stores/blocksStore';
 
 interface Props {
@@ -68,6 +69,7 @@ export default function SourceBadge({ block, readOnly }: Props) {
         onChange={(e) => setValue(e.target.value)}
         onBlur={() => void commit()}
         onKeyDown={(e) => {
+          if (isImeComposing(e.nativeEvent)) return;
           if (e.key === 'Enter') {
             e.preventDefault();
             void commit();

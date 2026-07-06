@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 
@@ -70,6 +71,7 @@ export default function Composer({ threadId }: Props) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (isImeComposing(e.nativeEvent)) return;
     if (mention && candidates.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();

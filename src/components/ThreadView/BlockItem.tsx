@@ -11,6 +11,7 @@ import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { HitOffset } from '@/lib/search/query';
+import { isImeComposing } from '@/lib/utils/ime';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
@@ -716,6 +717,7 @@ function TextBlockItem({
           onChange={(e) => setContentDraft(e.target.value)}
           onBlur={() => void commitContent()}
           onKeyDown={(e) => {
+            if (isImeComposing(e.nativeEvent)) return;
             if (e.key === 'Escape') {
               e.preventDefault();
               // v2.8 §20.4: in unified edit mode (double-click) Esc cancels both fields.
@@ -832,6 +834,7 @@ function TextBlockItem({
               onChange={(e) => setAnnotationDraft(e.target.value)}
               onBlur={() => void commitAnnotation()}
               onKeyDown={(e) => {
+                if (isImeComposing(e.nativeEvent)) return;
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
@@ -898,6 +901,7 @@ function TextBlockItem({
               else void commitUrl();
             }}
             onKeyDown={(e) => {
+              if (isImeComposing(e.nativeEvent)) return;
               if (e.key === 'Enter') {
                 e.preventDefault();
                 void commitUrl();

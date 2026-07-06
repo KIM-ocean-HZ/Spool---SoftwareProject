@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { Thread } from '@/lib/db/threads';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -76,6 +77,7 @@ export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Prop
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (isImeComposing(e.nativeEvent)) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (flat.length) setActiveIdx((i) => (i + 1) % flat.length);

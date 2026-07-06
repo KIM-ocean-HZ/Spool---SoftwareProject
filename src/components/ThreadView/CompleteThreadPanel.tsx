@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isImeComposing } from '@/lib/utils/ime';
 import { router } from '@/lib/ai/router';
 import { buildDigestPrompt } from '@/lib/ai/prompts/summarizeDigest';
 import type { Block } from '@/lib/db/blocks';
@@ -34,6 +35,9 @@ export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc during an IME composition (in the conclusion textarea) only cancels the
+      // composition — it must not close the panel and drop the draft.
+      if (isImeComposing(e)) return;
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);

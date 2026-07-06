@@ -5,6 +5,7 @@ import CountdownBadge from '@/components/ui/CountdownBadge';
 import DeleteButton from '@/components/ui/DeleteButton';
 import StatusDot from '@/components/ui/StatusDot';
 import type { Thread } from '@/lib/db/threads';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -118,6 +119,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
+                if (isImeComposing(e.nativeEvent)) return;
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   commitRename();

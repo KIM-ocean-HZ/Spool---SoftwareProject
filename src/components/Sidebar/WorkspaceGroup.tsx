@@ -4,6 +4,7 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import DeleteButton from '@/components/ui/DeleteButton';
 import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import ThreadListItem, { THREAD_DRAG_MIME } from './ThreadListItem';
@@ -66,6 +67,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
   const exitEdit = () => setEditing(false);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposing(e.nativeEvent)) return;
     if (e.key === 'Enter' || e.key === 'Escape') {
       e.preventDefault();
       exitEdit();

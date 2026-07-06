@@ -35,6 +35,7 @@ import {
 } from '@/lib/collect/stagingBuffer';
 import { getCaptureTargetThread } from '@/lib/db/threads';
 import { listWorkspaces } from '@/lib/db/workspaces';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useCollectMode } from '@/hooks/useCollectMode';
 
 // Cap so a long collection scrolls inside the panel instead of growing off-screen; the
@@ -263,6 +264,9 @@ export default function CollectPanel() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
+      // Esc while composing in a staging textarea only cancels the IME composition —
+      // it must not surface the discard confirm.
+      if (isImeComposing(e)) return;
       e.preventDefault();
       if (confirming) {
         setConfirming(false);

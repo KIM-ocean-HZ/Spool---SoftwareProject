@@ -31,6 +31,7 @@ import type { Thread } from '@/lib/db/threads';
 import { listAllThreads } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { listWorkspaces } from '@/lib/db/workspaces';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // v2.8 §20.6: longer dwell so the user has time to decide whether to expand for
@@ -322,6 +323,9 @@ export default function CaptureOverlay() {
   useEffect(() => {
     if (!content) return;
     const onKey = (e: KeyboardEvent): void => {
+      // Esc during an IME composition (in the note editor) only cancels the
+      // composition — it must not dismiss the toast mid-note.
+      if (isImeComposing(e)) return;
       if (e.key === 'Escape') {
         flushPendingNote();
         setContent(null);
@@ -597,6 +601,12 @@ export default function CaptureOverlay() {
             }}
             onBlur={finishNote}
             onKeyDown={(e) => {
+              if (isImeComposing(e.nativeEvent)) {
+                // Composition-cancel Esc: swallow it so the window-level Esc can't
+                // dismiss the toast either; the IME handles the key itself.
+                e.stopPropagation();
+                return;
+              }
               if (e.key === 'Escape') {
                 e.preventDefault();
                 e.stopPropagation(); // keep the window-level Esc from dismissing the toast

@@ -1,5 +1,6 @@
 import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { isImeComposing } from '@/lib/utils/ime';
 import { router } from '@/lib/ai/router';
 import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
 import type { Block } from '@/lib/db/blocks';
@@ -267,6 +268,7 @@ export default function ThreadHeader({
                 onChange={(e) => setSummaryDraft(e.target.value)}
                 onBlur={commitSummary}
                 onKeyDown={(e) => {
+                  if (isImeComposing(e.nativeEvent)) return;
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     commitSummary();
