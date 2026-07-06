@@ -22,10 +22,19 @@ export default function MergeToolbar({ threadId }: Props) {
   const mergeBlocks = useBlocksStore((s) => s.mergeBlocks);
   const forwardToThread = useBlocksStore((s) => s.forwardToThread);
   const [merging, setMerging] = useState(false);
+  // Inline two-step confirm (the DeleteButton pattern) instead of window.confirm —
+  // the only native OS dialog the app had, visually foreign to everything else.
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
 
   const count = selectedBlockIds.size;
+
+  // Selection changed under the armed confirm (a block was added/removed): the count in
+  // the question is stale, so disarm rather than confirm something the user didn't read.
+  useEffect(() => {
+    setConfirmingMerge(false);
+  }, [count]);
 
   // Close the picker on a click outside the toolbar pill (the picker renders inside it, so a
   // click on the picker or its toggle never closes it; Esc inside the picker also closes).
@@ -44,7 +53,7 @@ export default function MergeToolbar({ threadId }: Props) {
 
   const handleMerge = async (): Promise<void> => {
     if (!canMerge || merging) return;
-    if (!window.confirm(`合并 ${count} 个 block 为一个？可用 ⌘Z 撤销。`)) return;
+    setConfirmingMerge(false);
     setMerging(true);
     try {
       await mergeBlocks([...selectedBlockIds]);
@@ -80,20 +89,40 @@ export default function MergeToolbar({ threadId }: Props) {
           已选 <span className="font-mono text-ink">{count}</span> 个
         </span>
         <span className="h-3 w-px bg-line" />
-        <button
-          type="button"
-          onClick={() => void handleMerge()}
-          disabled={!canMerge || merging}
-          className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
-            canMerge && !merging
-              ? 'text-accent hover:bg-accent/10'
-              : 'cursor-not-allowed text-muted'
-          }`}
-          title={canMerge ? '合并所选 block' : '至少选择两个 block 才能合并'}
-        >
-          <Merge size={12} />
-          {merging ? '合并中…' : '合并'}
-        </button>
+        {confirmingMerge ? (
+          <span className="flex items-center gap-1.5">
+            <span className="text-ink">合并 {count} 个为一个？可 ⌘Z 撤销</span>
+            <button
+              type="button"
+              onClick={() => void handleMerge()}
+              className="rounded-full px-2 py-0.5 text-accent transition-colors hover:bg-accent/10"
+            >
+              确认
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingMerge(false)}
+              className="rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+            >
+              再想想
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmingMerge(true)}
+            disabled={!canMerge || merging}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
+              canMerge && !merging
+                ? 'text-accent hover:bg-accent/10'
+                : 'cursor-not-allowed text-muted'
+            }`}
+            title={canMerge ? '合并所选 block' : '至少选择两个 block 才能合并'}
+          >
+            <Merge size={12} />
+            {merging ? '合并中…' : '合并'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setPickerOpen((v) => !v)}
