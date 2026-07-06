@@ -1,0 +1,67 @@
+# Spool 发布手册（Developer ID 公证直发）
+
+路线：**Developer ID 签名 + Apple 公证 + .dmg 直发**（不上 Mac App Store——沙盒与
+CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-07-06 决策）。
+
+## 0. 一次性准备（需要 Apple 开发者账号，$99/年）
+
+1. 注册 [Apple Developer Program](https://developer.apple.com/programs/)。
+2. 在 [Certificates](https://developer.apple.com/account/resources/certificates/list)
+   创建 **Developer ID Application** 证书，下载并双击导入钥匙串。
+   确认：`security find-identity -v -p codesigning` 能列出
+   `Developer ID Application: <名字> (<TEAM_ID>)`。
+3. 在 [appleid.apple.com](https://appleid.apple.com) → 登录与安全 → App 专用密码，
+   生成一个专用密码（公证用）。
+
+## 1. 每次发布的环境变量
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: <名字> (<TEAM_ID>)"
+export APPLE_ID="kimocean0531@gmail.com"
+export APPLE_PASSWORD="<app专用密码>"
+export APPLE_TEAM_ID="<TEAM_ID>"
+```
+
+Tauri 检测到这四个变量后会自动完成：签名（含 hardened runtime）→ notarytool
+提交公证 → staple 装订。缺任何一个则跳过对应步骤。
+
+## 2. 发布步骤
+
+```bash
+# 1. 版本号三处同步：package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
+# 2. 基线检查
+npx tsc -b && npx vitest run && (cd src-tauri && cargo check)
+# 3. 构建 + 签名 + 公证（联网，公证通常 1-10 分钟）
+npm run tauri build
+# 4. 产物
+ls src-tauri/target/release/bundle/dmg/     # Spool_<版本>_aarch64.dmg
+ls src-tauri/target/release/bundle/macos/   # Spool.app
+```
+
+## 3. 发布前验收清单
+
+- [ ] 全新机器（或删除 `~/Library/Application Support/com.oceanjin.spool` 后）安装 .dmg，首启建库正常
+- [ ] `spctl -a -vv -t install src-tauri/target/release/bundle/macos/Spool.app` 显示 `accepted · Notarized Developer ID`
+- [ ] 双击 ⌥ 捕捉：系统弹「输入监听」授权 → 授权后捕捉可用；拒绝时 ⌘⇧C 仍可用
+- [ ] 隐私模式开启 + 抓包：确认零出网（PLAN §16）
+- [ ] 不配置任何 API Key：AI 入口隐藏，捕捉/打包/搜索完好（§6.4）
+- [ ] 中文输入法下 Composer 回车确认候选词不误发（2026-07 修复的回归项）
+- [ ] 旧版本数据库直接升级启动（迁移注册表自动走，升级前自动留快照）
+- [ ] README 的截图与当前 UI 一致（字体打包后外观有变，需重截）
+
+## 4. 已知边界
+
+- **CSP**：`connect-src` 白名单只放行 Groq、Gemini 与 `localhost` 任意端口（Ollama）。
+  用户若把 Ollama 端点指向**远程**主机会被 CSP 拦截——需要时在
+  `src-tauri/tauri.conf.json` 的 csp 里追加该来源并重新构建。
+- **更新通道**：直发意味着没有自动更新。短期靠 GitHub Releases 页手动下载；
+  若要应用内更新，需引入 `tauri-plugin-updater`（PLAN §4 规定新依赖需 Ocean 批准）。
+- **Windows 构建**：`targets: all` 下 Windows 产物未签名；Windows 分发另需
+  代码签名证书，当前不在范围内。
+
+## 5. 法务/内容配套
+
+- 隐私政策：`docs/PRIVACY.md`（发布页/官网需可访问链接）
+- 字体许可：Geist / Geist Mono / Instrument Serif 均为 OFL，许可文本随源码在
+  `src/assets/fonts/OFL-*.txt`，随应用打包分发，合规。
+- 许可证：仓库计划 MIT（PLAN §Phase 13），发布 GitHub 仓库前补 `LICENSE` 文件。
