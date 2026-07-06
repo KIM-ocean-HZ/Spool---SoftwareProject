@@ -430,12 +430,17 @@ export default function CaptureOverlay() {
 
   // Move the just-captured block to a different (existing) thread. We delete +
   // recreate rather than UPDATE thread_id so the new block gets a fresh created_at
-  // that puts it at the bottom of the target thread's feed.
+  // that puts it at the bottom of the target thread's feed. Pin + note the user
+  // already made on this toast ride along: annotationDraft mirrors the note whether
+  // it's still pending or was committed to the old block, and pendingNoteRef is
+  // cleared first so no dismiss path writes to the deleted block afterwards.
   const onRedirect = async (targetThreadId: string): Promise<void> => {
     if (targetThreadId === toast.threadId) {
       setPickerOpen(false);
       return;
     }
+    const note = annotationDraft.trim();
+    pendingNoteRef.current = null;
     let newBlock: Block;
     try {
       await deleteBlock(toast.blockId);
@@ -444,6 +449,8 @@ export default function CaptureOverlay() {
         kind: 'text',
         content: toast.fullContent,
         source: toast.source,
+        annotation: note.length > 0 ? note : null,
+        pinned,
       });
     } catch (e) {
       console.error('[overlay] redirect failed', e);

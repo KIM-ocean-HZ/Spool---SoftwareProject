@@ -23,6 +23,9 @@ export interface CreateBlockArgs {
   annotation?: string | null;
   refThreadId?: string | null;
   source?: string | null;
+  // Only the overlay's redirect path sets this — it re-creates a block the user may
+  // already have pinned from the toast, and the pin must survive the move.
+  pinned?: boolean;
 }
 
 interface Row {
@@ -89,12 +92,12 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     annotation: args.annotation ?? null,
     refThreadId: args.refThreadId ?? null,
     source: args.source ?? null,
-    pinned: false,
+    pinned: args.pinned ?? false,
     createdAt: Date.now(),
   };
   await db.execute(
     `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       b.id,
       b.threadId,
@@ -103,6 +106,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.annotation,
       b.refThreadId,
       b.source,
+      b.pinned ? 1 : 0,
       b.createdAt,
     ],
   );
