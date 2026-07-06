@@ -1,7 +1,12 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Check, Copy, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { assemble } from '@/lib/pack/assemble';
+import {
+  assemble,
+  filterBlocksForRange,
+  PACK_RANGE_KEYS,
+  type PackRange,
+} from '@/lib/pack/assemble';
 import {
   DEFAULT_PACK_TEMPLATE,
   PACK_TEMPLATES,
@@ -11,6 +16,20 @@ import {
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
+
+const RANGE_LABELS: Record<PackRange, string> = {
+  all: '全部',
+  pinned: '仅置顶',
+  last7: '近 7 天',
+  last30: '近 30 天',
+};
+
+const RANGE_HINTS: Record<PackRange, string> = {
+  all: '打包整条脉络',
+  pinned: '只打包标了置顶的信息块',
+  last7: '只打包最近 7 天捕捉的内容',
+  last30: '只打包最近 30 天捕捉的内容',
+};
 
 interface Props {
   thread: Thread;
@@ -35,14 +54,24 @@ export default function PackDialog({
   // sessions or per-thread defaults, by intent: we're learning which templates earn
   // their place, not building a system.
   const [template, setTemplate] = useState<PackTemplateKey>(DEFAULT_PACK_TEMPLATE);
+  // §17 range selector: per-pack, defaults to everything. Like the template selector,
+  // deliberately not persisted.
+  const [range, setRange] = useState<PackRange>('all');
 
   // assemble is a synchronous pure function — memoize it so re-renders don't re-pack the
   // whole thread. It's still fast (<1ms on small threads) but this keeps the textarea
-  // diff-free between renders.
-  const text = useMemo(
-    () => assemble({ thread, blocks, attachments, refTitles, template }),
-    [thread, blocks, attachments, refTitles, template],
-  );
+  // diff-free between renders. The range filter runs first; attachments narrow to the
+  // surviving blocks so "Related Files & Links" never points at content the pack omitted.
+  const { text, packedCount } = useMemo(() => {
+    const packedBlocks = filterBlocksForRange(blocks, range);
+    const ids = new Set(packedBlocks.map((b) => b.id));
+    const packedAttachments =
+      range === 'all' ? attachments : attachments.filter((a) => ids.has(a.blockId));
+    return {
+      text: assemble({ thread, blocks: packedBlocks, attachments: packedAttachments, refTitles, template }),
+      packedCount: packedBlocks.length,
+    };
+  }, [thread, blocks, attachments, refTitles, template, range]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -111,6 +140,32 @@ export default function PackDialog({
           </div>
         </div>
 
+        {/* §17 range picker (pulled forward from v1.5): same quiet pill pattern. 全部 is
+            the default and keeps output byte-identical to pre-range packs. */}
+        <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
+          <span className="text-muted">打包范围?</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {PACK_RANGE_KEYS.map((k) => {
+              const active = range === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setRange(k)}
+                  title={RANGE_HINTS[k]}
+                  className={`rounded-md border px-2 py-0.5 transition-colors ${
+                    active
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+                  }`}
+                >
+                  {RANGE_LABELS[k]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-5 py-3">
           <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.55] text-ink-2">
             {text}
@@ -118,7 +173,9 @@ export default function PackDialog({
         </div>
 
         <footer className="flex flex-none items-center justify-between border-t border-line bg-paper-2/40 px-5 py-3 text-xs">
-          <span className="text-muted">{text.length.toLocaleString()} 字符</span>
+          <span className="text-muted">
+            {packedCount} / {blocks.length} 块 · {text.length.toLocaleString()} 字符
+          </span>
           <button
             onClick={() => void onCopy()}
             autoFocus

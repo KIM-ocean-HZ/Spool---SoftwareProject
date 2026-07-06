@@ -45,6 +45,28 @@ export interface AssembleArgs {
   now?: number;
 }
 
+// §17 pack range selector (pulled forward from v1.5): a pure pre-filter over the block
+// list, applied by PackDialog BEFORE assemble so the default ('all') path stays
+// byte-identical. 'pinned' packs only the user-marked core context; the day ranges pack
+// the recent working set of a long-running thread.
+export type PackRange = 'all' | 'pinned' | 'last7' | 'last30';
+
+export const PACK_RANGE_KEYS: PackRange[] = ['all', 'pinned', 'last7', 'last30'];
+
+const RANGE_DAYS: Partial<Record<PackRange, number>> = { last7: 7, last30: 30 };
+
+export const filterBlocksForRange = (
+  blocks: Block[],
+  range: PackRange,
+  now = Date.now(),
+): Block[] => {
+  if (range === 'all') return blocks;
+  if (range === 'pinned') return blocks.filter((b) => b.pinned);
+  const days = RANGE_DAYS[range]!;
+  const cutoff = now - days * 86_400_000;
+  return blocks.filter((b) => b.createdAt >= cutoff);
+};
+
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 // Local-time formatter — Spool data has no timezone metadata, just unix ms. Output is

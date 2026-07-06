@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { assemble } from './assemble';
+import { assemble, filterBlocksForRange } from './assemble';
 
 const NOW = new Date('2026-05-15T10:00:00').getTime();
 const T = (m: number): number => new Date('2026-05-15T09:00:00').getTime() + m * 60_000;
@@ -328,6 +328,39 @@ describe('assemble', () => {
       // between the body and the language directive, not into the body).
       const defaultBody = defaultOut.slice(0, defaultOut.indexOf('## Output Language'));
       expect(revisionOut).toContain(defaultBody);
+    });
+  });
+
+  describe('pack range filter (§17 range selector)', () => {
+    const DAY = 86_400_000;
+    const blocks = [
+      textBlock('old', 'thirty-one days ago', { createdAt: NOW - 31 * DAY }),
+      textBlock('mid', 'ten days ago, pinned', { createdAt: NOW - 10 * DAY, pinned: true }),
+      textBlock('new', 'yesterday', { createdAt: NOW - 1 * DAY }),
+    ];
+
+    it("'all' returns the input unchanged", () => {
+      expect(filterBlocksForRange(blocks, 'all', NOW)).toEqual(blocks);
+    });
+
+    it("'pinned' keeps only pinned blocks", () => {
+      expect(filterBlocksForRange(blocks, 'pinned', NOW).map((b) => b.id)).toEqual(['mid']);
+    });
+
+    it("'last7' / 'last30' cut by capture time", () => {
+      expect(filterBlocksForRange(blocks, 'last7', NOW).map((b) => b.id)).toEqual(['new']);
+      expect(filterBlocksForRange(blocks, 'last30', NOW).map((b) => b.id)).toEqual(['mid', 'new']);
+    });
+
+    it('a range-filtered pack reports the filtered count and omits excluded content', () => {
+      const out = assemble({
+        thread,
+        blocks: filterBlocksForRange(blocks, 'last7', NOW),
+        now: NOW,
+      });
+      expect(out).toContain('1 blocks total');
+      expect(out).toContain('yesterday');
+      expect(out).not.toContain('thirty-one days ago');
     });
   });
 });
