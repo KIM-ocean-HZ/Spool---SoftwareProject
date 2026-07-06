@@ -1,12 +1,15 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { Check, Copy, X } from 'lucide-react';
+import { Check, Copy, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { buildCompressPackPrompt } from '@/lib/ai/prompts/compressPack';
+import { router } from '@/lib/ai/router';
 import {
   assemble,
   filterBlocksForRange,
   PACK_RANGE_KEYS,
   type PackRange,
 } from '@/lib/pack/assemble';
+import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import {
   DEFAULT_PACK_TEMPLATE,
   PACK_TEMPLATES,
@@ -57,6 +60,13 @@ export default function PackDialog({
   // §17 range selector: per-pack, defaults to everything. Like the template selector,
   // deliberately not persisted.
   const [range, setRange] = useState<PackRange>('all');
+  // §17 AI compression. The deterministic pack is never replaced — the compressed text
+  // is a togglable second view, produced on demand, and any failure silently disables
+  // the button for this dialog (§6.3 / §14.4). Never persisted.
+  const aiAvailable = useSettingsStore(isAiAvailable);
+  const [compressed, setCompressed] = useState<string | null>(null);
+  const [aiState, setAiState] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const [view, setView] = useState<'original' | 'compressed'>('original');
 
   // assemble is a synchronous pure function — memoize it so re-renders don't re-pack the
   // whole thread. It's still fast (<1ms on small threads) but this keeps the textarea
@@ -73,6 +83,38 @@ export default function PackDialog({
     };
   }, [thread, blocks, attachments, refTitles, template, range]);
 
+  // A range/template change produces a different source text — the old compressed
+  // version no longer corresponds to it, so it is dropped (recompress on demand).
+  useEffect(() => {
+    setCompressed(null);
+    setView('original');
+    setAiState('idle');
+  }, [text]);
+
+  const handleCompress = async (): Promise<void> => {
+    if (aiState !== 'idle' || compressed) return;
+    setAiState('loading');
+    try {
+      const { text: result } = await router.quality(buildCompressPackPrompt(text), {
+        cache: true,
+      });
+      const trimmed = result.trim();
+      // A meaningful compression is shorter than its input; anything else (empty,
+      // refusal prose, echo) counts as failure and silently disables the button.
+      if (trimmed.length === 0 || trimmed.length >= text.length) {
+        setAiState('failed');
+        return;
+      }
+      setCompressed(trimmed + '\n');
+      setView('compressed');
+      setAiState('idle');
+    } catch {
+      setAiState('failed');
+    }
+  };
+
+  const shownText = view === 'compressed' && compressed ? compressed : text;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -82,7 +124,7 @@ export default function PackDialog({
   }, [onClose]);
 
   const onCopy = async () => {
-    await writeText(text);
+    await writeText(shownText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -168,14 +210,60 @@ export default function PackDialog({
 
         <div className="flex-1 overflow-y-auto px-5 py-3">
           <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.55] text-ink-2">
-            {text}
+            {shownText}
           </pre>
         </div>
 
         <footer className="flex flex-none items-center justify-between border-t border-line bg-paper-2/40 px-5 py-3 text-xs">
-          <span className="text-muted">
-            {packedCount} / {blocks.length} 块 · {text.length.toLocaleString()} 字符
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-muted">
+              {packedCount} / {blocks.length} 块 · {shownText.length.toLocaleString()} 字符
+            </span>
+            {/* §17 AI 压缩 — entry hidden entirely when AI is unavailable (§9.11 gating);
+                after a successful run the button becomes the 原文/压缩版 view toggle. */}
+            {aiAvailable &&
+              (compressed ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setView('original')}
+                    className={`rounded-md border px-2 py-0.5 transition-colors ${
+                      view === 'original'
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+                    }`}
+                  >
+                    原文
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView('compressed')}
+                    className={`rounded-md border px-2 py-0.5 transition-colors ${
+                      view === 'compressed'
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+                    }`}
+                  >
+                    压缩版
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleCompress()}
+                  disabled={aiState !== 'idle'}
+                  title={
+                    aiState === 'failed'
+                      ? '压缩未成功 — 原文仍然完整可用'
+                      : '让 AI 压缩 Full Record（置顶与批注原文保留）'
+                  }
+                  className="flex items-center gap-1 rounded-md border border-line bg-paper px-2 py-0.5 text-muted transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-muted/50"
+                >
+                  <Sparkles size={11} />
+                  <span>{aiState === 'loading' ? '压缩中…' : 'AI 压缩'}</span>
+                </button>
+              ))}
+          </div>
           <button
             onClick={() => void onCopy()}
             autoFocus

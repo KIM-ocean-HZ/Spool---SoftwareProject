@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
+import { buildCompressPackPrompt } from './compressPack';
 import { buildDigestPrompt } from './summarizeDigest';
 import { buildRoutePrompt } from './route';
 import { buildStatusPrompt } from './summarizeStatus';
@@ -151,5 +152,17 @@ describe('buildRoutePrompt', () => {
     expect(out).toContain('id: t-456');
     expect(out).toContain('"confidence": "high | medium | low"');
     expect(out).toContain('宁可保守:不确定就 null 或 low,绝不硬塞');
+  });
+});
+
+describe('buildCompressPackPrompt', () => {
+  it('embeds the pack text and the verbatim-preservation rules (§2.5.1)', () => {
+    const out = buildCompressPackPrompt('# Project Context: 论文\n\n## Full Record\n[10:00] hi');
+    expect(out).toContain('# Project Context: 论文');
+    // The rules that protect the pack's unique signal from the compressor:
+    expect(out).toContain('"## Pinned Blocks" 整节');
+    expect(out).toContain('所有 note: 行(用户批注)');
+    expect(out).toContain('所有不带来源标注的条目(用户手写内容)');
+    expect(out).toContain('绝对不要添加原始简报里没有的信息');
   });
 });
