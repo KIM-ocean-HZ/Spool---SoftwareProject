@@ -314,6 +314,14 @@ const EN: Record<string, string> = {
   '改投到其它脉络': 'Redirect to another thread',
   '改投': 'Redirect',
 
+  // Tray
+  '当前目标：（无）': 'Current target: (none)',
+  '当前目标:  ': 'Current target:  ',
+  '切换捕捉目标': 'Switch capture target',
+  '（暂无脉络）': '(no threads yet)',
+  '打开 Spool': 'Open Spool',
+  '退出 Spool': 'Quit Spool',
+
   // Route suggestion
   '看起来这条属于「': 'This looks like it belongs in “',
   '」，移过去？': '” — move it there?',

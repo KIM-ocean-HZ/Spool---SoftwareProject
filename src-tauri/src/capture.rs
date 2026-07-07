@@ -162,6 +162,36 @@ pub struct TrayTarget {
     pub is_current: bool,
 }
 
+// UI copy for the fixed tray items, pushed from JS (lib/i18n) so the menu follows the
+// language setting. Defaults (used for the pre-webview menu at setup()) are Chinese —
+// the product default; useTrayMenu re-pushes localized labels as soon as settings load.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrayLabels {
+    pub current_none: String,
+    pub current_prefix: String,
+    pub switch_target: String,
+    pub no_threads: String,
+    pub open: String,
+    pub new_thread: String,
+    pub settings: String,
+    pub quit: String,
+}
+
+impl Default for TrayLabels {
+    fn default() -> Self {
+        Self {
+            current_none: "当前目标：（无）".into(),
+            current_prefix: "当前目标:  ".into(),
+            switch_target: "切换捕捉目标".into(),
+            no_threads: "（暂无脉络）".into(),
+            open: "打开 Spool".into(),
+            new_thread: "新建脉络".into(),
+            settings: "设置".into(),
+            quit: "退出 Spool".into(),
+        }
+    }
+}
+
 const TRAY_ID: &str = "main";
 const SET_TARGET_PREFIX: &str = "set_target:";
 
@@ -170,9 +200,12 @@ pub fn set_tray_targets<R: Runtime>(
     app: AppHandle<R>,
     current_label: String,
     targets: Vec<TrayTarget>,
+    labels: Option<TrayLabels>,
 ) -> Result<(), String> {
     let tray = app.tray_by_id(TRAY_ID).ok_or("tray not found")?;
-    let menu = build_tray_menu(&app, &current_label, &targets).map_err(|e| e.to_string())?;
+    let labels = labels.unwrap_or_default();
+    let menu =
+        build_tray_menu(&app, &current_label, &targets, &labels).map_err(|e| e.to_string())?;
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -181,19 +214,20 @@ pub fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     current_label: &str,
     targets: &[TrayTarget],
+    labels: &TrayLabels,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     let label_text = if current_label.is_empty() {
-        "当前目标：（无）".to_string()
+        labels.current_none.clone()
     } else {
-        format!("当前目标:  {current_label}")
+        format!("{}{current_label}", labels.current_prefix)
     };
     let current_item = MenuItemBuilder::with_id("current_label", label_text)
         .enabled(false)
         .build(app)?;
 
-    let mut switch = SubmenuBuilder::new(app, "切换捕捉目标");
+    let mut switch = SubmenuBuilder::new(app, &labels.switch_target);
     if targets.is_empty() {
-        let empty = MenuItemBuilder::with_id("targets_empty", "（暂无脉络）")
+        let empty = MenuItemBuilder::with_id("targets_empty", &labels.no_threads)
             .enabled(false)
             .build(app)?;
         switch = switch.item(&empty);
@@ -208,10 +242,10 @@ pub fn build_tray_menu<R: Runtime>(
     }
     let switch_sub = switch.build()?;
 
-    let open = MenuItemBuilder::with_id("open", "打开 Spool").build(app)?;
-    let new_thread = MenuItemBuilder::with_id("new_thread", "新建脉络").build(app)?;
-    let settings = MenuItemBuilder::with_id("settings", "设置").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "退出 Spool").build(app)?;
+    let open = MenuItemBuilder::with_id("open", &labels.open).build(app)?;
+    let new_thread = MenuItemBuilder::with_id("new_thread", &labels.new_thread).build(app)?;
+    let settings = MenuItemBuilder::with_id("settings", &labels.settings).build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", &labels.quit).build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&current_item)

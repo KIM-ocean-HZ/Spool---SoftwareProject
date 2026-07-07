@@ -1297,7 +1297,7 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 8. **Hot paths of capture, pack, and search must never contain an AI call or network request.**
 9. **AI output is always disposable decoration** — write the degradation path first.
 10. **Testing**: v1 does not mandate full coverage, but `pack/assemble.ts`, `search/query.ts` (incl. v2.9 all-hits-per-block return), `ai/router.ts` fallback, `ai/parseJson.ts`, `lib/undo/undoLog.ts` (v2.9 — especially the invalidation-on-edit path), `lib/collect/send.ts` (v2.9 merge contract) must have Vitest.
-11. **All user-facing UI copy is in Simplified Chinese**; obeys "silence over noise."
+11. **All user-facing UI copy is written in Simplified Chinese at the call site**; obeys "silence over noise." (2026-07-07: an English UI option ships via `lib/i18n` — the Chinese string IS the dictionary key, `t()`/`useT()` translate under the `language` setting, default zh. New copy must be added in Chinese and given an EN entry.)
 12. **After each phase / sub-step, STOP and wait for Ocean.**
 13. **Git identity & attribution — HARD rule, no exceptions.** Zero references to Claude, Claude Code, Anthropic, or any AI tool anywhere in the repo (history, README, source, commit messages, files). No `Co-Authored-By`, no "Generated with" footers, no badges. Never modify `git config user.name`/`user.email`. Never use `git commit --author`. Commit silently under Ocean's identity.
 

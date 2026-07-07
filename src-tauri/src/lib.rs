@@ -173,7 +173,8 @@ pub fn run() {
                 use tauri::tray::TrayIconBuilder;
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-                let initial_menu = capture::build_tray_menu(app.handle(), "", &[])?;
+                let initial_menu =
+                    capture::build_tray_menu(app.handle(), "", &[], &Default::default())?;
                 let icon = app
                     .default_window_icon()
                     .cloned()
