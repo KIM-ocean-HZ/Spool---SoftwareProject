@@ -62,6 +62,6 @@ ls src-tauri/target/release/bundle/macos/   # Spool.app
 ## 5. 法务/内容配套
 
 - 隐私政策：`docs/PRIVACY.md`（发布页/官网需可访问链接）
-- 字体许可：Geist / Geist Mono / Instrument Serif 均为 OFL，许可文本随源码在
+- 字体许可：Geist / Geist Mono / Fraunces 均为 OFL，许可文本随源码在
   `src/assets/fonts/OFL-*.txt`，随应用打包分发，合规。
 - 许可证：**未定**（Ocean 2026-07-06：不要擅自添加 LICENSE 文件）。公开 GitHub 仓库前由 Ocean 决定采用何种许可后再补。

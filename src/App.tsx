@@ -148,7 +148,7 @@ export default function App() {
           justifyContent: 'center',
           background: '#faf7f0',
           color: '#1c1a16',
-          fontFamily: 'Instrument Serif, Songti SC, serif',
+          fontFamily: 'Fraunces, Songti SC, serif',
           fontSize: '28px',
           fontStyle: 'italic',
         }}

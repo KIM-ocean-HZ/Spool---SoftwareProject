@@ -1,7 +1,7 @@
-/* Bundled design fonts (§13.4) — Geist / Geist Mono (variable weight) and Instrument
-   Serif, from the google/fonts OFL trees (licenses alongside the files in
-   src/assets/fonts/). Until now the tokens' font stacks silently fell through to the
-   PingFang / Songti fallbacks because nothing ever loaded the primary families.
+/* Bundled design fonts (§13.4) — Geist / Geist Mono and Fraunces (all variable), from
+   the google/fonts OFL trees (licenses alongside the files in src/assets/fonts/).
+   Fraunces replaced Instrument Serif 2026-07-07: Ocean found Instrument Serif too
+   narrow for the wordmark / titles; Fraunces is a wider, warmer display serif.
    Bundled locally: no network fetch (Principle 2), and font-src 'self' under CSP. */
 
 /* format('truetype') on purpose — WebKit ignores a src whose format string it doesn't
@@ -23,18 +23,21 @@
   font-display: swap;
 }
 
+/* Fraunces carries opsz/SOFT/WONK axes besides wght; the defaults (optical size
+   auto, soft 0, wonk 0) are exactly the classic look we want, so only the weight
+   range is declared. */
 @font-face {
-  font-family: 'Instrument Serif';
-  src: url('../assets/fonts/InstrumentSerif-Regular.ttf') format('truetype');
-  font-weight: 400;
+  font-family: 'Fraunces';
+  src: url('../assets/fonts/Fraunces[SOFT,WONK,opsz,wght].ttf') format('truetype');
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'Instrument Serif';
-  src: url('../assets/fonts/InstrumentSerif-Italic.ttf') format('truetype');
-  font-weight: 400;
+  font-family: 'Fraunces';
+  src: url('../assets/fonts/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf') format('truetype');
+  font-weight: 100 900;
   font-style: italic;
   font-display: swap;
 }

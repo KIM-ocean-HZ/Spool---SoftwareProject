@@ -210,7 +210,7 @@ Attachments, deadlines, FTS, @-mention, AI summaries, classification — all han
 | HTTP | **`fetch` + `AbortController`** | AI calls cancelable |
 | System integration | **`tauri-plugin-global-shortcut` / `clipboard-manager` / `fs` / `dialog` + tray + multi-window** | Capture lifeline |
 | Icons | **lucide-react** | Restrained line work |
-| Fonts | **Geist + Instrument Serif** (CN fallback PingFang SC / Microsoft YaHei) | |
+| Fonts | **Geist + Fraunces** (CN fallback PingFang SC / Microsoft YaHei; 2026-07-07: Fraunces replaced Instrument Serif — too narrow) | |
 | Testing | **Vitest** | Same origin as Vite |
 
 **Full dependency list (npm)**: `tailwindcss @tailwindcss/typography zustand lucide-react nanoid @tauri-apps/plugin-sql @tauri-apps/plugin-store @tauri-apps/plugin-global-shortcut @tauri-apps/plugin-clipboard-manager @tauri-apps/plugin-fs @tauri-apps/plugin-dialog` + dev `vitest @types/node`.
@@ -1047,7 +1047,7 @@ ${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.rec
   --pad-page-y: 1.75rem;
 
   --font-ui:    'Geist', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-serif: 'Instrument Serif', 'Songti SC', 'STSong', serif;
+  --font-serif: 'Fraunces', 'Songti SC', 'STSong', serif;  /* 2026-07-07: was Instrument Serif */
   --font-mono:  'Geist Mono', ui-monospace, monospace;
 
   --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
@@ -1084,7 +1084,7 @@ ${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.rec
 
 ### 13.4 Font Usage
 
-- Sidebar logo / workspace titles / thread titles: Instrument Serif.
+- Sidebar logo / workspace titles / thread titles: Fraunces (2026-07-07: was Instrument Serif).
 - Block body / composer / staging-item textarea: Geist, 15px, line-height 1.65.
 - UI: Geist, 11–13px.
 - Timestamps / source badges / attachment chips / kbd / InBlockNavigator: Geist Mono, 10.5px.
