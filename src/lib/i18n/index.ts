@@ -266,6 +266,13 @@ const EN: Record<string, string> = {
   'Spool 渲染崩了': 'Spool hit a rendering error',
   '从左侧选一条脉络，或新建一个': 'Pick a thread on the left, or create one',
   '{n}天后': 'in {n}d',
+  // Thread content size footnote (2026-07-07)
+  '{n} 字': '{n} chars',
+  '{n} 字 · 内容较多': '{n} chars · getting long',
+  '内容过多可能导致打包不准确 — 点击打包，可选择范围或使用压缩':
+    'This much content can make packs less accurate — click to pack with a range or compression',
+  '全部块内容 + 批注 + 已加入 Pack 的附件文本':
+    'All block content + annotations + attachment text included in packs',
   '今天': 'today',
   '逾期{n}天': '{n}d overdue',
   '刚刚': 'just now',

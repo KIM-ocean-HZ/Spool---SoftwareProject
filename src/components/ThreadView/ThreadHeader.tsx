@@ -1,5 +1,5 @@
 import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { router } from '@/lib/ai/router';
@@ -27,6 +27,13 @@ const STATUS_OPTIONS: { value: ThreadStatus; label: string; cls: string }[] = [
   { value: 'active', label: '进行中', cls: 'text-[var(--status-active)]' },
   { value: 'parked', label: '搁置', cls: 'text-[var(--status-parked)]' },
 ];
+
+// Quiet "this thread is getting long" threshold, in characters (block content +
+// annotations + pack-included attachment text — i.e. what actually lands in a pack).
+// ~20k chars is roughly the paste size mainstream chat models digest reliably in one
+// go; past it pack fidelity degrades and the range selector / compression (§17) are
+// the right tools, so the counter turns --status-parked and click opens PackDialog.
+const CONTENT_WARN_THRESHOLD = 20_000;
 
 // Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
 // title is the one free-form header field. While the user is typing the local value
@@ -119,6 +126,23 @@ export default function ThreadHeader({
   const summaryCanceledRef = useRef(false);
 
   const nonRefBlockCount = blocks.reduce((n, b) => (b.kind !== 'ref' ? n + 1 : n), 0);
+
+  // Total character count of what a pack of this thread would carry (see
+  // CONTENT_WARN_THRESHOLD). Summing a few hundred strings is nanosecond-scale;
+  // memoized only so it doesn't re-run on unrelated header re-renders.
+  const charCount = useMemo(() => {
+    let n = 0;
+    for (const b of blocks) {
+      n += b.content.length + (b.annotation?.length ?? 0);
+      const atts = attachmentsByBlock[b.id];
+      if (atts) {
+        for (const a of atts) {
+          if (a.includeInPack && a.extractedText) n += a.extractedText.length;
+        }
+      }
+    }
+    return n;
+  }, [blocks, attachmentsByBlock]);
 
   useEffect(() => {
     setSummarizing(false);
@@ -375,6 +399,28 @@ export default function ThreadHeader({
             </button>
           )}
         </div>
+
+        {/* Content size (2026-07-07): quiet by design (§2.5) — a mono footnote, no
+            popup. Over the threshold it turns --status-parked and becomes a shortcut
+            into PackDialog, where range selection / compression solve the problem. */}
+        {charCount > 0 &&
+          (charCount > CONTENT_WARN_THRESHOLD ? (
+            <button
+              onClick={onPack}
+              className="font-mono text-[11px] transition-opacity hover:opacity-80"
+              style={{ color: 'var(--status-parked)' }}
+              title={t('内容过多可能导致打包不准确 — 点击打包，可选择范围或使用压缩')}
+            >
+              {t('{n} 字 · 内容较多', { n: charCount.toLocaleString('en-US') })}
+            </button>
+          ) : (
+            <span
+              className="font-mono text-[11px] text-muted"
+              title={t('全部块内容 + 批注 + 已加入 Pack 的附件文本')}
+            >
+              {t('{n} 字', { n: charCount.toLocaleString('en-US') })}
+            </span>
+          ))}
       </div>
     </header>
   );
