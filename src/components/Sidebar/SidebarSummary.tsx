@@ -29,7 +29,7 @@ export default function SidebarSummary() {
       <span>{active} {t('进行中')}</span>
       <span aria-hidden>·</span>
       <span style={dueThisWeek > 0 ? { color: 'var(--urgent)' } : undefined}>
-        {dueThisWeek} 本周到期
+        {dueThisWeek} {t('本周到期')}
       </span>
       <span aria-hidden>·</span>
       <span>{parked} {t('搁置')}</span>

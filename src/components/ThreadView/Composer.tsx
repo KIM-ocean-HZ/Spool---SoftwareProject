@@ -42,7 +42,7 @@ export default function Composer({ threadId }: Props) {
     return sameWs
       .filter((t) => t.id !== thread.id)
       .map((th) => {
-        const title = th.title || '（无标题）';
+        const title = th.title || t('（无标题）');
         const idx = q ? title.toLowerCase().indexOf(q) : 0;
         return { t: th, title, idx };
       })
