@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { t } from '@/lib/i18n';
 
 // Deadline countdown (PLAN_EN.md §9.9 / Phase 8). A thread's deadline is shown as a
 // compact, day-granular badge in the sidebar; `useCountdown` keeps it live so a badge
@@ -24,7 +25,7 @@ const startOfDay = (ts: number): number => {
 // Pure — exported so callers (and tests) can format a deadline without a live tick.
 export const computeCountdown = (deadline: number, now: number): Countdown => {
   const days = Math.round((startOfDay(deadline) - startOfDay(now)) / DAY);
-  const label = days > 0 ? `${days}天后` : days === 0 ? '今天' : `逾期${-days}天`;
+  const label = days > 0 ? t('{n}天后', { n: days }) : days === 0 ? t('今天') : t('逾期{n}天', { n: -days });
   const urgency: Urgency =
     deadline < now ? 'overdue' : deadline - now < SOON_MS ? 'soon' : 'none';
   return { label, urgency };

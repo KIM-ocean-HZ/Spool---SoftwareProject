@@ -12,6 +12,7 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { HitOffset } from '@/lib/search/query';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { basename, pickFiles } from '@/lib/utils/openTarget';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
@@ -112,6 +113,7 @@ function TextBlockItem({
   onCopy,
   onDelete,
 }: Props) {
+  const t = useT();
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
   const attach = useBlocksStore((s) => s.attach);
@@ -669,8 +671,8 @@ function TextBlockItem({
               e.stopPropagation();
               onSelectClick(e.shiftKey);
             }}
-            title={selected ? '取消选择' : 'Shift 点击可范围选择'}
-            aria-label={selected ? '取消选择' : '选择此 block'}
+            title={selected ? t('取消选择') : t('Shift 点击可范围选择')}
+            aria-label={selected ? t('取消选择') : t('选择此 block')}
             className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
               selected
                 ? 'border-accent bg-accent text-paper'
@@ -751,7 +753,7 @@ function TextBlockItem({
             // v2.8 §20.5: capture selection on mouseup so the prompt anchors to the
             // user's released selection rect.
             onMouseUp={readOnly ? undefined : onContentMouseUp}
-            title={readOnly ? undefined : '双击编辑（含批注）'}
+            title={readOnly ? undefined : t('双击编辑（含批注）')}
             style={
               showCollapsed
                 ? {
@@ -802,7 +804,7 @@ function TextBlockItem({
               }}
               className="z-20 whitespace-nowrap rounded-md border border-line-strong bg-paper px-2 py-1 font-ui text-[11px] text-ink shadow-[var(--shadow-toast)] hover:border-accent hover:text-accent"
             >
-              {selectionAlreadyHighlighted ? '取消重点?' : '标为重点?'}
+              {selectionAlreadyHighlighted ? t('取消重点?') : t('标为重点?')}
             </button>
           )}
           {needsTruncation && !isNavTarget && (
@@ -814,7 +816,7 @@ function TextBlockItem({
               }}
               className="mt-1 text-[11px] text-muted hover:text-accent"
             >
-              {collapsed ? '展开全部' : '收起'}
+              {collapsed ? t('展开全部') : t('收起')}
             </button>
           )}
         </div>
@@ -846,7 +848,7 @@ function TextBlockItem({
                 // note prematurely — Enter never commits here.
               }}
               rows={2}
-              placeholder="批注（可选）"
+              placeholder={t('批注（可选）')}
               className="w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
               spellCheck={false}
             />
@@ -860,7 +862,7 @@ function TextBlockItem({
                 }}
                 className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-accent hover:bg-accent/10"
               >
-                完成
+                {t('完成')}
               </button>
             </div>
           </div>
@@ -876,7 +878,7 @@ function TextBlockItem({
                     enterEditMode(() => setEditingAnnotation(true));
                   }
             }
-            title={readOnly ? undefined : '双击编辑批注'}
+            title={readOnly ? undefined : t('双击编辑批注')}
             className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2"
           >
             {/* Step 3 §20.5: annotations are a read surface too — route through the same
@@ -910,7 +912,7 @@ function TextBlockItem({
                 cancelUrl();
               }
             }}
-            placeholder="https://…  （Enter 添加，Esc 取消）"
+            placeholder={t('https://…  （Enter 添加，Esc 取消）')}
             className="flex-1 rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] text-ink outline-none focus:border-accent"
             spellCheck={false}
           />

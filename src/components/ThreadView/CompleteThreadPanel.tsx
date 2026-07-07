@@ -7,6 +7,7 @@ import type { Thread } from '@/lib/db/threads';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   thread: Thread;
@@ -20,6 +21,7 @@ interface Props {
 // allowed — and correct (§9.8). Completion must work whether the AI button is
 // disabled, never clicked, or failed.
 export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) {
+  const t = useT();
   const patch = useThreadsStore((s) => s.patch);
   const aiAvailable = useSettingsStore(isAiAvailable);
   // v2.8 §20.3: the digest prompt now inlines each pinned block's attachment text.
@@ -87,15 +89,15 @@ export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4">
-          <p className="font-serif text-lg text-ink">这个项目结束了。</p>
-          <p className="mt-0.5 text-sm text-muted">要不要加一段结论？</p>
+          <p className="font-serif text-lg text-ink">{t('这个项目结束了。')}</p>
+          <p className="mt-0.5 text-sm text-muted">{t('要不要加一段结论？')}</p>
 
           <textarea
             value={conclusion}
             onChange={(e) => setConclusion(e.target.value)}
             autoFocus
             rows={3}
-            placeholder="一句话写下这个项目的结论…（可以留空）"
+            placeholder={t('一句话写下这个项目的结论…（可以留空）')}
             className="mt-3 w-full resize-none rounded border border-line-strong bg-paper px-2.5 py-2 font-ui text-sm leading-[1.6] text-ink outline-none focus:border-accent"
             spellCheck={false}
           />
@@ -107,12 +109,12 @@ export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) 
               disabled={aiDisabled}
               title={
                 pinnedBlocks.length === 0
-                  ? '先给重要的信息块加上置顶标记'
-                  : '从置顶的信息块生成一段结论草稿'
+                  ? t('先给重要的信息块加上置顶标记')
+                  : t('从置顶的信息块生成一段结论草稿')
               }
               className="mt-2 rounded-md border border-line px-2.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-muted/60"
             >
-              {aiState === 'loading' ? '总结中…' : '让 AI 总结'}
+              {aiState === 'loading' ? t('总结中…') : t('让 AI 总结')}
             </button>
           )}
         </div>
@@ -123,14 +125,14 @@ export default function CompleteThreadPanel({ thread, blocks, onClose }: Props) 
             onClick={onClose}
             className="rounded-md border border-line bg-paper px-3 py-1.5 text-ink-2 transition-colors hover:border-line-strong"
           >
-            取消
+            {t('取消')}
           </button>
           <button
             type="button"
             onClick={() => void handleComplete()}
             className="rounded-md border border-accent bg-accent/10 px-3 py-1.5 text-accent transition-colors hover:bg-accent/20"
           >
-            完成
+            {t('完成')}
           </button>
         </footer>
       </div>

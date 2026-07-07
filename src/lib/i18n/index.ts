@@ -229,6 +229,28 @@ const EN: Record<string, string> = {
   '这个项目没有标记过的重点。翻翻完整记录？': 'No marked highlights in this project. Browse the full record?',
   '查看完整记录': 'View full record',
 
+  // Digest / feed / misc
+  '这个项目没有标记重点。要看完整记录吗？': 'No marked highlights in this project. Browse the full record?',
+  '看完整记录': 'View full record',
+  '重点': 'Highlights',
+  '松开以新建第一个块': 'Release to create the first block',
+  '松开以新建一个块': 'Release to create a block',
+  '双击': 'Double-tap',
+  '捕捉第一条信息，或在下方直接写。': 'to capture your first piece, or write below.',
+  '排序': 'Sort',
+  '按时间': 'By time',
+  '按来源': 'By source',
+  '查看更早的 {n} 条': 'Show {n} earlier blocks',
+  'Spool 渲染崩了': 'Spool hit a rendering error',
+  '从左侧选一条脉络，或新建一个': 'Pick a thread on the left, or create one',
+  '{n}天后': 'in {n}d',
+  '今天': 'today',
+  '逾期{n}天': '{n}d overdue',
+  '刚刚': 'just now',
+  '{n} 分钟前': '{n} min ago',
+  '{n} 小时前': '{n} h ago',
+  '{n} 天前': '{n} d ago',
+
   // Empty states
   '按 ⌘⇧C 保存第一条信息，或直接在下方书写。': 'Press ⌘⇧C to save your first piece, or just write below.',
   '双击 ⌥ 捕捉第一条信息，或在下方直接写。': 'Double-tap ⌥ to capture your first piece, or write below.',

@@ -8,6 +8,7 @@ import { openTarget } from '@/lib/utils/openTarget';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { toast } from '@/stores/toastStore';
 import BlockItem from './BlockItem';
+import { useT } from '@/lib/i18n';
 
 const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
 
@@ -31,6 +32,7 @@ const KIND_ICON: Record<AttachmentKind, LucideIcon> = {
 //   2. pinned blocks with their attachments — structural, always shown, read-only;
 //   3. every attachment in the thread, aggregated into one Files & Links list.
 export default function DigestView({ thread, blocks, attachmentsByBlock, onShowLog }: Props) {
+  const t = useT();
   const load = useBlocksStore((s) => s.load);
 
   // A `done` thread routes straight here, so DigestView — not BlockFeed — is what
@@ -48,13 +50,13 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
     return (
       <div className="flex flex-1 items-center justify-center px-6 py-12">
         <div className="max-w-sm text-center">
-          <p className="text-sm text-muted">这个项目没有标记重点。要看完整记录吗？</p>
+          <p className="text-sm text-muted">{t('这个项目没有标记重点。要看完整记录吗？')}</p>
           <button
             type="button"
             onClick={onShowLog}
             className="mt-3 rounded-md border border-line-strong bg-paper px-3 py-1.5 text-xs text-ink transition-colors hover:border-accent hover:text-accent"
           >
-            看完整记录
+            {t('看完整记录')}
           </button>
         </div>
       </div>
@@ -70,7 +72,7 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
       await openTarget(target);
     } catch (e) {
       // §14.4: a missing target is non-fatal — surface a toast and keep going.
-      toast.error(e instanceof Error ? e.message : '无法打开附件');
+      toast.error(e instanceof Error ? e.message : t('无法打开附件'));
     }
   };
 
@@ -80,7 +82,7 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
         {/* 1. Conclusion — decoration; rendered only when present, never a placeholder. */}
         {digest && (
           <section>
-            <div className="mb-1 text-[11px] text-muted">结论</div>
+            <div className="mb-1 text-[11px] text-muted">{t('结论')}</div>
             <p className="whitespace-pre-wrap rounded-md border border-line bg-paper-2/50 px-4 py-3 font-ui text-sm leading-[1.6] text-ink">
               {digest}
             </p>
@@ -90,7 +92,7 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
         {/* 2. Pinned blocks — structural, always shown, read-only. */}
         {pinned.length > 0 && (
           <section>
-            <div className="mb-2 text-[11px] text-muted">重点</div>
+            <div className="mb-2 text-[11px] text-muted">{t('重点')}</div>
             <div className="space-y-2">
               {pinned.map((b) => (
                 <BlockItem
@@ -107,7 +109,7 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
         {/* 3. Files & Links — every attachment in the thread, files → folders → URLs. */}
         {sortedAttachments.length > 0 && (
           <section>
-            <div className="mb-2 text-[11px] text-muted">文件与链接</div>
+            <div className="mb-2 text-[11px] text-muted">{t('文件与链接')}</div>
             <ul className="flex flex-col gap-1">
               {sortedAttachments.map((a) => {
                 const Icon = KIND_ICON[a.kind];

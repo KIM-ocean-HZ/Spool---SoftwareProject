@@ -8,6 +8,7 @@ import CompleteThreadPanel from './CompleteThreadPanel';
 import DigestView from './DigestView';
 import LogView from './LogView';
 import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
+import { t } from '@/lib/i18n';
 
 const EMPTY: readonly Block[] = [];
 
@@ -51,7 +52,7 @@ export default function ThreadView() {
   const refTitles = useMemo(() => {
     const map = new Map<string, string>();
     for (const list of Object.values(threadsByWs)) {
-      for (const t of list) map.set(t.id, t.title || '（无标题）');
+      for (const th of list) map.set(th.id, th.title || t('（无标题）'));
     }
     return map;
   }, [threadsByWs]);
@@ -72,7 +73,7 @@ export default function ThreadView() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <p className="font-serif text-3xl italic text-muted">a quiet hub</p>
-          <p className="mt-3 text-xs text-muted">从左侧选一条脉络，或新建一个</p>
+          <p className="mt-3 text-xs text-muted">{t('从左侧选一条脉络，或新建一个')}</p>
         </div>
       </div>
     );

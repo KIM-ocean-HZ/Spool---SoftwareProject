@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { t } from '@/lib/i18n';
 
 interface State {
   err: Error | null;
@@ -36,7 +37,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, St
         }}
       >
         <div style={{ fontSize: '20px', marginBottom: '12px', color: '#b3402f' }}>
-          Spool 渲染崩了
+          {t('Spool 渲染崩了')}
         </div>
         <div style={{ marginBottom: '12px', color: '#4a463d' }}>
           {this.state.err.message}

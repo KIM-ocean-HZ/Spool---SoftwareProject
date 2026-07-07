@@ -5,6 +5,7 @@ import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
 import BlockItem from './BlockItem';
+import { useT } from '@/lib/i18n';
 
 // Tail-window cap for large threads (PLAN_EN.md §15 / Phase 12 — "enable virtual
 // scrolling when blocks > 200"). Below the cap we render the whole feed unchanged;
@@ -83,6 +84,7 @@ function DateDivider({ ts }: { ts: number }) {
 }
 
 export default function BlockFeed({ threadId, scrollRef }: Props) {
+  const t = useT();
   const load = useBlocksStore((s) => s.load);
   const togglePin = useBlocksStore((s) => s.togglePin);
   const remove = useBlocksStore((s) => s.remove);
@@ -349,15 +351,15 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       <div className="flex h-full items-center justify-center px-6 py-12">
         {overEmpty ? (
           <p className="rounded-md border-2 border-dashed border-accent bg-accent/5 px-8 py-10 text-center text-sm font-ui text-accent">
-            松开以新建第一个块
+            {t('松开以新建第一个块')}
           </p>
         ) : (
           <p className="text-center text-sm italic text-muted">
-            双击{' '}
+            {t('双击')}{' '}
             <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
               ⌥
             </kbd>{' '}
-            捕捉第一条信息，或在下方直接写。
+            {t('捕捉第一条信息，或在下方直接写。')}
           </p>
         )}
       </div>
@@ -373,7 +375,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   return (
     <div onMouseDown={handleMouseDown} className="px-6 py-3">
       <div className="mb-2 flex items-center justify-end gap-0.5 text-[11px]">
-        <span className="mr-1 text-muted">排序</span>
+        <span className="mr-1 text-muted">{t('排序')}</span>
         {(['time', 'source'] as const).map((m) => (
           <button
             key={m}
@@ -385,7 +387,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
                 : 'border-line text-muted hover:border-line-strong'
             }`}
           >
-            {m === 'time' ? '按时间' : '按来源'}
+            {m === 'time' ? t('按时间') : t('按来源')}
           </button>
         ))}
       </div>
@@ -396,7 +398,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             onClick={() => setWindowSize((n) => n + WINDOW_SIZE)}
             className="rounded-full border border-line bg-paper px-3 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent"
           >
-            查看更早的 {hiddenCount} 条
+            {t('查看更早的 {n} 条', { n: hiddenCount })}
           </button>
         </div>
       )}
@@ -433,7 +435,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             the user guessing. */}
         {overEmpty && (
           <div className="flex items-center justify-center rounded-md border-2 border-dashed border-accent bg-accent/5 px-3.5 py-5 font-ui text-[12px] text-accent">
-            松开以新建一个块
+            {t('松开以新建一个块')}
           </div>
         )}
       </div>
