@@ -1,0 +1,125 @@
+{
+  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback.",
+  "now": 1750000000000,
+  "thread": {
+    "id": "t1",
+    "workspaceId": "w1",
+    "title": "论文文献综述",
+    "summary": null,
+    "digest": null,
+    "deadline": null,
+    "status": "active",
+    "isCaptureTarget": false,
+    "createdAt": 1746000000000,
+    "updatedAt": 1749999000000,
+    "completedAt": null
+  },
+  "refTitles": { "t2": "实验设计" },
+  "blocks": [
+    {
+      "id": "b1",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==",
+      "annotation": "一直没懂为什么要除 sqrt(d_k)\n查了三篇讲解还是模糊",
+      "refThreadId": null,
+      "source": "Claude",
+      "pinned": true,
+      "createdAt": 1746540000000
+    },
+    {
+      "id": "b2",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "课程要求:期末项目要复现一篇 2024 年后的论文\n截止 4 月 30 日\n占总分 40%",
+      "annotation": null,
+      "refThreadId": null,
+      "source": "Safari",
+      "pinned": false,
+      "createdAt": 1749100000000
+    },
+    {
+      "id": "b3",
+      "threadId": "t1",
+      "kind": "ref",
+      "content": "实验设计(快照)",
+      "annotation": null,
+      "refThreadId": "t2",
+      "source": null,
+      "pinned": false,
+      "createdAt": 1749200000000
+    },
+    {
+      "id": "b4",
+      "threadId": "t1",
+      "kind": "ref",
+      "content": "已删除脉络的标题快照",
+      "annotation": null,
+      "refThreadId": "t-gone",
+      "source": null,
+      "pinned": false,
+      "createdAt": 1749300000000
+    },
+    {
+      "id": "b5",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "我的想法:先复现 baseline 再谈改进,别一上来就魔改",
+      "annotation": null,
+      "refThreadId": null,
+      "source": null,
+      "pinned": false,
+      "createdAt": 1749996400000
+    }
+  ],
+  "attachments": [
+    {
+      "id": "a1",
+      "blockId": "b1",
+      "kind": "file",
+      "target": "/Users/x/papers/attention.pdf",
+      "label": "attention.pdf",
+      "extractedText": "Attention Is All You Need\n第一行\n第二行",
+      "extractedAt": 1746540001000,
+      "extractionKind": "pdf",
+      "includeInPack": true,
+      "createdAt": 1746540002000
+    },
+    {
+      "id": "a2",
+      "blockId": "b2",
+      "kind": "url",
+      "target": "https://example.edu/course/final",
+      "label": "example.edu",
+      "extractedText": null,
+      "extractedAt": null,
+      "extractionKind": null,
+      "includeInPack": false,
+      "createdAt": 1749100001000
+    },
+    {
+      "id": "a3",
+      "blockId": "b2",
+      "kind": "file",
+      "target": "/Users/x/papers/rubric.docx",
+      "label": "  ",
+      "extractedText": "评分细则全文……",
+      "extractedAt": 1749100002000,
+      "extractionKind": "docx",
+      "includeInPack": false,
+      "createdAt": 1749100003000
+    },
+    {
+      "id": "a4",
+      "blockId": "b5",
+      "kind": "folder",
+      "target": "/Users/x/repos/baseline",
+      "label": "baseline",
+      "extractedText": null,
+      "extractedAt": null,
+      "extractionKind": null,
+      "includeInPack": false,
+      "createdAt": 1749996401000
+    }
+  ]
+}

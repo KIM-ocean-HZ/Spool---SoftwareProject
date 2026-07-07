@@ -2,8 +2,19 @@ mod capture;
 mod collect;
 #[cfg(target_os = "macos")]
 mod double_tap;
+pub mod mcp;
 
 use tauri::Manager;
+
+// §20.12: the Settings panel shows a copy-paste MCP client config pointing at THIS
+// binary — resolved at runtime so dev builds and the installed .app both show a path
+// that actually works.
+#[tauri::command]
+fn mcp_exe_path() -> Result<String, String> {
+    std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| e.to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -48,6 +59,7 @@ pub fn run() {
             collect::resize_collect_panel,
             collect::reposition_collect_panel,
             collect::append_collect_item,
+            mcp_exe_path,
         ]);
 
     #[cfg(desktop)]

@@ -15,7 +15,8 @@ type PersistableKey =
   | 'privacyMode'
   | 'captureShortcut'
   | 'searchShortcut'
-  | 'autoExtractAttachments';
+  | 'autoExtractAttachments'
+  | 'mcpEnabled';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -30,6 +31,9 @@ interface SettingsState {
   // v2.7: auto-extract text from file attachments on attach (§9.6). When false, the
   // three extraction columns stay NULL and pack output treats files as pointers only.
   autoExtractAttachments: boolean;
+  // §20.12: gates the `spool --mcp` stdio server's tools. Default OFF; the --mcp
+  // subprocess reads this straight from settings.json (it runs outside the webview).
+  mcpEnabled: boolean;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // True once a local Ollama model has been detected via /api/tags. Runtime-only —
@@ -72,6 +76,7 @@ const KEYS: PersistableKey[] = [
   'captureShortcut',
   'searchShortcut',
   'autoExtractAttachments',
+  'mcpEnabled',
 ];
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -83,6 +88,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   captureShortcut: DEFAULT_CAPTURE_ACCEL,
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
+  mcpEnabled: false,
   loaded: false,
   panelOpen: false,
   ollamaAvailable: false,

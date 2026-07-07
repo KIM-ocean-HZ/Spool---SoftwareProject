@@ -1,8 +1,11 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { assemble, filterBlocksForRange } from './assemble';
+import goldenFixture from './fixtures/golden-pack.json';
 
 const NOW = new Date('2026-05-15T10:00:00').getTime();
 const T = (m: number): number => new Date('2026-05-15T09:00:00').getTime() + m * 60_000;
@@ -361,6 +364,40 @@ describe('assemble', () => {
       expect(out).toContain('1 blocks total');
       expect(out).toContain('yesterday');
       expect(out).not.toContain('thirty-one days ago');
+    });
+  });
+
+  // §20.12 cross-language golden: the Rust MCP server re-implements this renderer
+  // (src-tauri/src/mcp.rs); both sides must produce golden-pack.expected.txt from
+  // golden-pack.json, dates normalized (local-time rendering is TZ-dependent). If this
+  // test fails after a template/renderer change, regenerate the expected file with
+  // GOLDEN_WRITE=1 npx vitest run src/lib/pack/assemble.test.ts
+  // and make the SAME change in mcp.rs until `cargo test` agrees.
+  describe('cross-language golden (§20.12 MCP renderer equivalence)', () => {
+    const normalizeDates = (s: string): string =>
+      s.replace(/\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?/g, '<DATE>');
+
+    it('assemble output matches the shared golden fixture', () => {
+      const fx = goldenFixture as unknown as {
+        now: number;
+        thread: Thread;
+        refTitles: Record<string, string>;
+        blocks: Block[];
+        attachments: Attachment[];
+      };
+      const out = assemble({
+        thread: fx.thread,
+        blocks: fx.blocks,
+        attachments: fx.attachments,
+        refTitles: new Map(Object.entries(fx.refTitles)),
+        now: fx.now,
+      });
+      const expectedPath = join(__dirname, 'fixtures', 'golden-pack.expected.txt');
+      if (process.env.GOLDEN_WRITE === '1') {
+        writeFileSync(expectedPath, out);
+      }
+      const expected = readFileSync(expectedPath, 'utf8');
+      expect(normalizeDates(out)).toBe(normalizeDates(expected));
     });
   });
 });

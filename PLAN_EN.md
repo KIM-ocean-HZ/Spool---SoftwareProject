@@ -1279,7 +1279,7 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | OCR for image attachments | **§20.10 (Track B experiment, NEW)** | Now an attach-time, cached extraction (like PDF/docx) via opt-in Gemini vision — so it does NOT put AI in the pack hot path. Fenced; off by default; kill criterion in §20.8 |
 | Cross-app file watch / re-extract | v2 | FSEvents/inotify watcher |
 | **Trash / soft-delete recovery surface** (v2.9 addition) | v1.5 | Workspace/thread deletes are already soft. Cmd+Z intentionally does NOT cover them (low-volume, recover via reverse action). Trash view recovering ~30 days is the proper home. No schema change |
-| **MCP local server — zero-paste re-brief** | **§20.12 (Track B, chartered 2026-07-06, NOT yet built)** | Read-only faucet over `assemble.ts`; charter, boundaries and kill criterion in §20.12 |
+| **MCP local server — zero-paste re-brief** | **§20.12 (Track B, built 2026-07-07, experimental, default OFF)** | `spool --mcp` stdio subcommand; renderer locked to `assemble.ts` by cross-language golden test; kill criterion in §20.8/§20.12 |
 
 > Items already promoted into v1 from this table: double-tap-modifier capture trigger (now ⌥); smarter source auto-detection via browser tab title; pack range selector and AI pack compression (both 2026-07-06).
 
@@ -1584,9 +1584,9 @@ macOS only: when user switches active app/space, the staging panel must follow.
 - Confirmation toast: `已复制 <N> 个块到「<Workspace> / <Thread>」`; the selection clears.
 - **Undoable** (§9.13, `forward` `UndoOpKind`): undo deletes ONLY the new copies (their copied attachments cascade); it never touches the originals. UndoToast: `已撤销:复制`.
 
-### 20.12 (Track B — chartered 2026-07-06, NOT yet built) MCP local server — "zero-paste re-brief"
+### 20.12 (Track B — BUILT 2026-07-07, experimental, default OFF) MCP local server — "zero-paste re-brief"
 
-> **Charter only.** Ocean approved opening this project on 2026-07-06 (execution order: after the §17 range-selector and AI-compression pulls landed). Implementation must NOT start until the open design questions below are resolved with Ocean — in particular, any new dependency needs §4 sign-off first.
+> Chartered 2026-07-06; Ocean delegated the four design decisions on 2026-07-07 ("lowest cost, release-grade") and implementation landed the same day. **Decisions**: (1) in-binary — `spool --mcp` subcommand, branch in main.rs before the Tauri builder; new deps rusqlite (read-only, rides the existing libsqlite3-sys 0.30 line) + libc (localtime for pack timestamps); (2) stdio transport (client-launched, no ports, works in every MCP client); (3) NO §20.7 template param — the user states the task in their own chat turn; (4) fresh read-only SQLite connection per tool call. The Rust pack renderer is a port of assemble.ts locked by a **cross-language golden test** (fixtures under src/lib/pack/fixtures/, asserted by both assemble.test.ts and mcp.rs `golden_pack_matches_fixture`, dates normalized) — any template drift fails one side until re-synced. Tools gate on the 「MCP 服务」 settings toggle (default OFF), read straight from settings.json.
 
 **The bet.** Pack's "single paste" becomes "zero paste": MCP-capable AI clients (Claude, Cursor, and the growing MCP ecosystem) pull thread context directly from Spool. The receiving AI asks Spool for the pack; the user just @-mentions their project inside whatever AI they're already talking to. This is §2.2 taken to its limit — and the sharpest competitive position available: notes apps have no zero-friction capture, clipboard managers have no project structure, and neither has a deterministic, AI-facing context faucet.
 
