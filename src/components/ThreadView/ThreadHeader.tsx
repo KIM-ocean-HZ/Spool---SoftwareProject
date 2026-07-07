@@ -1,6 +1,7 @@
 import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { router } from '@/lib/ai/router';
 import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
 import type { Block } from '@/lib/db/blocks';
@@ -92,6 +93,7 @@ export default function ThreadHeader({
   viewMode,
   onSetViewMode,
 }: Props) {
+  const t = useT();
   const patch = useThreadsStore((s) => s.patch);
   const setSummary = useThreadsStore((s) => s.setSummary);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
@@ -201,36 +203,36 @@ export default function ThreadHeader({
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="无标题"
+          placeholder={t('无标题')}
           className="min-w-0 flex-1 bg-transparent font-serif text-2xl text-ink outline-none placeholder:text-muted/50"
         />
 
         <button
           onClick={onPack}
           className="flex flex-none items-center gap-1 rounded-full border border-accent bg-accent px-3 py-1 text-xs font-medium text-paper transition-colors hover:border-[var(--accent-2)] hover:bg-[var(--accent-2)]"
-          title="打包上下文（⌘⇧P）"
+          title={t('打包上下文（⌘⇧P）')}
         >
           <Package size={12} />
-          <span>打包</span>
+          <span>{t('打包')}</span>
         </button>
 
         {thread.status === 'done' ? (
           <button
             onClick={onReopen}
             className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
-            title="重新打开（清除完成时间和结论）"
+            title={t('重新打开（清除完成时间和结论）')}
           >
             <RotateCcw size={11} />
-            <span>重新打开</span>
+            <span>{t('重新打开')}</span>
           </button>
         ) : (
           <button
             onClick={onComplete}
             className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
-            title="完成项目"
+            title={t('完成项目')}
           >
             <CheckCircle2 size={11} />
-            <span>完成项目</span>
+            <span>{t('完成项目')}</span>
           </button>
         )}
 
@@ -242,10 +244,10 @@ export default function ThreadHeader({
               ? 'text-ink-2'
               : 'text-muted hover:border-line-strong hover:text-ink-2'
           }`}
-          title={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
+          title={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
         >
           <Pin size={11} className={thread.isCaptureTarget ? 'fill-current' : ''} />
-          <span>{thread.isCaptureTarget ? '捕捉目标' : '设为目标'}</span>
+          <span>{thread.isCaptureTarget ? t('捕捉目标') : t('设为目标')}</span>
           {thread.isCaptureTarget && (
             <span
               className="h-1.5 w-1.5 flex-none rounded-full bg-accent"
@@ -278,13 +280,13 @@ export default function ThreadHeader({
                   }
                 }}
                 rows={2}
-                placeholder="写一句话摘要…"
+                placeholder={t('写一句话摘要…')}
                 spellCheck={false}
                 className="w-full resize-none bg-transparent text-xs italic leading-snug text-ink-2 outline-none placeholder:text-muted/50"
               />
               {aiHint && !aiAvailable && (
                 <p className="text-[11px] text-muted/80">
-                  未配置 AI。可到设置配置，或在此手动写一句。
+                  {t('未配置 AI。可到设置配置，或在此手动写一句。')}
                 </p>
               )}
             </>
@@ -292,19 +294,19 @@ export default function ThreadHeader({
             <button
               onClick={enterSummaryEdit}
               className="block w-full truncate text-left text-xs italic text-muted transition-colors hover:text-ink-2"
-              title="点击编辑摘要"
+              title={t('点击编辑摘要')}
             >
               {thread.summary}
             </button>
           ) : summarizing ? (
-            <p className="text-xs italic text-muted/70">正在生成摘要…</p>
+            <p className="text-xs italic text-muted/70">{t('正在生成摘要…')}</p>
           ) : (
             <button
               onClick={enterSummaryEdit}
               className="text-xs italic text-muted/60 transition-colors hover:text-muted"
-              title="写一句话摘要"
+              title={t('写一句话摘要')}
             >
-              ＋ 写一句话摘要
+              {t('＋ 写一句话摘要')}
             </button>
           )}
         </div>
@@ -321,7 +323,7 @@ export default function ThreadHeader({
                 viewMode === 'digest' ? 'text-ink' : 'text-muted hover:text-ink-2'
               }`}
             >
-              摘要
+              {t('摘要')}
             </button>
             <span className="text-muted/40">/</span>
             <button
@@ -330,7 +332,7 @@ export default function ThreadHeader({
                 viewMode === 'log' ? 'text-ink' : 'text-muted hover:text-ink-2'
               }`}
             >
-              全记录
+              {t('全记录')}
             </button>
           </div>
         ) : (
@@ -345,7 +347,7 @@ export default function ThreadHeader({
                     : 'border-line text-muted hover:border-line-strong'
                 }`}
               >
-                {opt.label}
+                {t(opt.label)}
               </button>
             ))}
           </div>
@@ -367,7 +369,7 @@ export default function ThreadHeader({
             <button
               onClick={() => void patch(thread.id, { deadline: null })}
               className="rounded p-0.5 hover:bg-paper-2 hover:text-ink"
-              title="清除截止日期"
+              title={t('清除截止日期')}
             >
               <X size={11} />
             </button>

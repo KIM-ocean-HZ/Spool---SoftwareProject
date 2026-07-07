@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { Thread } from '@/lib/db/threads';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -25,6 +26,7 @@ interface Props {
 // tray target lists (a completed project isn't a forward destination). Esc / clicking an item
 // resolve it; the caller (MergeToolbar) closes it on a click outside the toolbar.
 export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Props) {
+  const t = useT();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
   const [query, setQuery] = useState('');
@@ -47,12 +49,12 @@ export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Prop
     }[] = [];
     const flatList: PickedThread[] = [];
     for (const ws of workspaces) {
-      const wsTitle = ws.title.trim() || '未命名';
+      const wsTitle = ws.title.trim() || t('未命名');
       const matched = (threadsByWs[ws.id] ?? [])
         .filter((t) => t.id !== excludeThreadId && t.status !== 'done')
-        .map((t) => {
-          const title = t.title.trim() || '无标题';
-          return { thread: t, title, idx: q ? title.toLowerCase().indexOf(q) : 0 };
+        .map((th) => {
+          const title = th.title.trim() || t('无标题');
+          return { thread: th, title, idx: q ? title.toLowerCase().indexOf(q) : 0 };
         })
         .filter((c) => c.idx >= 0)
         .sort((a, b) => a.idx - b.idx || a.title.localeCompare(b.title));
@@ -65,7 +67,7 @@ export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Prop
       grouped.push({ wsId: ws.id, wsTitle, items });
     }
     return { groups: grouped, flat: flatList };
-  }, [query, workspaces, threadsByWs, excludeThreadId]);
+  }, [query, workspaces, threadsByWs, excludeThreadId, t]);
 
   useEffect(() => {
     setActiveIdx(0);
@@ -103,13 +105,13 @@ export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Prop
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="复制到… 搜索脉络"
+        placeholder={t('复制到… 搜索脉络')}
         spellCheck={false}
         className="w-full border-b border-line bg-paper-2/40 px-2.5 py-1.5 text-ink outline-none placeholder:text-muted/70"
       />
       <div className="max-h-64 overflow-y-auto py-1">
         {flat.length === 0 ? (
-          <div className="px-2.5 py-2 text-muted">没有匹配的脉络</div>
+          <div className="px-2.5 py-2 text-muted">{t('没有匹配的脉络')}</div>
         ) : (
           groups.map((g) => (
             <div key={g.wsId} className="py-0.5">

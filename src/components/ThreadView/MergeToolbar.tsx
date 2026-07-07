@@ -1,5 +1,6 @@
 import { Copy, Merge, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
@@ -18,6 +19,7 @@ interface Props {
 // confirm gate sits in front of the merge; v2.9 §9.13 makes both merge and forward reversible
 // via Cmd+Z, so the merge confirm copy advertises it.
 export default function MergeToolbar({ threadId }: Props) {
+  const t = useT();
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const clearSelection = useBlocksStore((s) => s.clearSelection);
   const mergeBlocks = useBlocksStore((s) => s.mergeBlocks);
@@ -70,7 +72,7 @@ export default function MergeToolbar({ threadId }: Props) {
       // Empty patch = touch updated_at, so the target thread rises in the sidebar's
       // recency order (same idiom as the redirect / collect-send paths).
       void useThreadsStore.getState().patch(picked.threadId, {});
-      toast.notice(`已复制 ${n} 个块到「${picked.workspaceTitle} / ${picked.threadTitle}」`);
+      toast.notice(t('已复制 {n} 个块到「{target}」', { n, target: `${picked.workspaceTitle} / ${picked.threadTitle}` }));
     }
   };
 
@@ -90,25 +92,25 @@ export default function MergeToolbar({ threadId }: Props) {
           </div>
         )}
         <span className="text-muted">
-          已选 <span className="font-mono text-ink">{count}</span> 个
+          {t('已选')} <span className="font-mono text-ink">{count}</span>{t('个')}
         </span>
         <span className="h-3 w-px bg-line" />
         {confirmingMerge ? (
           <span className="flex items-center gap-1.5">
-            <span className="text-ink">合并 {count} 个为一个？可 ⌘Z 撤销</span>
+            <span className="text-ink">{t('合并 {n} 个为一个？可 ⌘Z 撤销', { n: count })}</span>
             <button
               type="button"
               onClick={() => void handleMerge()}
               className="rounded-full px-2 py-0.5 text-accent transition-colors hover:bg-accent/10"
             >
-              确认
+              {t('确认')}
             </button>
             <button
               type="button"
               onClick={() => setConfirmingMerge(false)}
               className="rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
             >
-              再想想
+              {t('再想想')}
             </button>
           </span>
         ) : (
@@ -121,10 +123,10 @@ export default function MergeToolbar({ threadId }: Props) {
                 ? 'text-accent hover:bg-accent/10'
                 : 'cursor-not-allowed text-muted'
             }`}
-            title={canMerge ? '合并所选 block' : '至少选择两个 block 才能合并'}
+            title={canMerge ? t('合并所选 block') : t('至少选择两个 block 才能合并')}
           >
             <Merge size={12} />
-            {merging ? '合并中…' : '合并'}
+            {merging ? t('合并中…') : t('合并')}
           </button>
         )}
         <button
@@ -133,19 +135,19 @@ export default function MergeToolbar({ threadId }: Props) {
           className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
             pickerOpen ? 'bg-accent/10 text-accent' : 'text-ink hover:bg-paper-2'
           }`}
-          title="复制所选 block 到另一个脉络"
+          title={t('复制所选 block 到另一个脉络')}
         >
           <Copy size={12} />
-          复制到…
+          {t('复制到…')}
         </button>
         <button
           type="button"
           onClick={() => clearSelection()}
           className="flex items-center gap-1 rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-          title="取消选择"
+          title={t('取消选择')}
         >
           <X size={12} />
-          取消
+          {t('取消')}
         </button>
       </div>
     </div>
