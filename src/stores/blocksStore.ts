@@ -13,6 +13,7 @@ import { computeMergedFields } from '@/lib/db/blocks';
 import { buildDeleteUndo, buildForwardUndo, buildMergeUndo, useUndoStore } from './undoStore';
 import { useSettingsStore } from './settingsStore';
 import { toast } from './toastStore';
+import { t } from '@/lib/i18n';
 
 interface BlocksState {
   byThread: Record<string, Block[]>;
@@ -104,11 +105,11 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       }));
       if (!result.ok && !result.reason.startsWith('unsupported extension')) {
         console.error('[extract] failed for', a.target, '—', result.reason);
-        if (notify) toast.error(`文件文字提取失败：${result.reason}`);
+        if (notify) toast.error(t('文件文字提取失败：{msg}', { msg: result.reason }));
       }
     } catch (e) {
       console.error('[extract] failed for attachment', a.id, e);
-      if (notify) toast.error(`文件文字提取失败：${e instanceof Error ? e.message : String(e)}`);
+      if (notify) toast.error(t('文件文字提取失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
     }
   };
 
@@ -364,7 +365,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const threadIds = new Set(found.map((x) => x.threadId));
       if (threadIds.size > 1) {
         console.warn('[merge] refusing cross-thread merge', { threadIds: [...threadIds] });
-        toast.error('合并失败：所选 block 跨脉络');
+        toast.error(t('合并失败：所选 block 跨脉络'));
         return;
       }
       const threadId = found[0]!.threadId;
@@ -396,7 +397,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         );
       } catch (e) {
         console.error('[merge] failed', e);
-        toast.error(`合并失败：${e instanceof Error ? e.message : String(e)}`);
+        toast.error(t('合并失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
         return;
       }
 
@@ -474,7 +475,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         await adb.insertAttachments(copyAttachments);
       } catch (e) {
         console.error('[forward] copy failed', e);
-        toast.error(`复制失败：${e instanceof Error ? e.message : String(e)}`);
+        toast.error(t('复制失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
         return 0;
       }
 

@@ -7,6 +7,7 @@ import { useDropStore } from '@/stores/dropStore';
 import { toast } from '@/stores/toastStore';
 import { basename, parentDirName, pathIsDir } from '@/lib/utils/openTarget';
 import type { AttachmentKind } from '@/lib/db/attachments';
+import { t } from '@/lib/i18n';
 
 interface UseThreadDropTargetArgs {
   // Root DOM node the drop bridge is scoped to. We only react to drags whose position
@@ -161,7 +162,7 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
         }
       } catch (e) {
         console.error('[drop] attach failed', e);
-        toast.error('附加失败：' + (e instanceof Error ? e.message : String(e)));
+        toast.error(t('附加失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
       }
     };
 

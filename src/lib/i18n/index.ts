@@ -294,6 +294,17 @@ const EN: Record<string, string> = {
   '语言 / Language': 'Language / 语言',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
+  // Store / hook toasts
+  '文件文字提取失败：{msg}': 'Text extraction failed: {msg}',
+  '合并失败：所选 block 跨脉络': 'Merge failed: selection spans threads',
+  '合并失败：{msg}': 'Merge failed: {msg}',
+  '复制失败：{msg}': 'Copy failed: {msg}',
+  '附加失败：{msg}': 'Attach failed: {msg}',
+  '捕捉失败：{msg}': 'Capture failed: {msg}',
+  '双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。':
+    'Double-tap ⌥ capture stopped — restart Spool to re-enable. ⌘⇧C still works.',
+  '已复制 {n} 个块到「{target}」': 'Copied {n} blocks to “{target}”',
+
   // Settings sub-panels
   '请按下 ⌘ / ⌃ / ⌥ 之一，再加一个普通键': 'Press ⌘ / ⌃ / ⌥ plus a regular key',
   '两个快捷键不能相同': 'The two shortcuts must differ',

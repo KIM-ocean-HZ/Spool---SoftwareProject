@@ -29,6 +29,7 @@ import { toast } from '@/stores/toastStore';
 import { buildCaptureUndo, useUndoStore } from '@/stores/undoStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import { runRedo, runUndo } from '@/hooks/useUndo';
+import { t } from '@/lib/i18n';
 
 // Max wait in the *hot path* for the parallel foreground-app query. If osascript hasn't
 // answered by then, we skip focus restoration this round — better to show the toast
@@ -259,8 +260,8 @@ export function useCapture(): void {
             blockId: result.block.id,
             threadId: result.threadId,
             workspaceId: result.workspaceId,
-            workspaceTitle: ws?.title.trim() || '收件箱',
-            threadTitle: result.threadTitle.trim() || '未命名',
+            workspaceTitle: ws?.title.trim() || t('收件箱'),
+            threadTitle: result.threadTitle.trim() || t('未命名'),
             preview: buildPreview(text),
             fullContent: text,
             source: null,
@@ -308,7 +309,7 @@ export function useCapture(): void {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           console.error('[capture] failed', e);
-          showNoticeInOverlay({ kind: 'error', msg: `捕捉失败：${msg}` });
+          showNoticeInOverlay({ kind: 'error', msg: t('捕捉失败：{msg}', { msg }) });
         } finally {
           inFlightRef.current = false;
           if (DEV) console.info('[capture] finally: inFlight cleared');
@@ -371,7 +372,7 @@ export function useCapture(): void {
     let cancelled = false;
     void (async () => {
       const dispose = await listen('capture-disabled', () => {
-        toast.error('双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。');
+        toast.error(t('双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。'));
       });
       if (cancelled) dispose();
       else unlisten = dispose;
