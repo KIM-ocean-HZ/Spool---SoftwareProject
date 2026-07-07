@@ -93,6 +93,17 @@ const applyOverlayAction = (action: OverlayAction): void => {
         },
       };
     });
+    // §9.13: the capture undo entry still points at the OLD block id, which redirect just
+    // deleted — Cmd+Z would "succeed" against a nonexistent row and leave the real block.
+    // Retarget the ring: drop entries for the old block, record the new one as the capture.
+    useUndoStore.getState().invalidateForBlock(action.oldBlockId);
+    useUndoStore.getState().pushUndo(
+      buildCaptureUndo({
+        blockId: action.newBlock.id,
+        threadId: action.targetThreadId,
+        content: action.newBlock.content,
+      }),
+    );
     void useThreadsStore.getState().patch(action.targetThreadId, {});
     return;
   }

@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, List, Search as SearchIcon, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { isImeComposing } from '@/lib/utils/ime';
 import type { SearchHit } from '@/lib/search/query';
 
 // v2.9 §9.10 / §13.2 / §19.17: in-block search find bar. Mounted at the top of
@@ -74,9 +75,8 @@ export default function InBlockNavigator({
 
   const onInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // IME composition Enter must commit the candidate, not advance to the
-    // next match. Same isComposing / keyCode 229 pattern as the global
-    // search overlay.
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // next match.
+    if (isImeComposing(e.nativeEvent)) return;
     if (e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey) onPrev();

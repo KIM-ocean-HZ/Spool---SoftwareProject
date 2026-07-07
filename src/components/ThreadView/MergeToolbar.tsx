@@ -1,6 +1,7 @@
 import { Copy, Merge, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
 import ThreadPicker, { type PickedThread } from './ThreadPicker';
 
@@ -66,6 +67,9 @@ export default function MergeToolbar({ threadId }: Props) {
     setPickerOpen(false);
     const n = await forwardToThread([...selectedBlockIds], picked.threadId);
     if (n > 0) {
+      // Empty patch = touch updated_at, so the target thread rises in the sidebar's
+      // recency order (same idiom as the redirect / collect-send paths).
+      void useThreadsStore.getState().patch(picked.threadId, {});
       toast.notice(`已复制 ${n} 个块到「${picked.workspaceTitle} / ${picked.threadTitle}」`);
     }
   };

@@ -1,5 +1,6 @@
 import { Search as SearchIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { isImeComposing } from '@/lib/utils/ime';
 import type { SearchHit } from '@/lib/search/query';
 import { useSearchStore } from '@/stores/searchStore';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -43,9 +44,8 @@ export default function SearchOverlay() {
     // IME composition (e.g. typing English via pinyin) needs Enter / arrows
     // to commit or move through candidates. Hijacking those keystrokes as
     // navigation would jump to the first result before the user even saw the
-    // candidate list. `isComposing` is the standard; keyCode 229 is the
-    // legacy fallback some IMEs / browsers still emit.
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // candidate list.
+    if (isImeComposing(e.nativeEvent)) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       closeSearch();

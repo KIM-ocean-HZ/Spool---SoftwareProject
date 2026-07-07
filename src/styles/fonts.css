@@ -4,9 +4,12 @@
    PingFang / Songti fallbacks because nothing ever loaded the primary families.
    Bundled locally: no network fetch (Principle 2), and font-src 'self' under CSP. */
 
+/* format('truetype') on purpose — WebKit ignores a src whose format string it doesn't
+   recognize, and 'truetype-variations' is not universally accepted; plain 'truetype'
+   loads the variable font and the 100–900 weight axis still applies. */
 @font-face {
   font-family: 'Geist';
-  src: url('../assets/fonts/Geist[wght].ttf') format('truetype-variations');
+  src: url('../assets/fonts/Geist[wght].ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -14,7 +17,7 @@
 
 @font-face {
   font-family: 'Geist Mono';
-  src: url('../assets/fonts/GeistMono[wght].ttf') format('truetype-variations');
+  src: url('../assets/fonts/GeistMono[wght].ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
