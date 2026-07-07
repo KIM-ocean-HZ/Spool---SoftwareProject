@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import { eventToAccelerator, formatAccelerator } from '@/lib/capture/shortcut';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useT } from '@/lib/i18n';
 
 // The two global-shortcut recorders (PLAN_EN.md §9.12 / §19.1). Recording captures the
 // next keydown; a valid chord is sent to the Rust `set_shortcuts` command, which
@@ -10,6 +11,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 type Field = 'capture' | 'search';
 
 export default function ShortcutConfig() {
+  const t = useT();
   const captureShortcut = useSettingsStore((s) => s.captureShortcut);
   const searchShortcut = useSettingsStore((s) => s.searchShortcut);
   const update = useSettingsStore((s) => s.update);
@@ -32,12 +34,12 @@ export default function ShortcutConfig() {
       }
       const accel = eventToAccelerator(e);
       if (!accel) {
-        setError('请按下 ⌘ / ⌃ / ⌥ 之一，再加一个普通键');
+        setError(t('请按下 ⌘ / ⌃ / ⌥ 之一，再加一个普通键'));
         return;
       }
       const other = field === 'capture' ? searchShortcut : captureShortcut;
       if (accel === other) {
-        setError('两个快捷键不能相同');
+        setError(t('两个快捷键不能相同'));
         return;
       }
       const capture = field === 'capture' ? accel : captureShortcut;
@@ -52,7 +54,7 @@ export default function ShortcutConfig() {
           setRecording(null);
         } catch (err) {
           setError(
-            `系统拒绝了该快捷键：${err instanceof Error ? err.message : String(err)}`,
+            t('系统拒绝了该快捷键：{msg}', { msg: err instanceof Error ? err.message : String(err) }),
           );
         }
       })();
@@ -80,7 +82,7 @@ export default function ShortcutConfig() {
               : 'border-line-strong bg-paper text-ink hover:border-accent'
           }`}
         >
-          {isRec ? '按键中…' : formatAccelerator(accel)}
+          {isRec ? t('按键中…') : formatAccelerator(accel)}
         </button>
       </div>
     );
@@ -88,11 +90,11 @@ export default function ShortcutConfig() {
 
   return (
     <div>
-      {row('capture', '捕捉快捷键', '在任意应用中保存选中内容', captureShortcut)}
+      {row('capture', t('捕捉快捷键'), t('在任意应用中保存选中内容'), captureShortcut)}
       <div className="border-t border-line" />
-      {row('search', '搜索快捷键', '打开全文搜索', searchShortcut)}
+      {row('search', t('搜索快捷键'), t('打开全文搜索'), searchShortcut)}
       {recording && !error && (
-        <p className="mt-2 text-xs italic text-muted">按下新的组合键，或按 Esc 取消</p>
+        <p className="mt-2 text-xs italic text-muted">{t('按下新的组合键，或按 Esc 取消')}</p>
       )}
       {error && (
         <p className="mt-2 text-xs" style={{ color: 'var(--urgent)' }}>

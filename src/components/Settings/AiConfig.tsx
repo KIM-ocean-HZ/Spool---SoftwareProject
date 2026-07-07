@@ -4,6 +4,7 @@ import { createGeminiProvider } from '@/lib/ai/providers/gemini';
 import { createGroqProvider } from '@/lib/ai/providers/groq';
 import type { Provider } from '@/lib/ai/providers/types';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { t as tt, useT } from '@/lib/i18n';
 
 // AI service settings (PLAN_EN.md §9.12): the two online API keys with a live test,
 // the local Ollama endpoint + model, and the privacy-mode toggle.
@@ -11,12 +12,13 @@ import { useSettingsStore } from '@/stores/settingsStore';
 type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 
 const testLabel = (s: TestState): string =>
-  s === 'testing' ? '测试中…' : s === 'ok' ? '✓ 有效' : s === 'fail' ? '✗ 无效' : '测试';
+  s === 'testing' ? tt('测试中…') : s === 'ok' ? tt('✓ 有效') : s === 'fail' ? tt('✗ 无效') : tt('测试');
 
 const inputCls =
   'min-w-0 flex-1 rounded border border-line-strong bg-paper px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-accent';
 
 export default function AiConfig() {
+  const t = useT();
   const groqKey = useSettingsStore((s) => s.groqKey);
   const geminiKey = useSettingsStore((s) => s.geminiKey);
   const ollamaEndpoint = useSettingsStore((s) => s.ollamaEndpoint);
@@ -64,7 +66,7 @@ export default function AiConfig() {
     <div className="space-y-3.5">
       <div>
         <div className="text-sm text-ink">Groq API Key</div>
-        <div className="mt-0.5 text-xs text-muted">console.groq.com · 用于捕捉分类</div>
+        <div className="mt-0.5 text-xs text-muted">{t('console.groq.com · 用于捕捉分类')}</div>
         <div className="mt-1.5 flex items-center gap-1.5">
           <input
             type="password"
@@ -93,7 +95,7 @@ export default function AiConfig() {
 
       <div>
         <div className="text-sm text-ink">Gemini API Key</div>
-        <div className="mt-0.5 text-xs text-muted">aistudio.google.com · 用于状态/结论摘要</div>
+        <div className="mt-0.5 text-xs text-muted">{t('aistudio.google.com · 用于状态/结论摘要')}</div>
         <div className="mt-1.5 flex items-center gap-1.5">
           <input
             type="password"
@@ -121,7 +123,7 @@ export default function AiConfig() {
       </div>
 
       <div>
-        <div className="text-sm text-ink">Ollama 端点</div>
+        <div className="text-sm text-ink">{t('Ollama 端点')}</div>
         <input
           type="text"
           value={endpointDraft}
@@ -134,7 +136,7 @@ export default function AiConfig() {
       </div>
 
       <div>
-        <div className="text-sm text-ink">Ollama 模型</div>
+        <div className="text-sm text-ink">{t('Ollama 模型')}</div>
         {ollamaModels.length > 0 ? (
           <select
             value={ollamaModels.includes(ollamaModel) ? ollamaModel : ''}
@@ -143,7 +145,7 @@ export default function AiConfig() {
           >
             {!ollamaModels.includes(ollamaModel) && (
               <option value="" disabled>
-                选择模型
+                {t('选择模型')}
               </option>
             )}
             {ollamaModels.map((m) => (
@@ -153,14 +155,14 @@ export default function AiConfig() {
             ))}
           </select>
         ) : (
-          <p className="mt-1.5 text-xs text-muted">未检测到本地模型 — 确认 Ollama 正在运行</p>
+          <p className="mt-1.5 text-xs text-muted">{t('未检测到本地模型 — 确认 Ollama 正在运行')}</p>
         )}
       </div>
 
       <div className="flex items-center justify-between gap-4 pt-0.5">
         <div className="min-w-0">
-          <div className="text-sm text-ink">隐私模式</div>
-          <div className="mt-0.5 text-xs text-muted">所有 AI 仅走本地；无本地模型时入口隐藏</div>
+          <div className="text-sm text-ink">{t('隐私模式')}</div>
+          <div className="mt-0.5 text-xs text-muted">{t('所有 AI 仅走本地；无本地模型时入口隐藏')}</div>
         </div>
         <Toggle checked={privacyMode} onChange={(v) => void update({ privacyMode: v })} />
       </div>
