@@ -5,10 +5,12 @@ import type { SearchHit } from '@/lib/search/query';
 import { useSearchStore } from '@/stores/searchStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import SearchResultItem from './SearchResultItem';
+import { useT } from '@/lib/i18n';
 
 // Global search overlay (PLAN_EN.md §9.10 / Phase 7). An in-window modal — clicking
 // a result navigates the main window — opened by ⌘/Ctrl+Shift+F or the sidebar icon.
 export default function SearchOverlay() {
+  const t = useT();
   const open = useSearchStore((s) => s.open);
   const query = useSearchStore((s) => s.query);
   const results = useSearchStore((s) => s.results);
@@ -81,7 +83,7 @@ export default function SearchOverlay() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="搜索所有工作区与脉络的内容…"
+            placeholder={t('搜索所有工作区与脉络的内容…')}
             className="flex-1 bg-transparent font-ui text-[14px] text-ink outline-none placeholder:text-muted"
             spellCheck={false}
           />
@@ -90,15 +92,15 @@ export default function SearchOverlay() {
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {error ? (
             <p className="px-3 py-8 text-center text-xs" style={{ color: 'var(--urgent)' }}>
-              搜索出错：{error}
+              {t('搜索出错：{msg}', { msg: error })}
             </p>
           ) : !trimmed ? (
             <p className="px-3 py-8 text-center text-xs italic text-muted">
-              输入关键词，搜索任意脉络里的内容与批注
+              {t('输入关键词，搜索任意脉络里的内容与批注')}
             </p>
           ) : results.length === 0 && !loading ? (
             <p className="px-3 py-8 text-center text-xs italic text-muted">
-              没有找到 —— 换个关键词试试？
+              {t('没有找到 —— 换个关键词试试？')}
             </p>
           ) : (
             <div className="space-y-1">
@@ -116,8 +118,8 @@ export default function SearchOverlay() {
         </div>
 
         <div className="flex flex-none items-center justify-between border-t border-line bg-paper-2/40 px-4 py-2 text-[10px] text-muted">
-          <span>{trimmed && results.length > 0 ? `${results.length} 条结果` : '全文搜索 · 纯本地'}</span>
-          <span>↑↓ 选择 · ↵ 跳转 · esc 关闭</span>
+          <span>{trimmed && results.length > 0 ? t('{n} 条结果', { n: results.length }) : t('全文搜索 · 纯本地')}</span>
+          <span>{t('↑↓ 选择 · ↵ 跳转 · esc 关闭')}</span>
         </div>
       </div>
     </div>

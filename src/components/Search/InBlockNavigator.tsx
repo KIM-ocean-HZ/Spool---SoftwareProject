@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, List, Search as SearchIcon, X } from 'lucide-re
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import type { SearchHit } from '@/lib/search/query';
+import { useT } from '@/lib/i18n';
 
 // v2.9 §9.10 / §13.2 / §19.17: in-block search find bar. Mounted at the top of
 // the destination thread's LogView (a fixed band above the scrollable feed)
@@ -51,6 +52,7 @@ export default function InBlockNavigator({
   onPickResult,
   onDismiss,
 }: Props) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [listOpen, setListOpen] = useState(false);
@@ -90,7 +92,7 @@ export default function InBlockNavigator({
       ref={rootRef}
       data-search-nav-bar
       role="toolbar"
-      aria-label="块内查找"
+      aria-label={t('块内查找')}
       className="relative flex flex-none items-center gap-2 border-b border-line-strong bg-paper-2/80 px-4 py-2 backdrop-blur-sm"
     >
       <SearchIcon size={14} className="flex-none text-accent" />
@@ -100,7 +102,7 @@ export default function InBlockNavigator({
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={onInputKeyDown}
-        placeholder="块内查找…"
+        placeholder={t('块内查找…')}
         spellCheck={false}
         className="w-[220px] flex-none rounded border border-line bg-paper px-2 py-1 font-mono text-[12px] text-ink outline-none transition-colors placeholder:text-muted focus:border-accent"
       />
@@ -108,7 +110,7 @@ export default function InBlockNavigator({
         className="font-mono text-[11px] text-muted"
         aria-live="polite"
       >
-        {!query.trim() ? '' : empty ? '无匹配' : `${index + 1} / ${total}`}
+        {!query.trim() ? '' : empty ? t('无匹配') : `${index + 1} / ${total}`}
       </span>
 
       {/* All matching blocks across every workspace — jump to any of them. */}
@@ -116,8 +118,8 @@ export default function InBlockNavigator({
         type="button"
         onClick={() => setListOpen((v) => !v)}
         disabled={results.length === 0}
-        title="所有包含该文字的块（全部工作区）"
-        aria-label="所有匹配的块"
+        title={t('所有包含该文字的块（全部工作区）')}
+        aria-label={t('所有匹配的块')}
         className={`flex h-6 flex-none items-center gap-1 rounded px-1.5 font-mono text-[11px] transition-colors disabled:opacity-40 ${
           listOpen ? 'bg-paper text-accent' : 'text-muted hover:bg-paper hover:text-accent'
         }`}
@@ -132,8 +134,8 @@ export default function InBlockNavigator({
         type="button"
         onClick={onPrev}
         disabled={empty}
-        title="上一个匹配 (⇧⌘G / ⇧↵)"
-        aria-label="上一个匹配"
+        title={t('上一个匹配 (⇧⌘G / ⇧↵)')}
+        aria-label={t('上一个匹配')}
         className="flex h-6 w-6 flex-none items-center justify-center rounded text-muted transition-colors hover:bg-paper hover:text-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
         <ChevronUp size={14} />
@@ -142,8 +144,8 @@ export default function InBlockNavigator({
         type="button"
         onClick={onNext}
         disabled={empty}
-        title="下一个匹配 (⌘G / ↵)"
-        aria-label="下一个匹配"
+        title={t('下一个匹配 (⌘G / ↵)')}
+        aria-label={t('下一个匹配')}
         className="flex h-6 w-6 flex-none items-center justify-center rounded text-muted transition-colors hover:bg-paper hover:text-accent disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
       >
         <ChevronDown size={14} />

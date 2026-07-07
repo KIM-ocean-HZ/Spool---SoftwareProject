@@ -5,7 +5,7 @@ import { useBlocksStore } from '@/stores/blocksStore';
 import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
 import BlockItem from './BlockItem';
-import { useT } from '@/lib/i18n';
+import { dateLocale, useT } from '@/lib/i18n';
 
 // Tail-window cap for large threads (PLAN_EN.md §15 / Phase 12 — "enable virtual
 // scrolling when blocks > 200"). Below the cap we render the whole feed unchanged;
@@ -66,8 +66,8 @@ const isSameDay = (a: number, b: number): boolean =>
 // "5月17日 周六" — the calendar date plus a short weekday, for divider labels.
 const formatDayLabel = (ts: number): string => {
   const d = new Date(ts);
-  const md = d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-  const wd = d.toLocaleDateString('zh-CN', { weekday: 'short' });
+  const md = d.toLocaleDateString(dateLocale(), { month: 'numeric', day: 'numeric' });
+  const wd = d.toLocaleDateString(dateLocale(), { weekday: 'short' });
   return `${md} ${wd}`;
 };
 

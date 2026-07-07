@@ -6,6 +6,7 @@ import AiConfig from './AiConfig';
 import BrowserAutomation from './BrowserAutomation';
 import GeneralConfig from './GeneralConfig';
 import ShortcutConfig from './ShortcutConfig';
+import { useT } from '@/lib/i18n';
 
 // Settings modal (PLAN_EN.md §9.12). Opened by the sidebar gear, ⌘, , or the tray
 // "设置" item.
@@ -37,6 +38,7 @@ function QuotaBar({ label, used, limit }: { label: string; used: number; limit: 
 }
 
 export default function Settings() {
+  const t = useT();
   const open = useSettingsStore((s) => s.panelOpen);
   const close = useSettingsStore((s) => s.closePanel);
   const groqUsed = useQuotaStore((s) => s.groq);
@@ -64,34 +66,34 @@ export default function Settings() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-none items-center justify-between border-b border-line px-5 py-3">
-          <h2 className="font-serif text-xl text-ink">设置</h2>
+          <h2 className="font-serif text-xl text-ink">{t('设置')}</h2>
           <button
             onClick={close}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-            aria-label="关闭"
+            aria-label={t('关闭')}
           >
             <X size={15} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <Section title="全局快捷键">
+          <Section title={t('全局快捷键')}>
             <ShortcutConfig />
           </Section>
-          <Section title="AI 服务">
+          <Section title={t('AI 服务')}>
             <AiConfig />
           </Section>
-          <Section title="今日用量">
+          <Section title={t('今日用量')}>
             <QuotaBar label="Groq" used={groqUsed} limit={DAILY_LIMITS.groq} />
             <QuotaBar label="Gemini" used={geminiUsed} limit={DAILY_LIMITS.gemini} />
             <p className="mt-1.5 text-xs text-muted">
-              本地 Ollama 不计用量;计数仅本次运行内有效。
+              {t('本地 Ollama 不计用量;计数仅本次运行内有效。')}
             </p>
           </Section>
-          <Section title="浏览器自动化权限">
+          <Section title={t('浏览器自动化权限')}>
             <BrowserAutomation />
           </Section>
-          <Section title="通用">
+          <Section title={t('通用')}>
             <GeneralConfig />
           </Section>
         </div>

@@ -19,6 +19,7 @@ import {
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
+import { useT } from '@/lib/i18n';
 
 const RANGE_LABELS: Record<PackRange, string> = {
   all: '全部',
@@ -52,6 +53,7 @@ export default function PackDialog({
   refTitles,
   onClose,
 }: Props) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   // v2.8 §20.7: per-pack task template selector. Per-pack only — no persistence across
   // sessions or per-thread defaults, by intent: we're learning which templates earn
@@ -141,15 +143,15 @@ export default function PackDialog({
       >
         <header className="flex flex-none items-center justify-between border-b border-line px-5 py-3">
           <div>
-            <div className="font-serif text-lg text-ink">打包上下文</div>
+            <div className="font-serif text-lg text-ink">{t('打包上下文')}</div>
             <div className="mt-0.5 text-[11px] text-muted">
-              纯本地组装 · 直接粘贴给 AI 即可
+              {t('纯本地组装 · 直接粘贴给 AI 即可')}
             </div>
           </div>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-            aria-label="关闭"
+            aria-label={t('关闭')}
           >
             <X size={14} />
           </button>
@@ -158,24 +160,24 @@ export default function PackDialog({
         {/* v2.8 §20.7: task-template picker. Quiet — defaults to 纯上下文 (no extra
             block), so users who don't engage see byte-identical pack output. */}
         <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
-          <span className="text-muted">想让 AI 做什么?</span>
+          <span className="text-muted">{t('想让 AI 做什么?')}</span>
           <div className="flex flex-wrap items-center gap-1">
             {PACK_TEMPLATE_KEYS.map((k) => {
-              const t = PACK_TEMPLATES[k];
+              const tpl = PACK_TEMPLATES[k];
               const active = template === k;
               return (
                 <button
                   key={k}
                   type="button"
                   onClick={() => setTemplate(k)}
-                  title={t.hint}
+                  title={t(tpl.hint)}
                   className={`rounded-md border px-2 py-0.5 transition-colors ${
                     active
                       ? 'border-accent bg-accent-soft text-accent'
                       : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
                   }`}
                 >
-                  {t.label}
+                  {t(tpl.label)}
                 </button>
               );
             })}
@@ -185,7 +187,7 @@ export default function PackDialog({
         {/* §17 range picker (pulled forward from v1.5): same quiet pill pattern. 全部 is
             the default and keeps output byte-identical to pre-range packs. */}
         <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
-          <span className="text-muted">打包范围?</span>
+          <span className="text-muted">{t('打包范围?')}</span>
           <div className="flex flex-wrap items-center gap-1">
             {PACK_RANGE_KEYS.map((k) => {
               const active = range === k;
@@ -194,14 +196,14 @@ export default function PackDialog({
                   key={k}
                   type="button"
                   onClick={() => setRange(k)}
-                  title={RANGE_HINTS[k]}
+                  title={t(RANGE_HINTS[k])}
                   className={`rounded-md border px-2 py-0.5 transition-colors ${
                     active
                       ? 'border-accent bg-accent-soft text-accent'
                       : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
                   }`}
                 >
-                  {RANGE_LABELS[k]}
+                  {t(RANGE_LABELS[k])}
                 </button>
               );
             })}
@@ -217,7 +219,7 @@ export default function PackDialog({
         <footer className="flex flex-none items-center justify-between border-t border-line bg-paper-2/40 px-5 py-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-muted">
-              {packedCount} / {blocks.length} 块 · {shownText.length.toLocaleString()} 字符
+              {t('{packed} / {total} 块 · {chars} 字符', { packed: packedCount, total: blocks.length, chars: shownText.length.toLocaleString() })}
             </span>
             {/* §17 AI 压缩 — entry hidden entirely when AI is unavailable (§9.11 gating);
                 after a successful run the button becomes the 原文/压缩版 view toggle. */}
@@ -233,7 +235,7 @@ export default function PackDialog({
                         : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
                     }`}
                   >
-                    原文
+                    {t('原文')}
                   </button>
                   <button
                     type="button"
@@ -244,7 +246,7 @@ export default function PackDialog({
                         : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
                     }`}
                   >
-                    压缩版
+                    {t('压缩版')}
                   </button>
                 </div>
               ) : (
@@ -254,13 +256,13 @@ export default function PackDialog({
                   disabled={aiState !== 'idle'}
                   title={
                     aiState === 'failed'
-                      ? '压缩未成功 — 原文仍然完整可用'
-                      : '让 AI 压缩 Full Record（置顶与批注原文保留）'
+                      ? t('压缩未成功 — 原文仍然完整可用')
+                      : t('让 AI 压缩 Full Record（置顶与批注原文保留）')
                   }
                   className="flex items-center gap-1 rounded-md border border-line bg-paper px-2 py-0.5 text-muted transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-muted/50"
                 >
                   <Sparkles size={11} />
-                  <span>{aiState === 'loading' ? '压缩中…' : 'AI 压缩'}</span>
+                  <span>{aiState === 'loading' ? t('压缩中…') : t('AI 压缩')}</span>
                 </button>
               ))}
           </div>
@@ -274,7 +276,7 @@ export default function PackDialog({
             }`}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? '已复制' : '复制到剪贴板'}</span>
+            <span>{copied ? t('已复制') : t('复制到剪贴板')}</span>
           </button>
         </footer>
       </div>

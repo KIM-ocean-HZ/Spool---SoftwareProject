@@ -40,6 +40,11 @@ export const useT = (): typeof t => {
 
 export const useLanguage = (): Language => useSettingsStore((s) => s.language);
 
+// BCP-47 locale for Intl date formatting (day dividers, block timestamps). Callers
+// sit inside components that already re-render on language change via useT.
+export const dateLocale = (): string =>
+  useSettingsStore.getState().language === 'en' ? 'en-US' : 'zh-CN';
+
 // ---------------------------------------------------------------------------------------
 // English dictionary. Keys are the verbatim Chinese strings used at call sites.
 // ---------------------------------------------------------------------------------------
@@ -210,10 +215,20 @@ const EN: Record<string, string> = {
   '{n} 条结果': '{n} results',
   '全文搜索 · 纯本地': 'Full-text search · fully local',
   '↑↓ 选择 · ↵ 跳转 · esc 关闭': '↑↓ select · ↵ jump · esc close',
-  '上一个（⇧⌘G）': 'Previous (⇧⌘G)',
-  '下一个（⌘G）': 'Next (⌘G)',
-  '关闭（Esc）': 'Close (Esc)',
-  '查看全部匹配的块': 'Show every matching block',
+  '块内查找': 'Find in block',
+  '块内查找…': 'Find in block…',
+  '无匹配': 'No matches',
+  '所有包含该文字的块（全部工作区）': 'Every block containing this text (all workspaces)',
+  '所有匹配的块': 'All matching blocks',
+  '上一个匹配 (⇧⌘G / ⇧↵)': 'Previous match (⇧⌘G / ⇧↵)',
+  '上一个匹配': 'Previous match',
+  '下一个匹配 (⌘G / ↵)': 'Next match (⌘G / ↵)',
+  '下一个匹配': 'Next match',
+  '全局快捷键': 'Global shortcuts',
+  'AI 服务': 'AI services',
+  '今日用量': 'Today’s usage',
+  '本地 Ollama 不计用量;计数仅本次运行内有效。': 'Local Ollama is unmetered; counts reset each run.',
+  '浏览器自动化权限': 'Browser automation access',
 
   // Complete / digest
   '这个项目结束了。': 'This project is done.',

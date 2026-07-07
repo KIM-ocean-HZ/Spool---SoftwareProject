@@ -1,15 +1,15 @@
-import { t } from '@/lib/i18n';
+import { dateLocale, t } from '@/lib/i18n';
 export const formatBlockTime = (ts: number): string => {
   const d = new Date(ts);
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString('zh-CN', {
+  const time = d.toLocaleTimeString(dateLocale(), {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
   if (sameDay) return time;
-  const date = d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  const date = d.toLocaleDateString(dateLocale(), { month: 'numeric', day: 'numeric' });
   return `${date} ${time}`;
 };
 
@@ -22,5 +22,5 @@ export const formatRelative = (ts: number): string => {
   if (h < 24) return t('{n} 小时前', { n: h });
   const d = Math.floor(h / 24);
   if (d < 7) return t('{n} 天前', { n: d });
-  return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  return new Date(ts).toLocaleDateString(dateLocale(), { month: 'numeric', day: 'numeric' });
 };

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { SearchHit, SearchSnippetLine } from '@/lib/search/query';
 import { useSearchStore } from '@/stores/searchStore';
 import { formatBlockTime } from '@/lib/utils/time';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   hit: SearchHit;
@@ -30,6 +31,7 @@ const renderLine = (line: SearchSnippetLine) => {
 };
 
 export default function SearchResultItem({ hit, selected, onSelect, onActivate }: Props) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
 
   // Keep the keyboard-selected row in view as ↑/↓ moves past the fold.
@@ -72,10 +74,10 @@ export default function SearchResultItem({ hit, selected, onSelect, onActivate }
       </div>
       <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted">
         {hit.field === 'annotation' && (
-          <span className="flex-none rounded-sm border border-line px-1 text-accent">批注</span>
+          <span className="flex-none rounded-sm border border-line px-1 text-accent">{t('批注')}</span>
         )}
         <span className="truncate">
-          {hit.workspaceTitle || '收件箱'} / {hit.threadTitle || '无标题'}
+          {hit.workspaceTitle || t('收件箱')} / {hit.threadTitle || t('无标题')}
         </span>
         <span className="flex-none">· {formatBlockTime(hit.createdAt)}</span>
       </div>
