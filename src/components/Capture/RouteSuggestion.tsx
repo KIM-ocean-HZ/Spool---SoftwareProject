@@ -13,6 +13,7 @@ import { INBOX_WORKSPACE_TITLE, UNSORTED_THREAD_TITLE } from '@/lib/db/client';
 import { listAllThreads, type Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
+import { useT } from '@/lib/i18n';
 
 const MAX_CANDIDATES = 20;
 const SNIPPET_MAX = 200;
@@ -43,6 +44,7 @@ export default function RouteSuggestion({
   onMoved,
   onActiveChange,
 }: Props) {
+  const t = useT();
   const [match, setMatch] = useState<Thread | null>(null);
   const [resolved, setResolved] = useState(false); // moved or dismissed
 
@@ -145,7 +147,7 @@ export default function RouteSuggestion({
       INBOX_WORKSPACE_TITLE;
     onMoved({
       threadId: match.id,
-      threadTitle: match.title.trim() || '未命名',
+      threadTitle: match.title.trim() || t('未命名'),
       workspaceTitle: wsTitle,
     });
     setResolved(true);
@@ -154,22 +156,22 @@ export default function RouteSuggestion({
   return (
     <div className="border-t border-line px-3.5 py-2 text-[11px]">
       <p className="leading-snug text-muted">
-        看起来这条属于「
-        <span className="text-ink">{match.title.trim() || '未命名'}</span>
-        」，移过去？
+        {t('看起来这条属于「')}
+        <span className="text-ink">{match.title.trim() || t('未命名')}</span>
+        {t('」，移过去？')}
       </p>
       <div className="mt-1.5 flex items-center gap-1.5">
         <button
           onClick={() => void handleMove()}
           className="rounded border border-accent bg-accent/10 px-2 py-0.5 text-accent transition-colors hover:bg-accent/20"
         >
-          移过去
+          {t('移过去')}
         </button>
         <button
           onClick={() => setResolved(true)}
           className="rounded px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
         >
-          不用
+          {t('不用')}
         </button>
       </div>
     </div>

@@ -33,6 +33,7 @@ import type { Workspace } from '@/lib/db/workspaces';
 import { listWorkspaces } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { t, useT } from '@/lib/i18n';
 
 // v2.8 §20.6: longer dwell so the user has time to decide whether to expand for
 // pin/note. Click-anywhere-on-toast → expand (deliberate); × button or Esc →
@@ -102,12 +103,13 @@ type OverlayContent =
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
-  if (n.kind === 'empty') return '剪贴板为空 — 试试先按 ⌘C 复制要捕捉的内容，再按 ⌘⇧C';
-  if (n.kind === 'no-target') return '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点"设为目标"';
-  return n.msg ?? '捕捉失败';
+  if (n.kind === 'empty') return t('剪贴板为空 — 试试先按 ⌘C 复制要捕捉的内容，再按 ⌘⇧C');
+  if (n.kind === 'no-target') return t('没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点"设为目标"');
+  return n.msg ?? t('捕捉失败');
 };
 
 export default function CaptureOverlay() {
+  const tr = useT();
   const [content, setContent] = useState<OverlayContent>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [threadsByWs, setThreadsByWs] = useState<Record<string, Thread[]>>({});
@@ -383,8 +385,8 @@ export default function CaptureOverlay() {
 
   if (content.kind === 'undo') {
     const u = content.data;
-    const verb = u.mode === 'redone' ? '已重做' : '已撤销';
-    const label = u.op === 'empty' ? '没有可撤销的操作' : `${verb}:${UNDO_OP_LABEL[u.op]}`;
+    const verb = u.mode === 'redone' ? tr('已重做') : tr('已撤销');
+    const label = u.op === 'empty' ? tr('没有可撤销的操作') : `${verb}:${tr(UNDO_OP_LABEL[u.op])}`;
     return (
       <div
         ref={cardRef}
@@ -407,11 +409,11 @@ export default function CaptureOverlay() {
           <button
             type="button"
             onClick={() => emitAction({ kind: 'redo' })}
-            title="重做刚才的撤销"
+            title={tr('重做刚才的撤销')}
             className="flex shrink-0 items-center gap-1 rounded px-2 py-1 font-ui text-[11px] text-muted hover:bg-paper-2 hover:text-ink"
           >
             <RotateCw size={11} />
-            <span>重做</span>
+            <span>{tr('重做')}</span>
           </button>
         )}
       </div>
@@ -546,8 +548,8 @@ export default function CaptureOverlay() {
           type="button"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => void onTogglePin()}
-          title={pinned ? '取消置顶' : '置顶'}
-          aria-label={pinned ? '取消置顶' : '置顶'}
+          title={pinned ? tr('取消置顶') : tr('置顶')}
+          aria-label={pinned ? tr('取消置顶') : tr('置顶')}
           className={`rounded p-1 transition-colors ${
             pinned ? 'text-accent' : 'text-muted/70 hover:bg-paper-2 hover:text-ink'
           }`}
@@ -558,8 +560,8 @@ export default function CaptureOverlay() {
           type="button"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={dismissToast}
-          title="关闭 (Esc)"
-          aria-label="关闭"
+          title={tr('关闭 (Esc)')}
+          aria-label={tr('关闭')}
           className="rounded p-1 text-muted/70 hover:bg-paper-2 hover:text-ink"
         >
           <X size={11} />
@@ -573,7 +575,7 @@ export default function CaptureOverlay() {
         className="cursor-grab px-3.5 pb-2 pt-2.5 pr-14 active:cursor-grabbing"
         onMouseDown={startToastDrag}
         onDoubleClick={() => setExpanded(true)}
-        title="双击添加批注"
+        title={tr('双击添加批注')}
       >
         <div className="line-clamp-2 whitespace-pre-wrap break-words font-ui text-[14px] leading-snug text-ink">
           {toast.fullContent}
@@ -620,7 +622,7 @@ export default function CaptureOverlay() {
                 cancelNote();
               }
             }}
-            placeholder="批注（可选）"
+            placeholder={tr('批注（可选）')}
             rows={2}
             spellCheck={false}
             className="w-full resize-none rounded-md border border-line bg-paper-2/40 px-2 py-1.5 font-ui text-[12px] leading-[1.5] text-ink-2 placeholder:text-muted/70 outline-none focus:border-line-strong focus:bg-paper focus:text-ink"
@@ -632,7 +634,7 @@ export default function CaptureOverlay() {
               onClick={finishNote}
               className="rounded-md border border-accent bg-accent-soft px-2.5 py-0.5 text-[11px] text-accent hover:bg-accent/10"
             >
-              完成
+              {tr('完成')}
             </button>
           </div>
         </div>
@@ -643,8 +645,8 @@ export default function CaptureOverlay() {
         <button
           onClick={() => void onUndo()}
           className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
-          title="撤销刚才的捕捉"
-          aria-label="撤销"
+          title={tr('撤销刚才的捕捉')}
+          aria-label={tr('撤销')}
         >
           <RotateCcw size={13} />
         </button>
@@ -653,8 +655,8 @@ export default function CaptureOverlay() {
           <button
             onClick={() => setPickerOpen((v) => !v)}
             className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
-            title="改投到其它脉络"
-            aria-label="改投"
+            title={tr('改投到其它脉络')}
+            aria-label={tr('改投')}
           >
             <Forward size={13} />
           </button>
@@ -669,20 +671,20 @@ export default function CaptureOverlay() {
                 return (
                   <div key={ws.id} className="py-0.5">
                     <div className="px-2.5 py-0.5 font-serif text-[11px] text-muted">
-                      {ws.title || '未命名'}
+                      {ws.title || tr('未命名')}
                     </div>
-                    {list.map((t) => (
+                    {list.map((th) => (
                       <button
-                        key={t.id}
-                        onClick={() => void onRedirect(t.id)}
-                        disabled={t.id === toast.threadId}
+                        key={th.id}
+                        onClick={() => void onRedirect(th.id)}
+                        disabled={th.id === toast.threadId}
                         className={`block w-full truncate px-2.5 py-1 text-left text-xs ${
-                          t.id === toast.threadId
+                          th.id === toast.threadId
                             ? 'cursor-default text-muted/70'
                             : 'text-ink hover:bg-paper-2'
                         }`}
                       >
-                        {t.title.trim() || '无标题'}
+                        {th.title.trim() || tr('无标题')}
                       </button>
                     ))}
                   </div>

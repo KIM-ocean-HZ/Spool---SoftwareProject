@@ -37,6 +37,7 @@ import { getCaptureTargetThread } from '@/lib/db/threads';
 import { listWorkspaces } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useCollectMode } from '@/hooks/useCollectMode';
+import { useT } from '@/lib/i18n';
 
 // Cap so a long collection scrolls inside the panel instead of growing off-screen; the
 // items list scrolls past this while per-item content still auto-grows.
@@ -66,6 +67,7 @@ const startPanelDrag = (e: ReactMouseEvent): void => {
 // it can sit discreetly on the desktop through a long collection session. Cmd+Z runs the
 // panel-local sub-undo, falling through to the main undo ring when the local log is empty.
 export default function CollectPanel() {
+  const t = useT();
   useCollectMode(); // collect:open (reset) + collect:append (stage) + collect:restage
   const items = useSyncExternalStore(subscribe, getAll);
   const [confirming, setConfirming] = useState(false);
@@ -141,20 +143,20 @@ export default function CollectPanel() {
   // Resolve the current capture target (+ its workspace). No target → null, render nothing.
   const refreshTarget = useCallback(async (): Promise<void> => {
     try {
-      const t = await getCaptureTargetThread();
-      if (!t) {
+      const th = await getCaptureTargetThread();
+      if (!th) {
         setTarget(null);
         return;
       }
       const ws = await listWorkspaces();
       setTarget({
-        workspaceTitle: ws.find((w) => w.id === t.workspaceId)?.title.trim() || '未命名',
-        threadTitle: t.title.trim() || '无标题',
+        workspaceTitle: ws.find((w) => w.id === th.workspaceId)?.title.trim() || t('未命名'),
+        threadTitle: th.title.trim() || t('无标题'),
       });
     } catch (e) {
       console.warn('[collect] capture-target lookup failed', e);
     }
-  }, []);
+  }, [t]);
 
   // Keep the destination line current: read on mount, on each fresh session (collect:open),
   // and whenever the target is toggled from the main window (§9.2 — a pure state change, so
@@ -310,16 +312,16 @@ export default function CollectPanel() {
   // "已加入 · 撤销" affordance, shared by the collapsed pill and the expanded header.
   const undoChip = showAddedUndo ? (
     <div className="collect-in flex flex-none items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] text-accent">
-      <span>已加入</span>
+      <span>{t('已加入')}</span>
       <button
         type="button"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={handleUndoAdd}
-        title="撤销刚加入的一条"
+        title={t('撤销刚加入的一条')}
         className="flex items-center gap-0.5 underline-offset-2 hover:underline"
       >
         <Undo2 size={10} />
-        撤销
+        {t('撤销')}
       </button>
     </div>
   ) : null;
@@ -337,7 +339,7 @@ export default function CollectPanel() {
             className="collect-in group flex cursor-grab items-center gap-2 rounded-full border border-line-strong bg-paper py-1.5 pl-3.5 pr-2 active:cursor-grabbing"
             style={{ boxShadow: 'var(--shadow-toast)' }}
           >
-            <span className="font-serif text-[12px] text-ink">正在收集</span>
+            <span className="font-serif text-[12px] text-ink">{t('正在收集')}</span>
             <span className="font-mono text-[11px] text-muted">· {items.length}</span>
             {/* Send straight from the pill without expanding — revealed on hover. */}
             <button
@@ -345,8 +347,8 @@ export default function CollectPanel() {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => void send()}
               disabled={items.length === 0 || sending}
-              title="发送"
-              aria-label="发送"
+              title={t('发送')}
+              aria-label={t('发送')}
               className="hidden rounded p-1 text-accent hover:bg-accent/10 disabled:text-muted/50 group-hover:inline-flex"
             >
               <Send size={11} />
@@ -355,8 +357,8 @@ export default function CollectPanel() {
               type="button"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => setCollapsed(false)}
-              title="展开面板"
-              aria-label="展开"
+              title={t('展开面板')}
+              aria-label={t('展开')}
               className="rounded p-1 text-muted/80 hover:bg-paper-2 hover:text-ink"
             >
               <Maximize2 size={11} />
@@ -375,7 +377,7 @@ export default function CollectPanel() {
           >
             <div className="min-w-0 font-ui text-[11px] text-ink">
               <div>
-                <span className="font-serif text-[12px]">正在收集</span>
+                <span className="font-serif text-[12px]">{t('正在收集')}</span>
                 {items.length > 0 && <span className="ml-1.5 text-muted">· {items.length}</span>}
               </div>
               {target && (
@@ -388,13 +390,13 @@ export default function CollectPanel() {
               )}
             </div>
             <div className="flex flex-none items-center gap-1.5">
-              <span className="font-mono text-[10px] text-muted/60">单击 ⌥ 收起</span>
+              <span className="font-mono text-[10px] text-muted/60">{t('单击 ⌥ 收起')}</span>
               <button
                 type="button"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => setCollapsed(true)}
-                title="收起为小标签（或单击 ⌥）"
-                aria-label="收起"
+                title={t('收起为小标签（或单击 ⌥）')}
+                aria-label={t('收起')}
                 className="rounded p-1 text-muted/80 hover:bg-paper hover:text-ink"
               >
                 <Minimize2 size={11} />
@@ -405,7 +407,7 @@ export default function CollectPanel() {
           <div ref={listRef} className="flex-1 overflow-y-auto px-2 py-1.5">
             {items.length === 0 ? (
               <p className="px-1 py-2 font-ui text-[11px] leading-relaxed text-muted">
-                暂存中。下次 ⌥-捕获将加入这里。
+                {t('暂存中。下次 ⌥-捕获将加入这里。')}
               </p>
             ) : (
               items.map((it) => (
@@ -423,7 +425,7 @@ export default function CollectPanel() {
 
           {confirming ? (
             <footer className="flex flex-none items-center justify-between gap-2 border-t border-line bg-paper-2/40 px-3 py-1.5 text-[11px]">
-              <span className="text-muted">丢弃 {items.length} 条暂存内容？</span>
+              <span className="text-muted">{t('丢弃 {n} 条暂存内容？', { n: items.length })}</span>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -431,7 +433,7 @@ export default function CollectPanel() {
                   onClick={() => setConfirming(false)}
                   className="rounded px-2 py-0.5 text-muted hover:bg-paper hover:text-ink"
                 >
-                  再想想
+                  {t('再想想')}
                 </button>
                 <button
                   type="button"
@@ -439,7 +441,7 @@ export default function CollectPanel() {
                   onClick={() => close({ kind: 'discarded' })}
                   className="rounded border border-urgent/60 bg-paper px-2 py-0.5 text-urgent hover:bg-urgent/10"
                 >
-                  确认丢弃
+                  {t('确认丢弃')}
                 </button>
               </div>
             </footer>
@@ -451,7 +453,7 @@ export default function CollectPanel() {
                 onClick={requestDiscard}
                 className="rounded px-2 py-1 text-muted hover:bg-paper hover:text-ink"
               >
-                丢弃
+                {t('丢弃')}
               </button>
               <button
                 type="button"
@@ -462,10 +464,10 @@ export default function CollectPanel() {
                 <Send size={11} />
                 <span>
                   {sending
-                    ? '发送中…'
+                    ? t('发送中…')
                     : annotatedCount > 0
-                      ? `发送（${annotatedCount} 条已批注）`
-                      : '发送'}
+                      ? t('发送（{n} 条已批注）', { n: annotatedCount })
+                      : t('发送')}
                 </span>
               </button>
             </footer>
@@ -495,6 +497,7 @@ function StagingItemCard({
   onTogglePin,
   onRemove,
 }: StagingItemCardProps) {
+  const t = useT();
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const annotationRef = useRef<HTMLTextAreaElement>(null);
 
@@ -519,8 +522,8 @@ function StagingItemCard({
             type="button"
             tabIndex={-1}
             onClick={onTogglePin}
-            title={item.pinned ? '取消置顶' : '标为重点（发送后整块会置顶）'}
-            aria-label={item.pinned ? '取消置顶' : '置顶'}
+            title={item.pinned ? t('取消置顶') : t('标为重点（发送后整块会置顶）')}
+            aria-label={item.pinned ? t('取消置顶') : t('置顶')}
             className={`rounded p-1 transition-colors ${
               item.pinned ? 'text-accent' : 'text-muted/70 hover:bg-paper hover:text-ink'
             }`}
@@ -531,8 +534,8 @@ function StagingItemCard({
             type="button"
             tabIndex={-1}
             onClick={onRemove}
-            title="移除此项"
-            aria-label="移除"
+            title={t('移除此项')}
+            aria-label={t('移除')}
             className="rounded p-1 text-muted/70 transition-colors hover:bg-paper hover:text-urgent"
           >
             <X size={11} />
@@ -554,7 +557,7 @@ function StagingItemCard({
         ref={annotationRef}
         value={item.annotation}
         onChange={(e) => onAnnotationChange(e.target.value)}
-        placeholder="批注（可选）"
+        placeholder={t('批注（可选）')}
         spellCheck={false}
         rows={1}
         className="mt-1 w-full resize-none overflow-hidden rounded border border-line bg-paper px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-ink-2 placeholder:text-muted/60 outline-none focus:border-line-strong focus:not-italic"
