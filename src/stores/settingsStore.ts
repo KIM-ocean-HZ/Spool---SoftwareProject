@@ -1,4 +1,5 @@
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { listOllamaModels } from '@/lib/ai/providers/ollama';
@@ -16,7 +17,8 @@ type PersistableKey =
   | 'captureShortcut'
   | 'searchShortcut'
   | 'autoExtractAttachments'
-  | 'mcpEnabled';
+  | 'mcpEnabled'
+  | 'language';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -34,6 +36,9 @@ interface SettingsState {
   // §20.12: gates the `spool --mcp` stdio server's tools. Default OFF; the --mcp
   // subprocess reads this straight from settings.json (it runs outside the webview).
   mcpEnabled: boolean;
+  // UI language. 'zh' is the product default (§18 rule 11); 'en' switches every
+  // surface via the lib/i18n dictionary. Persisted; other windows re-read on change.
+  language: 'zh' | 'en';
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // True once a local Ollama model has been detected via /api/tags. Runtime-only —
@@ -77,6 +82,7 @@ const KEYS: PersistableKey[] = [
   'searchShortcut',
   'autoExtractAttachments',
   'mcpEnabled',
+  'language',
 ];
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -89,6 +95,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,
+  language: 'zh',
   loaded: false,
   panelOpen: false,
   ollamaAvailable: false,
@@ -118,6 +125,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         await store.set(k, v as unknown as string | boolean);
       }
       await store.save();
+      // Overlay + collect run their own store instances off the same settings.json;
+      // broadcast so a change (language, privacy, …) reaches them without a restart.
+      void emit('settings:changed').catch(() => {});
     } catch (e) {
       console.warn('settings save failed', e);
     }
@@ -155,3 +165,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   openPanel: () => set({ panelOpen: true }),
   closePanel: () => set({ panelOpen: false }),
 }));
+
+// Cross-window settings sync: each window (main / overlay / collect) runs its own store
+// instance over the same settings.json. Any window's update() broadcasts; every window —
+// including the sender, harmlessly — re-reads so language/privacy flips apply live.
+// Module-scope on purpose: the store is a singleton per window, so this listener is too.
+void listen('settings:changed', () => {
+  void useSettingsStore.getState().load();
+}).catch(() => {
+  // Non-Tauri context (tests): no event system, nothing to sync.
+});

@@ -13,6 +13,7 @@ export default function GeneralConfig() {
   const setLaunchAtLogin = useSettingsStore((s) => s.setLaunchAtLogin);
   const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
+  const language = useSettingsStore((s) => s.language);
   const update = useSettingsStore((s) => s.update);
   const [confirming, setConfirming] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -63,6 +64,33 @@ export default function GeneralConfig() {
 
   return (
     <div>
+      {/* Language switch (2026-07-07): zh is the product default; en flips every surface
+          via lib/i18n. Rendered bilingually on purpose so it's findable in either. */}
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">语言 / Language</div>
+          <div className="mt-0.5 text-xs text-muted">界面语言。切换立即生效。</div>
+        </div>
+        <div className="flex flex-none items-center gap-1">
+          {(['zh', 'en'] as const).map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              onClick={() => void update({ language: lang })}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                language === lang
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+              }`}
+            >
+              {lang === 'zh' ? '中文' : 'English'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-line" />
+
       <div className="flex items-center justify-between gap-4 py-2.5">
         <div className="min-w-0">
           <div className="text-sm text-ink">开机启动</div>
