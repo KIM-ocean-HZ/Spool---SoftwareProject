@@ -3,6 +3,7 @@ import { sourceIcon } from '@/lib/blocks/sourceIcon';
 import type { Block } from '@/lib/db/blocks';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   block: Block;
@@ -16,6 +17,7 @@ interface Props {
 // hidden by default and surfaces on hover of the parent block ("+ 来源") so the user
 // can label captures whose foreground-app detection missed.
 export default function SourceBadge({ block, readOnly }: Props) {
+  const t = useT();
   const setSource = useBlocksStore((s) => s.setSource);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(block.source ?? '');
@@ -78,7 +80,7 @@ export default function SourceBadge({ block, readOnly }: Props) {
             cancel();
           }
         }}
-        placeholder="标注来源"
+        placeholder={t('标注来源')}
         maxLength={40}
         spellCheck={false}
         className="w-[120px] rounded border border-line-strong bg-paper px-1 py-0 font-ui text-[10px] text-ink outline-none focus:border-accent"
@@ -94,7 +96,7 @@ export default function SourceBadge({ block, readOnly }: Props) {
       <button
         onClick={() => setEditing(true)}
         className="inline-flex items-center gap-1 rounded px-1 py-0 text-[10px] text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-        title="点击编辑来源"
+        title={t('点击编辑来源')}
       >
         <Icon size={12} className="flex-none" />
         {block.source}
@@ -106,9 +108,9 @@ export default function SourceBadge({ block, readOnly }: Props) {
     <button
       onClick={() => setEditing(true)}
       className="rounded px-1 py-0 text-[10px] text-muted/60 opacity-0 transition-opacity hover:bg-paper-2 hover:text-ink group-hover:opacity-100"
-      title="添加来源标签"
+      title={t('添加来源标签')}
     >
-      + 来源
+      {t('+ 来源')}
     </button>
   );
 }

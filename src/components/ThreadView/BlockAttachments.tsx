@@ -13,6 +13,7 @@ import { useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import { openTarget } from '@/lib/utils/openTarget';
 import { toast } from '@/stores/toastStore';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   attachments: readonly Attachment[];
@@ -34,6 +35,7 @@ interface Props {
 // the text rather than on the chip row. A subtle FileText vs File icon swap on the chip
 // reflects the pack-inclusion state at a glance.
 export default function BlockAttachments({ attachments, onDetach, onSetIncludeInPack }: Props) {
+  const t = useT();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
   if (attachments.length === 0) return null;
@@ -43,7 +45,7 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
       await openTarget(a.target);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      toast.error(msg || '无法打开附件');
+      toast.error(msg || t('无法打开附件'));
     }
   };
 
@@ -80,7 +82,7 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
           const isOpen = expanded.has(a.id);
           const chipTitle =
             fileHasText && a.includeInPack
-              ? `${a.target}\n（文本已加入 Pack）`
+              ? `${a.target}\n${t('（文本已加入 Pack）')}`
               : a.target;
           return (
             <li
@@ -105,8 +107,8 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
                 <button
                   type="button"
                   onClick={() => toggle(a.id)}
-                  title={isOpen ? '收起提取的文本' : '展开提取的文本'}
-                  aria-label={isOpen ? '收起提取的文本' : '展开提取的文本'}
+                  title={isOpen ? t('收起提取的文本') : t('展开提取的文本')}
+                  aria-label={isOpen ? t('收起提取的文本') : t('展开提取的文本')}
                   className="rounded p-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-accent"
                 >
                   {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -119,7 +121,7 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
                 <button
                   type="button"
                   onClick={() => onDetach(a.id)}
-                  title="移除附件"
+                  title={t('移除附件')}
                   className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-accent group-hover/chip:opacity-100"
                 >
                   <X size={11} />
@@ -141,7 +143,7 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
               <div className="flex min-w-0 items-center gap-2">
                 <span className="truncate">{a.label.trim() || a.target}</span>
                 <span className="flex-none">
-                  {a.extractionKind} · {a.extractedText.length} 字符
+                  {a.extractionKind} · {a.extractedText.length} {t('字符')}
                 </span>
               </div>
               {onSetIncludeInPack && (
@@ -150,8 +152,8 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
                   onClick={() => onSetIncludeInPack(a.id, !a.includeInPack)}
                   title={
                     a.includeInPack
-                      ? '此文本会随打包 / 状态摘要一起发送给 AI —— 点击取消'
-                      : '勾选后，此文本会随打包 / 状态摘要一起发送给 AI'
+                      ? t('此文本会随打包 / 状态摘要一起发送给 AI —— 点击取消')
+                      : t('勾选后，此文本会随打包 / 状态摘要一起发送给 AI')
                   }
                   aria-pressed={a.includeInPack}
                   className={`flex flex-none items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
@@ -161,7 +163,7 @@ export default function BlockAttachments({ attachments, onDetach, onSetIncludeIn
                   }`}
                 >
                   {a.includeInPack ? <CheckSquare size={11} /> : <Square size={11} />}
-                  <span>加入 Pack</span>
+                  <span>{t('加入 Pack')}</span>
                 </button>
               )}
             </div>

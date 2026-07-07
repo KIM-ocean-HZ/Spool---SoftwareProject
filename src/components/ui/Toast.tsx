@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect } from 'react';
 import { useToastStore } from '@/stores/toastStore';
+import { t } from '@/lib/i18n';
 
 // In-window toast rack (PLAN_EN.md §14.4). Rendered once at the App root; toasts
 // auto-dismiss after a few seconds. Bottom-right anchored so it never overlaps the
@@ -26,11 +27,11 @@ export default function ToastRack() {
 
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col items-end gap-1.5">
-      {toasts.map((t) => {
-        const isError = t.kind === 'error';
+      {toasts.map((item) => {
+        const isError = item.kind === 'error';
         return (
           <div
-            key={t.id}
+            key={item.id}
             className="pointer-events-auto flex max-w-[360px] items-start gap-2 rounded-md border bg-paper px-3 py-2 text-xs"
             style={{
               boxShadow: 'var(--shadow-toast)',
@@ -40,13 +41,13 @@ export default function ToastRack() {
             role={isError ? 'alert' : 'status'}
           >
             <span className="min-w-0 flex-1 break-words font-ui leading-[1.5]">
-              {t.message}
+              {item.message}
             </span>
             <button
               type="button"
-              onClick={() => dismiss(t.id)}
+              onClick={() => dismiss(item.id)}
               className="flex-none rounded p-0.5 text-muted hover:text-ink"
-              aria-label="关闭"
+              aria-label={t('关闭')}
             >
               <X size={11} />
             </button>
