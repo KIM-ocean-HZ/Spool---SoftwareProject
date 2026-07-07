@@ -16,6 +16,18 @@ fn mcp_exe_path() -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+// §20.12 one-click MCP client hookup (2026-07-07) — see mcp.rs for the fs/JSON logic.
+// Status probe for the Settings badge; write happens only on the user's button press.
+#[tauri::command]
+fn mcp_client_status(client: String) -> Result<String, String> {
+    mcp::client_status(&client)
+}
+
+#[tauri::command]
+fn configure_mcp_client(client: String) -> Result<String, String> {
+    mcp::configure_client(&client)
+}
+
 // Double-tap ⌥ needs the Input Monitoring TCC grant (see double_tap.rs module doc):
 // a listen-only tap without it only sees Spool's own events. The main window asks
 // this at startup / on focus to drive the quiet onboarding banner.
@@ -93,6 +105,8 @@ pub fn run() {
             collect::reposition_collect_panel,
             collect::append_collect_item,
             mcp_exe_path,
+            mcp_client_status,
+            configure_mcp_client,
             input_monitoring_granted,
             open_input_monitoring_settings,
         ]);

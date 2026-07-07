@@ -584,6 +584,111 @@ fn handle_tool_call(params: &Value) -> Value {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// §20.12 one-click client configuration (2026-07-07). The copy-paste snippet flow proved
+// error-prone in practice: Ocean's Claude Desktop entry pointed at the literal
+// placeholder "…/target/release/填写你的完整执行文件名称", so every launch failed to
+// spawn → "Server disconnected". These helpers write the entry for the two supported
+// clients directly (with a .bak backup first), always pointing at the running binary.
+// Pure fs + JSON logic — Tauri command wrappers live in lib.rs.
+// ---------------------------------------------------------------------------------------
+
+// (detection root, config file) per client. The root existing ≈ the client is installed.
+fn client_config_paths(client: &str) -> Result<(PathBuf, PathBuf), String> {
+    let home = std::env::var("HOME").map_err(|e| format!("no HOME: {e}"))?;
+    let home = PathBuf::from(home);
+    match client {
+        "claude" => {
+            let root = home.join("Library/Application Support/Claude");
+            let cfg = root.join("claude_desktop_config.json");
+            Ok((root, cfg))
+        }
+        "cursor" => {
+            let root = home.join(".cursor");
+            let cfg = root.join("mcp.json");
+            Ok((root, cfg))
+        }
+        other => Err(format!("unknown MCP client: {other}")),
+    }
+}
+
+// Read-only probe for the Settings UI badge:
+//   not-installed — detection root missing
+//   unconfigured  — no config file / no parseable spool entry
+//   configured    — spool entry points at THIS running binary
+//   stale         — spool entry exists but points elsewhere (old/dev/deleted build)
+pub fn client_status(client: &str) -> Result<String, String> {
+    let (root, cfg) = client_config_paths(client)?;
+    if !root.is_dir() {
+        return Ok("not-installed".into());
+    }
+    let Ok(raw) = std::fs::read_to_string(&cfg) else {
+        return Ok("unconfigured".into());
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return Ok("unconfigured".into());
+    };
+    let cmd = v
+        .get("mcpServers")
+        .and_then(|m| m.get("spool"))
+        .and_then(|s| s.get("command"))
+        .and_then(Value::as_str);
+    match cmd {
+        None => Ok("unconfigured".into()),
+        Some(c) => {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            if PathBuf::from(c) == exe {
+                Ok("configured".into())
+            } else {
+                Ok("stale".into())
+            }
+        }
+    }
+}
+
+// Merge `mcpServers.spool = { command: <current_exe>, args: ["--mcp"] }` into the
+// client's config, creating the file if needed. The rest of the config is preserved
+// byte-for-value; an existing file is first copied to `<name>.bak`. An unparseable
+// existing file is an error (merging is impossible; replacing could destroy the
+// user's other server entries), never silently overwritten.
+pub fn configure_client(client: &str) -> Result<String, String> {
+    let (root, cfg) = client_config_paths(client)?;
+    if !root.is_dir() {
+        return Ok("not-installed".into());
+    }
+    let mut v: Value = match std::fs::read_to_string(&cfg) {
+        Ok(raw) => serde_json::from_str(&raw)
+            .map_err(|e| format!("现有配置文件无法解析（已保持原样）: {e}"))?,
+        Err(_) => json!({}),
+    };
+    if !v.is_object() {
+        return Err("现有配置文件不是 JSON 对象（已保持原样）".into());
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+
+    if cfg.exists() {
+        let bak = cfg.with_extension("json.bak");
+        std::fs::copy(&cfg, &bak).map_err(|e| format!("备份失败，未写入: {e}"))?;
+    }
+
+    let servers = v
+        .as_object_mut()
+        .expect("checked is_object above")
+        .entry("mcpServers")
+        .or_insert_with(|| json!({}));
+    if !servers.is_object() {
+        return Err("现有配置的 mcpServers 不是对象（已保持原样）".into());
+    }
+    servers.as_object_mut().expect("checked above").insert(
+        "spool".into(),
+        json!({ "command": exe.to_string_lossy(), "args": ["--mcp"] }),
+    );
+
+    let pretty = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg, pretty + "\n").map_err(|e| format!("写入失败: {e}"))?;
+    Ok("written".into())
+}
+
 fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => {
@@ -603,6 +708,10 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools_descriptor() })),
         "tools/call" => Ok(handle_tool_call(params)),
+        // Claude Desktop probes these even though initialize only declares tools.
+        // Empty lists are safer than -32601: some client builds surface the error.
+        "resources/list" => Ok(json!({ "resources": [] })),
+        "prompts/list" => Ok(json!({ "prompts": [] })),
         _ => Err((-32601, format!("method not found: {method}"))),
     }
 }
@@ -760,5 +869,54 @@ mod tests {
         assert_eq!(s.len(), 16);
         assert_eq!(&s[4..5], "-");
         assert_eq!(&s[13..14], ":");
+    }
+
+    // One test on purpose: it redirects HOME to a temp dir, and env vars are
+    // process-global across the parallel test harness. No other test reads HOME.
+    #[test]
+    fn one_click_client_config_status_merge_backup() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("HOME", &tmp);
+
+        // Client not installed: probe says so, configure refuses to invent dirs.
+        assert_eq!(client_status("cursor").unwrap(), "not-installed");
+        assert_eq!(configure_client("cursor").unwrap(), "not-installed");
+        assert!(client_status("nonsense").is_err());
+
+        // Fresh install: no config file → write creates it and points at this binary.
+        std::fs::create_dir_all(tmp.join(".cursor")).unwrap();
+        assert_eq!(client_status("cursor").unwrap(), "unconfigured");
+        assert_eq!(configure_client("cursor").unwrap(), "written");
+        assert_eq!(client_status("cursor").unwrap(), "configured");
+
+        // Existing config with other servers + a stale spool path: merge keeps
+        // everything else, updates spool, and writes a .bak of the old file first.
+        let claude_dir = tmp.join("Library/Application Support/Claude");
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let cfg = claude_dir.join("claude_desktop_config.json");
+        std::fs::write(
+            &cfg,
+            r#"{"mcpServers":{"other":{"command":"/bin/echo"},"spool":{"command":"/stale/path","args":["--mcp"]}},"preferences":{"keep":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(client_status("claude").unwrap(), "stale");
+        assert_eq!(configure_client("claude").unwrap(), "written");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(v["mcpServers"]["other"]["command"], "/bin/echo");
+        assert_eq!(v["preferences"]["keep"], true);
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(
+            v["mcpServers"]["spool"]["command"].as_str().unwrap(),
+            exe.to_string_lossy()
+        );
+        let bak = claude_dir.join("claude_desktop_config.json.bak");
+        assert!(std::fs::read_to_string(&bak).unwrap().contains("/stale/path"));
+
+        // Unparseable existing config: refuse rather than clobber.
+        std::fs::write(&cfg, "{broken").unwrap();
+        assert!(configure_client("claude").is_err());
+        assert_eq!(std::fs::read_to_string(&cfg).unwrap(), "{broken");
     }
 }

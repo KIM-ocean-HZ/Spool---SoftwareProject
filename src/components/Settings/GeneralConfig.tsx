@@ -6,6 +6,16 @@ import { clearAllData } from '@/lib/db/client';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
 
+// §20.12 one-click hookup (2026-07-07): per-client connection state shown as a badge.
+// "written" is a UI-only refinement of "configured" — the entry now points at this
+// binary, but the client reads its config at launch, so a restart note is the truth.
+type McpClientStatus = 'not-installed' | 'unconfigured' | 'configured' | 'stale' | 'written';
+type McpClient = 'claude' | 'cursor';
+const MCP_CLIENTS: { key: McpClient; label: string }[] = [
+  { key: 'claude', label: 'Claude Desktop' },
+  { key: 'cursor', label: 'Cursor' },
+];
+
 // General settings (PLAN_EN.md §9.12): launch at login, attachment auto-extraction,
 // the §20.12 MCP toggle, and the destructive clear-all-data action behind an inline
 // two-step confirmation.
@@ -23,13 +33,39 @@ export default function GeneralConfig() {
   // the installed .app both show a path that works. Resolved once, on demand.
   const [exePath, setExePath] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
+  const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
+    claude: null,
+    cursor: null,
+  });
+  const [connecting, setConnecting] = useState<McpClient | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!mcpEnabled || exePath !== null) return;
     void invoke<string>('mcp_exe_path')
       .then(setExePath)
       .catch((e) => console.warn('[settings] mcp_exe_path failed', e));
-  }, [mcpEnabled, exePath]);
+    for (const { key } of MCP_CLIENTS) {
+      void invoke<McpClientStatus>('mcp_client_status', { client: key })
+        .then((s) => setClientStatus((prev) => ({ ...prev, [key]: s })))
+        .catch((e) => console.warn('[settings] mcp_client_status failed', e));
+    }
+  }, []);
+
+  // One click does everything (§20.12 revision): flips the toggle on if needed, then
+  // writes the client's config entry (Rust backs the file up to .bak first).
+  const connectClient = async (client: McpClient): Promise<void> => {
+    setConnecting(client);
+    setConnectError(null);
+    try {
+      if (!mcpEnabled) await update({ mcpEnabled: true });
+      const s = await invoke<McpClientStatus>('configure_mcp_client', { client });
+      setClientStatus((prev) => ({ ...prev, [client]: s === 'written' ? 'written' : s }));
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnecting(null);
+    }
+  };
 
   const mcpSnippet =
     exePath === null
@@ -131,10 +167,59 @@ export default function GeneralConfig() {
           </div>
           <Toggle checked={mcpEnabled} onChange={(v) => void update({ mcpEnabled: v })} />
         </div>
+        {/* One-click hookup rows (2026-07-07). Visible even while the toggle is off —
+            the button flips it on as part of the same click. */}
+        <ul className="mt-2 space-y-1">
+          {MCP_CLIENTS.map(({ key, label }) => {
+            const s = clientStatus[key];
+            const busy = connecting === key;
+            const badge =
+              s === 'configured'
+                ? { text: t('✓ 已接入'), color: 'var(--status-active)' }
+                : s === 'written'
+                  ? { text: t('已写入 — 重启后生效'), color: 'var(--status-active)' }
+                  : s === 'stale'
+                    ? { text: t('路径已变'), color: 'var(--status-parked)' }
+                    : s === 'not-installed'
+                      ? { text: t('未检测到'), color: 'var(--muted)' }
+                      : null;
+            const showButton = s === 'unconfigured' || s === 'stale' || s === 'not-installed';
+            return (
+              <li key={key} className="flex items-center justify-between gap-3 py-1">
+                <span className="min-w-0 flex-1 truncate text-sm text-ink">{label}</span>
+                {badge && (
+                  <span className="font-mono text-xs" style={{ color: badge.color }}>
+                    {badge.text}
+                  </span>
+                )}
+                {showButton && (
+                  <button
+                    type="button"
+                    onClick={() => void connectClient(key)}
+                    disabled={busy || s === 'not-installed'}
+                    className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-50"
+                  >
+                    {busy ? t('写入中…') : s === 'stale' ? t('更新配置') : t('一键接入')}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {connectError && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
+            {connectError}
+          </p>
+        )}
+        {exePath !== null && !exePath.startsWith('/Applications/') && (
+          <p className="mt-1 text-[11px] text-muted">
+            {t('当前是开发构建 — 安装正式版后需重新接入')}
+          </p>
+        )}
         {mcpEnabled && (
           <div className="mt-2 rounded-md border border-line bg-paper-2/40 p-2.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted">{t('粘贴到 AI 客户端的 MCP 配置里:')}</span>
+              <span className="text-xs text-muted">{t('高级：手动粘贴到其它 MCP 客户端的配置里')}</span>
               <button
                 type="button"
                 onClick={() => void copySnippet()}
