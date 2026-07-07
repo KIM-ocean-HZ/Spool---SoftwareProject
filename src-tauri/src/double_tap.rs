@@ -17,16 +17,23 @@
 //! from wall-clock time at callback entry, which lags under load. The user still
 //! presses ⌘C to copy, then double-taps ⌥.
 //!
-//! Permissions: the user must grant Spool both **Accessibility** AND **Input
-//! Monitoring** in System Settings → Privacy & Security. On first run macOS prompts
-//! for Input Monitoring once the tap is created; if denied, tap creation returns Err
-//! and we fall back to the still-registered ⌘⇧C shortcut (see lib.rs).
+//! Permissions (fixed 2026-07-07): a listen-only tap only receives OTHER processes'
+//! events once the user grants Spool **Input Monitoring** (TCC). Without the grant,
+//! tap creation still SUCCEEDS — macOS just silently delivers only this process's own
+//! events, which is exactly "double-tap works inside Spool, dead everywhere else".
+//! macOS does NOT prompt on tap creation for a listen-only tap, so install() now
+//! preflights via CGPreflightListenEventAccess and fires the one-shot system prompt
+//! via CGRequestListenEventAccess when missing. The frontend asks
+//! `input_monitoring_granted` (lib.rs) and shows a quiet banner pointing at System
+//! Settings — a fresh grant only takes effect on the next launch, the already-created
+//! tap stays deaf until restart. Dev note: every ad-hoc re-sign (each rebuild)
+//! invalidates a previous grant; only a stable Developer ID signature keeps it.
 //!
 //! Self-heal (PLAN_EN.md §19.4): when macOS delivers `TapDisabledByTimeout` or
 //! `TapDisabledByUserInput`, we re-enable the tap in place via `CGEventTapEnable`.
 //! If two consecutive disable events fire (the re-enable didn't stick), we emit a
-//! `capture-disabled` event so the UI can surface a one-time notice — the ⌘⇧C
-//! fallback keeps working in either case.
+//! `capture-disabled` event so the UI can surface a one-time notice — a user-defined
+//! capture shortcut (if bound in Settings) keeps working in either case.
 
 #![cfg(target_os = "macos")]
 
@@ -146,6 +153,20 @@ extern "C" {
     // CFMachPortRef returned by CGEventTapCreate. Idempotent — calling on an already-
     // enabled tap is a no-op.
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+
+    // Input Monitoring TCC state (macOS 10.15+). Preflight reads the current grant
+    // without prompting; Request shows the system prompt (once — later calls are
+    // no-ops until the user changes the setting) and returns the resulting state.
+    // Not exposed by core-graphics 0.23, so declared against the framework we
+    // already link. C `bool` maps to Rust `bool`.
+    fn CGPreflightListenEventAccess() -> bool;
+    fn CGRequestListenEventAccess() -> bool;
+}
+
+// Current Input Monitoring grant — polled by the frontend via the
+// `input_monitoring_granted` command (lib.rs) to drive the onboarding banner.
+pub fn input_monitoring_granted() -> bool {
+    unsafe { CGPreflightListenEventAccess() }
 }
 
 pub fn install<R: Runtime>(app: AppHandle<R>) {
@@ -153,6 +174,17 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
 }
 
 fn run_tap<R: Runtime>(app: AppHandle<R>) {
+    // Without the Input Monitoring grant the ListenOnly tap below is still created
+    // without error but only ever sees Spool's own events (see module doc). Preflight
+    // and fire the one-shot system prompt when missing; install the tap either way so
+    // double-tap keeps working inside Spool immediately, and a fresh grant takes
+    // effect on the next launch.
+    if !unsafe { CGPreflightListenEventAccess() } {
+        eprintln!("[double-tap] Input Monitoring NOT granted — showing system prompt");
+        let granted = unsafe { CGRequestListenEventAccess() };
+        eprintln!("[double-tap] Input Monitoring request returned granted={granted}");
+    }
+
     // Callback runs on the run-loop thread. Captures `app` (Clone + Send + Sync);
     // LAST_OPT_PRESS_NS is the only shared mutable state — atomic, no locks.
     let app_for_cb = app.clone();
@@ -197,8 +229,8 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                     LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
                 } else {
                     // Second consecutive disable event with no clean press in between
-                    // means the self-heal didn't stick. Surface a single notice and
-                    // keep ⌘⇧C as the working fallback.
+                    // means the self-heal didn't stick. Surface a single notice — a
+                    // user-defined capture shortcut (if bound) keeps working.
                     let _ = app_for_cb.emit("capture-disabled", reason);
                 }
             }
@@ -343,7 +375,7 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
             eprintln!(
                 "[double-tap] CGEventTap creation FAILED — grant Spool both \
                  Accessibility AND Input Monitoring in System Settings → Privacy & \
-                 Security. ⌘⇧C still works as the fallback shortcut."
+                 Security, then restart Spool."
             );
             return;
         }

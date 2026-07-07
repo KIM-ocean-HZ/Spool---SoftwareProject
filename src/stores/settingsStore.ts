@@ -3,7 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { listOllamaModels } from '@/lib/ai/providers/ollama';
-import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
+import { DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts); the rest are
@@ -28,7 +28,9 @@ interface SettingsState {
   ollamaEndpoint: string;
   ollamaModel: string;
   privacyMode: boolean;
-  captureShortcut: string;
+  // Null = no capture shortcut bound (the default since 2026-07-07 — ⌘⇧C retired,
+  // double-tap ⌥ captures). Non-null only when the user records one in Settings.
+  captureShortcut: string | null;
   searchShortcut: string;
   // v2.7: auto-extract text from file attachments on attach (§9.6). When false, the
   // three extraction columns stay NULL and pack output treats files as pointers only.
@@ -91,7 +93,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   ollamaEndpoint: 'http://localhost:11434',
   ollamaModel: 'qwen3:8b',
   privacyMode: false,
-  captureShortcut: DEFAULT_CAPTURE_ACCEL,
+  captureShortcut: null,
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,

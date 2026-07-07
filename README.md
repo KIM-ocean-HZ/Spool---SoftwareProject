@@ -74,7 +74,7 @@ npm run tauri build   # production .dmg / installer
 npm test              # vitest
 ```
 
-The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). The ⌘⇧C fallback works without either. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). Spool prompts for Input Monitoring on first launch and shows a banner until it is granted; the grant takes effect after restarting Spool. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
 
 ## AI keys (optional)
 
@@ -116,7 +116,6 @@ Toggle **隐私模式** under Settings to force every AI call through the local 
 | Key | Action |
 |---|---|
 | Double-tap ⌥ | Capture clipboard (macOS only, system-global) |
-| ⌘⇧C | Capture clipboard (system-global, all platforms) |
 | ⌘⇧F | Global search |
 | ⌘⇧P | Pack the active thread |
 | ⌘N | New thread in the current workspace |
@@ -125,7 +124,7 @@ Toggle **隐私模式** under Settings to force every AI call through the local 
 | Enter / Shift+Enter | Send / newline in the composer |
 | Esc | Dismiss any overlay, modal, or inline edit |
 
-The two global shortcuts (capture and search) are user-rebindable under **Settings → 全局快捷键**.
+The global search shortcut is user-rebindable under **Settings → 全局快捷键**; an optional capture shortcut (unbound by default) can be recorded there too.
 
 ## Project structure
 

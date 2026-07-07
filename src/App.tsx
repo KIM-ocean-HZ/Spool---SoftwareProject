@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect } from 'react';
+import PermissionBanner from '@/components/PermissionBanner';
 import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
@@ -69,8 +70,9 @@ export default function App() {
   }, [activeThread, workspaces, createThread, openSettings]);
 
   // Load persisted settings, then push the saved shortcuts to Rust so a user's
-  // re-bound capture/search keys take effect (§19.1). Rust registered the defaults at
-  // setup(); set_shortcuts no-ops when the persisted pair already equals the defaults.
+  // re-bound keys take effect (§19.1). Rust registered the search default at setup();
+  // capture has no default (2026-07-07) — null here means "no capture shortcut bound".
+  // set_shortcuts no-ops when the persisted pair already equals what's registered.
   useEffect(() => {
     void (async () => {
       await loadSettings();
@@ -158,11 +160,14 @@ export default function App() {
 
   return (
     <>
-      <div className="paper-bg flex h-full w-full">
-        <Sidebar />
-        <main className="min-w-0 flex-1 overflow-hidden">
-          <ThreadView />
-        </main>
+      <div className="paper-bg flex h-full w-full flex-col">
+        <PermissionBanner />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar />
+          <main className="min-w-0 flex-1 overflow-hidden">
+            <ThreadView />
+          </main>
+        </div>
       </div>
       <SearchOverlay />
       <Settings />

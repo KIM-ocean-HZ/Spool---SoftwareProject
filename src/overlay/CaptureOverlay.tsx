@@ -103,7 +103,7 @@ type OverlayContent =
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
-  if (n.kind === 'empty') return t('剪贴板为空 — 试试先按 ⌘C 复制要捕捉的内容，再按 ⌘⇧C');
+  if (n.kind === 'empty') return t('剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥');
   if (n.kind === 'no-target') return t('没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点"设为目标"');
   return n.msg ?? t('捕捉失败');
 };

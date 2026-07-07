@@ -57,6 +57,13 @@ const EN: Record<string, string> = {
   '界面出错了': 'Something went wrong',
   '重新加载': 'Reload',
 
+  // Input Monitoring onboarding banner (2026-07-07)
+  '双击 ⌥ 捕捉需要「输入监听」权限 — 授权后请重启 Spool':
+    'Double-tap ⌥ capture needs the Input Monitoring permission — restart Spool after granting',
+  '已授权 — 重启 Spool 后双击 ⌥ 生效':
+    'Granted — double-tap ⌥ works after restarting Spool',
+  '打开系统设置': 'Open System Settings',
+
   // Sidebar
   '进行中': 'Active',
   '本周到期': 'Due this week',
@@ -267,7 +274,6 @@ const EN: Record<string, string> = {
   '{n} 天前': '{n} d ago',
 
   // Empty states
-  '按 ⌘⇧C 保存第一条信息，或直接在下方书写。': 'Press ⌘⇧C to save your first piece, or just write below.',
   '双击 ⌥ 捕捉第一条信息，或在下方直接写。': 'Double-tap ⌥ to capture your first piece, or write below.',
   '选择或新建一条脉络': 'Select or create a thread',
 
@@ -295,7 +301,7 @@ const EN: Record<string, string> = {
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
   // Capture overlay / undo card
-  '剪贴板为空 — 试试先按 ⌘C 复制要捕捉的内容，再按 ⌘⇧C': 'Clipboard is empty — copy something with ⌘C first, then press ⌘⇧C',
+  '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
   '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点"设为目标"': 'No capture target — open Spool and click "Set as target" in a thread header',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',
@@ -353,8 +359,8 @@ const EN: Record<string, string> = {
   '复制失败：{msg}': 'Copy failed: {msg}',
   '附加失败：{msg}': 'Attach failed: {msg}',
   '捕捉失败：{msg}': 'Capture failed: {msg}',
-  '双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。':
-    'Double-tap ⌥ capture stopped — restart Spool to re-enable. ⌘⇧C still works.',
+  '双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。':
+    'Double-tap ⌥ capture stopped — restart Spool to re-enable.',
   '已复制 {n} 个块到「{target}」': 'Copied {n} blocks to “{target}”',
 
   // Settings sub-panels
@@ -363,7 +369,8 @@ const EN: Record<string, string> = {
   '系统拒绝了该快捷键：{msg}': 'The system rejected this shortcut: {msg}',
   '按键中…': 'Press keys…',
   '捕捉快捷键': 'Capture shortcut',
-  '在任意应用中保存选中内容': 'Save the clipboard from any app',
+  '可选 — 双击 ⌥ 之外的备用捕捉键': 'Optional — a fallback capture key besides double-tap ⌥',
+  '未设置': 'Not set',
   '搜索快捷键': 'Search shortcut',
   '打开全文搜索': 'Open full-text search',
   '按下新的组合键，或按 Esc 取消': 'Press a new combination, or Esc to cancel',

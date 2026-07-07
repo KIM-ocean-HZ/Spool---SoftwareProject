@@ -591,8 +591,8 @@ Blocks persist immediately on creation. Workspace/thread metadata edits, block c
 
 Three capture triggers in v1:
 - **Primary**: **double-tap ⌥ within 500ms** — macOS CGEventTap on `FlagsChanged`, hardware event timestamps. Decoupled from ⌘C.
-- **Fallback**: `Cmd/Ctrl+Shift+C` — OS-level global shortcut. Always active.
-- **Collect-mode trigger (v2.9, §20.9)**: **long-press ⌥ ≥600ms** — opens the persistent staging panel. While the panel is open, subsequent ⌥-captures append to the panel; `⌘⇧C` still does direct DB-write as escape hatch.
+- **Fallback (revised 2026-07-07)**: user-bound global shortcut — **no default binding** (⌘⇧C retired per Ocean). When recorded in Settings it behaves as before: OS-level, always active.
+- **Collect-mode trigger (v2.9, §20.9)**: **long-press ⌥ ≥600ms** — opens the persistent staging panel. While the panel is open, subsequent ⌥-captures append to the panel; the user-bound capture shortcut (if recorded; no default since 2026-07-07) still does direct DB-write as escape hatch.
 
 Trigger flow (default capture): read clipboard text → get foreground app + browser tab title (`source`) → write one `text` block to capture-target thread → show capture toast. Clipboard empty/non-text: gentle toast, nothing written.
 
@@ -760,7 +760,7 @@ Modal, entered via gear at sidebar bottom.
 
 | Field | Type | Default | Note |
 |---|---|---|---|
-| Global capture shortcut | Shortcut recorder | `Cmd/Ctrl+Shift+C` | Conflict check |
+| Global capture shortcut | Shortcut recorder | unbound (2026-07-07: ⌘⇧C default retired) | Conflict check |
 | Global search shortcut | Shortcut recorder | `Cmd/Ctrl+Shift+F` | Conflict check |
 | Groq API Key | Password + test | empty | |
 | Gemini API Key | Password + test | empty | |
@@ -837,6 +837,8 @@ Keys via `tauri-plugin-store`.
 When using an LLM / looking things up / reading email, the user already presses Cmd+C on valuable content. The shortcut **rides existing muscle memory**.
 
 Mental model: **Cmd+Shift+C = "copy and remember."**
+
+> 2026-07-07 revision: the chord no longer has a default binding — double-tap ⌥ (§9.4) is the "copy and remember" trigger. A user-recorded shortcut in Settings plays the same role for users who prefer a chord; everything below reads accordingly.
 
 Paired with three zero-decision mechanisms:
 - **Always a capture target.** Tray menu shows + switches with one click (a pure state toggle — never selects, navigates, or pulls the window forward, §9.2 / §14.3).
@@ -1097,7 +1099,7 @@ ${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.rec
 |---|---|---|
 | **Double-tap ⌥ (Option)** | **Global capture — primary** (macOS) | **System-global** |
 | **Long-press ⌥ ≥600ms** | **Open collect-mode panel** (v2.9, macOS) | **System-global** |
-| **Cmd/Ctrl+Shift+C** | **Global capture — fallback** | **System-global** |
+| User-bound shortcut (unbound by default — 2026-07-07, ⌘⇧C retired) | **Global capture — fallback** | **System-global** |
 | **Cmd/Ctrl+Shift+F** | **Global search overlay** | **System-global** |
 | Cmd/Ctrl+Shift+P | Pack current thread | Main window |
 | Cmd/Ctrl+N | New thread in current workspace | Main window |
@@ -1138,7 +1140,7 @@ ${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.rec
 
 - No workspaces (shouldn't happen): guide to create.
 - Workspace no threads: "+ Create the first project."
-- Thread no blocks: "Press Cmd+Shift+C to save your first piece of info, or just write below."
+- Thread no blocks: "Double-tap ⌥ to capture your first piece of info, or write below." (2026-07-07: was Cmd+Shift+C)
 - Focus section empty: hidden entirely.
 - Search no results: "Nothing found — try other keywords?"
 - Digest view no pins/attachments/digest: "This project has no marked highlights. Look through the full record?" + jump to LogView.
@@ -1503,7 +1505,7 @@ Each §20 feature reviewed at the end of Phase 11.5's 3-week dogfooding window. 
 
 While the staging panel is open:
 - Subsequent ⌥-based captures (double-tap OR long-press) **append to the staging panel as transient items** rather than landing as blocks in the current capture target. Double-tap-⌥ → instant-block path is suspended while panel is open.
-- `Cmd+Shift+C` fallback still does instant block-write (escape hatch).
+- The user-bound capture shortcut (no default since 2026-07-07) still does instant block-write (escape hatch).
 - Each staging item is editable inline (content + **visible annotation field per §2.5.1 design bias**) and pinnable.
 - Items held outside the blocks table — purely in memory of the collect-window's process. **Nothing persists to DB until Send.**
 - Panel shows Send and Discard actions.

@@ -42,7 +42,7 @@ ls src-tauri/target/release/bundle/macos/   # Spool.app
 
 - [ ] 全新机器（或删除 `~/Library/Application Support/com.oceanjin.spool` 后）安装 .dmg，首启建库正常
 - [ ] `spctl -a -vv -t install src-tauri/target/release/bundle/macos/Spool.app` 显示 `accepted · Notarized Developer ID`
-- [ ] 双击 ⌥ 捕捉：系统弹「输入监听」授权 → 授权后捕捉可用；拒绝时 ⌘⇧C 仍可用
+- [ ] 双击 ⌥ 捕捉：首启系统弹「输入监听」授权（未授权时主窗口有引导条）→ 授权并重启后捕捉可用
 - [ ] 隐私模式开启 + 抓包：确认零出网（PLAN §16）
 - [ ] 不配置任何 API Key：AI 入口隐藏，捕捉/打包/搜索完好（§6.4）
 - [ ] 中文输入法下 Composer 回车确认候选词不误发（2026-07 修复的回归项）

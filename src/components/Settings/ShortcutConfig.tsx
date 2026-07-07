@@ -63,7 +63,7 @@ export default function ShortcutConfig() {
     return () => window.removeEventListener('keydown', handler, true);
   }, [recording, captureShortcut, searchShortcut, update]);
 
-  const row = (field: Field, label: string, hint: string, accel: string) => {
+  const row = (field: Field, label: string, hint: string, accel: string | null) => {
     const isRec = recording === field;
     return (
       <div className="flex items-center justify-between gap-4 py-2.5">
@@ -82,7 +82,7 @@ export default function ShortcutConfig() {
               : 'border-line-strong bg-paper text-ink hover:border-accent'
           }`}
         >
-          {isRec ? t('按键中…') : formatAccelerator(accel)}
+          {isRec ? t('按键中…') : accel ? formatAccelerator(accel) : t('未设置')}
         </button>
       </div>
     );
@@ -90,7 +90,12 @@ export default function ShortcutConfig() {
 
   return (
     <div>
-      {row('capture', t('捕捉快捷键'), t('在任意应用中保存选中内容'), captureShortcut)}
+      {row(
+        'capture',
+        t('捕捉快捷键'),
+        t('可选 — 双击 ⌥ 之外的备用捕捉键'),
+        captureShortcut,
+      )}
       <div className="border-t border-line" />
       {row('search', t('搜索快捷键'), t('打开全文搜索'), searchShortcut)}
       {recording && !error && (

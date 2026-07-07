@@ -293,16 +293,6 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-#[cfg(desktop)]
-pub fn capture_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
-    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
-    #[cfg(target_os = "macos")]
-    let mods = Modifiers::SUPER | Modifiers::SHIFT;
-    #[cfg(not(target_os = "macos"))]
-    let mods = Modifiers::CONTROL | Modifiers::SHIFT;
-    Shortcut::new(Some(mods), Code::KeyC)
-}
-
 // Global full-text-search shortcut (PLAN_EN.md §9.10 / Phase 7): ⌘⇧F on macOS,
 // Ctrl+⇧F elsewhere. Registered and re-registered alongside the capture shortcut;
 // pressing it surfaces the main window and emits `search-trigger` so the in-window
@@ -345,12 +335,15 @@ pub fn undo_fallback_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
 //
 // The capture/search accelerators are user-configurable from the Settings panel.
 // `ShortcutConfig` is Tauri managed state holding the *currently registered* pair —
-// the global-shortcut handler matches presses against it (not the hard-coded
-// `*_accelerator()` defaults), and `set_shortcuts` swaps the registration at runtime.
+// the global-shortcut handler matches presses against it (not hard-coded defaults),
+// and `set_shortcuts` swaps the registration at runtime. Capture is an Option since
+// 2026-07-07: ⌘⇧C is retired, double-tap ⌥ is the capture trigger, and a capture
+// shortcut exists only when the user binds one in Settings (it stays the §20.9
+// direct-write escape hatch while the collect panel is open).
 
 #[cfg(desktop)]
 pub struct ShortcutConfig {
-    pub capture: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
+    pub capture: std::sync::Mutex<Option<tauri_plugin_global_shortcut::Shortcut>>,
     pub search: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
     // §9.13: the undo accelerator currently registered (Some while the capture toast is
     // visible), or None when no toast is up. Time-boxed registration keeps ⌘Z usable in
@@ -435,20 +428,21 @@ fn parse_shortcut(spec: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, 
 
 // Re-register the global capture/search shortcuts at runtime (§19.1). Unregisters the
 // current pair and installs the new one; on any failure the old pair is restored, so a
-// rejected accelerator never leaves the user without a working capture shortcut. The
-// frontend persists the value only after this returns Ok.
+// rejected accelerator never leaves the user without a working shortcut. The frontend
+// persists the value only after this returns Ok. `capture` is optional — None means
+// "no capture shortcut bound" (the default since 2026-07-07; double-tap ⌥ captures).
 #[tauri::command]
 pub fn set_shortcuts<R: Runtime>(
     app: AppHandle<R>,
-    capture: String,
+    capture: Option<String>,
     search: String,
 ) -> Result<(), String> {
     #[cfg(desktop)]
     {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let new_capture = parse_shortcut(&capture)?;
+        let new_capture = capture.as_deref().map(parse_shortcut).transpose()?;
         let new_search = parse_shortcut(&search)?;
-        if new_capture == new_search {
+        if new_capture == Some(new_search) {
             return Err("两个快捷键不能相同".into());
         }
         let cfg = app.state::<ShortcutConfig>();
@@ -460,17 +454,27 @@ pub fn set_shortcuts<R: Runtime>(
         let gs = app.global_shortcut();
         // Drop both, then install both — handles the case where only one changed and
         // the case where the two were swapped, without a transient double-registration.
-        let _ = gs.unregister(old_capture);
+        if let Some(acc) = old_capture {
+            let _ = gs.unregister(acc);
+        }
         let _ = gs.unregister(old_search);
-        if let Err(e) = gs.register(new_capture) {
-            let _ = gs.register(old_capture);
+        let restore = |gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>| {
+            if let Some(acc) = old_capture {
+                let _ = gs.register(acc);
+            }
             let _ = gs.register(old_search);
-            return Err(format!("无法注册捕捉快捷键：{e}"));
+        };
+        if let Some(acc) = new_capture {
+            if let Err(e) = gs.register(acc) {
+                restore(gs);
+                return Err(format!("无法注册捕捉快捷键：{e}"));
+            }
         }
         if let Err(e) = gs.register(new_search) {
-            let _ = gs.unregister(new_capture);
-            let _ = gs.register(old_capture);
-            let _ = gs.register(old_search);
+            if let Some(acc) = new_capture {
+                let _ = gs.unregister(acc);
+            }
+            restore(gs);
             return Err(format!("无法注册搜索快捷键：{e}"));
         }
         *cfg.capture.lock().unwrap() = new_capture;
@@ -886,7 +890,7 @@ pub fn update_overlay_source<R: Runtime>(
 
 // Show a failure notice in the overlay (clipboard empty / no capture target / generic
 // error). Routing failure feedback through the overlay — not the main window — is what
-// makes ⌘⇧C reliable even when the main window is hidden, which is the dominant
+// makes capture reliable even when the main window is hidden, which is the dominant
 // "capture-while-working-in-another-app" case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

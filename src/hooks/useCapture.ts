@@ -172,11 +172,12 @@ export function useCapture(): void {
     void (async () => {
       const dispose = await listen<unknown>('capture-trigger', async (e) => {
         const t0 = performance.now();
-        // Payload `true` marks the ⌘⇧C global-shortcut path (set in lib.rs); a unit/null
-        // payload is the double-tap ⌥ path (double_tap.rs). ⌘⇧C is the §20.9 escape hatch
-        // — it always writes a block, even while the collect panel is open.
+        // Payload `true` marks the user-bound global-shortcut path (set in lib.rs; no
+        // default binding since 2026-07-07); a unit/null payload is the double-tap ⌥
+        // path (double_tap.rs). The bound shortcut is the §20.9 escape hatch — it
+        // always writes a block, even while the collect panel is open.
         const viaShortcut = e.payload === true;
-        if (DEV) console.info('[capture] trigger', viaShortcut ? '(⌘⇧C)' : '(⌥⌥)');
+        if (DEV) console.info('[capture] trigger', viaShortcut ? '(shortcut)' : '(⌥⌥)');
         if (inFlightRef.current) {
           if (DEV) console.info('[capture] drop: previous handler still running');
           return;
@@ -196,9 +197,9 @@ export function useCapture(): void {
           }
 
           // §20.9: while the collect panel is open, a double-tap ⌥ capture stages into the
-          // panel instead of writing a block — NO DB write. ⌘⇧C (viaShortcut) is exempt:
-          // it stays the direct-write escape hatch. The normal capture path below is
-          // otherwise byte-for-byte unchanged.
+          // panel instead of writing a block — NO DB write. The user-bound shortcut
+          // (viaShortcut) is exempt: it stays the direct-write escape hatch. The normal
+          // capture path below is otherwise byte-for-byte unchanged.
           if (useCollectStore.getState().panelOpen && !viaShortcut) {
             const frontmost = await Promise.race([
               frontmostPromise,
@@ -366,13 +367,13 @@ export function useCapture(): void {
 
   // §19.4: Rust emits `capture-disabled` when macOS has disabled the CGEventTap
   // and the in-place self-heal didn't stick. Surface a one-time notice so the user
-  // knows to restart Spool; the ⌘⇧C fallback is still working in the meantime.
+  // knows to restart Spool; a user-bound capture shortcut keeps working meanwhile.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
       const dispose = await listen('capture-disabled', () => {
-        toast.error(t('双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。⌘⇧C 仍可使用。'));
+        toast.error(t('双击 ⌥ 捕捉已停止 — 请重启 Spool 重新启用。'));
       });
       if (cancelled) dispose();
       else unlisten = dispose;

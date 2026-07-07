@@ -16,6 +16,39 @@ fn mcp_exe_path() -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+// Double-tap ⌥ needs the Input Monitoring TCC grant (see double_tap.rs module doc):
+// a listen-only tap without it only sees Spool's own events. The main window asks
+// this at startup / on focus to drive the quiet onboarding banner.
+#[tauri::command]
+fn input_monitoring_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        double_tap::input_monitoring_granted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+// Opens System Settings directly at Privacy & Security → Input Monitoring, for the
+// banner's "open settings" button. Fixed URL, no user input — no injection surface.
+#[tauri::command]
+fn open_input_monitoring_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("macOS only".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -60,6 +93,8 @@ pub fn run() {
             collect::reposition_collect_panel,
             collect::append_collect_item,
             mcp_exe_path,
+            input_monitoring_granted,
+            open_input_monitoring_settings,
         ]);
 
     #[cfg(desktop)]
@@ -93,16 +128,17 @@ pub fn run() {
                         if event.state() == ShortcutState::Pressed {
                             let _ = app.emit("undo-trigger", ());
                         }
-                    } else if shortcut == &capture_acc {
+                    } else if Some(*shortcut) == capture_acc {
                         // Log every state change (Pressed AND Released) so a missing
                         // capture can be triaged: if stderr shows neither, macOS dropped
                         // the keypress before us; if it shows Pressed but JS doesn't see
                         // [capture] trigger, the emit/listener path is the suspect.
                         eprintln!("[shortcut] capture state={:?}", event.state());
                         if event.state() == ShortcutState::Pressed {
-                            // Payload `true` marks this as the ⌘⇧C path so the frontend can
-                            // keep it a direct-write escape hatch even while the §20.9 collect
-                            // panel is open (double-tap ⌥ sends a null payload and stages).
+                            // Payload `true` marks this as the user-bound capture shortcut
+                            // (no default since 2026-07-07) so the frontend can keep it a
+                            // direct-write escape hatch even while the §20.9 collect panel
+                            // is open (double-tap ⌥ sends a null payload and stages).
                             let _ = app.emit("capture-trigger", true);
                         }
                     } else if shortcut == &search_acc {
@@ -140,8 +176,12 @@ pub fn run() {
                         let app = window.app_handle();
                         let gs = app.global_shortcut();
                         if let Some(cfg) = app.try_state::<capture::ShortcutConfig>() {
-                            for acc in
-                                [*cfg.capture.lock().unwrap(), *cfg.search.lock().unwrap()]
+                            for acc in [
+                                *cfg.capture.lock().unwrap(),
+                                Some(*cfg.search.lock().unwrap()),
+                            ]
+                            .into_iter()
+                            .flatten()
                             {
                                 if !gs.is_registered(acc) {
                                     if let Err(e) = gs.register(acc) {
@@ -189,24 +229,18 @@ pub fn run() {
                     })
                     .build(app)?;
 
-                // Live shortcut config (§19.1): starts at the platform defaults; the
-                // frontend re-applies any persisted overrides via `set_shortcuts` once
-                // settings load. Registering here means the capture shortcut works from
-                // the first launch instant, before the webview is even ready. Kept
-                // registered even with double-tap ⌥ active — it is the fallback when
-                // CGEventTap permissions are missing.
+                // Live shortcut config (§19.1): search starts at its platform default;
+                // capture has NO default binding since 2026-07-07 (⌘⇧C retired —
+                // double-tap ⌥ is the trigger; a user-bound shortcut from Settings is
+                // re-applied via `set_shortcuts` once the frontend loads settings).
+                // Registering search here means it works from the first launch
+                // instant, before the webview is even ready.
                 app.manage(capture::ShortcutConfig {
-                    capture: std::sync::Mutex::new(capture::capture_accelerator()),
+                    capture: std::sync::Mutex::new(None),
                     search: std::sync::Mutex::new(capture::search_accelerator()),
                     // §9.13: registered on demand while the capture toast is visible.
                     undo: std::sync::Mutex::new(None),
                 });
-                if let Err(e) = app
-                    .global_shortcut()
-                    .register(capture::capture_accelerator())
-                {
-                    eprintln!("failed to register capture shortcut: {e}");
-                }
                 if let Err(e) = app
                     .global_shortcut()
                     .register(capture::search_accelerator())
@@ -216,9 +250,9 @@ pub fn run() {
             }
 
             // macOS only: install the double-tap ⌥ listener on its own thread (it
-            // runs CFRunLoopRun() which blocks). Failure (e.g. missing Input
-            // Monitoring permission) is logged inside; the ⌘⇧C shortcut above is the
-            // fallback so capture still works.
+            // runs CFRunLoopRun() which blocks). Missing Input Monitoring permission
+            // is preflighted/prompted inside (see double_tap.rs module doc); the UI
+            // shows an onboarding banner until the grant lands.
             #[cfg(target_os = "macos")]
             double_tap::install(app.handle().clone());
 

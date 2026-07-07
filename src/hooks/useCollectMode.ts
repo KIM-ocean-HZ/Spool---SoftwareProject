@@ -17,8 +17,9 @@ import { addItem, clear, getAll, stageCapturedItem } from '@/lib/collect/staging
 //   only into an EMPTY buffer so a new session's captures aren't clobbered (§9.13).
 //
 // The capture-trigger listener and the panelOpen routing decision ("stage vs. write to
-// DB", and the ⌘⇧C escape hatch) live in the MAIN window (useCapture / useCollect); this
-// hook only consumes what main forwards, so there's no double-handling of the trigger.
+// DB", and the user-bound shortcut escape hatch) live in the MAIN window (useCapture /
+// useCollect); this hook only consumes what main forwards, so there's no double-handling
+// of the trigger.
 export function useCollectMode(): void {
   useEffect(() => {
     let unlistenOpen: (() => void) | null = null;

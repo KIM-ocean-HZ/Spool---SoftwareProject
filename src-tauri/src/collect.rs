@@ -157,8 +157,8 @@ pub fn resize_collect_panel<R: Runtime>(
 
 // Relay a captured-while-collecting item into the collect panel's staging buffer. The
 // main window invokes this from its capture-trigger handler when the panel is open AND
-// the trigger was a ⌥ double-tap (not the ⌘⇧C escape hatch). Nothing touches the blocks
-// table here — the item is transient in the panel's memory until Send.
+// the trigger was a ⌥ double-tap (not the user-bound shortcut escape hatch). Nothing
+// touches the blocks table here — the item is transient in the panel's memory until Send.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectAppendPayload {

@@ -1,17 +1,18 @@
 // Shortcut accelerators (PLAN_EN.md §9.12 / §19.1). The two global shortcuts —
-// capture (⌘⇧C) and search (⌘⇧F) — are user-configurable from the Settings panel.
+// capture and search (⌘⇧F) — are user-configurable from the Settings panel. Capture
+// has NO default since 2026-07-07: double-tap ⌥ is the trigger, and a capture
+// shortcut exists only when the user binds one.
 //
 // An accelerator is a string in this module's own grammar: lowercase modifier tokens
 // (`meta` `control` `alt` `shift`) joined with `+`, then the W3C `KeyboardEvent.code`
-// of the main key, e.g. `meta+shift+KeyC`. The Rust `set_shortcuts` command parses the
+// of the main key, e.g. `meta+shift+KeyF`. The Rust `set_shortcuts` command parses the
 // same grammar — keeping the format simple and shared avoids a brittle dependency on
 // the global-shortcut crate's own accelerator parser.
 
 const isMac =
   typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
-// Defaults — must match Rust's capture_accelerator() / search_accelerator().
-export const DEFAULT_CAPTURE_ACCEL = isMac ? 'meta+shift+KeyC' : 'control+shift+KeyC';
+// Default — must match Rust's search_accelerator().
 export const DEFAULT_SEARCH_ACCEL = isMac ? 'meta+shift+KeyF' : 'control+shift+KeyF';
 
 // Build an accelerator from a keydown. Returns null for an unusable chord: the key
@@ -62,7 +63,7 @@ const formatKey = (code: string): string => {
   return NAMED_KEY[code] ?? code; // F1–F12, Tab, Escape, … pass through
 };
 
-// Render an accelerator as a human label, e.g. `meta+shift+KeyC` → `⌘⇧C`.
+// Render an accelerator as a human label, e.g. `meta+shift+KeyF` → `⌘⇧F`.
 export function formatAccelerator(accel: string): string {
   const parts = accel.split('+');
   const key = parts[parts.length - 1] ?? '';
