@@ -5,6 +5,7 @@ import DeleteButton from '@/components/ui/DeleteButton';
 import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import ThreadListItem, { THREAD_DRAG_MIME } from './ThreadListItem';
@@ -32,6 +33,7 @@ const sortThreads = (threads: Thread[]): Thread[] => {
 };
 
 export default function WorkspaceGroup({ workspace, threads, activeThreadId }: Props) {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [titleInput, setTitleInput] = useState(workspace.title);
@@ -107,7 +109,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
 
   const sortedThreads = useMemo(() => sortThreads(threads), [threads]);
   const visibleThreads = collapsed ? [] : sortedThreads;
-  const headerTitle = workspace.title.trim() || '未命名';
+  const headerTitle = workspace.title.trim() || t('未命名');
 
   return (
     <div
@@ -122,7 +124,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         <button
           onClick={() => setCollapsed((v) => !v)}
           className="flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink"
-          aria-label={collapsed ? '展开' : '收起'}
+          aria-label={collapsed ? t('展开') : t('收起')}
         >
           {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
         </button>
@@ -134,14 +136,14 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
             onChange={(e) => setTitleInput(e.target.value)}
             onBlur={exitEdit}
             onKeyDown={handleKeyDown}
-            placeholder="未命名"
+            placeholder={t('未命名')}
             className="min-w-0 flex-1 bg-transparent font-serif text-base text-ink outline-none"
           />
         ) : (
           <button
             onDoubleClick={() => setEditing(true)}
             className="min-w-0 flex-1 truncate text-left font-serif text-base text-ink"
-            title="双击重命名"
+            title={t('双击重命名')}
           >
             {headerTitle}
           </button>
@@ -150,15 +152,15 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         <button
           onClick={() => void onAddThread()}
           className="invisible flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink group-hover:visible"
-          aria-label="新建脉络"
-          title="新建脉络"
+          aria-label={t('新建脉络')}
+          title={t('新建脉络')}
         >
           <Plus size={12} />
         </button>
 
         <DeleteButton
           onConfirm={() => void removeWorkspace(workspace.id)}
-          title="删除工作区"
+          title={t('删除工作区')}
           className="invisible group-hover:visible"
         />
       </div>
@@ -170,16 +172,16 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
               onClick={() => void onAddThread()}
               className="cursor-pointer rounded px-3 py-1.5 text-xs italic text-muted hover:bg-paper-2/50"
             >
-              + 创建第一条脉络
+              {t('+ 创建第一条脉络')}
             </li>
           )}
-          {visibleThreads.map((t) => (
+          {visibleThreads.map((th) => (
             <ThreadListItem
-              key={t.id}
-              thread={t}
-              active={t.id === activeThreadId}
-              onSelect={() => selectThread(t.id)}
-              onDelete={() => void removeThread(t.id)}
+              key={th.id}
+              thread={th}
+              active={th.id === activeThreadId}
+              onSelect={() => selectThread(th.id)}
+              onDelete={() => void removeThread(th.id)}
             />
           ))}
         </ul>

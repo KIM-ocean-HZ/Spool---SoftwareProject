@@ -1,4 +1,5 @@
 import { Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 import { useSearchStore } from '@/stores/searchStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -8,6 +9,7 @@ import SidebarSummary from './SidebarSummary';
 import WorkspaceGroup from './WorkspaceGroup';
 
 export default function Sidebar() {
+  const t = useT();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const createWorkspace = useWorkspacesStore((s) => s.create);
   const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
@@ -31,7 +33,7 @@ export default function Sidebar() {
         {workspaces.length === 0 ? (
           <div className="px-3 py-12 text-center">
             <p className="font-serif text-xl italic text-muted">empty</p>
-            <p className="mt-2 text-xs text-muted">点下方 + 工作区开始</p>
+            <p className="mt-2 text-xs text-muted">{t('点下方 + 工作区开始')}</p>
           </div>
         ) : (
           workspaces.map((ws) => (
@@ -49,23 +51,23 @@ export default function Sidebar() {
         <button
           onClick={() => void createWorkspace()}
           className="flex items-center gap-1 rounded p-1 text-xs text-muted hover:bg-paper-2 hover:text-ink"
-          title="新建工作区"
+          title={t('新建工作区')}
         >
           <Plus size={12} />
-          <span>工作区</span>
+          <span>{t('工作区')}</span>
         </button>
         <div className="flex items-center gap-1">
           <button
             onClick={openSearch}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-            title="搜索全部内容 (⌘⇧F)"
+            title={t('搜索全部内容 (⌘⇧F)')}
           >
             <Search size={14} />
           </button>
           <button
             onClick={openSettings}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-            title="设置 (⌘,)"
+            title={t('设置 (⌘,)')}
           >
             <SettingsIcon size={14} />
           </button>

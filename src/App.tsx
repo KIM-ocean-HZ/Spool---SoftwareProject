@@ -5,6 +5,7 @@ import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import ToastRack from '@/components/ui/Toast';
+import { t } from '@/lib/i18n';
 import { useCapture } from '@/hooks/useCapture';
 import { useCollect } from '@/hooks/useCollect';
 import { useSearch } from '@/hooks/useSearch';
@@ -111,7 +112,7 @@ export default function App() {
         }}
       >
         <div style={{ fontSize: '18px', marginBottom: '12px', color: '#b3402f' }}>
-          数据库初始化失败
+          {t('数据库初始化失败')}
         </div>
         <pre
           style={{
@@ -129,7 +130,7 @@ export default function App() {
           {error}
         </pre>
         <div style={{ marginTop: '12px', fontSize: '12px', color: '#8c8576' }}>
-          打开 DevTools（右键 → Inspect）→ Console 看完整堆栈。
+          {t('打开 DevTools（右键 → Inspect）→ Console 看完整堆栈。')}
         </div>
       </div>
     );
@@ -150,7 +151,7 @@ export default function App() {
           fontStyle: 'italic',
         }}
       >
-        <span className="pulse-dim">加载中…</span>
+        <span className="pulse-dim">{t('加载中…')}</span>
       </div>
     );
   }

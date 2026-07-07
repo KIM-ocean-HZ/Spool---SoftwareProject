@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
+import { useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 // "What is on fire" (PLAN_EN.md §9.9): every thread with a deadline and not yet done,
@@ -9,6 +10,7 @@ import { useThreadsStore } from '@/stores/threadsStore';
 const FOCUS_MAX = 5;
 
 export default function FocusSection() {
+  const t = useT();
   const byWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
   const select = useThreadsStore((s) => s.select);
@@ -27,20 +29,20 @@ export default function FocusSection() {
 
   return (
     <div className="mb-1 border-b border-line px-2 pb-2">
-      <div className="px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted">聚焦</div>
+      <div className="px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted">{t('聚焦')}</div>
       <ul className="space-y-0.5">
-        {focus.map((t) => (
+        {focus.map((th) => (
           <li
-            key={t.id}
-            onClick={() => select(t.id)}
+            key={th.id}
+            onClick={() => select(th.id)}
             className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
-              t.id === activeId ? 'bg-paper-2' : 'hover:bg-paper-2/60'
+              th.id === activeId ? 'bg-paper-2' : 'hover:bg-paper-2/60'
             }`}
           >
             <span className="min-w-0 flex-1 truncate text-sm text-ink">
-              {t.title.trim() || '无标题'}
+              {th.title.trim() || t('无标题')}
             </span>
-            <CountdownBadge deadline={t.deadline!} />
+            <CountdownBadge deadline={th.deadline!} />
           </li>
         ))}
       </ul>

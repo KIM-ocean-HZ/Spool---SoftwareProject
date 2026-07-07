@@ -6,6 +6,7 @@ import DeleteButton from '@/components/ui/DeleteButton';
 import StatusDot from '@/components/ui/StatusDot';
 import type { Thread } from '@/lib/db/threads';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -22,7 +23,8 @@ interface Props {
 }
 
 export default function ThreadListItem({ thread, active, onSelect, onDelete }: Props) {
-  const title = thread.title.trim() || '无标题';
+  const t = useT();
+  const title = thread.title.trim() || t('无标题');
   const dimmed = thread.status === 'done';
   const flash = useCaptureStore((s) => s.flashThreadId === thread.id);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
@@ -128,7 +130,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
                   cancelRename();
                 }
               }}
-              placeholder="无标题"
+              placeholder={t('无标题')}
               spellCheck={false}
               className="w-full bg-transparent text-sm text-ink outline-none"
             />
@@ -139,7 +141,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
                 enterRename();
               }}
               className="block truncate text-sm text-ink"
-              title="双击重命名"
+              title={t('双击重命名')}
             >
               {title}
             </span>
@@ -163,8 +165,8 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
               e.stopPropagation();
               if (!thread.isCaptureTarget) void setCaptureTarget(thread.id);
             }}
-            aria-label={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
-            title={thread.isCaptureTarget ? '当前捕捉目标' : '设为捕捉目标'}
+            aria-label={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
+            title={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
             className={`flex-none rounded p-0.5 transition-colors ${
               thread.isCaptureTarget
                 ? 'text-accent'
@@ -175,7 +177,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           </button>
           <DeleteButton
             onConfirm={onDelete}
-            title="删除脉络"
+            title={t('删除脉络')}
             size={11}
             className="invisible group-hover:visible"
           />
@@ -190,9 +192,9 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-1 text-[11px] text-muted">移动到工作区</div>
+          <div className="px-3 py-1 text-[11px] text-muted">{t('移动到工作区')}</div>
           {otherWorkspaces.length === 0 ? (
-            <div className="px-3 py-1 text-xs text-muted">没有其他工作区</div>
+            <div className="px-3 py-1 text-xs text-muted">{t('没有其他工作区')}</div>
           ) : (
             otherWorkspaces.map((ws) => (
               <button
@@ -205,7 +207,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
                 }}
                 className="block w-full px-3 py-1 text-left text-xs text-ink hover:bg-paper-2"
               >
-                {ws.title || '未命名'}
+                {ws.title || t('未命名')}
               </button>
             ))
           )}

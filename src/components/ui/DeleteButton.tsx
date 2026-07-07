@@ -1,6 +1,7 @@
 import { Check, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type { MouseEvent } from 'react';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   onConfirm: () => void;
@@ -15,6 +16,7 @@ interface Props {
 // (matching the GeneralConfig clear-data pattern). Stops event propagation so clicking it
 // inside a clickable row (thread / workspace) never also selects that row.
 export default function DeleteButton({ onConfirm, title, size = 12, className = '' }: Props) {
+  const t = useT();
   const [armed, setArmed] = useState(false);
 
   const stop = (e: MouseEvent): void => {
@@ -34,8 +36,8 @@ export default function DeleteButton({ onConfirm, title, size = 12, className = 
           }}
           className="rounded p-0.5 hover:bg-paper-2"
           style={{ color: 'var(--urgent)' }}
-          aria-label="确认删除"
-          title="确认删除"
+          aria-label={t('确认删除')}
+          title={t('确认删除')}
         >
           <Check size={size} />
         </button>
@@ -46,8 +48,8 @@ export default function DeleteButton({ onConfirm, title, size = 12, className = 
             setArmed(false);
           }}
           className="rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink"
-          aria-label="取消"
-          title="取消"
+          aria-label={t('取消')}
+          title={t('取消')}
         >
           <X size={size} />
         </button>

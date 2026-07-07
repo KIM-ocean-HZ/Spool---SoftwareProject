@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 
@@ -17,6 +18,7 @@ const MENTION_RE = /(?:^|\s)@([^\s@]*)$/;
 const MENTION_LIMIT = 8;
 
 export default function Composer({ threadId }: Props) {
+  const t = useT();
   const [value, setValue] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
 
@@ -39,10 +41,10 @@ export default function Composer({ threadId }: Props) {
     const q = mention.query.toLowerCase();
     return sameWs
       .filter((t) => t.id !== thread.id)
-      .map((t) => {
-        const title = t.title || '（无标题）';
+      .map((th) => {
+        const title = th.title || '（无标题）';
         const idx = q ? title.toLowerCase().indexOf(q) : 0;
-        return { t, title, idx };
+        return { t: th, title, idx };
       })
       .filter((c) => c.idx >= 0)
       .sort((a, b) => a.idx - b.idx || a.title.localeCompare(b.title))
@@ -133,7 +135,7 @@ export default function Composer({ threadId }: Props) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用脉络）"
+        placeholder={t('写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用脉络）')}
         rows={2}
         className="w-full resize-none rounded-md border border-line bg-paper px-3 py-2 text-[15px] leading-[1.6] text-ink outline-none focus:border-line-strong"
         spellCheck={false}
