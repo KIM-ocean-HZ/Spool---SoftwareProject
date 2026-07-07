@@ -64,6 +64,10 @@ export interface RouteOptions {
   ttlMs?: number;
   timeoutMs?: number;
   maxTokens?: number;
+  // Cloud-or-nothing tasks (§17 pack compression, like §20.10 OCR): try ONLY the
+  // primary tier. Falling back would hand a long input to a smaller-context model
+  // that silently truncates it and fabricates output — failing is the better outcome.
+  noFallback?: boolean;
 }
 
 export interface RouteResult {
@@ -82,7 +86,7 @@ const route = async (
   }
 
   const errors: string[] = [];
-  for (const tier of FALLBACK[primary]) {
+  for (const tier of opts.noFallback ? [primary] : FALLBACK[primary]) {
     if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const provider = buildProvider(tier);
     if (!provider) {

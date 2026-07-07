@@ -12,8 +12,10 @@ import {
 import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import {
   DEFAULT_PACK_TEMPLATE,
+  NOTE_MARKER,
   PACK_TEMPLATES,
   PACK_TEMPLATE_KEYS,
+  SOURCE_MARKER,
   type PackTemplateKey,
 } from '@/lib/pack/templates';
 import type { Attachment } from '@/lib/db/attachments';
@@ -33,6 +35,35 @@ const RANGE_HINTS: Record<PackRange, string> = {
   pinned: '只打包标了置顶的信息块',
   last7: '只打包最近 7 天捕捉的内容',
   last30: '只打包最近 30 天捕捉的内容',
+};
+
+// §17 compression is Gemini-only ("cloud-or-nothing", 2026-07-07): a long pack that
+// times out on Gemini must NOT fall through to Groq / a local model — their smaller
+// contexts silently truncate the input and fabricate a summary (the 41k→700-char
+// incident). A long input legitimately takes a while, hence the compression-specific
+// timeout instead of the quality tier's default 20s.
+const COMPRESS_TIMEOUT_MS = 120_000;
+// The provider default (4096 output tokens) truncates any faithful compression of a
+// long pack mid-document (finishReason=MAX_TOKENS); gemini-2.5-flash allows 65,536.
+const COMPRESS_MAX_TOKENS = 65_536;
+// A result below this fraction of the original can't be a faithful compression of a
+// pack (the immutable skeleton + verbatim Personal material alone outweigh it) — treat
+// it as a failure rather than offer garbage.
+const MIN_COMPRESSION_RATIO = 0.15;
+
+// The pack's irreplaceable signal (§2.5.1) must survive compression verbatim: every
+// `note:` annotation line and every sourceless entry (user-written, no `· from`
+// bracket). A missing line means the model summarized what it was told to copy —
+// reject the result. Plain line scan; both sides compare trimmed.
+const compressionKeepsPersonal = (original: string, result: string): boolean => {
+  for (const raw of original.split('\n')) {
+    const line = raw.trim();
+    const isNote = line.startsWith(NOTE_MARKER);
+    const isSourceless =
+      /^(📌 )?\[[^\]]*\]/.test(line) && !line.includes(SOURCE_MARKER);
+    if ((isNote || isSourceless) && !result.includes(line)) return false;
+  }
+  return true;
 };
 
 interface Props {
@@ -64,8 +95,14 @@ export default function PackDialog({
   const [range, setRange] = useState<PackRange>('all');
   // §17 AI compression. The deterministic pack is never replaced — the compressed text
   // is a togglable second view, produced on demand, and any failure silently disables
-  // the button for this dialog (§6.3 / §14.4). Never persisted.
+  // the button for this dialog (§6.3 / §14.4). Never persisted. Gemini-only since
+  // 2026-07-07 (see COMPRESS_TIMEOUT_MS): with keys configured but no Gemini (or
+  // privacy mode on) the button renders disabled with an explanation instead of
+  // silently landing on a local model.
   const aiAvailable = useSettingsStore(isAiAvailable);
+  const geminiKey = useSettingsStore((s) => s.geminiKey);
+  const privacyMode = useSettingsStore((s) => s.privacyMode);
+  const compressAvailable = Boolean(geminiKey) && !privacyMode;
   const [compressed, setCompressed] = useState<string | null>(null);
   const [aiState, setAiState] = useState<'idle' | 'loading' | 'failed'>('idle');
   const [view, setView] = useState<'original' | 'compressed'>('original');
@@ -94,16 +131,26 @@ export default function PackDialog({
   }, [text]);
 
   const handleCompress = async (): Promise<void> => {
-    if (aiState !== 'idle' || compressed) return;
+    if (aiState !== 'idle' || compressed || !compressAvailable) return;
     setAiState('loading');
     try {
       const { text: result } = await router.quality(buildCompressPackPrompt(text), {
         cache: true,
+        noFallback: true,
+        timeoutMs: COMPRESS_TIMEOUT_MS,
+        maxTokens: COMPRESS_MAX_TOKENS,
       });
       const trimmed = result.trim();
-      // A meaningful compression is shorter than its input; anything else (empty,
-      // refusal prose, echo) counts as failure and silently disables the button.
-      if (trimmed.length === 0 || trimmed.length >= text.length) {
+      // A meaningful compression is shorter than its input but not implausibly so,
+      // and keeps the Personal material verbatim; anything else (empty, refusal
+      // prose, echo, fabricated summary) counts as failure and silently disables
+      // the button.
+      if (
+        trimmed.length === 0 ||
+        trimmed.length >= text.length ||
+        trimmed.length < text.length * MIN_COMPRESSION_RATIO ||
+        !compressionKeepsPersonal(text, trimmed)
+      ) {
         setAiState('failed');
         return;
       }
@@ -253,11 +300,13 @@ export default function PackDialog({
                 <button
                   type="button"
                   onClick={() => void handleCompress()}
-                  disabled={aiState !== 'idle'}
+                  disabled={aiState !== 'idle' || !compressAvailable}
                   title={
-                    aiState === 'failed'
-                      ? t('压缩未成功 — 原文仍然完整可用')
-                      : t('让 AI 压缩 Full Record（置顶与批注原文保留）')
+                    !compressAvailable
+                      ? t('压缩需要云端 AI（Gemini）— 请在设置中配置 key 并关闭隐私模式')
+                      : aiState === 'failed'
+                        ? t('压缩未成功 — 原文仍然完整可用')
+                        : t('让 AI 压缩 Full Record（置顶与批注原文保留）')
                   }
                   className="flex items-center gap-1 rounded-md border border-line bg-paper px-2 py-0.5 text-muted transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:cursor-not-allowed disabled:text-muted/50"
                 >

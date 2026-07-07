@@ -1266,7 +1266,7 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | Always-on desktop floating widget | v1.5 candidate | Overlay window + non-activating-window groundwork already established (capture overlay + v2.9 collect panel) |
 | Pack range selector (pinned only / last N days) | ✅ shipped 2026-07-06 | `filterBlocksForRange` pre-filter in `assemble.ts`; PackDialog 打包范围 pills (全部/仅置顶/近7天/近30天) |
 | Cross-session scroll memory | v1.5 if dogfooding shows gap | `threads.last_scroll_block_id` column |
-| AI pack compression | ✅ shipped 2026-07-06 | `compressPack.ts` prompt (tunable, not §12-locked) + PackDialog AI 压缩 button; deterministic pack stays default, compressed text is a togglable second view |
+| AI pack compression | ✅ shipped 2026-07-06 | `compressPack.ts` prompt (tunable, not §12-locked) + PackDialog AI 压缩 button; deterministic pack stays default, compressed text is a togglable second view. 2026-07-07 revision: Gemini-only via `noFallback` + 120s compression-specific timeout (fallback tiers truncated a 41k-char input and fabricated a ~700-char summary) + result guards (≥15% of original; every note:/sourceless line survives verbatim); button disabled with explanation when Gemini unavailable (no key / privacy mode) |
 | Auto-copy selection on capture | v1.5 | settings option + branch in capture.rs |
 | Source URL capture | v1.5 | same AppleScript path as tab-title; enrich `blocks.source` or add column |
 | @-mention specific block | v1.5 | `ref_block_id` column |

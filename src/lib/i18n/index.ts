@@ -210,6 +210,8 @@ const EN: Record<string, string> = {
   '压缩中…': 'Compressing…',
   '原文': 'Original',
   '压缩版': 'Compressed',
+  '压缩需要云端 AI（Gemini）— 请在设置中配置 key 并关闭隐私模式':
+    'Compression needs cloud AI (Gemini) — add a key in Settings and turn privacy mode off',
   '压缩未成功 — 原文仍然完整可用': 'Compression failed — the original is intact',
   '让 AI 压缩 Full Record（置顶与批注原文保留）':
     'AI-compress the Full Record (pins and notes kept verbatim)',

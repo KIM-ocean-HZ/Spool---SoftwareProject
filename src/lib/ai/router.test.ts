@@ -57,4 +57,14 @@ describe('router fallback', () => {
     ollamaCall.mockRejectedValue(new Error('connection refused'));
     await expect(router.quality('prompt')).rejects.toThrow(/all providers failed/);
   });
+
+  it('noFallback: fails without touching other tiers when the primary fails', async () => {
+    geminiCall.mockRejectedValue(new Error('timeout'));
+    ollamaCall.mockResolvedValue('local output');
+    await expect(router.quality('prompt', { noFallback: true })).rejects.toThrow(
+      /all providers failed/,
+    );
+    expect(ollamaCall).not.toHaveBeenCalled();
+    expect(groqCall).not.toHaveBeenCalled();
+  });
 });
