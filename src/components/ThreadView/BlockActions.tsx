@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useT } from '@/lib/i18n';
 
 interface Props {
   // Drives reveal. Owned by BlockItem's hovered state instead of CSS group-hover so a
@@ -84,27 +85,28 @@ export default function BlockActions({
   onCopy,
   onDelete,
 }: Props) {
+  const t = useT();
   const highlightTitle = !canHighlight
-    ? '先选中要标重点的文字'
+    ? t('先选中要标重点的文字')
     : selectionAlreadyHighlighted
-      ? '取消重点（移除 ==…==）'
-      : '标为重点（包裹 ==选区==）';
+      ? t('取消重点（移除 ==…==）')
+      : t('标为重点（包裹 ==选区==）');
   return (
     <div
       className={`ml-auto flex items-center gap-0.5 transition-opacity ${
         visible ? 'opacity-100' : 'pointer-events-none opacity-0'
       }`}
     >
-      <ActionBtn title={pinned ? '取消置顶' : '置顶'} onClick={onTogglePin} emphasis="accent">
+      <ActionBtn title={pinned ? t('取消置顶') : t('置顶')} onClick={onTogglePin} emphasis="accent">
         {pinned ? <PinOff size={11} /> : <Pin size={11} />}
       </ActionBtn>
-      <ActionBtn title="编辑文本" onClick={onEdit}>
+      <ActionBtn title={t('编辑文本')} onClick={onEdit}>
         <Pencil size={11} />
       </ActionBtn>
-      <ActionBtn title="附加文件" onClick={onAttachFile}>
+      <ActionBtn title={t('附加文件')} onClick={onAttachFile}>
         <Paperclip size={11} />
       </ActionBtn>
-      <ActionBtn title="附加链接" onClick={onAttachUrl}>
+      <ActionBtn title={t('附加链接')} onClick={onAttachUrl}>
         <LinkIcon size={11} />
       </ActionBtn>
       <ActionBtn
@@ -123,13 +125,13 @@ export default function BlockActions({
           }
         />
       </ActionBtn>
-      <ActionBtn title="添加批注" onClick={onAnnotate}>
+      <ActionBtn title={t('添加批注')} onClick={onAnnotate}>
         <MessageSquarePlus size={11} />
       </ActionBtn>
-      <ActionBtn title="复制" onClick={onCopy}>
+      <ActionBtn title={t('复制')} onClick={onCopy}>
         <Copy size={11} />
       </ActionBtn>
-      <ActionBtn title="删除" onClick={onDelete} emphasis="accent">
+      <ActionBtn title={t('删除')} onClick={onDelete} emphasis="accent">
         <Trash2 size={11} />
       </ActionBtn>
     </div>

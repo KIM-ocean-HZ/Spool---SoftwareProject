@@ -1,4 +1,5 @@
 import { AtSign, Trash2 } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 import { useState } from 'react';
 import type { Block } from '@/lib/db/blocks';
 import { formatBlockTime } from '@/lib/utils/time';
@@ -15,13 +16,15 @@ interface Props {
 // thread is gone (deleted / outside any loaded workspace), we fall back to the
 // snapshot in block.content and surface a "(已删除)" hint.
 export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
+  const t = useT();
   const [hovered, setHovered] = useState(false);
 
   const liveTitle = useThreadsStore((s) => {
     if (!block.refThreadId) return null;
     for (const list of Object.values(s.threadsByWorkspace)) {
-      const t = list.find((x) => x.id === block.refThreadId);
-      if (t) return t.title || '（无标题）';
+      const th = list.find((x) => x.id === block.refThreadId);
+      // Untitled falls through as '' so the render layer applies the localized fallback.
+      if (th) return th.title || '';
     }
     return null;
   });
@@ -44,7 +47,7 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
     >
       <div className="flex items-center gap-2 text-[10px] text-muted">
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>
-        <span className="text-muted">引用脉络</span>
+        <span className="text-muted">{t('引用脉络')}</span>
         {!readOnly && onDelete && (
           <div
             className={`ml-auto transition-opacity ${
@@ -54,7 +57,7 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
             <button
               type="button"
               onClick={onDelete}
-              title="删除"
+              title={t('删除')}
               className="rounded p-1 text-muted hover:bg-paper-2 hover:text-accent"
             >
               <Trash2 size={11} />
@@ -66,11 +69,11 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
         type="button"
         onClick={navigate}
         disabled={missing}
-        title={missing ? '原脉络已删除' : '跳转到这条脉络'}
+        title={missing ? t('原脉络已删除') : t('跳转到这条脉络')}
         className="mt-0.5 flex items-center gap-1.5 text-left text-[15px] text-accent transition-colors hover:underline disabled:cursor-default disabled:text-muted disabled:no-underline"
       >
         <AtSign size={14} className="flex-none" />
-        <span className="truncate">{title || '（无标题）'}</span>
+        <span className="truncate">{title || t('（无标题）')}</span>
         {missing && <span className="text-[11px] text-muted">（已删除）</span>}
       </button>
     </article>
