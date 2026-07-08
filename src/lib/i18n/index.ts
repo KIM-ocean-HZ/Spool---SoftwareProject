@@ -297,9 +297,12 @@ const EN: Record<string, string> = {
   'PDF / Word / 纯文本文件被附加时自动读取内容,用于 Pack 输出。完全本地操作,不上传任何数据。':
     'Reads PDF / Word / plain-text attachments for pack output. Fully local, nothing uploaded.',
   'MCP 服务（实验）': 'MCP server (experimental)',
-  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。只读,仅本机。':
-    'Lets MCP-capable AI tools (Claude, Cursor, …) pull thread packs directly — from paste to zero-paste. Read-only, local only.',
+  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
+    'Lets MCP-capable AI tools (Claude, Cursor, …) pull thread packs directly — from paste to zero-paste. Read-only by default, local only.',
   '高级：手动粘贴到其它 MCP 客户端的配置里': 'Advanced: paste into another MCP client’s config',
+  '允许 AI 写入（实验）': 'Allow AI writes (experimental)',
+  'AI 可新建脉络、向脉络追加信息块。写入的块始终带来源标注（如 Claude · MCP），不会伪装成你写的。':
+    'AI can create threads and append blocks. Written blocks always carry a source label (e.g. Claude · MCP) — never disguised as your own writing.',
   '解析可执行路径…': 'Resolving executable path…',
   '✓ 已接入': '✓ Connected',
   '已写入 — 重启后生效': 'Written — restart the client',

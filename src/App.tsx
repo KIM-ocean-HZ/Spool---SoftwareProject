@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import PermissionBanner from '@/components/PermissionBanner';
 import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
@@ -90,6 +90,25 @@ export default function App() {
       }
     })();
   }, [loadSettings]);
+
+  // §20.13: the MCP write tools insert threads/blocks from OUTSIDE this process, so
+  // the stores' in-memory state can go stale while Spool is in the background. Coming
+  // back to the window is the natural "show me what changed" moment — re-pull the
+  // thread list and the active thread's blocks, throttled so rapid focus flips don't
+  // hammer SQLite. Both loads are refresh-safe (selection preserved, rows replaced).
+  const lastFocusReloadRef = useRef(0);
+  useEffect(() => {
+    const onFocus = (): void => {
+      const now = Date.now();
+      if (now - lastFocusReloadRef.current < 3000) return;
+      lastFocusReloadRef.current = now;
+      void useThreadsStore.getState().loadAll();
+      const active = useThreadsStore.getState().activeId;
+      if (active) void useBlocksStore.getState().load(active);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__spool = {

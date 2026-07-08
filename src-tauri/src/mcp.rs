@@ -385,6 +385,18 @@ fn mcp_enabled(dir: &std::path::Path) -> bool {
     v.get("mcpEnabled").and_then(Value::as_bool).unwrap_or(false)
 }
 
+// The 「允许 AI 写入」 sub-toggle (§20.13, default OFF — separate consent from reading:
+// a user happy to expose packs may still not want an external AI inserting rows).
+fn mcp_write_enabled(dir: &std::path::Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(dir.join("settings.json")) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return false;
+    };
+    v.get("mcpWriteEnabled").and_then(Value::as_bool).unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------------------
 // Queries (read-only connection per call — freshness by construction, §20.12 Q4)
 // ---------------------------------------------------------------------------------------
@@ -509,6 +521,173 @@ fn get_pack_text(conn: &Connection, thread_id: &str, range: &str) -> Result<Stri
 }
 
 // ---------------------------------------------------------------------------------------
+// §20.13 write tools (2026-07-08) — create_thread / add_block
+// ---------------------------------------------------------------------------------------
+//
+// Append-only by design: the MCP side may INSERT new threads/blocks (plus bump the
+// parent thread's updated_at) and never UPDATEs or DELETEs user content — Principle 5
+// (AI is a librarian, not an author) is enforced structurally. Every MCP-written block
+// carries a source label naming the client ("Claude Desktop · MCP"), so pack category
+// sorting treats AI-provided material as sourced quotes, never as the user's own
+// sourceless writing. Writes are separately gated by mcpWriteEnabled (default OFF).
+
+// Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
+// Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
+// bugs happens — refuse instead.
+const EXPECTED_SCHEMA_VERSION: i64 = 5;
+
+// Name reported by the client at initialize (clientInfo.name); feeds the source label.
+static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+// nanoid-compatible 21-char id (same default url-safe alphabet as the GUI's nanoid).
+// /dev/urandom instead of a rand crate — no new dependency; the alphabet has exactly
+// 64 symbols so `byte & 0x3F` is bias-free.
+fn new_id() -> Result<String, String> {
+    const ALPHABET: &[u8; 64] =
+        b"useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
+    let mut bytes = [0u8; 21];
+    use std::io::Read;
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .map_err(|e| format!("随机源不可用: {e}"))?;
+    Ok(bytes.iter().map(|b| ALPHABET[(b & 0x3F) as usize] as char).collect())
+}
+
+// Read-write connection for the write tools. Never creates the DB (the GUI owns
+// creation/migration/seeding), takes a 2s busy timeout for WAL coexistence with the
+// running GUI, and refuses any schema version it doesn't know.
+fn open_db_rw(dir: &std::path::Path) -> Result<Connection, String> {
+    let path = dir.join("spool.db");
+    if !path.exists() {
+        return Err("Spool 数据库不存在 — 请先启动一次 Spool 应用。".to_string());
+    }
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+        .map_err(|e| format!("打开数据库失败: {e}"))?;
+    conn.busy_timeout(std::time::Duration::from_millis(2000))
+        .map_err(|e| e.to_string())?;
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if version != EXPECTED_SCHEMA_VERSION {
+        return Err(format!(
+            "数据库 schema 版本 {version} 与本工具支持的 {EXPECTED_SCHEMA_VERSION} 不符 — \
+             请先把 Spool 应用与其 MCP 服务更新到同一版本。为安全起见拒绝写入。"
+        ));
+    }
+    Ok(conn)
+}
+
+// Default source label for MCP-written blocks, e.g. "Claude Desktop · MCP".
+fn mcp_source_label() -> String {
+    match CLIENT_NAME.lock().unwrap().as_deref() {
+        Some(name) if !name.trim().is_empty() => format!("{} · MCP", name.trim()),
+        _ => "MCP".to_string(),
+    }
+}
+
+fn create_thread_json(
+    conn: &Connection,
+    workspace_title: Option<&str>,
+    title: &str,
+    summary: Option<&str>,
+) -> Result<String, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("title 不能为空。".to_string());
+    }
+    let (ws_id, ws_title): (String, String) = match workspace_title {
+        Some(wt) => conn
+            .query_row(
+                "SELECT id, title FROM workspaces
+                 WHERE deleted_at IS NULL AND lower(title) = lower(?1)
+                 ORDER BY sort_order ASC LIMIT 1",
+                [wt.trim()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| {
+                let names: Vec<String> = conn
+                    .prepare(
+                        "SELECT title FROM workspaces WHERE deleted_at IS NULL
+                         ORDER BY sort_order ASC",
+                    )
+                    .and_then(|mut s| {
+                        s.query_map([], |r| r.get::<_, String>(0))
+                            .and_then(|rows| rows.collect())
+                    })
+                    .unwrap_or_default();
+                format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
+            })?,
+        // Default target mirrors the GUI's ordering: the first workspace (收件箱 on a
+        // fresh install).
+        None => conn
+            .query_row(
+                "SELECT id, title FROM workspaces WHERE deleted_at IS NULL
+                 ORDER BY sort_order ASC, created_at ASC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| "没有任何工作区 — 请先在 Spool 里创建一个。".to_string())?,
+    };
+    let id = new_id()?;
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO threads (id, workspace_id, title, summary, status, is_capture_target,
+                              created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'active', 0, ?5, ?5)",
+        rusqlite::params![id, ws_id, title, summary.map(str::trim), now],
+    )
+    .map_err(|e| format!("写入失败: {e}"))?;
+    Ok(json!({ "thread_id": id, "workspace": ws_title, "title": title }).to_string())
+}
+
+fn add_block_json(
+    conn: &mut Connection,
+    thread_id: &str,
+    content: &str,
+    source: Option<&str>,
+    annotation: Option<&str>,
+) -> Result<String, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err("content 不能为空。".to_string());
+    }
+    let deleted: Option<i64> = conn
+        .query_row("SELECT deleted_at FROM threads WHERE id = ?1", [thread_id], |r| r.get(0))
+        .map_err(|_| format!("没有 id 为 {thread_id} 的脉络 — 先用 list_threads 查看有效 id。"))?;
+    if deleted.is_some() {
+        return Err("该脉络已被删除。".to_string());
+    }
+    let id = new_id()?;
+    let now = now_ms();
+    let source = source
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(mcp_source_label);
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
+         VALUES (?1, ?2, 'text', ?3, ?4, ?5, 0, ?6)",
+        rusqlite::params![id, thread_id, content, annotation.map(str::trim), source, now],
+    )
+    .map_err(|e| format!("写入失败: {e}"))?;
+    tx.execute(
+        "UPDATE threads SET updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![now, thread_id],
+    )
+    .map_err(|e| format!("写入失败: {e}"))?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(json!({ "block_id": id, "thread_id": thread_id, "source": source }).to_string())
+}
+
+// ---------------------------------------------------------------------------------------
 // JSON-RPC / MCP loop
 // ---------------------------------------------------------------------------------------
 
@@ -537,6 +716,37 @@ fn tools_descriptor() -> Value {
                 "required": ["thread_id"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "create_thread",
+            "description": "Create a new thread (project) in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string", "description": "Thread title, short and specific." },
+                    "workspace_title": { "type": "string", "description": "Optional workspace to file it under (matched by name, case-insensitive). Omit for the user's default (first) workspace." },
+                    "summary": { "type": "string", "description": "Optional one-line status summary." }
+                },
+                "required": ["title"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "add_block",
+            "description": "Append one text block to an existing thread — e.g. a conclusion or key finding from this conversation the user wants kept. The block is attributed to this AI client via its source label (never pass yourself off as the user). Keep it to the ONE thing worth keeping; do not bulk-import chat logs. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Thread id from list_threads / create_thread." },
+                    "content": { "type": "string", "description": "The block text." },
+                    "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
+                    "source": { "type": "string", "description": "Optional source label override; defaults to '<client> · MCP'." }
+                },
+                "required": ["thread_id", "content"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -560,9 +770,8 @@ fn handle_tool_call(params: &Value) -> Value {
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
 
     let run = || -> Result<String, String> {
-        let conn = open_db(&dir)?;
         match name {
-            "list_threads" => list_threads_json(&conn),
+            "list_threads" => list_threads_json(&open_db(&dir)?),
             "get_pack" => {
                 let thread_id = args
                     .get("thread_id")
@@ -572,7 +781,35 @@ fn handle_tool_call(params: &Value) -> Value {
                 if !RANGE_VALUES.contains(&range) {
                     return Err(format!("range 必须是 {RANGE_VALUES:?} 之一。"));
                 }
-                get_pack_text(&conn, thread_id, range)
+                get_pack_text(&open_db(&dir)?, thread_id, range)
+            }
+            "create_thread" | "add_block" => {
+                if !mcp_write_enabled(&dir) {
+                    return Err(
+                        "Spool 未允许 MCP 写入。请在 Spool → 设置 → 通用 → 「MCP 服务」\
+                         打开「允许 AI 写入」后重试。"
+                            .to_string(),
+                    );
+                }
+                let mut conn = open_db_rw(&dir)?;
+                if name == "create_thread" {
+                    create_thread_json(
+                        &conn,
+                        args.get("workspace_title").and_then(Value::as_str),
+                        args.get("title").and_then(Value::as_str).ok_or("缺少 title 参数。")?,
+                        args.get("summary").and_then(Value::as_str),
+                    )
+                } else {
+                    add_block_json(
+                        &mut conn,
+                        args.get("thread_id")
+                            .and_then(Value::as_str)
+                            .ok_or("缺少 thread_id 参数。")?,
+                        args.get("content").and_then(Value::as_str).ok_or("缺少 content 参数。")?,
+                        args.get("source").and_then(Value::as_str),
+                        args.get("annotation").and_then(Value::as_str),
+                    )
+                }
             }
             other => Err(format!("未知工具: {other}")),
         }
@@ -689,6 +926,17 @@ pub fn configure_client(client: &str) -> Result<String, String> {
     Ok("written".into())
 }
 
+// The §17 compress instruction, ported from src/lib/ai/prompts/compressPack.ts (a
+// tunable prompt, not §12-locked). Sync discipline: if the TS prompt's rules change,
+// mirror them here — the two should stay semantically identical, though this one is
+// executed by the CLIENT's model (§20.13: borrow the third-party AI's capability),
+// not by Spool's own router.
+fn compress_prompt_text(pack_text: &str) -> String {
+    format!(
+        "你是一个上下文压缩工具。下面是一份由 Spool 生成的项目上下文简报,它太长了。把它压缩成一份更短但信息完整的版本,供粘贴给另一个 AI 使用。\n\n# 原始简报\n{pack_text}\n\n# 规则\n1. 完整保留文档骨架,以下部分一字不改地照抄:开头的 \"# Project Context\" 标题块、\"## How to Read This Context\" 整节、\"## Pinned Blocks\" 整节、\"## Related Files & Links\" 整节、\"## Output Language\" 整节,以及任何 \"---\" 之后的任务指令块\n2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段\n4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n5. 压缩要克制:目标是去冗余,不是缩成提要。压缩版整体长度一般应在原文的四分之一到二分之一;拿不准该不该删的内容就保留\n6. 直接输出压缩后的完整简报——不要前言、解释或代码块标记"
+    )
+}
+
 fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => {
@@ -698,20 +946,69 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2024-11-05");
+            // Remember who's connected — feeds the write tools' source label.
+            if let Some(name) = params
+                .get("clientInfo")
+                .and_then(|c| c.get("name"))
+                .and_then(Value::as_str)
+            {
+                *CLIENT_NAME.lock().unwrap() = Some(name.to_string());
+            }
             Ok(json!({
                 "protocolVersion": proto,
-                "capabilities": { "tools": {} },
+                "capabilities": { "tools": {}, "prompts": {} },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. Use list_threads to discover projects, then get_pack to pull one thread's full context briefing before helping with it."
+                "instructions": "Spool (思簿) is the user's local context hub. Use list_threads to discover projects, then get_pack to pull one thread's full context briefing before helping with it. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back (writes must be enabled in Spool's settings)."
             }))
         }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools_descriptor() })),
         "tools/call" => Ok(handle_tool_call(params)),
-        // Claude Desktop probes these even though initialize only declares tools.
-        // Empty lists are safer than -32601: some client builds surface the error.
+        // Claude Desktop probes resources/list even though we don't declare it.
+        // An empty list is safer than -32601: some client builds surface the error.
         "resources/list" => Ok(json!({ "resources": [] })),
-        "prompts/list" => Ok(json!({ "prompts": [] })),
+        // §20.13: the compress prompt runs on the CLIENT's model — Spool provides the
+        // §17 instruction + the pack, the connected AI does the compression.
+        "prompts/list" => Ok(json!({
+            "prompts": [{
+                "name": "compress_pack",
+                "description": "Compress one Spool thread's context pack using this AI (keeps the skeleton and all user notes/highlights verbatim; deduplicates the Full Record).",
+                "arguments": [
+                    { "name": "thread_id", "description": "Thread id from list_threads.", "required": true },
+                    { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
+                ]
+            }]
+        })),
+        "prompts/get" => {
+            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+            if name != "compress_pack" {
+                return Err((-32602, format!("unknown prompt: {name}")));
+            }
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let thread_id = args
+                .get("thread_id")
+                .and_then(Value::as_str)
+                .ok_or((-32602, "缺少 thread_id 参数。".to_string()))?;
+            let range = args.get("range").and_then(Value::as_str).unwrap_or("all");
+            if !RANGE_VALUES.contains(&range) {
+                return Err((-32602, format!("range 必须是 {RANGE_VALUES:?} 之一。")));
+            }
+            let text = (|| -> Result<String, String> {
+                let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+                if !mcp_enabled(&dir) {
+                    return Err("Spool 的 MCP 服务未开启。".to_string());
+                }
+                get_pack_text(&open_db(&dir)?, thread_id, range)
+            })()
+            .map_err(|e| (-32603, e))?;
+            Ok(json!({
+                "description": "Compress this Spool pack per the embedded rules.",
+                "messages": [{
+                    "role": "user",
+                    "content": { "type": "text", "text": compress_prompt_text(&text) }
+                }]
+            }))
+        }
         _ => Err((-32601, format!("method not found: {method}"))),
     }
 }
@@ -869,6 +1166,74 @@ mod tests {
         assert_eq!(s.len(), 16);
         assert_eq!(&s[4..5], "-");
         assert_eq!(&s[13..14], ":");
+    }
+
+    // §20.13 write tools: exercise the pure write path against a scratch DB built
+    // from the real schema (compile-time include, so schema drift breaks the test).
+    #[test]
+    fn write_tools_create_and_append() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let db = tmp.join("spool.db");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Version guard: an unknown schema refuses read-write access outright.
+        let bad = tmp.join("bad");
+        std::fs::create_dir_all(&bad).unwrap();
+        let c = Connection::open(bad.join("spool.db")).unwrap();
+        c.execute_batch("PRAGMA user_version = 99; CREATE TABLE x(y);").unwrap();
+        drop(c);
+        assert!(open_db_rw(&bad).unwrap_err().contains("schema"));
+
+        let mut conn = open_db_rw(&tmp).unwrap();
+
+        // create_thread: default workspace resolution + row shape.
+        let out = create_thread_json(&conn, None, "MCP 写入测试", Some("一句摘要")).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let tid = v["thread_id"].as_str().unwrap().to_string();
+        assert_eq!(tid.len(), 21);
+        assert_eq!(v["workspace"], "收件箱");
+        // unknown workspace errors and names the available ones
+        let err = create_thread_json(&conn, Some("不存在"), "x", None).unwrap_err();
+        assert!(err.contains("收件箱"));
+
+        // add_block: appends attributed content and bumps the thread's updated_at.
+        *CLIENT_NAME.lock().unwrap() = Some("TestClient".into());
+        let before: i64 = conn
+            .query_row("SELECT updated_at FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
+            .unwrap();
+        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注")).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["source"], "TestClient · MCP");
+        let (content, source, annotation): (String, String, String) = conn
+            .query_row(
+                "SELECT content, source, annotation FROM blocks WHERE id = ?1",
+                [v["block_id"].as_str().unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(content, "结论内容");
+        assert_eq!(source, "TestClient · MCP");
+        assert_eq!(annotation, "批注");
+        let after: i64 = conn
+            .query_row("SELECT updated_at FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
+            .unwrap();
+        assert!(after >= before);
+        // deleted / missing thread refuses
+        assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
+        // empty content refuses
+        assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
     }
 
     // One test on purpose: it redirects HOME to a temp dir, and env vars are

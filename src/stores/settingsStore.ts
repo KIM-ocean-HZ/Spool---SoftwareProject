@@ -18,6 +18,7 @@ type PersistableKey =
   | 'searchShortcut'
   | 'autoExtractAttachments'
   | 'mcpEnabled'
+  | 'mcpWriteEnabled'
   | 'language';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
@@ -38,6 +39,10 @@ interface SettingsState {
   // §20.12: gates the `spool --mcp` stdio server's tools. Default OFF; the --mcp
   // subprocess reads this straight from settings.json (it runs outside the webview).
   mcpEnabled: boolean;
+  // §20.13: separate consent for the MCP write tools (create_thread / add_block).
+  // Default OFF — reading packs and letting an external AI insert rows are different
+  // trust levels. Also read straight from settings.json by the --mcp subprocess.
+  mcpWriteEnabled: boolean;
   // UI language. 'zh' is the product default (§18 rule 11); 'en' switches every
   // surface via the lib/i18n dictionary. Persisted; other windows re-read on change.
   language: 'zh' | 'en';
@@ -84,6 +89,7 @@ const KEYS: PersistableKey[] = [
   'searchShortcut',
   'autoExtractAttachments',
   'mcpEnabled',
+  'mcpWriteEnabled',
   'language',
 ];
 
@@ -97,6 +103,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,
+  mcpWriteEnabled: false,
   language: 'zh',
   loaded: false,
   panelOpen: false,

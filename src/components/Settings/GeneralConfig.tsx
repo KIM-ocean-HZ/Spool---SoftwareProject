@@ -25,6 +25,7 @@ export default function GeneralConfig() {
   const setLaunchAtLogin = useSettingsStore((s) => s.setLaunchAtLogin);
   const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
+  const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
   const language = useSettingsStore((s) => s.language);
   const update = useSettingsStore((s) => s.update);
   const [confirming, setConfirming] = useState(false);
@@ -162,11 +163,28 @@ export default function GeneralConfig() {
           <div className="min-w-0">
             <div className="text-sm text-ink">{t('MCP 服务（实验）')}</div>
             <div className="mt-0.5 text-xs text-muted">
-              {t('让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。只读,仅本机。')}
+              {t('让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。默认只读,仅本机。')}
             </div>
           </div>
           <Toggle checked={mcpEnabled} onChange={(v) => void update({ mcpEnabled: v })} />
         </div>
+        {/* §20.13 write consent (2026-07-08): separate sub-toggle — reading packs and
+            letting an external AI insert rows are different trust levels. The --mcp
+            subprocess reads it straight from settings.json at each call. */}
+        {mcpEnabled && (
+          <div className="mt-2 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm text-ink">{t('允许 AI 写入（实验）')}</div>
+              <div className="mt-0.5 text-xs text-muted">
+                {t('AI 可新建脉络、向脉络追加信息块。写入的块始终带来源标注（如 Claude · MCP），不会伪装成你写的。')}
+              </div>
+            </div>
+            <Toggle
+              checked={mcpWriteEnabled}
+              onChange={(v) => void update({ mcpWriteEnabled: v })}
+            />
+          </div>
+        )}
         {/* One-click hookup rows (2026-07-07). Visible even while the toggle is off —
             the button flips it on as part of the same click. */}
         <ul className="mt-2 space-y-1">
