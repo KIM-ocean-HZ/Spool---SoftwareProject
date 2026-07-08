@@ -73,7 +73,7 @@ export default function ThreadView() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <p className="font-serif text-3xl italic text-muted">a quiet hub</p>
-          <p className="mt-3 text-xs text-muted">{t('从左侧选一条脉络，或新建一个')}</p>
+          <p className="mt-3 text-xs text-muted">{t('从左侧选一条脉络，或按 ⌘N 新建')}</p>
         </div>
       </div>
     );

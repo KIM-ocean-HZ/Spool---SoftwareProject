@@ -57,11 +57,13 @@ const EN: Record<string, string> = {
   '界面出错了': 'Something went wrong',
   '重新加载': 'Reload',
 
-  // Input Monitoring onboarding banner (2026-07-07)
-  '双击 ⌥ 捕捉需要「输入监听」权限 — 授权后请重启 Spool':
-    'Double-tap ⌥ capture needs the Input Monitoring permission — restart Spool after granting',
-  '已授权 — 重启 Spool 后双击 ⌥ 生效':
-    'Granted — double-tap ⌥ works after restarting Spool',
+  // Input Monitoring onboarding banner (2026-07-07; stale-grant recovery 2026-07-08)
+  '双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开':
+    'Double-tap ⌥ capture needs the Input Monitoring permission — after granting, fully quit Spool (tray icon → Quit) and reopen',
+  '已授权 — 完全退出 Spool（托盘图标 → 退出）并重新打开后生效':
+    'Granted — takes effect after fully quitting Spool (tray icon → Quit) and reopening',
+  '已授权却仍看到本条？旧授权可能已失效：在系统设置的列表中选中 Spool 按 − 删除，完全退出并重新打开 Spool，允许新弹窗后再退出重启一次。':
+    'Granted but still seeing this? The old grant may be stale: select Spool in the System Settings list and press − to remove it, fully quit and reopen Spool, allow the new prompt, then quit and restart once more.',
   '打开系统设置': 'Open System Settings',
 
   // Sidebar
@@ -259,14 +261,15 @@ const EN: Record<string, string> = {
   '重点': 'Highlights',
   '松开以新建第一个块': 'Release to create the first block',
   '松开以新建一个块': 'Release to create a block',
-  '双击': 'Double-tap',
-  '捕捉第一条信息，或在下方直接写。': 'to capture your first piece, or write below.',
+  '⌘C 复制后双击': 'Copy with ⌘C, then double-tap',
+  '捕捉第一条信息；长按': 'to capture your first piece; long-press',
+  '连续收集；或在下方直接写。': 'to collect in batches; or write below.',
   '排序': 'Sort',
   '按时间': 'By time',
   '按来源': 'By source',
   '查看更早的 {n} 条': 'Show {n} earlier blocks',
   'Spool 渲染崩了': 'Spool hit a rendering error',
-  '从左侧选一条脉络，或新建一个': 'Pick a thread on the left, or create one',
+  '从左侧选一条脉络，或按 ⌘N 新建': 'Pick a thread on the left, or press ⌘N to create one',
   '{n}天后': 'in {n}d',
   // Thread content size footnote (2026-07-07)
   '{n} 字': '{n} chars',
@@ -389,6 +392,8 @@ const EN: Record<string, string> = {
   '系统拒绝了该快捷键：{msg}': 'The system rejected this shortcut: {msg}',
   '按键中…': 'Press keys…',
   '捕捉快捷键': 'Capture shortcut',
+  '内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板；长按 ⌥ 打开收集面板。以下快捷键可自定义。':
+    'Built-in gestures: within 10 s of copying (⌘C), double-tap ⌥ to capture the clipboard; long-press ⌥ to open the collect panel. The shortcuts below are customizable.',
   '可选 — 双击 ⌥ 之外的备用捕捉键': 'Optional — a fallback capture key besides double-tap ⌥',
   '未设置': 'Not set',
   '清除捕捉快捷键': 'Clear the capture shortcut',

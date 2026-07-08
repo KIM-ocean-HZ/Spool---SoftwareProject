@@ -120,6 +120,11 @@ export default function ShortcutConfig() {
 
   return (
     <div>
+      {/* The two built-in ⌥ gestures are not configurable, so they have no recorder row —
+          this note is their only mention in the UI (copy-gate: double_tap.rs). */}
+      <p className="pt-1.5 text-xs leading-relaxed text-muted">
+        {t('内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板；长按 ⌥ 打开收集面板。以下快捷键可自定义。')}
+      </p>
       {row(
         'capture',
         t('捕捉快捷键'),

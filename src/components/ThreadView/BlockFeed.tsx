@@ -355,11 +355,15 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
           </p>
         ) : (
           <p className="text-center text-sm italic text-muted">
-            {t('双击')}{' '}
+            {t('⌘C 复制后双击')}{' '}
             <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
               ⌥
             </kbd>{' '}
-            {t('捕捉第一条信息，或在下方直接写。')}
+            {t('捕捉第一条信息；长按')}{' '}
+            <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
+              ⌥
+            </kbd>{' '}
+            {t('连续收集；或在下方直接写。')}
           </p>
         )}
       </div>
