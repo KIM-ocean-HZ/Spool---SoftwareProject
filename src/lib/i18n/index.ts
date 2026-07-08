@@ -388,6 +388,7 @@ const EN: Record<string, string> = {
   '捕捉快捷键': 'Capture shortcut',
   '可选 — 双击 ⌥ 之外的备用捕捉键': 'Optional — a fallback capture key besides double-tap ⌥',
   '未设置': 'Not set',
+  '清除捕捉快捷键': 'Clear the capture shortcut',
   '搜索快捷键': 'Search shortcut',
   '打开全文搜索': 'Open full-text search',
   '按下新的组合键，或按 Esc 取消': 'Press a new combination, or Esc to cancel',

@@ -63,6 +63,24 @@ export default function ShortcutConfig() {
     return () => window.removeEventListener('keydown', handler, true);
   }, [recording, captureShortcut, searchShortcut, update]);
 
+  // Unbind the capture shortcut (2026-07-08): capture is optional (double-tap ⌥ is
+  // the trigger), so once recorded it must also be removable. Search stays mandatory —
+  // no clear affordance there.
+  const clearCapture = (): void => {
+    setError(null);
+    setRecording(null);
+    void (async () => {
+      try {
+        await invoke('set_shortcuts', { capture: null, search: searchShortcut });
+        await update({ captureShortcut: null });
+      } catch (err) {
+        setError(
+          t('系统拒绝了该快捷键：{msg}', { msg: err instanceof Error ? err.message : String(err) }),
+        );
+      }
+    })();
+  };
+
   const row = (field: Field, label: string, hint: string, accel: string | null) => {
     const isRec = recording === field;
     return (
@@ -71,19 +89,31 @@ export default function ShortcutConfig() {
           <div className="text-sm text-ink">{label}</div>
           <div className="mt-0.5 text-xs text-muted">{hint}</div>
         </div>
-        <button
-          onClick={() => {
-            setError(null);
-            setRecording(isRec ? null : field);
-          }}
-          className={`min-w-[92px] flex-none rounded-md border px-3 py-1.5 text-center font-mono text-sm transition-colors ${
-            isRec
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-line-strong bg-paper text-ink hover:border-accent'
-          }`}
-        >
-          {isRec ? t('按键中…') : accel ? formatAccelerator(accel) : t('未设置')}
-        </button>
+        <div className="flex flex-none items-center gap-1">
+          <button
+            onClick={() => {
+              setError(null);
+              setRecording(isRec ? null : field);
+            }}
+            className={`min-w-[92px] flex-none rounded-md border px-3 py-1.5 text-center font-mono text-sm transition-colors ${
+              isRec
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-line-strong bg-paper text-ink hover:border-accent'
+            }`}
+          >
+            {isRec ? t('按键中…') : accel ? formatAccelerator(accel) : t('未设置')}
+          </button>
+          {field === 'capture' && accel && !isRec && (
+            <button
+              onClick={clearCapture}
+              aria-label={t('清除捕捉快捷键')}
+              title={t('清除捕捉快捷键')}
+              className="rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
     );
   };
