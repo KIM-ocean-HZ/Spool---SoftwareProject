@@ -590,7 +590,7 @@ Blocks persist immediately on creation. Workspace/thread metadata edits, block c
 ### 9.4 Global Shortcut Capture (full design §10)
 
 Three capture triggers in v1:
-- **Primary**: **double-tap ⌥ within 500ms** — macOS CGEventTap on `FlagsChanged`, hardware event timestamps. Decoupled from ⌘C.
+- **Primary**: **double-tap ⌥ within 500ms** — macOS CGEventTap on `FlagsChanged`, hardware event timestamps. 2026-07-08 copy-gate: with Input Monitoring granted, the double-tap only captures when a ⌘C/⌘X keydown was seen within the last 10s — it re-couples the trigger to the §10.2 "copy and remember" model on purpose, so Claude Desktop's identical quick-entry gesture keeps the bare double-tap. Without the grant the gate is bypassed (keyDown is invisible to an unprivileged tap and the conflict cannot occur in-app).
 - **Fallback (revised 2026-07-07)**: user-bound global shortcut — **no default binding** (⌘⇧C retired per Ocean). When recorded in Settings it behaves as before: OS-level, always active.
 - **Collect-mode trigger (v2.9, §20.9)**: **long-press ⌥ ≥600ms** — opens the persistent staging panel. While the panel is open, subsequent ⌥-captures append to the panel; the user-bound capture shortcut (if recorded; no default since 2026-07-07) still does direct DB-write as escape hatch.
 

@@ -93,6 +93,31 @@ fn click_outside_overlay(px: f64, py: f64) -> bool {
 const KEYCODE_OPT_LEFT: i64 = 58;
 const KEYCODE_OPT_RIGHT: i64 = 61;
 
+// kVK_ANSI_C / kVK_ANSI_X — positional virtual key codes for the copy/cut chords.
+// Positional, so a non-QWERTY layout that relocates the letter C is not covered —
+// acceptable: the product's mental model is literally "⌘C 然后双击 ⌥" (§10.2).
+const KEYCODE_C: i64 = 8;
+const KEYCODE_X: i64 = 7;
+
+// Copy-gate (2026-07-08): Claude Desktop's quick-entry popup ALSO triggers on a
+// double-tap of ⌥, so a bare double-tap is ambiguous on machines running both. The
+// capture mental model is "copy, then remember" (§10.2) — so Spool only treats a
+// double-tap as capture when a ⌘C/⌘X was seen within this window; otherwise the
+// double-tap is ignored and whatever else listens for it (Claude's popup) has the
+// gesture to itself. Trade-off, documented: a copy made via a context menu (no
+// keystroke) does not arm the gate — press ⌘C and double-tap again.
+const COPY_GATE_WINDOW_MS: u64 = 10_000;
+
+// CGEventGetTimestamp (ns) of the last observed ⌘C/⌘X keydown; 0 = never.
+static LAST_COPY_CHORD_NS: AtomicU64 = AtomicU64::new(0);
+
+// Whether the copy-gate is enforced. Only true when Input Monitoring was granted at
+// install time: without the grant the tap cannot see keyDown AT ALL (verified — even
+// own-process synthetic ⌘C never arrives), so the gate could never arm and in-app
+// double-tap capture would silently die. Ungranted also means no global events, so
+// the Claude-popup conflict the gate exists for cannot happen — bypassing is safe.
+static COPY_GATE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 // Two ⌥ taps within this window count as a double-tap. Matches the macOS system
 // double-click default; reliable at this tight value because the interval is measured
 // from hardware timestamps, not from (latency-prone) callback delivery time.
@@ -179,11 +204,13 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
     // and fire the one-shot system prompt when missing; install the tap either way so
     // double-tap keeps working inside Spool immediately, and a fresh grant takes
     // effect on the next launch.
-    if !unsafe { CGPreflightListenEventAccess() } {
+    let mut granted = unsafe { CGPreflightListenEventAccess() };
+    if !granted {
         eprintln!("[double-tap] Input Monitoring NOT granted — showing system prompt");
-        let granted = unsafe { CGRequestListenEventAccess() };
+        granted = unsafe { CGRequestListenEventAccess() };
         eprintln!("[double-tap] Input Monitoring request returned granted={granted}");
     }
+    COPY_GATE_ACTIVE.store(granted, Ordering::Relaxed);
 
     // Callback runs on the run-loop thread. Captures `app` (Clone + Send + Sync);
     // LAST_OPT_PRESS_NS is the only shared mutable state — atomic, no locks.
@@ -232,6 +259,19 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                     // means the self-heal didn't stick. Surface a single notice — a
                     // user-defined capture shortcut (if bound) keeps working.
                     let _ = app_for_cb.emit("capture-disabled", reason);
+                }
+            }
+            CGEventType::KeyDown => {
+                // Copy-gate bookkeeping: remember when a ⌘C/⌘X chord was last pressed.
+                // Repeats (key held) refresh the stamp harmlessly.
+                let keycode =
+                    event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+                if (keycode == KEYCODE_C || keycode == KEYCODE_X)
+                    && event.get_flags().contains(CGEventFlags::CGEventFlagCommand)
+                {
+                    let now =
+                        unsafe { CGEventGetTimestamp(event.as_ptr() as *const c_void) };
+                    LAST_COPY_CHORD_NS.store(now, Ordering::Relaxed);
                 }
             }
             CGEventType::FlagsChanged => {
@@ -286,8 +326,26 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
                     // CGEventGetTimestamp is nanoseconds — straight /1e6 to ms.
                     let gap = now.saturating_sub(prev) / NANOS_PER_MS;
                     if gap <= DOUBLE_TAP_WINDOW_MS {
-                        eprintln!("[double-tap] TRIGGER gap={gap}ms");
-                        let _ = app.emit("capture-trigger", ());
+                        // Copy-gate (see COPY_GATE_WINDOW_MS): only a double-tap that
+                        // follows a recent ⌘C/⌘X is a capture; a bare one is left to
+                        // Claude Desktop's identical quick-entry gesture. The gesture
+                        // mechanics (reset + press-id marking) run in both branches so
+                        // long-press / single-tap behavior is unchanged either way.
+                        let copied = LAST_COPY_CHORD_NS.load(Ordering::Relaxed);
+                        let copy_gap_ms = now.saturating_sub(copied) / NANOS_PER_MS;
+                        if !COPY_GATE_ACTIVE.load(Ordering::Relaxed)
+                            || (copied != 0 && copy_gap_ms <= COPY_GATE_WINDOW_MS)
+                        {
+                            eprintln!(
+                                "[double-tap] TRIGGER gap={gap}ms (⌘C {copy_gap_ms}ms ago)"
+                            );
+                            let _ = app.emit("capture-trigger", ());
+                        } else {
+                            eprintln!(
+                                "[double-tap] double-tap IGNORED — no ⌘C/⌘X within \
+                                 {COPY_GATE_WINDOW_MS}ms (copy-gate)"
+                            );
+                        }
                         // Reset so a third tap doesn't immediately re-trigger off the
                         // second tap's timestamp.
                         LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
@@ -362,12 +420,21 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
         CGEventTapPlacement::HeadInsertEventTap,
         CGEventTapOptions::ListenOnly,
         // FlagsChanged (⌥ double-tap / long-press) + LeftMouseDown (§9.13 click-outside
-        // dismiss). Per Apple docs, TapDisabledByTimeout and TapDisabledByUserInput are
-        // delivered to every tap regardless of the mask — and including them PANICS at
-        // startup because their numeric values (0xFFFFFFFE / 0xFFFFFFFF) overflow
-        // core-graphics 0.23.2's `1 << ev as u64` mask builder. The callback still
-        // handles them when they arrive automatically.
-        vec![CGEventType::FlagsChanged, CGEventType::LeftMouseDown],
+        // dismiss) + KeyDown (⌘C/⌘X copy-gate, 2026-07-08 — only when Input Monitoring
+        // is granted: an unprivileged tap never receives keyDown, and asking for it
+        // provoked a TapDisabledByUserInput in testing). Per Apple docs,
+        // TapDisabledByTimeout and TapDisabledByUserInput are delivered to every tap
+        // regardless of the mask — and including them PANICS at startup because their
+        // numeric values (0xFFFFFFFE / 0xFFFFFFFF) overflow core-graphics 0.23.2's
+        // `1 << ev as u64` mask builder. The callback still handles them when they
+        // arrive automatically.
+        {
+            let mut evs = vec![CGEventType::FlagsChanged, CGEventType::LeftMouseDown];
+            if granted {
+                evs.push(CGEventType::KeyDown);
+            }
+            evs
+        },
         callback,
     ) {
         Ok(t) => t,
