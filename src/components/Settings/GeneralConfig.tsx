@@ -60,7 +60,7 @@ export default function GeneralConfig() {
     try {
       if (!mcpEnabled) await update({ mcpEnabled: true });
       const s = await invoke<McpClientStatus>('configure_mcp_client', { client });
-      setClientStatus((prev) => ({ ...prev, [client]: s === 'written' ? 'written' : s }));
+      setClientStatus((prev) => ({ ...prev, [client]: s }));
     } catch (e) {
       setConnectError(e instanceof Error ? e.message : String(e));
     } finally {
