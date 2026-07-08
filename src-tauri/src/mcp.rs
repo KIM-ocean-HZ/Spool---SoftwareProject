@@ -414,7 +414,8 @@ fn list_threads_json(conn: &Connection) -> Result<String, String> {
     let mut stmt = conn
         .prepare(
             "SELECT t.id, t.title, t.status, t.updated_at, w.title,
-                    (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id)
+                    (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id),
+                    t.summary
              FROM threads t JOIN workspaces w ON w.id = t.workspace_id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
              ORDER BY w.sort_order ASC, w.created_at ASC, t.updated_at DESC",
@@ -429,12 +430,122 @@ fn list_threads_json(conn: &Connection) -> Result<String, String> {
                 "updated_at": format_pack_time(r.get::<_, i64>(3)?),
                 "workspace": r.get::<_, String>(4)?,
                 "blocks": r.get::<_, i64>(5)?,
+                // §20.13 v2: the one-liner serves "list with summaries" without a
+                // heavyweight get_pack (and without a separate get_thread_meta tool).
+                "summary": r.get::<_, Option<String>>(6)?,
             }))
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| e.to_string())?;
     serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())
+}
+
+// §20.13 v2: keyword retrieval — "which thread does this belong to". Mirrors the GUI
+// search (src/lib/search/query.ts, §9.10) exactly: ≥3 codepoints → phrase-quoted
+// trigram FTS5 MATCH ranked by rank; 1–2 codepoints → LIKE scan ordered by recency
+// (trigram cannot match shorter queries). Soft-deleted threads/workspaces excluded.
+const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created_at,
+                           t.title, w.title";
+const SEARCH_DEFAULT_LIMIT: i64 = 20;
+const SEARCH_MAX_LIMIT: i64 = 50;
+
+fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Result<String, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("query 不能为空。".to_string());
+    }
+    let limit = limit.unwrap_or(SEARCH_DEFAULT_LIMIT).clamp(1, SEARCH_MAX_LIMIT);
+    let row_to_json = |r: &rusqlite::Row| -> rusqlite::Result<Value> {
+        let content: String = r.get(2)?;
+        let annotation: Option<String> = r.get(3)?;
+        Ok(json!({
+            "block_id": r.get::<_, String>(0)?,
+            "thread_id": r.get::<_, String>(1)?,
+            "snippet": snippet_around(&content, query),
+            "annotation": annotation,
+            "created_at": format_pack_time(r.get::<_, i64>(4)?),
+            "thread_title": r.get::<_, String>(5)?,
+            "workspace": r.get::<_, String>(6)?,
+        }))
+    };
+    let collect = |sql: &str, arg: &str| -> Result<Vec<Value>, String> {
+        let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![arg, limit], |r| row_to_json(r))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<Value>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(rows)
+    };
+    let rows = if query.chars().count() >= 3 {
+        let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+        collect(
+            &format!(
+                "SELECT {SEARCH_COLS} FROM blocks_fts
+                 JOIN blocks b ON b.rowid = blocks_fts.rowid
+                 JOIN threads t ON t.id = b.thread_id
+                 JOIN workspaces w ON w.id = t.workspace_id
+                 WHERE blocks_fts MATCH ?1 AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+                 ORDER BY rank LIMIT ?2"
+            ),
+            &phrase,
+        )?
+    } else {
+        let escaped = query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        collect(
+            &format!(
+                "SELECT {SEARCH_COLS} FROM blocks b
+                 JOIN threads t ON t.id = b.thread_id
+                 JOIN workspaces w ON w.id = t.workspace_id
+                 WHERE (b.content LIKE ?1 ESCAPE '\\' OR b.annotation LIKE ?1 ESCAPE '\\')
+                   AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+                 ORDER BY b.created_at DESC LIMIT ?2"
+            ),
+            &format!("%{escaped}%"),
+        )?
+    };
+    serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())
+}
+
+// ±80 chars of context around the first case-insensitive hit in content (annotation
+// hits are visible via the returned annotation field). Char-based scan, so no UTF-8
+// boundary risk; O(n·m) is fine at block sizes.
+const SNIPPET_CONTEXT_CHARS: usize = 80;
+
+fn snippet_around(content: &str, query: &str) -> String {
+    let hay: Vec<char> = content.chars().collect();
+    let hay_lc: Vec<char> = content.to_lowercase().chars().collect();
+    let needle: Vec<char> = query.to_lowercase().chars().collect();
+    // to_lowercase can change length for a handful of scripts; fall back to a plain
+    // head-of-content snippet rather than risk misaligned indices.
+    let hit = (hay.len() == hay_lc.len() && !needle.is_empty() && needle.len() <= hay_lc.len())
+        .then(|| {
+            hay_lc
+                .windows(needle.len())
+                .position(|w| w == needle.as_slice())
+        })
+        .flatten();
+    let (start, end) = match hit {
+        Some(i) => (
+            i.saturating_sub(SNIPPET_CONTEXT_CHARS),
+            (i + needle.len() + SNIPPET_CONTEXT_CHARS).min(hay.len()),
+        ),
+        // No content hit (annotation-only match, or lowercasing bailed): lead of content.
+        None => (0, (2 * SNIPPET_CONTEXT_CHARS).min(hay.len())),
+    };
+    let mut s = String::new();
+    if start > 0 {
+        s.push('…');
+    }
+    s.extend(&hay[start..end]);
+    if end < hay.len() {
+        s.push('…');
+    }
+    s
 }
 
 fn get_pack_text(conn: &Connection, thread_id: &str, range: &str) -> Result<String, String> {
@@ -518,6 +629,39 @@ fn get_pack_text(conn: &Connection, thread_id: &str, range: &str) -> Result<Stri
         .map_err(|e| e.to_string())?;
 
     Ok(assemble_pack(&title, &blocks, &attachments, &ref_titles, now_ms))
+}
+
+// §20.13 v2 resources probe: threads as MCP resources (spool://thread/<id>) so clients
+// with native resource UX (@-mention in Claude Desktop) can pull a pack without a tool
+// call. Listed newest-activity first; the pack text itself is served by resources/read.
+const THREAD_URI_PREFIX: &str = "spool://thread/";
+
+fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.title, t.summary, w.title
+             FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+             ORDER BY t.updated_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            let id: String = r.get(0)?;
+            let title: String = r.get(1)?;
+            let summary: Option<String> = r.get(2)?;
+            let workspace: String = r.get(3)?;
+            Ok(json!({
+                "uri": format!("{THREAD_URI_PREFIX}{id}"),
+                "name": if title.is_empty() { "（无标题）".to_string() } else { title },
+                "description": summary.filter(|s| !s.trim().is_empty()).unwrap_or(workspace),
+                "mimeType": "text/plain",
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<Value>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -718,6 +862,20 @@ fn tools_descriptor() -> Value {
             }
         },
         {
+            "name": "search_blocks",
+            "description": "Keyword-search every block (content + user annotations) across all threads. Use this to find WHICH thread a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns snippets with block/thread ids, newest-relevant first.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Keyword or phrase. 1–2 characters fall back to a substring scan." },
+                    "limit": { "type": "integer", "description": "Max hits, default 20, cap 50." }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "create_thread",
             "description": "Create a new thread (project) in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
@@ -772,6 +930,12 @@ fn handle_tool_call(params: &Value) -> Value {
     let run = || -> Result<String, String> {
         match name {
             "list_threads" => list_threads_json(&open_db(&dir)?),
+            "search_blocks" => {
+                let query =
+                    args.get("query").and_then(Value::as_str).ok_or("缺少 query 参数。")?;
+                let limit = args.get("limit").and_then(Value::as_i64);
+                search_blocks_json(&open_db(&dir)?, query, limit)
+            }
             "get_pack" => {
                 let thread_id = args
                     .get("thread_id")
@@ -956,17 +1120,46 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
             }
             Ok(json!({
                 "protocolVersion": proto,
-                "capabilities": { "tools": {}, "prompts": {} },
+                "capabilities": { "tools": {}, "prompts": {}, "resources": { "listChanged": true } },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. Use list_threads to discover projects, then get_pack to pull one thread's full context briefing before helping with it. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back (writes must be enabled in Spool's settings)."
+                "instructions": "Spool (思簿) is the user's local context hub. Use list_threads to discover projects (search_blocks finds which thread covers a topic), then get_pack to pull one thread's full context briefing before helping with it. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back (writes must be enabled in Spool's settings)."
             }))
         }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools_descriptor() })),
         "tools/call" => Ok(handle_tool_call(params)),
-        // Claude Desktop probes resources/list even though we don't declare it.
-        // An empty list is safer than -32601: some client builds surface the error.
-        "resources/list" => Ok(json!({ "resources": [] })),
+        // §20.13 v2 resources probe: threads as native @-mentionable resources. When
+        // the toggle is off (or the data dir is unreachable) answer an EMPTY list, not
+        // an error — Claude Desktop probes this even for undeclared servers, and some
+        // client builds surface errors to the user.
+        "resources/list" => {
+            let resources = (|| -> Option<Vec<Value>> {
+                let dir = app_data_dir()?;
+                if !mcp_enabled(&dir) {
+                    return None;
+                }
+                thread_resources(&open_db(&dir).ok()?).ok()
+            })()
+            .unwrap_or_default();
+            Ok(json!({ "resources": resources }))
+        }
+        "resources/read" => {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            let thread_id = uri
+                .strip_prefix(THREAD_URI_PREFIX)
+                .ok_or((-32602, format!("未知资源 uri: {uri}")))?;
+            let text = (|| -> Result<String, String> {
+                let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+                if !mcp_enabled(&dir) {
+                    return Err("Spool 的 MCP 服务未开启。".to_string());
+                }
+                get_pack_text(&open_db(&dir)?, thread_id, "all")
+            })()
+            .map_err(|e| (-32603, e))?;
+            Ok(json!({
+                "contents": [{ "uri": uri, "mimeType": "text/plain", "text": text }]
+            }))
+        }
         // §20.13: the compress prompt runs on the CLIENT's model — Spool provides the
         // §17 instruction + the pack, the connected AI does the compression.
         "prompts/list" => Ok(json!({
@@ -1046,6 +1239,19 @@ pub fn run() {
         let mut out = stdout.lock();
         if writeln!(out, "{response}").and_then(|()| out.flush()).is_err() {
             break; // client closed the pipe
+        }
+        // §20.13 v2: a successful write changes the resources list (new thread) and
+        // its ordering (new block bumps updated_at) — tell listChanged-capable clients.
+        let tool = params.get("name").and_then(Value::as_str).unwrap_or("");
+        if method == "tools/call"
+            && matches!(tool, "create_thread" | "add_block")
+            && response["result"]["isError"].as_bool() == Some(false)
+        {
+            let note =
+                json!({ "jsonrpc": "2.0", "method": "notifications/resources/list_changed" });
+            if writeln!(out, "{note}").and_then(|()| out.flush()).is_err() {
+                break;
+            }
         }
     }
     eprintln!("[mcp] stdin closed; exiting");
@@ -1234,6 +1440,72 @@ mod tests {
         assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
         // empty content refuses
         assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
+    }
+
+    // §20.13 v2: search (FTS + LIKE parity with §9.10) and the resources probe, on a
+    // scratch DB seeded through the write tools (so the FTS triggers are exercised).
+    #[test]
+    fn search_blocks_and_thread_resources() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-search-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let out = create_thread_json(&conn, None, "检索目标", Some("摘要一句")).unwrap();
+        let tid = serde_json::from_str::<Value>(&out).unwrap()["thread_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"))
+            .unwrap();
+
+        // FTS path (≥3 codepoints): hit, with snippet and thread coordinates.
+        let hits: Vec<Value> =
+            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None).unwrap()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["thread_id"], tid.as_str());
+        assert_eq!(hits[0]["thread_title"], "检索目标");
+        assert!(hits[0]["snippet"].as_str().unwrap().contains("调参结论"));
+        assert_eq!(hits[0]["annotation"], "再核对");
+
+        // LIKE path (2 codepoints), including annotation matches.
+        let hits: Vec<Value> =
+            serde_json::from_str(&search_blocks_json(&conn, "核对", None).unwrap()).unwrap();
+        assert_eq!(hits.len(), 1);
+        // No hit → empty array, not an error; blank query → error.
+        let none: Vec<Value> =
+            serde_json::from_str(&search_blocks_json(&conn, "不存在的词", None).unwrap()).unwrap();
+        assert!(none.is_empty());
+        assert!(search_blocks_json(&conn, "  ", None).is_err());
+
+        // list_threads carries the one-liner summary (v2).
+        let listed: Vec<Value> =
+            serde_json::from_str(&list_threads_json(&conn).unwrap()).unwrap();
+        assert_eq!(listed[0]["summary"], "摘要一句");
+
+        // Resources probe: uri shape, summary as description.
+        let res = thread_resources(&conn).unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0]["uri"], format!("{THREAD_URI_PREFIX}{tid}"));
+        assert_eq!(res[0]["name"], "检索目标");
+        assert_eq!(res[0]["description"], "摘要一句");
+
+        // Soft-deleted threads vanish from both search and resources.
+        conn.execute("UPDATE threads SET deleted_at = 2 WHERE id = ?1", [&tid]).unwrap();
+        let gone: Vec<Value> =
+            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None).unwrap()).unwrap();
+        assert!(gone.is_empty());
+        assert!(thread_resources(&conn).unwrap().is_empty());
     }
 
     // One test on purpose: it redirects HOME to a temp dir, and env vars are
