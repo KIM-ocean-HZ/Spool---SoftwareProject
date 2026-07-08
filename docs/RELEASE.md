@@ -59,7 +59,27 @@ ls src-tauri/target/release/bundle/macos/   # Spool.app
 - **Windows 构建**：`targets: all` 下 Windows 产物未签名；Windows 分发另需
   代码签名证书，当前不在范围内。
 
-## 5. 法务/内容配套
+## 5. 开发期签名与 TCC（2026-07-08）
+
+- **为什么**：macOS 的 TCC 授权（输入监听等）绑定到二进制的代码签名 designated
+  requirement。ad-hoc 签名的 DR 就是 CDHash 本身，每次重编译都变——于是每装一个
+  新构建，已授予的输入监听就失效（系统设置里开关看着还开着，但 preflight 返回
+  false；2026-07-08 实测踩坑，恢复步骤已写进主窗口引导条）。
+- **做法**：`tauri.conf.json` → `bundle.macOS.signingIdentity: "Spool Dev"`。
+  "Spool Dev" 是本机登录钥匙串里的自签代码签名证书（2026-07-08 创建）。用固定
+  证书签名后 DR 锚定到证书而非 CDHash，重编译不再打断授权（切换签名身份后的
+  **第一个**构建仍需按引导条重授权一次）。
+- **与正式发布的关系**：§1 的 `APPLE_SIGNING_IDENTITY` 环境变量在发布时覆盖此
+  配置（Developer ID 优先）。首次正式发布时用
+  `codesign -dvv src-tauri/target/release/bundle/macos/Spool.app` 验证 Authority
+  确实是 Developer ID；若未覆盖，临时把 signingIdentity 改为 Developer ID 串。
+- **换机重建证书**：钥匙串访问 → 证书助理 → 创建证书（名称 Spool Dev / 自签名根
+  证书 / 类型选**代码签名**）；或 openssl 生成后
+  `openssl pkcs12 -export -legacy` 再 `security import ... -T /usr/bin/codesign`
+  并 `security add-trusted-cert -p codeSign <crt>`（macOS 的 security 不认
+  OpenSSL 3 默认加密的 p12，必须 `-legacy`）。
+
+## 6. 法务/内容配套
 
 - 隐私政策：`docs/PRIVACY.md`（发布页/官网需可访问链接）
 - 字体许可：Geist / Geist Mono / Fraunces 均为 OFL，许可文本随源码在
