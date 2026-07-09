@@ -123,7 +123,6 @@ export default function ThreadView() {
       {completeOpen && (
         <CompleteThreadPanel
           thread={thread}
-          blocks={blocks}
           onClose={() => setCompleteOpen(false)}
         />
       )}

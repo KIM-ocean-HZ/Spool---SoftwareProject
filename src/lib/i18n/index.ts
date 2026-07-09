@@ -107,10 +107,7 @@ const EN: Record<string, string> = {
   '写一句话摘要…': 'Write a one-line summary…',
   '＋ 写一句话摘要': '+ Write a one-line summary',
   '写一句话摘要': 'Write a one-line summary',
-  '正在生成摘要…': 'Generating summary…',
   '点击编辑摘要': 'Click to edit summary',
-  '未配置 AI。可到设置配置，或在此手动写一句。':
-    'No AI configured. Set it up in Settings, or write one here.',
 
   // Composer / mention
   '写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用脉络）':
@@ -208,15 +205,6 @@ const EN: Record<string, string> = {
   '复制到剪贴板': 'Copy to clipboard',
   '已复制': 'Copied',
   '{packed} / {total} 块 · {chars} 字符': '{packed} / {total} blocks · {chars} chars',
-  'AI 压缩': 'AI compress',
-  '压缩中…': 'Compressing…',
-  '原文': 'Original',
-  '压缩版': 'Compressed',
-  '压缩需要云端 AI（Gemini）— 请在设置中配置 key 并关闭隐私模式':
-    'Compression needs cloud AI (Gemini) — add a key in Settings and turn privacy mode off',
-  '压缩未成功 — 原文仍然完整可用': 'Compression failed — the original is intact',
-  '让 AI 压缩 Full Record（置顶与批注原文保留）':
-    'AI-compress the Full Record (pins and notes kept verbatim)',
 
   // Search
   '搜索所有工作区与脉络的内容…': 'Search all workspaces and threads…',
@@ -236,9 +224,6 @@ const EN: Record<string, string> = {
   '下一个匹配 (⌘G / ↵)': 'Next match (⌘G / ↵)',
   '下一个匹配': 'Next match',
   '全局快捷键': 'Global shortcuts',
-  'AI 服务': 'AI services',
-  '今日用量': 'Today’s usage',
-  '本地 Ollama 不计用量;计数仅本次运行内有效。': 'Local Ollama is unmetered; counts reset each run.',
   '浏览器自动化权限': 'Browser automation access',
 
   // Complete / digest
@@ -274,8 +259,8 @@ const EN: Record<string, string> = {
   // Thread content size footnote (2026-07-07)
   '{n} 字': '{n} chars',
   '{n} 字 · 内容较多': '{n} chars · getting long',
-  '内容过多可能导致打包不准确 — 点击打包，可选择范围或使用压缩':
-    'This much content can make packs less accurate — click to pack with a range or compression',
+  '内容过多可能导致打包不准确 — 点击打包，可选择范围':
+    'This much content can make packs less accurate — click to pack with a range',
   '全部块内容 + 批注 + 已加入 Pack 的附件文本':
     'All block content + annotations + attachment text included in packs',
   '今天': 'today',
@@ -351,12 +336,6 @@ const EN: Record<string, string> = {
   '打开 Spool': 'Open Spool',
   '退出 Spool': 'Quit Spool',
 
-  // Route suggestion
-  '看起来这条属于「': 'This looks like it belongs in “',
-  '」，移过去？': '” — move it there?',
-  '移过去': 'Move it',
-  '不用': 'No thanks',
-
   // Collect panel
   '正在收集': 'Collecting',
   '已加入': 'Added',
@@ -407,14 +386,4 @@ const EN: Record<string, string> = {
     'The first capture from a browser makes macOS ask for Automation access. When granted, captures show the tab title as their source; otherwise just the browser name. Click "Test" to re-trigger the prompt.',
   '测试中…': 'Testing…',
   '测试': 'Test',
-  '✓ 有效': '✓ Valid',
-  '✗ 无效': '✗ Invalid',
-  'console.groq.com · 用于捕捉分类': 'console.groq.com · used for capture classification',
-  'aistudio.google.com · 用于状态/结论摘要': 'aistudio.google.com · used for status / conclusion summaries',
-  'Ollama 端点': 'Ollama endpoint',
-  'Ollama 模型': 'Ollama model',
-  '选择模型': 'Choose model',
-  '未检测到本地模型 — 确认 Ollama 正在运行': 'No local model detected — make sure Ollama is running',
-  '隐私模式': 'Privacy mode',
-  '所有 AI 仅走本地；无本地模型时入口隐藏': 'AI runs locally only; entry points hide without a local model',
 };

@@ -3,7 +3,6 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Forward, Pin, RotateCcw, RotateCw, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import RouteSuggestion from '@/components/Capture/RouteSuggestion';
 import type { Block } from '@/lib/db/blocks';
 import {
   createBlock,
@@ -115,9 +114,6 @@ export default function CaptureOverlay() {
   const [threadsByWs, setThreadsByWs] = useState<Record<string, Thread[]>>({});
   const [hover, setHover] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // True while a RouteSuggestion bubble is showing — pauses auto-dismiss so the
-  // user can actually act on it (§11.5).
-  const [suggestionActive, setSuggestionActive] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   // v2.8 §20.6: pin/note expansion. The toast's default state is byte-for-byte the
   // glanceable card; pin + annotation controls appear ONLY after a deliberate click
@@ -155,13 +151,10 @@ export default function CaptureOverlay() {
   // is always visible regardless of attribution-line wrap or expansion state.
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // The overlay window has its own JS context, so it must load settings + probe
-  // Ollama itself for RouteSuggestion's isAiAvailable() gate.
+  // The overlay window has its own JS context, so it must load settings itself
+  // (language, …).
   useEffect(() => {
-    void (async () => {
-      await useSettingsStore.getState().load();
-      await useSettingsStore.getState().detectOllama();
-    })();
+    void useSettingsStore.getState().load();
   }, []);
 
   const refresh = async (): Promise<void> => {
@@ -191,7 +184,6 @@ export default function CaptureOverlay() {
         setContent({ kind: 'toast', data: e.payload });
         setHover(false);
         setPickerOpen(false);
-        setSuggestionActive(false);
         // v2.8 §20.6: each fresh capture starts collapsed and resets pin/note state —
         // a previous expansion never bleeds into the next capture.
         setExpanded(false);
@@ -219,7 +211,6 @@ export default function CaptureOverlay() {
         setContent({ kind: 'notice', data: e.payload });
         setHover(false);
         setPickerOpen(false);
-        setSuggestionActive(false);
       });
       if (cancelled) dispose();
       else unlisten = dispose;
@@ -240,7 +231,6 @@ export default function CaptureOverlay() {
         setContent({ kind: 'undo', data: e.payload });
         setHover(false);
         setPickerOpen(false);
-        setSuggestionActive(false);
         setExpanded(false);
       });
       if (cancelled) dispose();
@@ -279,7 +269,7 @@ export default function CaptureOverlay() {
   // shorter timeout since there's nothing to interact with on them.
   useEffect(() => {
     if (!content) return;
-    if (hover || pickerOpen || suggestionActive || expanded) return;
+    if (hover || pickerOpen || expanded) return;
     const ms =
       content.kind === 'notice'
         ? NOTICE_AUTO_DISMISS_MS
@@ -291,7 +281,7 @@ export default function CaptureOverlay() {
       hideOverlay();
     }, ms);
     return () => clearTimeout(t);
-  }, [content, hover, pickerOpen, suggestionActive, expanded]);
+  }, [content, hover, pickerOpen, expanded]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -468,28 +458,6 @@ export default function CaptureOverlay() {
     setPickerOpen(false);
     setContent(null);
     hideOverlay();
-  };
-
-  // The user accepted a RouteSuggestion: the block's thread_id is already updated
-  // and the cross-window action emitted by RouteSuggestion. Here we just re-point
-  // the toast's "已存入" attribution to the destination thread.
-  const onSuggestionMoved = (target: {
-    threadId: string;
-    threadTitle: string;
-    workspaceTitle: string;
-  }): void => {
-    setContent((current) => {
-      if (!current || current.kind !== 'toast') return current;
-      return {
-        kind: 'toast',
-        data: {
-          ...current.data,
-          threadId: target.threadId,
-          threadTitle: target.threadTitle,
-          workspaceTitle: target.workspaceTitle,
-        },
-      };
-    });
   };
 
   // v2.8 §20.6: pin the just-captured block from the expanded toast. Local state
@@ -694,14 +662,6 @@ export default function CaptureOverlay() {
           )}
         </div>
       </div>
-
-      <RouteSuggestion
-        key={toast.blockId}
-        toast={toast}
-        workspaces={workspaces}
-        onMoved={onSuggestionMoved}
-        onActiveChange={setSuggestionActive}
-      />
     </div>
   );
 }

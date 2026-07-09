@@ -2,12 +2,9 @@ import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-r
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
-import { router } from '@/lib/ai/router';
-import { buildStatusPrompt } from '@/lib/ai/prompts/summarizeStatus';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread, ThreadStatus } from '@/lib/db/threads';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { isAiAvailable, useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 export type ThreadViewMode = 'log' | 'digest';
@@ -31,8 +28,8 @@ const STATUS_OPTIONS: { value: ThreadStatus; label: string; cls: string }[] = [
 // Quiet "this thread is getting long" threshold, in characters (block content +
 // annotations + pack-included attachment text — i.e. what actually lands in a pack).
 // ~20k chars is roughly the paste size mainstream chat models digest reliably in one
-// go; past it pack fidelity degrades and the range selector / compression (§17) are
-// the right tools, so the counter turns --status-parked and click opens PackDialog.
+// go; past it pack fidelity degrades and the range selector (§17) is the right tool,
+// so the counter turns --status-parked and click opens PackDialog.
 const CONTENT_WARN_THRESHOLD = 20_000;
 
 // Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
@@ -105,27 +102,18 @@ export default function ThreadHeader({
   const setSummary = useThreadsStore((s) => s.setSummary);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
   const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
-  const aiAvailable = useSettingsStore(isAiAvailable);
 
   const [title, setTitle] = useDebouncedField(thread.title, thread.id, (v) =>
     void patch(thread.id, { title: v }),
   );
 
-  // Status summary (§9.11). Disposable decoration (§6.3): auto-generated once in the
-  // background, user-editable, silently absent when it can't be produced.
-  const [summarizing, setSummarizing] = useState(false);
+  // Status summary (§9.11) — the thread's "catalogue card". Written by hand here, or
+  // by a connected MCP client via set_thread_summary; never auto-generated in-app.
   const [editingSummary, setEditingSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState(thread.summary ?? '');
-  // Shown once, inline, when the user reaches for the summary affordance but AI is off.
-  const [aiHint, setAiHint] = useState(false);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
-  // Fires the auto-generate at most once per thread (per session) so block changes can't
-  // re-trigger it mid-flight; keyed by the thread id we attempted.
-  const attemptedRef = useRef<string | null>(null);
   // Skips the trailing debounce when Esc abandons an edit.
   const summaryCanceledRef = useRef(false);
-
-  const nonRefBlockCount = blocks.reduce((n, b) => (b.kind !== 'ref' ? n + 1 : n), 0);
 
   // Total character count of what a pack of this thread would carry (see
   // CONTENT_WARN_THRESHOLD). Summing a few hundred strings is nanosecond-scale;
@@ -145,9 +133,7 @@ export default function ThreadHeader({
   }, [blocks, attachmentsByBlock]);
 
   useEffect(() => {
-    setSummarizing(false);
     setEditingSummary(false);
-    setAiHint(false);
   }, [thread.id]);
 
   useEffect(() => {
@@ -161,37 +147,6 @@ export default function ThreadHeader({
       el.setSelectionRange(el.value.length, el.value.length);
     }
   }, [editingSummary]);
-
-  // Auto-generate once on open (§9.11), background + non-blocking + silent on failure
-  // (§18.9). Only when there's no summary yet, the thread is active, AI is available, and
-  // there are ≥2 non-ref blocks to summarize. Routes Quality→Local with the LRU cache
-  // (§6.5). Generate-once: no staleness tracking, no auto-regeneration.
-  useEffect(() => {
-    if (thread.status === 'done') return;
-    if (thread.summary != null && thread.summary !== '') return;
-    if (editingSummary) return;
-    if (!aiAvailable) return;
-    if (nonRefBlockCount < 2) return;
-    if (attemptedRef.current === thread.id) return;
-    attemptedRef.current = thread.id;
-    const tid = thread.id;
-    setSummarizing(true);
-    void (async () => {
-      try {
-        const { text } = await router.quality(
-          buildStatusPrompt(thread, blocks as Block[], attachmentsByBlock),
-          { cache: true },
-        );
-        const trimmed = text.trim();
-        if (trimmed) await setSummary(tid, trimmed);
-      } catch {
-        // §6.3 / §18.9: silent degradation — no toast, no error styling.
-      } finally {
-        if (attemptedRef.current === tid) setSummarizing(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thread.id, thread.status, thread.summary, aiAvailable, nonRefBlockCount, editingSummary]);
 
   // Inline edit: click the summary (or the "write one" affordance) → debounced save (§8.3).
   useEffect(() => {
@@ -208,17 +163,14 @@ export default function ThreadHeader({
     summaryCanceledRef.current = false;
     setSummaryDraft(thread.summary ?? '');
     setEditingSummary(true);
-    if (!aiAvailable) setAiHint(true);
   };
   const commitSummary = (): void => {
     setEditingSummary(false);
-    setAiHint(false);
   };
   const cancelSummary = (): void => {
     summaryCanceledRef.current = true;
     setSummaryDraft(thread.summary ?? '');
     setEditingSummary(false);
-    setAiHint(false);
   };
 
   return (
@@ -281,39 +233,32 @@ export default function ThreadHeader({
         </button>
       </div>
 
-      {/* Status summary — visually subordinate/optional (§9.11). Click to edit; auto-fills
-          in the background when AI is available; a quiet affordance when it's empty so the
-          area is never just blank. Hidden for done threads (digest takes over). */}
+      {/* Status summary — visually subordinate/optional (§9.11). Click to edit; a quiet
+          affordance when it's empty so the area is never just blank. Hidden for done
+          threads (digest takes over). */}
       {thread.status !== 'done' && (
         <div className="mt-1.5">
           {editingSummary ? (
-            <>
-              <textarea
-                ref={summaryRef}
-                value={summaryDraft}
-                onChange={(e) => setSummaryDraft(e.target.value)}
-                onBlur={commitSummary}
-                onKeyDown={(e) => {
-                  if (isImeComposing(e.nativeEvent)) return;
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    commitSummary();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    cancelSummary();
-                  }
-                }}
-                rows={2}
-                placeholder={t('写一句话摘要…')}
-                spellCheck={false}
-                className="w-full resize-none bg-transparent text-xs italic leading-snug text-ink-2 outline-none placeholder:text-muted/50"
-              />
-              {aiHint && !aiAvailable && (
-                <p className="text-[11px] text-muted/80">
-                  {t('未配置 AI。可到设置配置，或在此手动写一句。')}
-                </p>
-              )}
-            </>
+            <textarea
+              ref={summaryRef}
+              value={summaryDraft}
+              onChange={(e) => setSummaryDraft(e.target.value)}
+              onBlur={commitSummary}
+              onKeyDown={(e) => {
+                if (isImeComposing(e.nativeEvent)) return;
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  commitSummary();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelSummary();
+                }
+              }}
+              rows={2}
+              placeholder={t('写一句话摘要…')}
+              spellCheck={false}
+              className="w-full resize-none bg-transparent text-xs italic leading-snug text-ink-2 outline-none placeholder:text-muted/50"
+            />
           ) : thread.summary ? (
             <button
               onClick={enterSummaryEdit}
@@ -322,8 +267,6 @@ export default function ThreadHeader({
             >
               {thread.summary}
             </button>
-          ) : summarizing ? (
-            <p className="text-xs italic text-muted/70">{t('正在生成摘要…')}</p>
           ) : (
             <button
               onClick={enterSummaryEdit}
@@ -402,14 +345,14 @@ export default function ThreadHeader({
 
         {/* Content size (2026-07-07): quiet by design (§2.5) — a mono footnote, no
             popup. Over the threshold it turns --status-parked and becomes a shortcut
-            into PackDialog, where range selection / compression solve the problem. */}
+            into PackDialog, where range selection solves the problem. */}
         {charCount > 0 &&
           (charCount > CONTENT_WARN_THRESHOLD ? (
             <button
               onClick={onPack}
               className="font-mono text-[11px] transition-opacity hover:opacity-80"
               style={{ color: 'var(--status-parked)' }}
-              title={t('内容过多可能导致打包不准确 — 点击打包，可选择范围或使用压缩')}
+              title={t('内容过多可能导致打包不准确 — 点击打包，可选择范围')}
             >
               {t('{n} 字 · 内容较多', { n: charCount.toLocaleString('en-US') })}
             </button>

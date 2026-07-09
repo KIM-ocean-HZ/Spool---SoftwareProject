@@ -1,8 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
-import { DAILY_LIMITS, useQuotaStore } from '@/stores/quotaStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import AiConfig from './AiConfig';
 import BrowserAutomation from './BrowserAutomation';
 import GeneralConfig from './GeneralConfig';
 import ShortcutConfig from './ShortcutConfig';
@@ -20,29 +18,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function QuotaBar({ label, used, limit }: { label: string; used: number; limit: number }) {
-  const pct = Math.min(100, Math.round((used / limit) * 100));
-  return (
-    <div className="py-1.5">
-      <div className="flex items-baseline justify-between text-xs">
-        <span className="text-ink">{label}</span>
-        <span className="font-mono text-muted">
-          {used} / {limit}
-        </span>
-      </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-paper-2">
-        <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
 export default function Settings() {
   const t = useT();
   const open = useSettingsStore((s) => s.panelOpen);
   const close = useSettingsStore((s) => s.closePanel);
-  const groqUsed = useQuotaStore((s) => s.groq);
-  const geminiUsed = useQuotaStore((s) => s.gemini);
 
   useEffect(() => {
     if (!open) return;
@@ -79,16 +58,6 @@ export default function Settings() {
         <div className="flex-1 overflow-y-auto">
           <Section title={t('全局快捷键')}>
             <ShortcutConfig />
-          </Section>
-          <Section title={t('AI 服务')}>
-            <AiConfig />
-          </Section>
-          <Section title={t('今日用量')}>
-            <QuotaBar label="Groq" used={groqUsed} limit={DAILY_LIMITS.groq} />
-            <QuotaBar label="Gemini" used={geminiUsed} limit={DAILY_LIMITS.gemini} />
-            <p className="mt-1.5 text-xs text-muted">
-              {t('本地 Ollama 不计用量;计数仅本次运行内有效。')}
-            </p>
           </Section>
           <Section title={t('浏览器自动化权限')}>
             <BrowserAutomation />

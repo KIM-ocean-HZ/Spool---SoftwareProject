@@ -76,8 +76,6 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await loadSettings();
-      // AI entry points gate on whether a local model exists; probe once at startup.
-      void useSettingsStore.getState().detectOllama();
       void useSettingsStore.getState().loadAutostart();
       // v2.7: backfill text extraction for legacy file attachments (§9.6). Runs after
       // settings load so it honours the auto-extract switch; background, never blocks UI.
