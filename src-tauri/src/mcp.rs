@@ -45,6 +45,9 @@ const SECTION_LOG: &str = "## Full Record (chronological)";
 const SECTION_FILES: &str = "## Related Files & Links";
 
 const EMPTY_PINNED_LINE: &str = "(no pinned blocks)";
+// 2026-07-09 (P0-3): pinned blocks render in full only in Pinned Blocks; their Full
+// Record slot is this placeholder. Mirrors templates.ts PINNED_SEE_ABOVE.
+const PINNED_SEE_ABOVE: &str = "(pinned — full text in \"Pinned Blocks\" above)";
 const EMPTY_LOG_LINE: &str = "(no blocks yet)";
 const UNKNOWN_THREAD: &str = "(unknown thread)";
 
@@ -262,6 +265,16 @@ fn render_block(
     lines
 }
 
+// Mirrors assemble.ts renderPinnedPlaceholder — a pinned block's chronological slot.
+fn render_pinned_placeholder(b: &BlockRow) -> String {
+    let time = format_pack_time(b.created_at);
+    let bracket = match b.source.as_deref() {
+        Some(src) if b.kind != "ref" => format!("{time}{SOURCE_MARKER}{src}"),
+        _ => time,
+    };
+    format!("{PINNED_PREFIX}[{bracket}] {PINNED_SEE_ABOVE}")
+}
+
 // §17 range filter — port of filterBlocksForRange (assemble.ts).
 pub fn filter_blocks_for_range(blocks: Vec<BlockRow>, range: &str, now_ms: i64) -> Vec<BlockRow> {
     match range {
@@ -312,7 +325,11 @@ pub fn assemble_pack(
         out.push(EMPTY_LOG_LINE.to_string());
     } else {
         for b in blocks {
-            out.extend(render_block(b, attachments, ref_titles));
+            if b.pinned {
+                out.push(render_pinned_placeholder(b));
+            } else {
+                out.extend(render_block(b, attachments, ref_titles));
+            }
         }
     }
 

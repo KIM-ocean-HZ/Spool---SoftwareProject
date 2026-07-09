@@ -67,12 +67,7 @@ Substrings wrapped in `==…==` inside any block above are sentence-level key po
 
 ## Full Record (chronological)
 
-📌 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==
-    note: 一直没懂为什么要除 sqrt(d_k) 查了三篇讲解还是模糊
-    ↳ attached file: attention.pdf (pdf)
-      Attention Is All You Need
-      第一行
-      第二行
+📌 [2025-05-06 15:00 · from Claude] (pinned — full text in "Pinned Blocks" above)
 [2025-06-05 06:06 · from Safari] 课程要求:期末项目要复现一篇 2024 年后的论文
 截止 4 月 30 日
 占总分 40%

@@ -28,6 +28,10 @@ export const SECTION_FILES = '## Related Files & Links';
 export const EMPTY_PINNED_LINE = '(no pinned blocks)';
 export const EMPTY_LOG_LINE = '(no blocks yet)';
 export const UNKNOWN_THREAD = '(unknown thread)';
+// 2026-07-09: pinned blocks render in full ONLY in the Pinned Blocks section; their
+// Full Record slot is this one-line placeholder (they were duplicated verbatim before,
+// inflating large packs by the size of every pinned block).
+export const PINNED_SEE_ABOVE = '(pinned — full text in "Pinned Blocks" above)';
 
 // --- Top of the pack --------------------------------------------------------------------
 export const PACK_HEADER = (title: string, dateStr: string, blockCount: number): string =>

@@ -17,6 +17,7 @@ import {
   PACK_HEADER,
   PACK_TEMPLATES,
   PINNED_PREFIX,
+  PINNED_SEE_ABOVE,
   REF_MARKER,
   SECTION_FILES,
   SECTION_LOG,
@@ -157,6 +158,16 @@ const renderBlock = (
   return lines;
 };
 
+// 2026-07-09: a pinned block's Full Record slot — same time/source bracket for the
+// chronology, but the body (plus note/attachments) lives only in Pinned Blocks above.
+// Before this, pinned blocks appeared verbatim twice per pack.
+const renderPinnedPlaceholder = (b: Block): string => {
+  const time = formatPackTime(b.createdAt);
+  const bracket =
+    b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
+  return `${PINNED_PREFIX}[${bracket}] ${PINNED_SEE_ABOVE}`;
+};
+
 // Pure function. No await, no fetch, no DB calls — this is the §6.4 hot path. The
 // four-category instruction header is static text inlined verbatim from templates.ts;
 // the receiving AI does the actual classification at consumption time.
@@ -196,14 +207,18 @@ export function assemble({
   }
 
   // Full Record: every block in chronological order. A block's annotation and its
-  // attachments are listed indented beneath it.
+  // attachments are listed indented beneath it. Pinned blocks keep their chronological
+  // slot as a one-line placeholder — their full text renders once, above.
   out.push('');
   out.push(SECTION_LOG);
   out.push('');
   if (blocks.length === 0) {
     out.push(EMPTY_LOG_LINE);
   } else {
-    for (const b of blocks) out.push(...renderBlock(b, byBlock, refTitles));
+    for (const b of blocks) {
+      if (b.pinned) out.push(renderPinnedPlaceholder(b));
+      else out.push(...renderBlock(b, byBlock, refTitles));
+    }
   }
 
   // Related Files & Links: every attachment in the thread, collected so the user can
