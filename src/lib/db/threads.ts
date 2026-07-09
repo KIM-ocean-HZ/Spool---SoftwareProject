@@ -128,6 +128,13 @@ export const updateThread = async (id: string, patch: ThreadPatch): Promise<numb
     sets.push(`${cols[k]} = $${i++}`);
     values.push(patch[k] as unknown);
   }
+  // Summary provenance: every GUI write is the user's (the app has no AI path since the
+  // 2026-07-09 MCP-first pivot). A hand-written summary locks out MCP overwrites; clearing
+  // it resets provenance so an MCP client may fill the empty card again.
+  if ('summary' in patch) {
+    sets.push(`summary_source = $${i++}`);
+    values.push(patch.summary != null ? 'user' : null);
+  }
   const now = Date.now();
   // Always bump updated_at — even an empty patch is meaningful ("this thread saw
   // activity"), which is how the capture path re-sorts the target thread to the top.

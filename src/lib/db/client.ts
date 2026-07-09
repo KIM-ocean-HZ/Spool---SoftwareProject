@@ -10,7 +10,7 @@ export const UNSORTED_THREAD_TITLE = '未分类';
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 // Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
 // attachments → blocks → threads → workspaces. Indexes and the blocks_* FTS
@@ -151,6 +151,21 @@ const MIGRATIONS: Migration[] = [
         );
       } catch (e) {
         console.info('[db] include_in_pack: not added (likely exists)', e);
+      }
+    },
+  },
+  {
+    // MCP-first pivot (2026-07-09): summary provenance. NULL on legacy rows — treated
+    // like 'user' by the MCP guard, so an existing summary is protected until the user
+    // clears it or an MCP write claims a fresh one.
+    from: 5,
+    to: 6,
+    name: 'add-thread-summary-source',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE threads ADD COLUMN summary_source TEXT');
+      } catch (e) {
+        console.info('[db] summary_source: not added (likely exists)', e);
       }
     },
   },

@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS threads (
   id                 TEXT PRIMARY KEY,
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title              TEXT NOT NULL DEFAULT '',
-  summary            TEXT,                        -- active-stage AI status summary (optional)
+  summary            TEXT,                        -- active-stage status summary (optional)
+  summary_source     TEXT,                        -- 'user' | 'mcp' | NULL; MCP never overwrites a non-'mcp' summary
   digest             TEXT,                        -- conclusion summary at completion (optional, may be empty)
   deadline           INTEGER,                     -- optional, ms epoch
   status             TEXT NOT NULL DEFAULT 'active', -- active | parked | done

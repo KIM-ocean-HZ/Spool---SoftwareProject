@@ -33,12 +33,13 @@ const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
 // Rewind a current-schema database to the historical v2 shape: threads regain the
-// rolled-back progress/next_step columns; attachments lose all four extraction-era
-// columns (v3→4 added three, v4→5 added include_in_pack).
+// rolled-back progress/next_step columns and lose summary_source (v5→6); attachments
+// lose all four extraction-era columns (v3→4 added three, v4→5 added include_in_pack).
 const downgradeToV2 = (handle: Sqlite): void => {
   handle.exec(`
     ALTER TABLE threads ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE threads ADD COLUMN next_step TEXT;
+    ALTER TABLE threads DROP COLUMN summary_source;
     ALTER TABLE attachments DROP COLUMN extracted_text;
     ALTER TABLE attachments DROP COLUMN extracted_at;
     ALTER TABLE attachments DROP COLUMN extraction_kind;
@@ -83,10 +84,11 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(5);
+    expect(userVersion(handle)).toBe(6);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
+    expect(threadCols).toContain('summary_source');
     // The old if-chain stamped a v2 database straight to 5 without these columns —
     // the sequential walk must add all four attachment columns.
     const attCols = columnNames(handle, 'attachments');
@@ -102,29 +104,49 @@ describe('migrateSchema registry (§19.3)', () => {
     ]);
   });
 
-  it('resumes from a mid-chain checkpoint (v4 → v5 only)', async () => {
+  it('resumes from a mid-chain checkpoint (v4 onward)', async () => {
     applySchema(handle);
     handle.exec(`
       ALTER TABLE attachments DROP COLUMN include_in_pack;
+      ALTER TABLE threads DROP COLUMN summary_source;
       PRAGMA user_version = 4;
     `);
     seedUserData(handle);
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(5);
+    expect(userVersion(handle)).toBe(6);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
+    expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
+  });
+
+  it('v5 → v6 adds summary_source and keeps an existing summary (provenance NULL)', async () => {
+    applySchema(handle);
+    handle.exec(`
+      ALTER TABLE threads DROP COLUMN summary_source;
+      PRAGMA user_version = 5;
+    `);
+    seedUserData(handle);
+    handle.exec("UPDATE threads SET summary = '既有摘要' WHERE id = 't1'");
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(6);
+    expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
+      summary: '既有摘要',
+      summary_source: null,
+    });
   });
 
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 5');
+    handle.exec('PRAGMA user_version = 6');
     seedUserData(handle);
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(5);
+    expect(userVersion(handle)).toBe(6);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -143,7 +165,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // A fresh install: no tables yet, user_version 0.
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(5);
+    expect(userVersion(handle)).toBe(6);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

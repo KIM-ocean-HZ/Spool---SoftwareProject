@@ -912,7 +912,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 5;
+const EXPECTED_SCHEMA_VERSION: i64 = 6;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -1042,14 +1042,55 @@ fn create_thread_json(
     };
     let id = new_id()?;
     let now = now_ms();
+    let summary = summary.map(str::trim).filter(|s| !s.is_empty());
     conn.execute(
-        "INSERT INTO threads (id, workspace_id, title, summary, status, is_capture_target,
-                              created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'active', 0, ?5, ?5)",
-        rusqlite::params![id, ws_id, title, summary.map(str::trim), now],
+        "INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
+                              is_capture_target, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'active', 0, ?6, ?6)",
+        rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now],
     )
     .map_err(|e| format!("写入失败: {e}"))?;
     Ok(json!({ "thread_id": id, "workspace": ws_title, "title": title }).to_string())
+}
+
+// The thread's "catalogue card" (§9.11): since the MCP-first pivot the app itself never
+// generates summaries, so this is the AI path for keeping them fresh. Provenance guard:
+// a summary the user wrote by hand (summary_source 'user', or legacy NULL under a
+// non-empty summary) is never overwritten — the model is told to hand its suggestion to
+// the user instead. Only an empty card or an MCP-written one may be (re)written here.
+fn set_thread_summary_json(
+    conn: &Connection,
+    thread_id: &str,
+    summary: &str,
+) -> Result<String, String> {
+    let summary = summary.trim();
+    if summary.is_empty() {
+        return Err("summary 不能为空 — 清空摘要只能由用户在 Spool 里操作。".to_string());
+    }
+    let (title, existing, source, deleted): (String, Option<String>, Option<String>, Option<i64>) =
+        conn.query_row(
+            "SELECT title, summary, summary_source, deleted_at FROM threads WHERE id = ?1",
+            [thread_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|_| format!("没有 id 为 {thread_id} 的脉络 — 先用 list_threads 查看有效 id。"))?;
+    if deleted.is_some() {
+        return Err("该脉络已被删除。".to_string());
+    }
+    let has_summary = existing.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
+    if has_summary && source.as_deref() != Some("mcp") {
+        return Err(format!(
+            "「{title}」的摘要是用户手写的，MCP 不得覆盖。请把你建议的摘要告诉用户，\
+             由用户自己在 Spool 里修改（用户清空摘要后 MCP 方可再写）。"
+        ));
+    }
+    let now = now_ms();
+    conn.execute(
+        "UPDATE threads SET summary = ?1, summary_source = 'mcp', updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![summary, now, thread_id],
+    )
+    .map_err(|e| format!("写入失败: {e}"))?;
+    Ok(json!({ "thread_id": thread_id, "title": title, "summary": summary }).to_string())
 }
 
 fn add_block_json(
@@ -1185,6 +1226,20 @@ fn tools_descriptor() -> Value {
                 "required": ["thread_id", "content"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "set_thread_summary",
+            "description": "Write or refresh a thread's one-line status summary (its catalogue card, shown in Spool's thread header and list_threads). Use after meaningful new material lands in a thread. Only an empty summary or one previously written via MCP can be set — a summary the user wrote by hand is never overwritten; if the tool refuses, tell the user your suggested summary instead. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Thread id from list_threads / create_thread." },
+                    "summary": { "type": "string", "description": "The new one-line summary. Concise — one sentence describing where the project stands." }
+                },
+                "required": ["thread_id", "summary"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -1247,7 +1302,7 @@ fn handle_tool_call(params: &Value) -> Value {
                     None => Ok(built.text),
                 }
             }
-            "create_thread" | "add_block" => {
+            "create_thread" | "add_block" | "set_thread_summary" => {
                 if !mcp_write_enabled(&dir) {
                     return Err(
                         "Spool 未允许 MCP 写入。请在 Spool → 设置 → 通用 → 「MCP 服务」\
@@ -1262,6 +1317,14 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("workspace_title").and_then(Value::as_str),
                         args.get("title").and_then(Value::as_str).ok_or("缺少 title 参数。")?,
                         args.get("summary").and_then(Value::as_str),
+                    )
+                } else if name == "set_thread_summary" {
+                    set_thread_summary_json(
+                        &conn,
+                        args.get("thread_id")
+                            .and_then(Value::as_str)
+                            .ok_or("缺少 thread_id 参数。")?,
+                        args.get("summary").and_then(Value::as_str).ok_or("缺少 summary 参数。")?,
                     )
                 } else {
                     add_block_json(
@@ -1537,10 +1600,11 @@ pub fn run() {
             break; // client closed the pipe
         }
         // §20.13 v2: a successful write changes the resources list (new thread) and
-        // its ordering (new block bumps updated_at) — tell listChanged-capable clients.
+        // its ordering (new block / summary bumps updated_at) — tell listChanged-capable
+        // clients.
         let tool = params.get("name").and_then(Value::as_str).unwrap_or("");
         if method == "tools/call"
-            && matches!(tool, "create_thread" | "add_block")
+            && matches!(tool, "create_thread" | "add_block" | "set_thread_summary")
             && response["result"]["isError"].as_bool() == Some(false)
         {
             let note =
@@ -1741,6 +1805,74 @@ mod tests {
         assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
         // empty content refuses
         assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
+    }
+
+    // set_thread_summary provenance guard: MCP may fill an empty card or refresh its
+    // own, but never overwrite a user-written (or legacy provenance-less) summary.
+    #[test]
+    fn set_thread_summary_respects_provenance() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-summary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let conn = open_db_rw(&tmp).unwrap();
+
+        // create_thread with a summary stamps provenance 'mcp'.
+        let out = create_thread_json(&conn, None, "带摘要", Some("初始摘要")).unwrap();
+        let tid = serde_json::from_str::<Value>(&out).unwrap()["thread_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let src: String = conn
+            .query_row("SELECT summary_source FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(src, "mcp");
+
+        // MCP refreshing its own summary is fine.
+        set_thread_summary_json(&conn, &tid, "更新的摘要").unwrap();
+        let s: String = conn
+            .query_row("SELECT summary FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(s, "更新的摘要");
+
+        // The GUI hand-edit path (updateThread) stamps 'user' — MCP must refuse.
+        conn.execute(
+            "UPDATE threads SET summary = '用户手写', summary_source = 'user' WHERE id = ?1",
+            [&tid],
+        )
+        .unwrap();
+        let err = set_thread_summary_json(&conn, &tid, "AI 想覆盖").unwrap_err();
+        assert!(err.contains("不得覆盖"), "{err}");
+
+        // A legacy non-empty summary without provenance is protected the same way…
+        conn.execute(
+            "UPDATE threads SET summary = '旧摘要', summary_source = NULL WHERE id = ?1",
+            [&tid],
+        )
+        .unwrap();
+        assert!(set_thread_summary_json(&conn, &tid, "x").is_err());
+
+        // …but an emptied card is writable again (the user clearing it releases the lock).
+        conn.execute(
+            "UPDATE threads SET summary = NULL, summary_source = NULL WHERE id = ?1",
+            [&tid],
+        )
+        .unwrap();
+        set_thread_summary_json(&conn, &tid, "重新填卡").unwrap();
+
+        // Empty summary / unknown thread refuse.
+        assert!(set_thread_summary_json(&conn, &tid, "   ").is_err());
+        assert!(set_thread_summary_json(&conn, "nope", "x").is_err());
     }
 
     // §20.13 v2: search (FTS + LIKE parity with §9.10) and the resources probe, on a
