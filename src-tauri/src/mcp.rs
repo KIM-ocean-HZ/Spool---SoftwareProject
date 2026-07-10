@@ -927,6 +927,43 @@ const BLOCKS_DEFAULT_LIMIT: i64 = 20;
 const BLOCKS_MAX_LIMIT: i64 = 50;
 const BLOCKS_DEFAULT_CONTEXT: i64 = 3;
 
+// v2.4 (C5): optional AND-combined page filters. Kept apart from the paging args so
+// the filter SQL is built in exactly one place.
+pub struct BlockFilters<'a> {
+    pub pinned: Option<bool>,
+    pub has_annotation: Option<bool>,
+    pub source_contains: Option<&'a str>,
+}
+
+impl BlockFilters<'_> {
+    fn is_empty(&self) -> bool {
+        self.pinned.is_none() && self.has_annotation.is_none() && self.source_contains.is_none()
+    }
+    // WHERE tail + its bound params, positional `?` in appearance order so the same
+    // tail serves both the COUNT and the page query. instr(lower(),lower()) over LIKE:
+    // no wildcard escaping to get wrong, and ASCII case-folding matches how source
+    // labels differ.
+    fn sql(&self) -> (String, Vec<String>) {
+        let mut clauses = String::new();
+        let mut params: Vec<String> = Vec::new();
+        if let Some(p) = self.pinned {
+            clauses.push_str(if p { " AND pinned = 1" } else { " AND pinned = 0" });
+        }
+        if let Some(h) = self.has_annotation {
+            clauses.push_str(if h {
+                " AND annotation IS NOT NULL"
+            } else {
+                " AND annotation IS NULL"
+            });
+        }
+        if let Some(s) = self.source_contains {
+            clauses.push_str(" AND source IS NOT NULL AND instr(lower(source), lower(?)) > 0");
+            params.push(s.to_string());
+        }
+        (clauses, params)
+    }
+}
+
 fn get_blocks_json(
     conn: &Connection,
     thread_id: &str,
@@ -934,6 +971,7 @@ fn get_blocks_json(
     limit: Option<i64>,
     around_block_id: Option<&str>,
     context: Option<i64>,
+    filters: &BlockFilters,
 ) -> Result<String, String> {
     let (title, deleted): (String, Option<i64>) = conn
         .query_row(
@@ -944,6 +982,20 @@ fn get_blocks_json(
         .map_err(|_| format!("没有 id 为 {thread_id} 的脉络 — 先用 list_threads 查看有效 id。"))?;
     if deleted.is_some() {
         return Err("该脉络已被删除。".to_string());
+    }
+    if let Some(s) = filters.source_contains {
+        if s.trim().is_empty() {
+            return Err("source_contains 不能为空串。".to_string());
+        }
+    }
+    // Centering wants the block's true neighborhood; a filtered page would present
+    // non-adjacent rows as neighbors. Refuse the combination outright (C5).
+    if around_block_id.is_some() && !filters.is_empty() {
+        return Err(
+            "around_block_id 与过滤参数不能同时使用 — 定位读取返回的是真实相邻块，\
+             过滤会造成假邻接。去掉过滤条件，或改用 offset/limit 分页。"
+                .to_string(),
+        );
     }
     // Centering overrides offset/limit: position = rows sorted the same way the page
     // query sorts (created_at, then rowid as the deterministic tie-break).
@@ -979,18 +1031,34 @@ fn get_blocks_json(
             None,
         )
     };
+    // total reflects the active filters (C5) — it is the page-able row count.
+    let (fsql, fparams) = filters.sql();
+    let mut count_params: Vec<&dyn rusqlite::ToSql> = vec![&thread_id];
+    for s in &fparams {
+        count_params.push(s);
+    }
     let total: i64 = conn
-        .query_row("SELECT count(*) FROM blocks WHERE thread_id = ?1", [thread_id], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, kind, content, annotation, ref_thread_id, source, pinned, created_at
-             FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC, rowid ASC
-             LIMIT ?2 OFFSET ?3",
+        .query_row(
+            &format!("SELECT count(*) FROM blocks WHERE thread_id = ?{fsql}"),
+            rusqlite::params_from_iter(count_params),
+            |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT id, kind, content, annotation, ref_thread_id, source, pinned, created_at
+             FROM blocks WHERE thread_id = ?{fsql} ORDER BY created_at ASC, rowid ASC
+             LIMIT ? OFFSET ?"
+        ))
+        .map_err(|e| e.to_string())?;
+    let mut page_params: Vec<&dyn rusqlite::ToSql> = vec![&thread_id];
+    for s in &fparams {
+        page_params.push(s);
+    }
+    page_params.push(&limit);
+    page_params.push(&offset);
     let rows = stmt
-        .query_map(rusqlite::params![thread_id, limit, offset], |r| {
+        .query_map(rusqlite::params_from_iter(page_params), |r| {
             Ok(json!({
                 "block_id": r.get::<_, String>(0)?,
                 "kind": r.get::<_, String>(1)?,
@@ -1015,6 +1083,20 @@ fn get_blocks_json(
     });
     if let Some(pos) = anchor_position {
         out["anchor_position"] = json!(pos);
+    }
+    // Echo active filters so a paging model can't lose track of what `total` counts.
+    if !filters.is_empty() {
+        let mut f = serde_json::Map::new();
+        if let Some(p) = filters.pinned {
+            f.insert("pinned".into(), json!(p));
+        }
+        if let Some(h) = filters.has_annotation {
+            f.insert("has_annotation".into(), json!(h));
+        }
+        if let Some(s) = filters.source_contains {
+            f.insert("source_contains".into(), json!(s));
+        }
+        out["filters"] = Value::Object(f);
     }
     serde_json::to_string_pretty(&out).map_err(|e| e.to_string())
 }
@@ -1485,7 +1567,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "get_blocks",
-            "description": "Page through one thread's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps). The middle granularity between a search snippet and a full pack. To read around a search hit, pass its block_id as around_block_id (with optional context, default 3 each side) — this centers the page and returns anchor_position; offset/limit are ignored.",
+            "description": "Page through one thread's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps). The middle granularity between a search snippet and a full pack. To read around a search hit, pass its block_id as around_block_id (with optional context, default 3 each side) — this centers the page and returns anchor_position; offset/limit are ignored. Optional filters (pinned / has_annotation / source_contains) AND-combine and narrow the page + total; they cannot be combined with around_block_id.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -1494,7 +1576,10 @@ fn tools_descriptor() -> Value {
                     "offset": { "type": "integer", "description": "Blocks to skip, default 0." },
                     "limit": { "type": "integer", "description": "Blocks to return, default 20, cap 50." },
                     "around_block_id": { "type": "string", "description": "Center the page on this block (e.g. a search_blocks hit). Overrides offset/limit." },
-                    "context": { "type": "integer", "description": "With around_block_id: blocks each side, default 3, cap 24." }
+                    "context": { "type": "integer", "description": "With around_block_id: blocks each side, default 3, cap 24." },
+                    "pinned": { "type": "boolean", "description": "Only pinned (true) or only unpinned (false) blocks." },
+                    "has_annotation": { "type": "boolean", "description": "Only blocks with (true) / without (false) a user annotation." },
+                    "source_contains": { "type": "string", "description": "Only blocks whose source label contains this text, case-insensitive (e.g. 'MCP', 'PDF'). User-typed blocks have no source and never match." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -1592,6 +1677,11 @@ fn handle_tool_call(params: &Value) -> Value {
                     args.get("limit").and_then(Value::as_i64),
                     args.get("around_block_id").and_then(Value::as_str),
                     args.get("context").and_then(Value::as_i64),
+                    &BlockFilters {
+                        pinned: args.get("pinned").and_then(Value::as_bool),
+                        has_annotation: args.get("has_annotation").and_then(Value::as_bool),
+                        source_contains: args.get("source_contains").and_then(Value::as_str),
+                    },
                 )
             }
             "get_pack" => {
@@ -1938,6 +2028,12 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    const NO_FILTERS: BlockFilters = BlockFilters {
+        pinned: None,
+        has_annotation: None,
+        source_contains: None,
+    };
+
     const FIXTURE: &str = include_str!("../../src/lib/pack/fixtures/golden-pack.json");
     const EXPECTED: &str = include_str!("../../src/lib/pack/fixtures/golden-pack.expected.txt");
 
@@ -2188,7 +2284,7 @@ mod tests {
 
         // R2 C1: around_block_id centers the page (t1 order: b1,b2,b3,b5,b6 → b3 at
         // position 2; context 1 → b2..b5) and reports the anchor position.
-        let out = get_blocks_json(&conn, "t1", None, None, Some("b3"), Some(1)).unwrap();
+        let out = get_blocks_json(&conn, "t1", None, None, Some("b3"), Some(1), &NO_FILTERS).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["anchor_position"], 2);
         let ids: Vec<&str> = v["blocks"]
@@ -2199,7 +2295,7 @@ mod tests {
             .collect();
         assert_eq!(ids, vec!["b2", "b3", "b5"]);
         // A block from another thread is not silently treated as offset 0.
-        assert!(get_blocks_json(&conn, "t1", None, None, Some("b4"), None).is_err());
+        assert!(get_blocks_json(&conn, "t1", None, None, Some("b4"), None, &NO_FILTERS).is_err());
     }
 
     // set_thread_summary provenance guard: MCP may fill an empty card or refresh its
@@ -2334,22 +2430,68 @@ mod tests {
 
         // get_blocks paging: chronological, total independent of the page size.
         let page: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1), None, None).unwrap())
+            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1), None, None, &NO_FILTERS).unwrap())
                 .unwrap();
         assert_eq!(page["total"], 3);
         assert_eq!(page["blocks"].as_array().unwrap().len(), 1);
         assert_eq!(page["blocks"][0]["content"], "量子退火的调参结论");
         let page2: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None, None, None).unwrap())
+            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None, None, None, &NO_FILTERS).unwrap())
                 .unwrap();
         assert_eq!(page2["blocks"][0]["content"], "AI 分类器的结论");
-        assert!(get_blocks_json(&conn, "nope", None, None, None, None).is_err());
+        assert!(get_blocks_json(&conn, "nope", None, None, None, None, &NO_FILTERS).is_err());
+
+        // v2.4 (C5): page filters AND-combine, narrow `total`, echo back, and refuse
+        // to mix with around_block_id.
+        conn.execute("UPDATE blocks SET pinned = 1 WHERE content LIKE 'AI %'", []).unwrap();
+        let f = |pinned, has_annotation, source_contains| BlockFilters {
+            pinned,
+            has_annotation,
+            source_contains,
+        };
+        let pinned_only: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), None, None))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(pinned_only["total"], 1);
+        assert_eq!(pinned_only["blocks"][0]["content"], "AI 分类器的结论");
+        assert_eq!(pinned_only["filters"]["pinned"], true);
+        let annotated: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, Some(true), None))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(annotated["total"], 1);
+        assert_eq!(annotated["blocks"][0]["annotation"], "再核对");
+        // source_contains is case-insensitive and never matches sourceless rows.
+        let by_source: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("mcp")))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(by_source["total"], 3, "{by_source}"); // every block here is MCP-written
+        let none_match: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), Some(true), None))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(none_match["total"], 0);
+        assert!(get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("  ")))
+            .is_err());
+        let bid = pinned_only["blocks"][0]["block_id"].as_str().unwrap();
+        let err = get_blocks_json(&conn, &tid, None, None, Some(bid), None, &f(Some(true), None, None))
+            .unwrap_err();
+        assert!(err.contains("不能同时使用"), "{err}");
+        // Unfiltered responses carry no filters echo.
+        assert!(page.get("filters").is_none());
 
         // list_threads carries the one-liner summary + read-budget fields (v2.1).
         let listed: Vec<Value> =
             serde_json::from_str(&list_threads_json(&conn).unwrap()).unwrap();
         assert_eq!(listed[0]["summary"], "摘要一句");
-        assert_eq!(listed[0]["pinned"], 0);
+        // one pin: the C5 block pinned above
+        assert_eq!(listed[0]["pinned"], 1);
         assert!(listed[0]["approx_pack_chars"].as_i64().unwrap() > 0);
 
         // Resources probe: uri shape, summary as description.
