@@ -1,4 +1,4 @@
-# Spool — Implementation Blueprint v2.10
+# Spool — Implementation Blueprint v2.11
 
 ---
 
@@ -332,7 +332,6 @@ spool/
 │   │   ├── undo/undoLog.ts                # v2.9: ring buffer of undoable ops
 │   │   ├── pack/ (assemble.ts, templates.ts)
 │   │   ├── search/query.ts                # v2.9: returns ALL hit offsets per block, not just hit line
-│   │   ├── ai/ (router, providers, prompts, cache, parseJson)
 │   │   ├── db/ (schema.sql, client.ts, workspaces.ts, threads.ts, blocks.ts, attachments.ts)
 │   │   └── utils/
 │   ├── hooks/
@@ -340,7 +339,7 @@ spool/
 │   │   ├── useUndo.ts                     # v2.9
 │   │   └── useCollectMode.ts              # v2.9
 │   ├── stores/
-│   │   ├── (workspacesStore, threadsStore, blocksStore, captureStore, searchStore, settingsStore, quotaStore)
+│   │   ├── (workspacesStore, threadsStore, blocksStore, captureStore, searchStore, settingsStore)
 │   │   ├── undoStore.ts                   # v2.9
 │   │   └── collectStore.ts                # v2.9: panel open state + staging buffer mirror
 │   └── styles/ (tokens.css, global.css)
@@ -377,6 +376,7 @@ CREATE TABLE IF NOT EXISTS threads (
   workspace_id       TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   title              TEXT NOT NULL DEFAULT '',
   summary            TEXT,
+  summary_source     TEXT,   -- v2.11: 'user' | 'mcp' | NULL; MCP never overwrites a non-'mcp' summary
   digest             TEXT,
   deadline           INTEGER,
   status             TEXT NOT NULL DEFAULT 'active', -- active | parked | done
@@ -744,13 +744,22 @@ In pack (§9.5): a block's opted-in attachments inline beneath it; all attachmen
 - Navigator dismisses on >200px scroll away from destination, or click outside the block.
 - `<mark>` wrappers are display-only — no schema change, no edit to block content. Computed in `BlockItem` when active search-hit context detected.
 
-### 9.11 AI Summaries & Classification Suggestions
+### 9.11 Thread Summary — the Catalogue Card (rewritten v2.11)
 
-Two **optional, non-blocking** features; entry points hidden silently in privacy mode or with no model.
+The one-line status summary is the thread's **catalogue card**. Since the MCP-first pivot the
+app never generates it; it has exactly two writers, ranked:
 
-- **Status summary** (v2.10 — was a manual header button): **auto-generated once** on thread open — background, non-blocking, fire-and-forget, silent on failure (§18.9) — ONLY when `summary` is empty, the thread is active, AI is available, and there are ≥2 non-ref blocks. Routes `router.quality` (Quality→Local) with the LRU cache (§6.5); an attempt-ref fires it once so block changes can't re-trigger or clobber it. **Generate-once**: no staleness tracking, no auto-regeneration (the live newest-at-bottom feed is the real "where you left off", §3.3). The text is **click-to-edit** (debounced save, §8.3); a user-written summary is never overwritten (the empty guard). When AI is unavailable, a quiet "＋ 写一句话摘要" affordance shows instead of nothing, with a one-line inline hint on click (no popup/error styling, §14.4). Stays visually subordinate (italic subtitle); the `summarizeStatus` prompt body is unchanged (§18.5).
-- **Conclusion summary**: §9.8 optional at completion. On failure/`NO_DIGEST` → section silently hidden; digest view still complete on pins + attachments.
-- **Capture classification**: background `router.fast` after capture. Only at high/medium confidence does `RouteSuggestion` appear. One click moves; ignore leaves. **Never auto-moves.**
+- **The user** — click-to-edit in the thread header (debounced save, §8.3), the quiet
+  "＋ 写一句话摘要" affordance when empty. Every GUI write stamps `summary_source = 'user'`;
+  clearing the text resets provenance to NULL.
+- **An MCP client** — the `set_thread_summary` write tool (§20.13 v2.2). Allowed only when the
+  card is empty or was last written via MCP (`summary_source = 'mcp'`); a user-written summary
+  (or a legacy one with NULL provenance) refuses the write with instructions to hand the
+  suggestion to the user instead. The guard is structural (column + tool check), not prompt
+  etiquette.
+
+Conclusion digest (§9.8): hand-written only, empty allowed. Capture classification: removed
+with the built-in AI (RouteSuggestion deleted); §10.6 keeps the future-direction note.
 
 ### 9.12 Settings Panel
 
@@ -760,17 +769,19 @@ Modal, entered via gear at sidebar bottom.
 |---|---|---|---|
 | Global capture shortcut | Shortcut recorder | unbound (2026-07-07: ⌘⇧C default retired) | Conflict check |
 | Global search shortcut | Shortcut recorder | `Cmd/Ctrl+Shift+F` | Conflict check |
-| Groq API Key | Password + test | empty | |
-| Gemini API Key | Password + test | empty | |
-| Ollama Endpoint | Text | `http://localhost:11434` | |
-| Ollama Model | Dropdown | `qwen3:8b` | Auto-detected |
-| Privacy mode | Toggle | off | AI Local-only; entry points hidden if no local |
-| Today's quota | Read-only bars | — | From quotaStore |
+| 语言 / Language | zh / en pills | zh | Live-switch, bilingual label |
 | Launch at login | Toggle | off | |
+| 自动提取附件文字内容 | Toggle | on | Local pdf/docx/plaintext extraction (§9.6) |
+| MCP 服务（实验） | Toggle | off | §20.12; gates all MCP tools |
+| 允许 AI 写入（实验） | Sub-toggle | off | §20.13 second consent; shown only when MCP on |
+| Claude / Cursor 一键接入 | Status rows + button | — | §20.12; writes client config with .bak backup |
+| 复制使用提示 | Button | — | v2.2 (Ocean #3): paste-ready "how to use Spool for me" briefing for the AI client |
+| 高级：手动 MCP 配置 | Copyable snippet | — | Points at the running binary |
+| Browser automation status | Per-browser rows | — | §19.7 |
 | Clear all data | Danger button + confirm | — | |
-| 图片文字提取 (Gemini) | Toggle | off | §20.10 experiment; opt-in cloud OCR for image attachments; warn that Gemini free tier trains on data; no effect in privacy mode |
 
-Keys via `tauri-plugin-store`.
+Settings via `tauri-plugin-store`; legacy AI keys (groq/gemini/ollama/privacyMode) are scrubbed
+from `settings.json` on the first load after the pivot (plaintext keys must not linger).
 
 ### 9.13 Undo Operation (v2.9)
 
@@ -918,95 +929,22 @@ True URL capture stays v1.5; per-browser permission settings surface is §19.7.
 
 ---
 
-## 12. Prompt Library
+## 12. Prompt Library (retired 2026-07-09)
 
-Each prompt is its own file. All prompts: open with a role, markdown sections, strict output format, explicit "never" wording. **Do not pile on few-shot examples** — rely on precise rules.
+The built-in prompt library left with the built-in AI layer (§6). The four prompts —
+status summary, conclusion digest, capture classification, pack compression — were deleted
+from `src/lib/ai/prompts/` along with the router that ran them. Their design DNA
+(role opener, markdown sections, strict output contract, explicit "never" rules, no few-shot
+piling) lives on in the two places prompt-shaped text still exists:
 
-### 12.1 Thread Status Summary (src/lib/ai/prompts/summarizeStatus.ts)
+- **`compress_prompt_text` in src-tauri/src/mcp.rs** — the `compress_pack` MCP prompt,
+  serving client-side compression with the verbatim-preservation contract (§20.13). Still
+  product IP: do not "optimize" it without Ocean's sign-off.
+- **The MCP initialize instructions + tool descriptions** (mcp.rs) — the workflow briefing,
+  the naming hard rule (titles, never raw ids), and the write etiquette. Same review bar.
 
-```typescript
-// v2.7: attachmentsByBlock. v2.8 update: only attachments with include_in_pack === true inlined.
-export const buildStatusPrompt = (
-  thread: Thread,
-  blocks: Block[],
-  attachmentsByBlock: Record<string, Attachment[]> = {},
-) => `
-你是一个项目状态摘要工具。读下面这条项目脉络里按时间排列的信息块,写一句话总结"这个项目现在到哪一步了"。
-
-# 项目标题
-${thread.title || '(无标题)'}
-
-# 信息块(按时间从旧到新;部分信息块附带文件内容,以 📎 标出,应视为该信息块的一部分)
-${blocks.map(b => `[${formatTime(b.createdAt)}] ${b.content}`).join('\n')}
-
-# 规则
-1. 只输出一句话,不超过 50 字
-2. 聚焦"当前状态 / 下一步",不要复述全部历史
-3. 绝对不要添加信息块(含其附件内容)里没有的内容
-4. 不要前言、解释、markdown 标记——直接输出那句话
-`.trim();
-```
-
-### 12.2 Thread Conclusion Summary (src/lib/ai/prompts/summarizeDigest.ts)
-
-```typescript
-// v2.8: signature gains attachmentsByBlock; pinning is the opt-in for inlining
-// (pinning is a stronger "this matters" signal than include_in_pack).
-export const buildDigestPrompt = (
-  thread: Thread,
-  pinnedBlocks: Block[],
-  attachmentsByBlock: Record<string, Attachment[]> = {},
-) => `
-你是一个项目结论摘要工具。一个项目刚结束,下面是用户在过程中标记为"重要"的信息块。把它们提炼成一段简短的结论摘要,供日后归档查阅。
-
-# 项目标题
-${thread.title || '(无标题)'}
-
-# 用户标记为重要的信息块
-${pinnedBlocks.map(b => `- ${b.content}`).join('\n')}
-
-# 规则
-1. 输出 2-4 句话,总共不超过 120 字
-2. 聚焦"最终结论 / 关键决定 / 可复用的东西",不要复述过程
-3. 绝对不要添加信息块里没有的内容
-4. 如果置顶内容过于零碎、无法形成有意义的结论,只输出一行:NO_DIGEST
-5. 不要前言、解释、markdown 标记——直接输出摘要正文
-`.trim();
-```
-
-### 12.3 Capture Classification (src/lib/ai/prompts/route.ts)
-
-```typescript
-export const buildRoutePrompt = (
-  blockContent: string,
-  threads: { id: string; title: string; recentSnippet: string }[]
-) => `
-你是一个信息归类工具。判断下面这条新捕捉的内容,最可能属于哪一条已有项目脉络。
-
-# 新捕捉的内容
-${blockContent}
-
-# 已有项目脉络
-${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.recentSnippet}`).join('\n')}
-
-# 输出(仅 JSON,无其他文字、无代码块标记)
-{
-  "threadId": "最匹配的脉络 id,如果都不像就填 null",
-  "confidence": "high | medium | low"
-}
-
-# 规则
-1. 只有内容上明确相关才给 high/medium;勉强沾边给 low
-2. 宁可保守:不确定就 null 或 low,绝不硬塞
-`.trim();
-```
-
-### 12.4 Engineering Notes
-
-- `parseJson.ts` handles: code-fence wrapping, trailing commas, single quotes, unescaped newlines.
-- Classification `low` or `null` → frontend doesn't show `RouteSuggestion`.
-- Conclusion `NO_DIGEST` → frontend hides digest section silently.
-- **Prompts are core product IP. Copy them verbatim into the implementation; do not "optimize" them.** Beyond Ocean-authorized prompt changes (v2.7 attachment-aware status, v2.8 pinning-gated digest), do not alter.
+The v2.10 prompt bodies remain retrievable from git history (tag reference: pre-pivot
+`src/lib/ai/prompts/`, deleted 2026-07-09) should a future direction need them.
 
 ---
 
@@ -1172,9 +1110,10 @@ ${threads.map(t => `- id: ${t.id}\n  标题: ${t.title}\n  最近内容: ${t.rec
 
 [Spec unchanged — composer `@`, fuzzy in-workspace title match, `kind=ref` block.]
 
-### Phase 11 — The AI Layer [COMPLETE]
+### Phase 11 — The AI Layer [COMPLETE 2026-06; REMOVED 2026-07-09]
 
-Produced the dogfooding findings that drove v2.7/v2.8/v2.9 revisions.
+Produced the dogfooding findings that drove v2.7/v2.8/v2.9 revisions, then was removed
+whole by the MCP-first pivot (§6): the lessons stayed, the router/providers/prompts left.
 
 ### Phase 11.5 — Track B & Bug Bar Hardening (NEW in v2.9, ~5–6 h)
 
@@ -1204,12 +1143,11 @@ Produced the dogfooding findings that drove v2.7/v2.8/v2.9 revisions.
 
 ### Phase 12 — Polish, Settings, Packaging (~2.5 h)
 
-- Settings: two shortcut recorders (conflict-checked), three API keys + test, Ollama detection, privacy mode, launch at login, quota display, clear data + per-browser permission status (§19.7).
+- Settings: two shortcut recorders (conflict-checked), language, launch at login, attachment auto-extract, MCP toggles + one-click hookup + usage briefing, clear data + per-browser permission status (§19.7). (v2.11: the API-key/Ollama/privacy/quota rows left with the built-in AI.)
 - Confirmation experiments on Phase 11.5 features.
 - Virtual scrolling when blocks > 200; unify error handling; empty states.
 - Build .dmg; README + screenshots + API-key acquisition guide.
-- **Acceptance**: .dmg installs and runs; shortcuts changeable; privacy mode verified zero outbound; a friend can pick it up.
-- Note: §20.10 (image OCR) ships its Settings toggle here, but the feature is a fenced §20 experiment (default OFF). The .dmg therefore retains "zero outbound by default"; OCR fires only on explicit opt-in.
+- **Acceptance**: .dmg installs and runs; shortcuts changeable; zero outbound verified unconditionally (v2.11: CSP-enforced, nothing to configure); a friend can pick it up — the fresh-install tutorial thread is their first screen.
 
 ### Phase 13 (optional) — Release
 
@@ -1231,7 +1169,7 @@ After each phase, Ocean should be able to:
 - **Phase 8**: sidebar shows status, deadlines, drag-between-workspaces.
 - **Phase 9**: complete a thread → digest view, works even without AI.
 - **Phase 10**: @-reference threads in same workspace.
-- **Phase 11**: AI summarizes/classifies; product unharmed when AI fails.
+- **Phase 11**: ~~AI summarizes/classifies; product unharmed when AI fails~~ (removed 2026-07-09 — the acceptance became: the product is whole with zero AI, and MCP cowork is the AI surface).
 - **Phase 11.5 (v2.9)**:
   - Active block stays visually identifiable through edit/collapse/annotation cycles (§19.18).
   - Double-click to edit no longer scrolls viewport (§19.19).
@@ -1249,8 +1187,8 @@ After each phase, Ocean should be able to:
 - **Long-press ⌥ → panel-appearance: < 200ms after the 600ms hold threshold.**
 - **Edit-mode entry MUST NOT cause scroll position change beyond ±2px** (sub-pixel allowance only).
 - **Collect-mode staging buffer must survive a Mac app/space switch with all items intact.**
-- Any AI failure neither crashes nor pops an error — falls back or silently skips.
-- Privacy mode: packet capture verifies zero outbound.
+- MCP tool failures return actionable text to the client; the GUI never depends on them.
+- Packet capture verifies zero outbound — unconditionally (CSP allows only Tauri IPC).
 - Zero data loss: SQLite up-to-date at any force-quit.
 
 ---
@@ -1264,19 +1202,18 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 | Always-on desktop floating widget | v1.5 candidate | Overlay window + non-activating-window groundwork already established (capture overlay + v2.9 collect panel) |
 | Pack range selector (pinned only / last N days) | ✅ shipped 2026-07-06 | `filterBlocksForRange` pre-filter in `assemble.ts`; PackDialog 打包范围 pills (全部/仅置顶/近7天/近30天) |
 | Cross-session scroll memory | v1.5 if dogfooding shows gap | `threads.last_scroll_block_id` column |
-| AI pack compression | ✅ shipped 2026-07-06 | `compressPack.ts` prompt (tunable, not §12-locked) + PackDialog AI 压缩 button; deterministic pack stays default, compressed text is a togglable second view. 2026-07-07 revision: Gemini-only via `noFallback` + 120s compression-specific timeout (fallback tiers truncated a 41k-char input and fabricated a ~700-char summary) + result guards (≥15% of original; every note:/sourceless line survives verbatim); button disabled with explanation when Gemini unavailable (no key / privacy mode) |
+| AI pack compression | shipped 2026-07-06; **removed 2026-07-09** (MCP-first, §6) | The GUI button and its guards are gone; the `compress_pack` MCP prompt in mcp.rs carries the verbatim-preservation contract for client-side compression (§20.13) |
 | Auto-copy selection on capture | v1.5 | settings option + branch in capture.rs |
 | Source URL capture | v1.5 | same AppleScript path as tab-title; enrich `blocks.source` or add column |
 | @-mention specific block | v1.5 | `ref_block_id` column |
 | Node-graph thread view | v1.5+ pending demand (§2.6) | block feed is a list; graph would consume it read-only |
 | Passive clipboard buffer | v2 | in-memory ring + tray review interface |
 | Markdown rendering | v2 | swappable BlockItem renderer |
-| Streaming AI output | v2 | `stream` option in router interface |
 | Mobile | v2 | Tauri 2.0 builds iOS/Android |
 | E2EE sync | v2 | per-block `nonce` column + key layer |
 | Browser extension | v2 | extension talks to app over local port |
 | File attachment preview UI (inline PDF viewer, image thumbs) | v2 | extracted text cached (v2.7); preview is rendering layer |
-| OCR for image attachments | **§20.10 (Track B experiment, NEW)** | Now an attach-time, cached extraction (like PDF/docx) via opt-in Gemini vision — so it does NOT put AI in the pack hot path. Fenced; off by default; kill criterion in §20.8 |
+| OCR for image attachments | **cancelled 2026-07-09** (was §20.10, never built) | Cloud vision died with the MCP-first pivot; if image text ever matters enough, the path is a local OCR engine (new dependency → Ocean approval) |
 | Cross-app file watch / re-extract | v2 | FSEvents/inotify watcher |
 | **Trash / soft-delete recovery surface** (v2.9 addition) | v1.5 | Workspace/thread deletes are already soft. Cmd+Z intentionally does NOT cover them (low-volume, recover via reverse action). Trash view recovering ~30 days is the proper home. No schema change |
 | **MCP local server — zero-paste re-brief** | **§20.12 (Track B, built 2026-07-07, experimental, default OFF)** | `spool --mcp` stdio subcommand; renderer locked to `assemble.ts` by cross-language golden test; kill criterion in §20.8/§20.12 |
@@ -1296,7 +1233,7 @@ Not in v1 scope, but the architecture accommodates them. Run any new feature thr
 7. **No over-engineering.**
 8. **Hot paths of capture, pack, and search must never contain an AI call or network request.**
 9. **AI output is always disposable decoration** — write the degradation path first.
-10. **Testing**: v1 does not mandate full coverage, but `pack/assemble.ts`, `search/query.ts` (incl. v2.9 all-hits-per-block return), `ai/router.ts` fallback, `ai/parseJson.ts`, `lib/undo/undoLog.ts` (v2.9 — especially the invalidation-on-edit path), `lib/collect/send.ts` (v2.9 merge contract) must have Vitest.
+10. **Testing**: v1 does not mandate full coverage, but `pack/assemble.ts`, `search/query.ts` (incl. v2.9 all-hits-per-block return), `db/client.ts` migrations, `lib/undo/undoLog.ts` (v2.9 — especially the invalidation-on-edit path), `lib/collect/send.ts` (v2.9 merge contract) must have Vitest; mcp.rs behavior (golden pack, write tools, provenance guard, similarity grouping, schema lockstep) lives in cargo tests.
 11. **All user-facing UI copy is written in Simplified Chinese at the call site**; obeys "silence over noise." (2026-07-07: an English UI option ships via `lib/i18n` — the Chinese string IS the dictionary key, `t()`/`useT()` translate under the `language` setting, default zh. New copy must be added in Chinese and given an EN entry.)
 12. **After each phase / sub-step, STOP and wait for Ocean.**
 13. **Git identity & attribution — HARD rule, no exceptions.** Zero references to Claude, Claude Code, Anthropic, or any AI tool anywhere in the repo (history, README, source, commit messages, files). No `Co-Authored-By`, no "Generated with" footers, no badges. Never modify `git config user.name`/`user.email`. Never use `git commit --author`. Commit silently under Ocean's identity.
@@ -1490,7 +1427,7 @@ Each §20 feature reviewed at the end of Phase 11.5's 3-week dogfooding window. 
 **Logging**: paper log next to the desk per §19.14–§19.16. Per feature, note usage count and any friction.
 
 **On graduation**: a §20 feature that survives review and proves clearly valuable gets *promoted* — moved into the relevant §1–§19 section and re-examined against §2 if it touches the core. Until promoted, it stays fenced. Promotion is deliberate, recorded in the changelog — not silent drift.
-- **20.10 Image OCR** (NEW): cut if Gemini math/formula OCR proves poor (§19.15-style garbled-output monitoring), OR usage near zero, OR the free-tier-trains-on-data privacy tradeoff feels wrong. Off by default, Gemini-only, attach-time — removal is clean (the toggle + the image branch; PDF/docx extraction untouched).
+- **20.10 Image OCR**: moot — cancelled 2026-07-09 with the MCP-first pivot before any code existed.
 - **20.12 MCP local server** (chartered 2026-07-06, not yet built): cut if Ocean's own zero-paste pulls stay near zero after 3 weeks, or if server lifecycle friction exceeds the paste it saves. Full charter in §20.12.
 
 ### 20.9 (Track B → graduating) Collect Mode (NEW in v2.9)
@@ -1551,28 +1488,13 @@ macOS only: when user switches active app/space, the staging panel must follow.
 - Remaining concerns: (a) long-press trigger flakiness against double-tap; (b) window-following implementation reliability across all macOS versions.
 - 3-week dogfooding window post-implementation. If no flakiness reports AND window-following lands clean → promote into §1–§19 in v3.0 (likely as a new §9.14, with §3.3 capture-mode list updated to formally include it).
 
-### 20.10 (Track B) Image OCR via opt-in cloud vision (NEW)
+### 20.10 (Track B) Image OCR — CANCELLED 2026-07-09, never built
 
-> Dogfooding showed image attachment (screenshots of slides, handwriting, formula-heavy notes) is useful, but images are currently pointer-only (§9.6) — their text never enters search or pack. This experiment makes an image attachment's text an indexed content source, exactly like the v2.7 PDF/docx extraction — but via cloud vision, because math-formula OCR is cloud-or-nothing (local 8B models can't do it). **Built fenced; off by default; explicitly allowed to be cut.**
-
-**Mechanism**
-- A new Settings toggle **「图片文字提取(Gemini)」, default OFF** (§9.12). When OFF, images stay pointer-only (current §9.6 behavior) — zero outbound.
-- When ON, and NOT in privacy mode, and a Gemini key is present: on attaching an image FILE (the existing §9.6 image-attach path), Spool reads the file, base64-encodes it, and calls Gemini vision (reusing the existing `router`/Gemini provider + quotaStore) with a transcription prompt that renders math as LaTeX. Result cached in `attachments.extracted_text`, `extraction_kind = 'image_ocr'`, `extracted_at = now`.
-- **Runs at ATTACH time, cached — NEVER in the pack hot path** (§6.4 rule 2). Pack just reads the cached text, identical to PDF/docx.
-- **Pack inlining flows through the existing `include_in_pack` toggle** (§20.2) — no new pack-path code. Default OFF per attachment, same as other extracted text.
-- **NO local fallback** — vision needs Gemini (qwen3:8b is text-only). If Gemini is unavailable / key missing / privacy mode on, OCR simply does not run; the image stays a usable pointer attachment, silently.
-- **Best-effort, like PDF extraction**: on failure → `extraction_kind = 'failed'`, image stays a pointer, no error popup (§14.4).
-
-**Scope boundaries (so removal is a clean near-single-commit revert per §20)**
-- IN scope: OCR for image FILE attachments only.
-- OUT of scope (separate future items, NOT this experiment): clipboard-image-data capture (writing image bytes to disk — a binary-storage concern), collect-panel image drag, and the "pass the raw image straight to the receiving AI" route (that belongs to the deferred MCP/extension channel, §17 / Strategic Brief §8).
-
-**Constitution compliance**
-- **Principle 2**: OFF by default + privacy-mode-respecting → "local-first, private by default" intact; OCR is an explicit opt-in online feature, same category as the existing status-summary/classification calls. Settings copy MUST warn that Gemini's free tier trains on submitted data.
-- **Principle 5**: transcription, not authoring — like PDF extraction. Degrades to pointer when absent. AI does not generate content; it reads what the user attached.
-- This is a §20 experiment prompt, not a §12 prompt — it is tunable and NOT subject to the §12 verbatim rule.
-
-**Kill criterion** (§20.8): cut if (a) Gemini's math/formula transcription is poor in real use (garbled LaTeX — same §19.15 monitoring), OR (b) Ocean's own usage is near zero, OR (c) the privacy/training tradeoff feels wrong. 3-week dogfooding window. If clean AND math is good → graduate into §9.6 (image attachments gain extraction) + remove the "OCR is v2" row from §17, in v3.0.
+> Chartered post-v2.10 as an opt-in Gemini-vision extraction for image attachments. The
+> MCP-first pivot (§6) removed the provider it depended on before any code was written —
+> cancelled clean, nothing to remove. Images remain pointer-only attachments (§9.6). If
+> image text ever matters enough, the revisit path is a **local** OCR engine (new
+> dependency → Ocean approval), keeping zero cloud egress intact.
 
 ### 20.11 (Track A) Forward (copy) blocks to another thread (NEW, v2.10)
 
@@ -1662,12 +1584,14 @@ macOS only: when user switches active app/space, the staging panel must follow.
 - **Search fixes (A3/B2/B3).** Short Latin queries ("AI") now require word boundaries (CJK stays substring — trigram's raison d'être); snippets mark the hit with `**…**` and come from the annotation when that's where the match is; the response is `{query, total, returned, hits}`; description says relevance-ranked.
 - **list_threads read-budget fields (B1):** `pinned` count and `approx_pack_chars` (content + annotations + inlined attachment text, per-attachment 8k cap mirrored).
 - **Compression contract in server instructions (B9/P2-8):** agents that can't reach MCP prompts get the verbatim-preservation rules at initialize; compressed variants go back only via attributed add_block.
-- **Deferred, needs Ocean's ruling:** `find_similar_blocks` (read-only dup report — merge itself stays user-only, Principle 5) and `set_thread_summary` (is the one-liner a librarian's catalog card, or user curation?); marker unification (P2-9) queued as pack-format churn.
+- **Deferred items, resolved 2026-07-09/10 (v2.2):** Ocean ruled both IN and they shipped — `find_similar_blocks` (read-only trigram-Jaccard dup report, size-pruned pair pass, never merges) and `set_thread_summary` (the librarian's catalogue card, structurally guarded by `threads.summary_source` provenance: MCP writes only an empty or MCP-owned card; GUI writes stamp 'user'; clearing releases the lock — schema v6, additive migration). Marker unification (P2-9) remains queued as pack-format churn.
+
+**v2.2 (2026-07-09/10) — the MCP-first pivot batch (§6).** The built-in AI layer was removed wholesale; MCP became the only AI channel. Beyond the two tools above: initialize instructions gained the HARD naming rule (threads/blocks are referred to by title/preview when talking to the user; ids are tool parameters only — list_threads/search_blocks descriptions repeat it), plus mentions of the new tools; Settings gained 「复制使用提示」, a paste-ready briefing for clients that under-weight server instructions (Ocean #3); MCP-written blocks got a quiet GUI distinction (Bot badge icon + accent tone keyed off the enforced `· MCP` label invariant, §2.5-compliant — Ocean #4); `EXPECTED_SCHEMA_VERSION` moved to 6 in lockstep with the GUI registry and a cargo test now parses client.ts's SCHEMA_VERSION to fail on drift; fresh installs seed a six-block tutorial thread (「欢迎使用 Spool」, fresh-DB-rebuild path ONLY — the 5/29 lesson) whose last block demos MCP cowork. Deferred with reasons: list_threads approx_pack_chars aggregate-join rewrite (matters at 10k-block scale; touches a field-tested query), search short-query snippet double-compute (negligible at the 200-candidate cap).
 
 ---
 
 Document maintainer: Ocean Jin (KIM-ocean-HZ)
-Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.(post-v2.10: added §20.10 image-OCR experiment — opt-in Gemini vision, attach-time/cached, off by default, fenced with kill criterion; TS AttachmentExtractionKind gains 'image_ocr'; no schema change, no new dependency.))
+Version: 2.11 (supersedes v2.10 — the MCP-first pivot: §6 rewritten (built-in AI removed; MCP is the only AI channel), §9.11 rewritten (summary = catalogue card with summary_source provenance), §9.12 settings table rewritten, §12 prompt library retired, §17/§16/Phase-11 rows updated, §20.10 cancelled, §20.13 v2.2 recorded, §8.1 gains summary_source (schema v6). Previous v2.10 note follows:) (v2.10 was: supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + undo work batch: (1) §9.11 status summary — manual button replaced by auto-generate-once + inline click-to-edit + graceful no-AI "＋ 写一句话摘要" affordance; (2) §9.13 undo scope expanded — + highlight, + thread delete, + workspace delete (selective), plus Cmd+Z focus-split (native text undo when a field is focused) and a now-silent collect sub-undo; (3) §20.5 highlight renders in read mode in both collapsed and expanded states via the content run-tokenizer (edit = source, pack still carries the `==` markers); (4) ThreadHeader (§9.5) — workspace dropdown removed (move via drag / right-click), Pack is the accent action, capture-target a quiet stateful toggle; (5) §9.1 / §9.2 sidebar thread inline rename + one-click capture-target; (6) §9.3 block feed — source-glyph match hardened (word-boundary tokens), first-line spine, softened truncation (buffer + soft fade); (7) §9.9 completed threads no longer show an overdue countdown. Schema unchanged at version 5. §1–§19 backbone and the 6 principles in §2.5 unchanged.(post-v2.10: added §20.10 image-OCR experiment — opt-in Gemini vision, attach-time/cached, off by default, fenced with kill criterion; TS AttachmentExtractionKind gains 'image_ocr'; no schema change, no new dependency.))
 (post-v2.10 UI/UX batch, reconciled into the sections above: capture-target toggle is a pure state change — no navigate / no focus-steal (§9.4/§10.2/§14.3); capture toast slimmed — content-led 2-line preview, condensed attribution, one-click 📌 pin, icon-only undo/redirect, "Save as new thread" removed, note via double-click (§9.4/§20.6); annotation commit unified (block + toast) — Enter = newline, 「完成」/blur commits, Esc cancels, fixing the IME Enter mis-commit; double-click a block's annotation edits it alone (§20.4); §20.1 merge and §20.9 collect Send both keep per-item annotations independent via per-segment `↪ note:` markers (collect merges into ONE block — it does not split items); collect panel — destination line, single-tap ⌥ collapse/expand, collapsed-pill Send-on-hover + 已加入/撤销 chip stacked below, window sized to content footprint, idempotent append (§20.9); search ▲/▼ continues across blocks/threads + a 全部 cross-workspace match list (§9.10); §20.11 forward/copy multi-selected blocks to another thread (additive, undoable). Schema unchanged at version 5.)
 (2026-07-06 batch: release-readiness + pack utility. IME composition guard extended app-wide (composer/renames/pickers/editors + window-level Esc); overlay Redirect keeps pin+note; merge confirm inlined (no native dialog); design fonts bundled (OFL); strict CSP enabled; §19.3 named migration registry landed (sequential v2→5 walk, checkpointed, tested); distribution decided — notarized Developer ID .dmg, NOT Mac App Store (sandbox conflicts: CGEventTap / private-API windows / browser AppleScript); docs/PRIVACY.md + docs/RELEASE.md added. §17 pulls shipped: pack range selector + AI pack compression (compressPack.ts prompt is tunable, not §12-locked). §20.12 chartered: MCP local server experiment — charter only, not built. Schema unchanged at version 5.)
 (2026-07-07 batch: five dogfooding fixes. (1) Double-tap ⌥ dead outside Spool — root cause: listen-only CGEventTap without the Input Monitoring TCC grant silently receives only own-process events; now preflighted + system prompt at install, quiet onboarding banner in the main window, and ⌘⇧C's default binding retired (user-recordable capture shortcut remains the §20.9 escape hatch) — §9.4/§10.2/§14.1 revised. (2) Fraunces replaces Instrument Serif (too narrow) for wordmark/titles — §4/§13.4. (3) ThreadHeader shows total pack-relevant character count; >20k turns --status-parked and click-throughs into PackDialog. (4) Pack compression is Gemini-only (noFallback) with 120s timeout, 65,536-token output cap and result guards (≥15% of original, note:/sourceless lines verbatim) — §17 table revised. (5) MCP "Server disconnected" root-caused to a placeholder command path from the copy-paste flow; Settings now has one-click Claude/Cursor hookup with .bak backup + status badges, and resources/prompts list methods answer empty — §20.12 revised. Schema unchanged at version 5.)
@@ -1677,3 +1601,5 @@ Version: 2.10 (supersedes v2.9; changes in this revision, a post-v2.9 UI/UX + un
 (2026-07-09 batch: strong-MCP field-test round. (1) The pre-wipe real data (2026-05-29 rescue backup: 恢复(5/29) workspace, 8 threads / 33 blocks, plus 4 blocks folded into the live 未分类) was merged into the live library — ids preserved, FTS re-indexed by triggers, capture-target kept unique; pre-merge snapshot on Desktop. (2) Claude Desktop ran a structured 7-scenario MCP test against that data and filed a graded report; its P0/P1 items landed the same day as §20.13 v2.1 (source-label invariant, get_pack max_chars guard + actionable empty-window replies, pinned-once pack format via both renderers + regenerated golden, get_blocks paging, search word-boundary/highlight/total, list_threads read-budget fields, compression contract in initialize instructions). (3) Data-side findings from the report: the truncated thread titles ("Scheduling - Asynchronou…") are artifacts of the 5-29 recovery import, not a live capture bug — current thread creation paths (⌘N / MCP) never derive titles from content; the 4× duplicated GRE captures suggest capture-side dedup as future work. Schema unchanged at version 5.)
 
 Last updated: 2026-07-09
+
+(2026-07-09/10 batch — the MCP-first pivot, executed: (1) Built-in AI removed wholesale — src/lib/ai (router/3 providers/4 prompts/cache/parseJson + tests), quotaStore, Settings AI+quota sections, PackDialog compression (its two flagged guard gaps die with it), §9.11 auto-summary, RouteSuggestion, privacyMode; settings.json legacy keys scrubbed on load (plaintext API keys must not linger); CSP connect-src tightened to Tauri IPC only — zero cloud egress is now structural, PRIVACY.md/RELEASE.md rewritten accordingly. (2) Schema v6 (additive): threads.summary_source ('user'|'mcp'|NULL) — GUI summary writes stamp 'user', clearing resets to NULL; MCP set_thread_summary writes only an empty or MCP-owned card and tells the model to hand refused suggestions to the user; create_thread's summary stamps 'mcp'; EXPECTED_SCHEMA_VERSION lockstep-tested against client.ts. (3) find_similar_blocks: read-only trigram-Jaccard dup groups (≥0.6), size-ratio-pruned pair pass off the single-threaded MCP loop, ref blocks skipped, never merges (Principle 5). (4) Interaction UX (Ocean #3/#4): no-bare-ids hard rule in initialize instructions + tool descriptions; 「复制使用提示」 button; Bot-badge + accent tone for `· MCP` blocks. (5) Fresh installs seed the six-block 「欢迎使用 Spool」 tutorial thread — ONLY from the fresh-DB rebuild path (migrateSchema now reports it); self-heal/clear-all can never resurrect it. (6) Release pre-check: version triple-synced at 0.2.3, unsigned-notarization dmg build verified locally, acceptance list refreshed. (7) /code-review high over the batch: find_similar pruning + one-shot settings scrub + module-header/lockstep hardening applied; list_threads aggregate rewrite and search snippet double-compute deferred with reasons. Baselines: tsc clean, vitest 144, cargo 10, MCP stdio smoke on an isolated v6 DB.)

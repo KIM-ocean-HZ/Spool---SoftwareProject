@@ -40,16 +40,16 @@ All twelve phases of the implementation roadmap are landed:
 | 8 | Deadlines, active / parked / done status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
 | 9 | Thread completion + digest view (conclusion · pinned blocks · files & links) |
 | 10 | @-mention references between threads in the same workspace |
-| 11 | Optional AI layer: status summaries, conclusion drafts, capture classification — silent degradation everywhere |
-| 12 | Settings panel (AI keys + test, Ollama, privacy, quotas, autostart, clear data), unified toast surface, tail-window for long threads, packaging |
+| 11 | ~~Optional AI layer~~ — removed 2026-07-09: Spool itself ships zero AI; cowork happens through the MCP server (below) |
+| 12 | Settings panel (shortcuts, language, MCP hookup, autostart, clear data), unified toast surface, tail-window for long threads, packaging |
 
 ## Design principles (non-negotiable)
 
 1. Capture must be zero-friction — one keypress, no decisions.
-2. Local-first, private by default — no data leaves the machine unless an online AI feature is explicitly invoked.
+2. Local-first, private by default — Spool makes no network requests at all; the only way data leaves is your own MCP client reading it, behind two opt-in switches.
 3. A thread is a log, not a chat — append-only, time-ordered, quiet.
 4. Retrieval is deterministic — pack and search never call AI or the network.
-5. AI is a librarian, not an author — it summarizes and classifies; it never writes content for you.
+5. AI is a librarian, not an author — anything an AI files through MCP is attributed, append-only, and can never overwrite what you wrote by hand.
 6. Exactly two tiers of structure — no infinite nesting.
 
 The full product constitution, rejected ideas, and the feature filter are in `PLAN_EN.md` §2.
@@ -61,7 +61,7 @@ The full product constitution, rejected ideas, and the feature filter are in `PL
 - **Tailwind CSS** for layout; design tokens in CSS variables
 - **Zustand** for state
 - **SQLite** via `tauri-plugin-sql`, FTS5 with the trigram tokenizer
-- **AI orchestration** (optional, never in capture / pack / search hot paths): Groq → Gemini → local Ollama, with cache and quota
+- **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — read tools (list/search/dedup/pack) plus consented, attributed write tools
 
 ## Building from source
 
@@ -76,40 +76,13 @@ npm test              # vitest
 
 The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). Spool prompts for Input Monitoring on first launch and shows a banner until it is granted; the grant takes effect after restarting Spool. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
 
-## AI keys (optional)
+## AI via MCP (optional, no keys, no accounts)
 
-Spool's AI features (status summaries, conclusion drafts, capture classification) are entirely optional. The product works without any AI configured — and it must, by design. When AI is configured, Spool routes calls through three tiers with automatic fallback, and any failure silently degrades — no error popups, no broken core features.
+Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your threads directly.
 
-Tiers, in fallback order:
-
-1. **Groq** (fast tier, free). Used for capture classification (fits the latency budget).
-2. **Gemini** (quality tier, free up to limits). Used for status and conclusion summaries.
-3. **Ollama** (local, no quota). Used in privacy mode, and as the offline fallback for both tiers.
-
-Configure under **Settings → AI 服务** (`⌘,`). Each online key has a "测试" button that runs a 1-token round-trip against the provider.
-
-### Groq
-
-1. Sign in at <https://console.groq.com>.
-2. Open **API Keys** → **Create API Key**.
-3. Paste the `gsk_…` string into the **Groq API Key** field, click **测试**.
-
-### Gemini
-
-1. Sign in at <https://aistudio.google.com/app/apikey>.
-2. **Create API key** (the free tier covers normal personal use).
-3. Paste the `AIza…` string into the **Gemini API Key** field, click **测试**.
-
-### Ollama (local, fully offline)
-
-1. Install Ollama from <https://ollama.com>.
-2. Pull a model — `ollama pull qwen3:8b` is the default Spool looks for; any chat model works.
-3. Make sure the daemon is running (`ollama serve` or the menu-bar app).
-4. Spool auto-detects the endpoint on startup. Adjust the URL or pick a different model under **Settings → Ollama**.
-
-### Privacy mode
-
-Toggle **隐私模式** under Settings to force every AI call through the local Ollama tier. With privacy mode on, online providers are never contacted regardless of which keys are saved. With no local model present, AI entry points are hidden entirely — the rest of the app is unaffected.
+- **One-click hookup**: Settings → 通用 → MCP 服务 → 一键接入 writes the client's config for you (with a backup). A 「复制使用提示」 button gives you a paste-ready briefing that teaches the AI how to use Spool well.
+- **Read tools**: list threads (with one-line summaries and read-budget hints), full-text search, near-duplicate detection, block paging, and the same deterministic pack the GUI produces.
+- **Write tools** (a second, separate consent): create a thread, append a block, refresh a thread's one-line summary. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand.
 
 ## Keyboard shortcuts
 
@@ -133,7 +106,7 @@ src-tauri/            # Tauri / Rust: capture, overlay window, system integratio
 src/
   overlay/            # the capture overlay window (separate Vite entry)
   components/         # Sidebar, ThreadView, Capture, Pack, Search, Settings, ui
-  lib/                # core logic (capture, pack, search, ai, db)
+  lib/                # core logic (capture, pack, search, db, i18n)
   hooks/              # React hooks
   stores/             # Zustand stores
   styles/             # design tokens + global styles
