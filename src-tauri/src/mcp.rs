@@ -1558,6 +1558,36 @@ fn set_thread_summary_json(
     Ok(json!({ "thread_id": thread_id, "title": title, "summary": summary }).to_string())
 }
 
+// v2.4 (D1/5b): a raw 21-char nanoid written into content/annotation surfaces in
+// search snippets and packs forever — the naming hard rule forbids it. Detection is
+// advisory only (warn, never refuse, never rewrite): an exactly-21-char run over the
+// nanoid alphabet with non-alphabet neighbors, requiring both cases to keep ordinary
+// 21-letter words (all-lowercase) out. False positives survive as a warning the writer
+// can ignore.
+fn suspect_raw_id(text: &str) -> Option<String> {
+    let is_id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if !is_id_char(chars[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && is_id_char(chars[i]) {
+            i += 1;
+        }
+        let run = &chars[start..i];
+        if run.len() == 21
+            && run.iter().any(|c| c.is_ascii_uppercase())
+            && run.iter().any(|c| c.is_ascii_lowercase())
+        {
+            return Some(run.iter().collect());
+        }
+    }
+    None
+}
+
 fn add_block_json(
     conn: &mut Connection,
     thread_id: &str,
@@ -1598,7 +1628,17 @@ fn add_block_json(
     )
     .map_err(|e| format!("写入失败: {e}"))?;
     tx.commit().map_err(|e| e.to_string())?;
-    Ok(json!({ "block_id": id, "thread_id": thread_id, "source": source }).to_string())
+    let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source });
+    // D1/5b: advisory only — the block was written verbatim above.
+    if let Some(hit) = suspect_raw_id(content)
+        .or_else(|| annotation.and_then(suspect_raw_id))
+    {
+        out["warning"] = json!(format!(
+            "content/annotation 中疑似包含内部 id(「{hit}」)。请勿把内部 id 写进块内容——\
+             引用其他块请用 ref_block_id 参数，id 只应出现在工具参数里。本块已原样写入。"
+        ));
+    }
+    Ok(out.to_string())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2682,6 +2722,65 @@ mod tests {
         assert!(msg.contains("max_chars=5"));
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 0).is_none());
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 100).is_none());
+    }
+
+    // v2.4 (D1/5b): the raw-id write warning — advisory, never blocks the write.
+    #[test]
+    fn add_block_warns_on_suspect_raw_id() {
+        // Shape checks on the detector itself.
+        assert_eq!(
+            suspect_raw_id("依据是 sbC2zgTo9dWyq_x1XPLNM 那条"),
+            Some("sbC2zgTo9dWyq_x1XPLNM".to_string())
+        );
+        assert_eq!(suspect_raw_id("internationalisations"), None); // 21 lowercase letters
+        assert_eq!(suspect_raw_id("sbC2zgTo9dWyq_x1XPLN"), None); // 20 chars
+        assert_eq!(suspect_raw_id("sbC2zgTo9dWyq_x1XPLNM9"), None); // 22-char run
+        assert_eq!(suspect_raw_id("词sbC2zgTo9dWyq_x1XPLNM词"), Some("sbC2zgTo9dWyq_x1XPLNM".into()));
+        assert_eq!(suspect_raw_id(""), None);
+
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-warn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let out = create_thread_json(&conn, None, "警告测试", None).unwrap();
+        let tid = serde_json::from_str::<Value>(&out).unwrap()["thread_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Clean content: no warning key at all.
+        let v: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None).unwrap(),
+        )
+        .unwrap();
+        assert!(v.get("warning").is_none());
+
+        // Suspect id in the annotation: still written verbatim, warning names the match.
+        let v: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+        let stored: String = conn
+            .query_row(
+                "SELECT annotation FROM blocks WHERE id = ?1",
+                [v["block_id"].as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "对应 sbC2zgTo9dWyq_x1XPLNM");
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
