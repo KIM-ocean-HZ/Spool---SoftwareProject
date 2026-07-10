@@ -7,9 +7,12 @@
 //! nothing runs unless the user configured their client — plus the tools refuse until
 //! the 「MCP 服务」 toggle in Spool's settings is ON (default OFF, §20.12).
 //!
-//! Exactly two READ-ONLY tools (§20.12 scope):
-//!   list_threads          — workspaces + live threads, so the client can discover ids.
-//!   get_pack(thread_id, range?) — the §9.5 pack text for one thread.
+//! Tool surface (§20.13 v2.2, 2026-07-10) — reads, gated by mcpEnabled:
+//!   list_threads / search_blocks / find_similar_blocks / get_blocks / get_pack,
+//!   plus spool://thread/<id> resources and the compress_pack prompt.
+//! Writes, additionally gated by mcpWriteEnabled (separate consent):
+//!   create_thread / add_block (append-only, attributed) / set_thread_summary
+//!   (provenance-guarded — never overwrites a user-written summary).
 //!
 //! The pack renderer below is a line-for-line port of src/lib/pack/assemble.ts +
 //! templates.ts. **Sync discipline**: any change to those files must be mirrored here;
@@ -762,7 +765,32 @@ fn find_similar_blocks_json(
 
     let grams: Vec<HashSet<[char; 3]>> = items.iter().map(|i| trigram_set(&i.content)).collect();
 
-    // Union-find over the ≥threshold pairs; near-duplicate chains collapse into one group.
+    // Pair pass with size pruning (the MCP loop serves requests sequentially, so this
+    // call must not stall it): J(A,B) ≤ |smaller|/|larger|, so in descending-size order
+    // the inner loop can break as soon as the ratio falls under the threshold — most
+    // non-duplicate pairs are never intersected. Matching pairs are recorded once and
+    // reused for both grouping and the per-group best similarity.
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|&a, &b| grams[b].len().cmp(&grams[a].len()));
+    let mut matches: Vec<(usize, usize, f64)> = Vec::new();
+    for oi in 0..order.len() {
+        let i = order[oi];
+        let li = grams[i].len();
+        if li == 0 {
+            break; // <3-char contents have no trigrams and can never match
+        }
+        for &j in &order[oi + 1..] {
+            if (grams[j].len() as f64) < SIMILAR_THRESHOLD * li as f64 {
+                break; // sorted descending: every later j is smaller still
+            }
+            let sim = jaccard(&grams[i], &grams[j]);
+            if sim >= SIMILAR_THRESHOLD {
+                matches.push((i, j, sim));
+            }
+        }
+    }
+
+    // Union-find over the matching pairs; near-duplicate chains collapse into one group.
     let mut parent: Vec<usize> = (0..items.len()).collect();
     fn root(parent: &mut Vec<usize>, mut i: usize) -> usize {
         while parent[i] != i {
@@ -771,33 +799,31 @@ fn find_similar_blocks_json(
         }
         i
     }
-    for i in 0..items.len() {
-        for j in (i + 1)..items.len() {
-            if jaccard(&grams[i], &grams[j]) >= SIMILAR_THRESHOLD {
-                let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
-                if ri != rj {
-                    parent[ri] = rj;
-                }
-            }
+    for &(i, j, _) in &matches {
+        let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
+        if ri != rj {
+            parent[ri] = rj;
         }
     }
     let mut members: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
     for i in 0..items.len() {
         members.entry(root(&mut parent, i)).or_default().push(i);
     }
+    let mut best: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
+    for &(i, _, sim) in &matches {
+        let r = root(&mut parent, i);
+        let e = best.entry(r).or_insert(0.0);
+        if sim > *e {
+            *e = sim;
+        }
+    }
 
     let mut groups: Vec<(f64, Vec<usize>)> = members
-        .into_values()
-        .filter(|m| m.len() >= 2)
-        .map(|mut m| {
+        .into_iter()
+        .filter(|(_, m)| m.len() >= 2)
+        .map(|(r, mut m)| {
             m.sort_by_key(|&i| items[i].created_at);
-            let mut best = 0.0f64;
-            for a in 0..m.len() {
-                for b in (a + 1)..m.len() {
-                    best = best.max(jaccard(&grams[m[a]], &grams[m[b]]));
-                }
-            }
-            (best, m)
+            (best.get(&r).copied().unwrap_or(0.0), m)
         })
         .collect();
     groups.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -1984,6 +2010,27 @@ mod tests {
         assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
         // empty content refuses
         assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
+    }
+
+    // The GUI migration registry (client.ts SCHEMA_VERSION) and this binary must agree
+    // on the schema version — drift means the write tools refuse every request at
+    // runtime. Parse the TS constant at compile time so tests catch it instead.
+    #[test]
+    fn schema_version_locked_to_gui() {
+        let client_ts = include_str!("../../src/lib/db/client.ts");
+        let line = client_ts
+            .lines()
+            .find(|l| l.trim_start().starts_with("const SCHEMA_VERSION = "))
+            .expect("client.ts declares SCHEMA_VERSION");
+        let n: i64 = line
+            .split('=')
+            .nth(1)
+            .unwrap()
+            .trim()
+            .trim_end_matches(';')
+            .parse()
+            .expect("numeric SCHEMA_VERSION");
+        assert_eq!(n, EXPECTED_SCHEMA_VERSION, "client.ts SCHEMA_VERSION drifted from mcp.rs");
     }
 
     // find_similar_blocks: trigram Jaccard grouping is read-only and skips ref blocks.

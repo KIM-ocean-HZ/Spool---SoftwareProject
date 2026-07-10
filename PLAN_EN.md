@@ -39,13 +39,13 @@
 3. The Core Loop & Product Shape
 4. Tech Stack & Rationale
 5. Legacy Code Disposition
-6. AI Orchestration Strategy
+6. AI Strategy — MCP-First (v2.11)
 7. Repository Structure
 8. Data Model (three tiers)
 9. Feature Specifications
 10. Design Problem I: Frictionless Capture
 11. Design Problem II: Browsing a Finished Project
-12. Prompt Library
+12. Prompt Library (retired 2026-07-09 — see §12 note)
 13. Design System
 14. Key Interaction Details
 15. Implementation Roadmap (for Claude Code)
@@ -241,43 +241,41 @@ Phase 0 forks: 0A builds from scratch / 0B strips an existing v1 repo. Both conv
 
 ---
 
-## 6. AI Orchestration Strategy
+## 6. AI Strategy — MCP-First (v2.11)
 
-Three-tier router infrastructure from v1 kept; the AI's job changes from "author" to "librarian" (Principle 5).
+**2026-07-09 direction (Ocean): the built-in AI layer is removed. MCP is the only AI channel.**
+Gemini/Groq keys are out of reach for ordinary users and a local Ollama even more so; the
+constitution (Principles 4/5) already required the product to be fully functional with zero AI.
+Spool itself now makes **no cloud calls at all** — the CSP's `connect-src` allows only Tauri IPC,
+so the webview is structurally incapable of reaching an external host. AI cowork happens in the
+user's own MCP client (Claude Desktop, Cursor, …) through `spool --mcp` (§20.12/§20.13).
 
-### 6.1 Three Model Tiers
+### 6.1 Where the Old AI Jobs Went
 
-| Tier | Primary Model | Speed | Free Quota |
-|---|---|---|---|
-| **Fast** | Groq `llama-3.3-70b-versatile` | 700+ tok/s | ~30 RPM, 14400 RPD |
-| **Quality** | Google `gemini-2.5-flash` | ~150 tok/s | 1500 RPD, 1M context |
-| **Local** | Ollama `qwen3:8b` | ~25 tok/s on M4 | unlimited |
+| v2.10 job (built-in) | v2.11 disposition |
+|---|---|
+| Thread status summary (auto-generate) | MCP write tool `set_thread_summary` — the librarian's catalogue card, guarded by `threads.summary_source` provenance (§9.11); manual click-to-edit unchanged |
+| Thread conclusion digest | Hand-written only (§9.8 always allowed empty); an MCP client can draft one in chat for the user to paste |
+| Capture classification suggestion | Removed (RouteSuggestion deleted); §10.6 remains the future-direction note |
+| §17 pack compression | Removed from the GUI; the MCP `compress_pack` prompt (verbatim-preservation contract) survives in mcp.rs for client-side compression |
+| §20.10 image OCR | Cancelled before it was built (was only ever chartered) |
 
-### 6.2 The AI's Three Jobs in v2
+Deleted wholesale: `src/lib/ai/` (router, three providers, prompts, cache, parseJson),
+`quotaStore`, Settings' AI service/quota sections, privacy mode (nothing left to switch off —
+zero egress is now unconditional), the Ollama startup probe. Legacy `settings.json` keys
+(`groqKey`/`geminiKey`/`ollamaEndpoint`/`ollamaModel`/`privacyMode`) are scrubbed on load:
+plaintext API keys must not linger once nothing reads them.
 
-| Job | Description | Primary → Fallback | When |
-|---|---|---|---|
-| **Thread status summary** | ~50-char sentence: where this project stands now | Quality → Local | User clicks, on-demand |
-| **Thread conclusion summary** | At completion, generate digest from pinned blocks | Quality → Local | Completion time — optional, allowed to fail |
-| **Capture classification suggestion** | Judge which thread a fresh block belongs to | Fast → Local | After capture, non-blocking |
+### 6.2 Iron Rules, Restated for MCP-First
 
-### 6.3 Realistic Expectations for Local Model Quality
-
-**Small models like Qwen3:8b can fail at summarization when input is very long or extremely fragmented.** This is not a bug to be fixed — it's a reality to be absorbed by product design:
-
-> **An AI summary is always disposable decoration. Any UI displaying it must remain fully intact when the AI is absent / fails / is slow / produces low quality.** What is always shown first is the user's original information; AI is layered convenience.
-
-### 6.4 Three Iron Rules
-
-1. **Capture never waits for AI.** Pure local: read clipboard → write SQLite → toast. AI classification runs after.
-2. **The core of pack and search is deterministic.** `pack/assemble.ts` is pure; FTS5 is local.
-3. **In privacy mode, AI exits silently.** Entry points hidden if no local model.
-
-### 6.5 Fallback & Quota
-
-- Triggers: HTTP 429 / 5xx / timeout (fast 5s, quality 20s, local 30s).
-- `quotaStore.ts` tracks today's usage; warns <10%; auto-switches at zero.
-- Cache: LRU(100), key = sha256(prompt).
+1. **Capture never waits for AI.** Unchanged — pure local: clipboard → SQLite → toast.
+2. **Pack and search are deterministic.** Unchanged — `pack/assemble.ts` is pure; FTS5 is local.
+3. **AI presence is opt-in, twice.** MCP tools refuse until 「MCP 服务」 is ON; writes further
+   require 「允许 AI 写入」. Every MCP write is attributed (`<client> · MCP` source invariant);
+   an AI may never overwrite what the user wrote by hand (summary provenance guard, append-only
+   blocks).
+4. **The product must be whole with zero AI configured.** Now trivially true — there is nothing
+   to configure.
 
 ---
 

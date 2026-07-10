@@ -53,6 +53,11 @@ const getStore = (): Promise<Store> => {
   return storePromise;
 };
 
+// load() re-runs on every settings:changed broadcast in every window — the legacy-key
+// scrub only needs to run once per window session (and only ever deletes on the first
+// launch after the MCP-first pivot).
+let legacyScrubDone = false;
+
 const KEYS: PersistableKey[] = [
   'captureShortcut',
   'searchShortcut',
@@ -93,14 +98,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         if (v !== null && v !== undefined) (next as Record<string, unknown>)[k] = v;
       }
       // One-time cleanup for users upgrading across the MCP-first pivot.
-      let scrubbed = false;
-      for (const k of LEGACY_AI_KEYS) {
-        if (await store.has(k)) {
-          await store.delete(k);
-          scrubbed = true;
+      if (!legacyScrubDone) {
+        legacyScrubDone = true;
+        let scrubbed = false;
+        for (const k of LEGACY_AI_KEYS) {
+          if (await store.delete(k)) scrubbed = true;
         }
+        if (scrubbed) await store.save();
       }
-      if (scrubbed) await store.save();
       set({ ...(next as Partial<SettingsState>), loaded: true });
     } catch (e) {
       console.warn('settings load failed', e);
