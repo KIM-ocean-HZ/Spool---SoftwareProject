@@ -291,16 +291,20 @@ fn render_block(
 // R2 field report B2: carries a short head anchor (char-truncated, lockstep with TS).
 const PLACEHOLDER_HEAD_CHARS: usize = 40;
 
-fn head_anchor(content: &str) -> String {
+fn anchor_n(content: &str, n: usize) -> String {
     let one = one_line(content);
     let chars: Vec<char> = one.chars().collect();
-    if chars.len() <= PLACEHOLDER_HEAD_CHARS {
+    if chars.len() <= n {
         one
     } else {
-        let mut s: String = chars[..PLACEHOLDER_HEAD_CHARS].iter().collect();
+        let mut s: String = chars[..n].iter().collect();
         s.push('…');
         s
     }
+}
+
+fn head_anchor(content: &str) -> String {
+    anchor_n(content, PLACEHOLDER_HEAD_CHARS)
 }
 
 fn render_pinned_placeholder(b: &BlockRow) -> String {
@@ -981,6 +985,372 @@ fn find_similar_blocks_json(
         "note": "Spool 不提供合并——把发现讲给用户（用 preview 与 thread_title 指代，勿输出 id；pinned/has_annotation/length 是用户挑保留块的关键信息），由用户在应用里处置。",
     }))
     .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// §20.13 v2.4 (D3): get_digest — the cross-thread briefing ("我最近一周在忙什么").
+// Deterministic assembly only (Constitution 4/5): mechanical selection rules — recency
+// window, pinned-first, fixed quotas — all disclosed in the output itself; the server
+// never judges what matters. Within one calendar day the same DB + same params yield
+// byte-identical output (the window is midnight-aligned and the header carries the date,
+// not the minute).
+// ---------------------------------------------------------------------------------------
+
+const DIGEST_DEFAULT_DAYS: i64 = 7;
+const DIGEST_MAX_DAYS: i64 = 90;
+const DIGEST_DEFAULT_MAX_CHARS: i64 = 20_000;
+// Newest non-pinned window blocks rendered per thread; pinned ride outside the quota.
+const DIGEST_THREAD_QUOTA: usize = 5;
+// Per-block render cap — the digest is a breadth tool; depth belongs to get_pack.
+const DIGEST_BLOCK_CHAR_CAP: usize = 600;
+// Pinned anchor lines for threads without window activity.
+const DIGEST_ANCHOR_CHARS: usize = 80;
+
+// Start of the local calendar day containing `now_ms`.
+fn local_midnight_ms(now_ms: i64) -> i64 {
+    let mut tm = local_tm(now_ms);
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;
+    tm.tm_isdst = -1;
+    let secs = unsafe { libc::mktime(&mut tm) };
+    (secs as i64) * 1000
+}
+
+// One digest block line: pack-style bracket + content capped at DIGEST_BLOCK_CHAR_CAP,
+// annotation as a note: sub-line. No attachments (breadth tool), no citation line.
+fn digest_block_lines(
+    b: &BlockRow,
+    ref_titles: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
+    let time = format_pack_time(b.created_at);
+    let star = if b.pinned { PINNED_PREFIX } else { "" };
+    let mut lines: Vec<String> = Vec::new();
+    if b.kind == "ref" {
+        let from_map = b
+            .ref_thread_id
+            .as_ref()
+            .and_then(|id| ref_titles.get(id))
+            .map(|s| s.as_str())
+            .filter(|s| !s.is_empty());
+        let title = from_map.unwrap_or(if b.content.is_empty() { UNKNOWN_THREAD } else { &b.content });
+        lines.push(format!("{star}[{time}] {REF_MARKER}{title}"));
+    } else {
+        let bracket = match b.source.as_deref() {
+            Some(src) => format!("{time}{SOURCE_MARKER}{src}"),
+            None => time,
+        };
+        let content = b.content.trim();
+        let total = content.chars().count();
+        let body: String = if total > DIGEST_BLOCK_CHAR_CAP {
+            let head: String = content.chars().take(DIGEST_BLOCK_CHAR_CAP).collect();
+            format!("{head}\n{}", truncation_marker(total - DIGEST_BLOCK_CHAR_CAP))
+        } else {
+            content.to_string()
+        };
+        lines.push(format!("{star}[{bracket}] {body}"));
+    }
+    if let Some(note) = b.annotation.as_deref() {
+        if !note.trim().is_empty() {
+            lines.push(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)));
+        }
+    }
+    lines
+}
+
+fn get_digest_json(
+    conn: &Connection,
+    workspace_title: Option<&str>,
+    since_days: Option<i64>,
+    max_chars: Option<i64>,
+    now_ms: i64,
+) -> Result<String, String> {
+    let days = since_days.unwrap_or(DIGEST_DEFAULT_DAYS).clamp(1, DIGEST_MAX_DAYS);
+    let max_chars = max_chars.unwrap_or(DIGEST_DEFAULT_MAX_CHARS).max(0);
+    let cutoff = local_midnight_ms(now_ms) - (days - 1) * 86_400_000;
+
+    // Workspace scope — same name matching as create_thread; unknown name errors with
+    // the live list.
+    let ws_id: Option<String> = match workspace_title {
+        None => None,
+        Some(wt) => Some(
+            conn.query_row(
+                "SELECT id FROM workspaces
+                 WHERE deleted_at IS NULL AND lower(title) = lower(?1)
+                 ORDER BY sort_order ASC LIMIT 1",
+                [wt.trim()],
+                |r| r.get(0),
+            )
+            .map_err(|_| {
+                let names: Vec<String> = conn
+                    .prepare(
+                        "SELECT title FROM workspaces WHERE deleted_at IS NULL
+                         ORDER BY sort_order ASC",
+                    )
+                    .and_then(|mut s| {
+                        s.query_map([], |r| r.get::<_, String>(0))
+                            .and_then(|rows| rows.collect())
+                    })
+                    .unwrap_or_default();
+                format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
+            })?,
+        ),
+    };
+
+    struct ThreadMeta {
+        id: String,
+        title: String,
+        workspace: String,
+        status: String,
+        updated_at: i64,
+        summary: Option<String>,
+        total_blocks: i64,
+    }
+    let ws_clause = if ws_id.is_some() { "AND w.id = ?1" } else { "" };
+    let sql = format!(
+        "SELECT t.id, t.title, w.title, t.status, t.updated_at, t.summary,
+                (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id)
+         FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+         WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL {ws_clause}
+         ORDER BY t.updated_at DESC, t.id ASC"
+    );
+    let map_thread = |r: &rusqlite::Row| -> rusqlite::Result<ThreadMeta> {
+        Ok(ThreadMeta {
+            id: r.get(0)?,
+            title: r.get(1)?,
+            workspace: r.get(2)?,
+            status: r.get(3)?,
+            updated_at: r.get(4)?,
+            summary: r.get(5)?,
+            total_blocks: r.get(6)?,
+        })
+    };
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let threads: Vec<ThreadMeta> = match &ws_id {
+        Some(id) => stmt.query_map([id], map_thread),
+        None => stmt.query_map([], map_thread),
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
+
+    // Every pinned or in-window block for the in-scope threads, chronological.
+    let sql = format!(
+        "SELECT b.thread_id, b.id, b.kind, b.content, b.annotation, b.ref_thread_id,
+                b.ref_block_id, b.source, b.pinned, b.created_at
+         FROM blocks b
+         JOIN threads t ON t.id = b.thread_id
+         JOIN workspaces w ON w.id = t.workspace_id
+         WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL {ws_clause}
+           AND (b.pinned = 1 OR b.created_at >= ?{})
+         ORDER BY b.created_at ASC, b.rowid ASC",
+        if ws_id.is_some() { 2 } else { 1 }
+    );
+    struct DigestRow {
+        thread_id: String,
+        block: BlockRow,
+    }
+    let map_block = |r: &rusqlite::Row| -> rusqlite::Result<DigestRow> {
+        Ok(DigestRow {
+            thread_id: r.get(0)?,
+            block: BlockRow {
+                id: r.get(1)?,
+                kind: r.get(2)?,
+                content: r.get(3)?,
+                annotation: r.get(4)?,
+                ref_thread_id: r.get(5)?,
+                ref_block_id: r.get(6)?,
+                source: r.get(7)?,
+                pinned: r.get::<_, i64>(8)? == 1,
+                created_at: r.get(9)?,
+            },
+        })
+    };
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows: Vec<DigestRow> = match &ws_id {
+        Some(id) => stmt.query_map(rusqlite::params![id, cutoff], map_block),
+        None => stmt.query_map(rusqlite::params![cutoff], map_block),
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
+
+    let mut by_thread: std::collections::HashMap<&str, Vec<&BlockRow>> =
+        std::collections::HashMap::new();
+    for r in &rows {
+        by_thread.entry(r.thread_id.as_str()).or_default().push(&r.block);
+    }
+
+    // Titles for rendering kind=ref blocks (same fallback semantics as build_pack).
+    let mut stmt = conn.prepare("SELECT id, title FROM threads").map_err(|e| e.to_string())?;
+    let ref_titles: std::collections::HashMap<String, String> = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // Split: active threads (any block in window) vs pinned-only anchors.
+    struct ActiveThread<'a> {
+        meta: &'a ThreadMeta,
+        latest_window: i64,
+        pinned: Vec<&'a BlockRow>,
+        window: Vec<&'a BlockRow>, // non-pinned, in-window, chronological
+    }
+    let mut active: Vec<ActiveThread> = Vec::new();
+    let mut anchors: Vec<(&ThreadMeta, Vec<&BlockRow>)> = Vec::new();
+    for meta in &threads {
+        let Some(blocks) = by_thread.get(meta.id.as_str()) else { continue };
+        let latest_window = blocks
+            .iter()
+            .filter(|b| b.created_at >= cutoff)
+            .map(|b| b.created_at)
+            .max();
+        let pinned: Vec<&BlockRow> = blocks.iter().copied().filter(|b| b.pinned).collect();
+        match latest_window {
+            Some(latest) => {
+                let window: Vec<&BlockRow> = blocks
+                    .iter()
+                    .copied()
+                    .filter(|b| !b.pinned && b.created_at >= cutoff)
+                    .collect();
+                active.push(ActiveThread { meta, latest_window: latest, pinned, window });
+            }
+            None if !pinned.is_empty() => anchors.push((meta, pinned)),
+            None => {}
+        }
+    }
+    active.sort_by(|a, b| {
+        b.latest_window
+            .cmp(&a.latest_window)
+            .then_with(|| a.meta.id.cmp(&b.meta.id))
+    });
+    // anchors keep the thread query's updated_at DESC order.
+
+    let scope = match workspace_title {
+        Some(wt) => format!("工作区「{}」", wt.trim()),
+        None => "全部工作区".to_string(),
+    };
+    let mut out: Vec<String> = Vec::new();
+    out.push(format!(
+        "# Spool Digest: {scope} · 自 {}(近 {days} 天)",
+        format_pack_date(cutoff)
+    ));
+    out.push(String::new());
+    out.push(format!(
+        "Generated by Spool on {}. 窗口内 {} 条脉络有新块(共 {} 条在库)。选取规则:\
+         每脉络最新 {DIGEST_THREAD_QUOTA} 块 + 全部置顶(置顶不占配额),单块截断于 \
+         {DIGEST_BLOCK_CHAR_CAP} 字符;深读用 get_pack / get_blocks。",
+        format_pack_date(now_ms),
+        active.len(),
+        threads.len()
+    ));
+    out.push(
+        "Authority categories per get_pack's reading header; source labels preserved.".to_string(),
+    );
+
+    if active.is_empty() && anchors.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "窗口内没有新块,也没有置顶锚点 — 试更大的 since_days(当前 {days}),\
+             或用 list_threads 查看全部脉络。"
+        ));
+        return Ok(out.join("\n") + "\n");
+    }
+
+    // Greedy budget fill. Costs count chars + the joining newline per line.
+    let cost = |lines: &[String]| -> i64 {
+        lines.iter().map(|l| l.chars().count() as i64 + 1).sum()
+    };
+    let mut used = cost(&out);
+    let unlimited = max_chars == 0;
+
+    if !active.is_empty() {
+        let header = vec![String::new(), "## 近期活跃".to_string()];
+        used += cost(&header);
+        out.extend(header);
+        for t in &active {
+            let mut chunk: Vec<String> = Vec::new();
+            chunk.push(String::new());
+            chunk.push(format!(
+                "### {} / {} — {} · {} 块 · 最后活动 {}",
+                t.meta.workspace,
+                if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
+                t.meta.status,
+                t.meta.total_blocks,
+                format_pack_time(t.latest_window)
+            ));
+            if let Some(s) = t.meta.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                chunk.push(format!("summary: {}", one_line(s)));
+            }
+            for b in &t.pinned {
+                chunk.extend(digest_block_lines(b, &ref_titles));
+            }
+            let skip = t.window.len().saturating_sub(DIGEST_THREAD_QUOTA);
+            for b in &t.window[skip..] {
+                chunk.extend(digest_block_lines(b, &ref_titles));
+            }
+            if skip > 0 {
+                chunk.push(format!(
+                    "(+ {skip} more blocks in window — get_pack / get_blocks 读全量)"
+                ));
+            }
+            let c = cost(&chunk);
+            if unlimited || used + c <= max_chars {
+                used += c;
+                out.extend(chunk);
+            } else {
+                // The "who was active" answer never drops a thread — over budget it
+                // degrades to one line.
+                let fallback = format!(
+                    "- {}(窗口内 {} 块,未展开 — 预算所限)",
+                    if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
+                    t.window.len() + t.pinned.iter().filter(|b| b.created_at >= cutoff).count()
+                );
+                used += fallback.chars().count() as i64 + 1;
+                out.push(fallback);
+            }
+        }
+    }
+
+    if !anchors.is_empty() {
+        let header = vec![
+            String::new(),
+            "## 其余脉络的置顶锚点(窗口内无新块)".to_string(),
+            String::new(),
+        ];
+        used += cost(&header);
+        out.extend(header);
+        let mut omitted = 0usize;
+        for (meta, pinned) in &anchors {
+            for b in pinned {
+                let line = format!(
+                    "- {}: {PINNED_PREFIX}{}",
+                    if meta.title.is_empty() { "（无标题）" } else { &meta.title },
+                    anchor_n(&b.content, DIGEST_ANCHOR_CHARS)
+                );
+                let c = line.chars().count() as i64 + 1;
+                if unlimited || used + c <= max_chars {
+                    used += c;
+                    out.push(line);
+                } else {
+                    omitted += 1;
+                }
+            }
+        }
+        if omitted > 0 {
+            out.push(format!("(+ {omitted} 行置顶锚点未展开 — 预算所限)"));
+        }
+    }
+
+    let quiet = threads.len() - active.len() - anchors.len();
+    if quiet > 0 {
+        out.push(String::new());
+        out.push(format!(
+            "——另有 {quiet} 条脉络无置顶且窗口内无活动(list_threads 查看全部)。"
+        ));
+    }
+
+    Ok(out.join("\n") + "\n")
 }
 
 // §20.13 v2.1 (field report C1): block-level paging — the middle granularity between
@@ -1733,6 +2103,20 @@ fn tools_descriptor() -> Value {
             "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
         },
         {
+            "name": "get_digest",
+            "description": "Cross-thread briefing: what happened recently across the whole library (or one workspace) — answers 'what have I been working on'. Deterministic digest, newest-activity threads first: each active thread shows its summary, ALL its pinned blocks, and its newest window blocks (quota 5, blocks truncated at 600 chars); threads without new blocks contribute one pinned-anchor line each. Same params + same data = same output within a day (the window is midnight-aligned). Use get_pack for depth on one thread.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_title": { "type": "string", "description": "Optional: limit to one workspace (matched by name, case-insensitive). Omit for all workspaces." },
+                    "since_days": { "type": "integer", "description": "Activity window in calendar days, default 7, max 90 (counts today)." },
+                    "max_chars": { "type": "integer", "description": "Output budget, default 20000; 0 = unlimited. Over budget, thread chunks degrade to one-line mentions — no thread is silently dropped." }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "get_pack",
             "description": "Return Spool's paste-ready context briefing (the 'pack') for one thread — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call returns a partial pack — reading header and Pinned Blocks complete, Full Record filled newest-first to the budget, with one line at the section top saying how many older blocks were omitted and how to read them (get_blocks paging, narrower range, or max_chars=0 for the full text).",
             "inputSchema": {
@@ -1867,6 +2251,13 @@ fn handle_tool_call(params: &Value) -> Value {
     let run = || -> Result<String, String> {
         match name {
             "list_threads" => list_threads_json(&open_db(&dir)?),
+            "get_digest" => get_digest_json(
+                &open_db(&dir)?,
+                args.get("workspace_title").and_then(Value::as_str),
+                args.get("since_days").and_then(Value::as_i64),
+                args.get("max_chars").and_then(Value::as_i64),
+                now_ms(),
+            ),
             "search_blocks" => {
                 let query =
                     args.get("query").and_then(Value::as_str).ok_or("缺少 query 参数。")?;
@@ -2862,6 +3253,91 @@ mod tests {
         assert!(msg.contains("max_chars=5"));
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 0).is_none());
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 100).is_none());
+    }
+
+    // v2.4 (D3): get_digest — deterministic cross-thread briefing. Fixed clock, seeded
+    // DB: window split, pinned-outside-quota, newest-5 quota, anchor section, budget
+    // degradation, workspace filter, empty state.
+    #[test]
+    fn get_digest_deterministic_briefing() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-digest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        let now: i64 = 1_752_148_800_000; // 2026-07-10 около noon local; exact wall time irrelevant
+        let day = 86_400_000i64;
+        // t1: active (new blocks today + old pinned); t2: pinned only, no window
+        // activity; t3: quiet entirely; t4: active in another workspace.
+        conn.execute_batch(&format!(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '课程', 0, 1, 1), ('ws2', '生活', 1, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, summary, created_at, updated_at) VALUES
+               ('t1', 'ws1', '算法课', '期末复习中', 1, {n1}),
+               ('t2', 'ws1', '文献综述', NULL, 1, {n2}),
+               ('t3', 'ws1', '沉睡脉络', NULL, 1, 100),
+               ('t4', 'ws2', '健身计划', NULL, 1, {n3});
+             INSERT INTO blocks (id, thread_id, kind, content, annotation, pinned, created_at) VALUES
+               ('p1', 't1', 'text', '置顶:动态规划四要素', NULL, 1, {old}),
+               ('w1', 't1', 'text', '窗口块一', NULL, 0, {w1}),
+               ('w2', 't1', 'text', '窗口块二', '要复看', 0, {w2}),
+               ('w3', 't1', 'text', '窗口块三', NULL, 0, {w3}),
+               ('w4', 't1', 'text', '窗口块四', NULL, 0, {w4}),
+               ('w5', 't1', 'text', '窗口块五', NULL, 0, {w5}),
+               ('w6', 't1', 'text', '窗口块六(最旧,应被配额挤出)', NULL, 0, {w0}),
+               ('p2', 't2', 'text', '置顶锚点:核心论点只此一条', NULL, 1, {old}),
+               ('q1', 't3', 'text', '很久以前的块', NULL, 0, 100),
+               ('g1', 't4', 'text', '今天的深蹲纪录', NULL, 0, {n3});",
+            n1 = now, n2 = now - 2 * day, n3 = now - 1000, old = now - 30 * day,
+            w0 = now - 6 * day, w1 = now - 5 * day, w2 = now - 4 * day,
+            w3 = now - 3 * day, w4 = now - 2 * day, w5 = now - day,
+        ))
+        .unwrap();
+
+        let d1 = get_digest_json(&conn, None, Some(7), None, now).unwrap();
+        // Deterministic: same params, same clock, byte-identical.
+        assert_eq!(d1, get_digest_json(&conn, None, Some(7), None, now).unwrap());
+        // Both active threads present, newest activity first (t4's block is newer).
+        let i_t4 = d1.find("生活 / 健身计划").unwrap();
+        let i_t1 = d1.find("课程 / 算法课").unwrap();
+        assert!(i_t4 < i_t1, "{d1}");
+        assert!(d1.contains("summary: 期末复习中"));
+        // Pinned rides outside the quota; quota keeps the newest 5 window blocks.
+        assert!(d1.contains("📌 [") && d1.contains("置顶:动态规划四要素"));
+        assert!(d1.contains("窗口块一") && d1.contains("窗口块五"));
+        assert!(!d1.contains("窗口块六"), "quota should evict the oldest window block");
+        assert!(d1.contains("(+ 1 more blocks in window"));
+        assert!(d1.contains("note: 要复看"));
+        // Pinned-only thread lands in the anchor section; fully quiet thread only in
+        // the tail count.
+        assert!(d1.contains("## 其余脉络的置顶锚点"));
+        assert!(d1.contains("- 文献综述: 📌 置顶锚点:核心论点只此一条"));
+        assert!(!d1.contains("沉睡脉络"));
+        assert!(d1.contains("另有 1 条脉络无置顶且窗口内无活动"));
+
+        // Workspace filter narrows scope; unknown workspace errors with the live list.
+        let d_ws = get_digest_json(&conn, Some("课程"), Some(7), None, now).unwrap();
+        assert!(d_ws.contains("算法课") && !d_ws.contains("健身计划"));
+        let err = get_digest_json(&conn, Some("不存在"), None, None, now).unwrap_err();
+        assert!(err.contains("课程") && err.contains("生活"));
+
+        // Budget: a tiny cap degrades thread chunks to one-line mentions, drops none.
+        let d_small = get_digest_json(&conn, None, Some(7), Some(600), now).unwrap();
+        assert!(d_small.chars().count() < d1.chars().count());
+        assert!(d_small.contains("算法课") && d_small.contains("健身计划"));
+        assert!(d_small.contains("预算所限"), "{d_small}");
+
+        // Narrow window (since=1: today only): t4 wrote today and stays active; t1's
+        // newest block is a day old, so it degrades to a pinned-anchor thread.
+        let d_today = get_digest_json(&conn, None, Some(1), None, now).unwrap();
+        assert!(d_today.contains("窗口内 1 条脉络有新块"), "{d_today}");
+        assert!(d_today.contains("- 算法课: 📌") && d_today.contains("- 文献综述: 📌"));
+        assert!(!d_today.contains("窗口块五"));
+
+        // Fully empty scope: no pins, no window → the actionable empty message.
+        conn.execute_batch("DELETE FROM blocks; ").unwrap();
+        let d_empty = get_digest_json(&conn, None, Some(7), None, now).unwrap();
+        assert!(d_empty.contains("窗口内没有新块"), "{d_empty}");
     }
 
     // v2.4 (D1/5b): the raw-id write warning — advisory, never blocks the write.
