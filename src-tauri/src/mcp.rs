@@ -316,6 +316,22 @@ pub fn assemble_pack(
     ref_titles: &std::collections::HashMap<String, String>,
     now_ms: i64,
 ) -> String {
+    assemble_pack_omitting(thread_title, blocks, attachments, ref_titles, now_ms, 0)
+}
+
+// v2.4 (C2): the budgeted variant drops the `omit` OLDEST blocks from the Full Record
+// (their slot is one explicit omission line at the top of the section) while the
+// skeleton and the complete Pinned Blocks section survive. Related Files & Links lists
+// only the kept blocks' attachments — the pack must not point at content it omitted.
+// omit == 0 is the plain pack; the golden test pins that path byte-for-byte.
+fn assemble_pack_omitting(
+    thread_title: &str,
+    blocks: &[BlockRow],
+    attachments: &[AttachmentRow],
+    ref_titles: &std::collections::HashMap<String, String>,
+    now_ms: i64,
+    omit: usize,
+) -> String {
     let date_str = format_pack_date(now_ms);
     let mut out: Vec<String> = Vec::new();
 
@@ -339,13 +355,30 @@ pub fn assemble_pack(
         }
     }
 
+    let kept = &blocks[omit.min(blocks.len())..];
+
     out.push(String::new());
     out.push(SECTION_LOG.to_string());
     out.push(String::new());
+    if omit > 0 {
+        let omitted_chars: usize = blocks[..omit]
+            .iter()
+            .map(|b| {
+                render_block(b, attachments, ref_titles)
+                    .iter()
+                    .map(|l| l.chars().count() + 1)
+                    .sum::<usize>()
+            })
+            .sum();
+        out.push(format!(
+            "[... {omit} older blocks omitted for budget (~{omitted_chars} chars) — \
+             read them with get_blocks(offset=0, limit={omit}) or raise max_chars ...]"
+        ));
+    }
     if blocks.is_empty() {
         out.push(EMPTY_LOG_LINE.to_string());
     } else {
-        for b in blocks {
+        for b in kept {
             if b.pinned {
                 out.push(render_pinned_placeholder(b));
             } else {
@@ -354,11 +387,22 @@ pub fn assemble_pack(
         }
     }
 
-    if !attachments.is_empty() {
+    // Pinned blocks render in full above even when their chronological slot was
+    // omitted, so their attachments stay listed too.
+    let kept_ids: HashSet<&str> = kept
+        .iter()
+        .map(|b| b.id.as_str())
+        .chain(pinned.iter().map(|b| b.id.as_str()))
+        .collect();
+    let listed: Vec<&AttachmentRow> = attachments
+        .iter()
+        .filter(|a| kept_ids.contains(a.block_id.as_str()))
+        .collect();
+    if !listed.is_empty() {
         out.push(String::new());
         out.push(SECTION_FILES.to_string());
         out.push(String::new());
-        for a in attachments {
+        for a in listed {
             let not_inlined = if a.kind == "file" && a.extracted_text.is_some() && !a.include_in_pack
             {
                 "  [extracted: yes, not inlined]"
@@ -1102,12 +1146,57 @@ fn get_blocks_json(
 }
 
 // Pack text plus the counts the get_pack guard (P0-2/P2-7, 2026-07-09 field report)
-// needs to say something actionable instead of an oversize or hollow pack.
+// needs to say something actionable instead of an oversize or hollow pack — and, since
+// v2.4 (C2), the raw parts so an over-budget pack can be re-assembled partially.
 struct PackBuilt {
     text: String,
     total_blocks: usize,
     range_blocks: usize,
     pinned_blocks: usize,
+    title: String,
+    blocks: Vec<BlockRow>,
+    attachments: Vec<AttachmentRow>,
+    ref_titles: std::collections::HashMap<String, String>,
+    now_ms: i64,
+}
+
+// v2.4 (C2): instead of stats-only, an over-budget pack keeps the skeleton + the full
+// Pinned Blocks section and fills the Full Record from the NEWEST block backwards until
+// max_chars; the omitted oldest blocks become one explicit line at the section top.
+// Returns None when even the everything-omitted rendering (skeleton + pinned) is over
+// budget — the caller falls back to the stats guard message. Binary search over the
+// omit count: length decreases as omission grows (the omission line's digit count can
+// wobble it by a char or two, which the verified-endpoints search absorbs).
+fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<String> {
+    let n = built.blocks.len();
+    let render = |omit: usize| {
+        assemble_pack_omitting(
+            &built.title,
+            &built.blocks,
+            &built.attachments,
+            &built.ref_titles,
+            built.now_ms,
+            omit,
+        )
+    };
+    let fits = |omit: usize| render(omit).chars().count() as i64 <= max_chars;
+    if fits(0) {
+        return Some(render(0)); // the guard path never sends this, but keep it total
+    }
+    if !fits(n) {
+        return None;
+    }
+    // Invariant: lo never fits (omit=0 is the over-budget full pack), hi always fits.
+    let (mut lo, mut hi) = (0usize, n);
+    while lo + 1 < hi {
+        let mid = lo + (hi - lo) / 2;
+        if fits(mid) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    Some(render(hi))
 }
 
 // One get_pack call used to return 70k+ chars (field report A1) — over the tool-result
@@ -1231,6 +1320,11 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         total_blocks,
         range_blocks,
         pinned_blocks,
+        title,
+        blocks,
+        attachments,
+        ref_titles,
+        now_ms,
     })
 }
 
@@ -1522,7 +1616,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "get_pack",
-            "description": "Return Spool's paste-ready context briefing (the 'pack') for one thread — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call returns stats plus guidance instead of a truncation-prone wall of text (narrow with range, page with get_blocks, or pass max_chars=0 for the full text).",
+            "description": "Return Spool's paste-ready context briefing (the 'pack') for one thread — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call returns a partial pack — reading header and Pinned Blocks complete, Full Record filled newest-first to the budget, with one line at the section top saying how many older blocks were omitted and how to read them (get_blocks paging, narrower range, or max_chars=0 for the full text).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1699,8 +1793,17 @@ fn handle_tool_call(params: &Value) -> Value {
                     .unwrap_or(PACK_DEFAULT_MAX_CHARS);
                 let built = build_pack(&open_db(&dir)?, thread_id, range)?;
                 match pack_guard_message(&built, range, max_chars) {
-                    Some(msg) => Ok(msg),
                     None => Ok(built.text),
+                    Some(msg) => {
+                        // C2: over budget (the only guard with content on hand) tries a
+                        // partial render; empty thread / empty window keep their messages,
+                        // as does the extreme where skeleton + pinned alone overflow.
+                        if built.range_blocks > 0 {
+                            Ok(budgeted_pack(&built, max_chars).unwrap_or(msg))
+                        } else {
+                            Ok(msg)
+                        }
+                    }
                 }
             }
             "create_thread" | "add_block" | "set_thread_summary" => {
@@ -2564,6 +2667,11 @@ mod tests {
             total_blocks: total,
             range_blocks: range,
             pinned_blocks: pinned,
+            title: String::new(),
+            blocks: Vec::new(),
+            attachments: Vec::new(),
+            ref_titles: HashMap::new(),
+            now_ms: 0,
         };
         assert!(pack_guard_message(&mk(0, 0, 0, ""), "all", 100)
             .unwrap()
@@ -2574,6 +2682,85 @@ mod tests {
         assert!(msg.contains("max_chars=5"));
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 0).is_none());
         assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 100).is_none());
+    }
+
+    // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
+    // Full Record filled newest-first, explicit omission line, attachments narrowed to
+    // surviving blocks; deterministic; extreme budgets fall back to None.
+    #[test]
+    fn budgeted_pack_fills_newest_first() {
+        let mk_block = |i: usize, pinned: bool| BlockRow {
+            id: format!("b{i}"),
+            kind: "text".into(),
+            content: format!("块 {i}:{}", "内容".repeat(120)), // ~245 chars each
+            annotation: None,
+            ref_thread_id: None,
+            source: None,
+            pinned,
+            created_at: 1_750_000_000_000 + i as i64 * 60_000,
+        };
+        let blocks: Vec<BlockRow> =
+            (0..20).map(|i| mk_block(i, i == 0)).collect(); // oldest block pinned
+        let attachments = vec![
+            AttachmentRow {
+                block_id: "b1".into(), // oldest unpinned — will be omitted
+                kind: "url".into(),
+                target: "https://old.example".into(),
+                label: "old".into(),
+                extracted_text: None,
+                extraction_kind: None,
+                include_in_pack: false,
+            },
+            AttachmentRow {
+                block_id: "b19".into(), // newest — must survive
+                kind: "url".into(),
+                target: "https://new.example".into(),
+                label: "new".into(),
+                extracted_text: None,
+                extraction_kind: None,
+                include_in_pack: false,
+            },
+        ];
+        let built = PackBuilt {
+            text: assemble_pack("预算测试", &blocks, &attachments, &HashMap::new(), 1_750_001_000_000),
+            total_blocks: 20,
+            range_blocks: 20,
+            pinned_blocks: 1,
+            title: "预算测试".into(),
+            blocks,
+            attachments,
+            ref_titles: HashMap::new(),
+            now_ms: 1_750_001_000_000,
+        };
+        let full_chars = built.text.chars().count() as i64;
+        let budget = full_chars - 1000; // force a few omissions
+
+        let partial = budgeted_pack(&built, budget).expect("partial pack must fit");
+        assert!(partial.chars().count() as i64 <= budget);
+        // Deterministic.
+        assert_eq!(partial, budgeted_pack(&built, budget).unwrap());
+        // Omission line at the top of Full Record, naming count + the paging escape.
+        let lines: Vec<&str> = partial.lines().collect();
+        let log_idx = lines.iter().position(|l| *l == SECTION_LOG).unwrap();
+        assert!(
+            lines[log_idx + 2].starts_with("[... ") && lines[log_idx + 2].contains("older blocks omitted"),
+            "{}",
+            lines[log_idx + 2]
+        );
+        assert!(lines[log_idx + 2].contains("get_blocks(offset=0, limit="));
+        // Newest block survives; the pinned oldest renders fully in Pinned Blocks even
+        // though its chronological slot was omitted.
+        assert!(partial.contains("块 19:"));
+        assert!(partial.contains("块 0:"));
+        assert!(!partial.contains("块 1:"), "oldest unpinned should be omitted");
+        // Attachment narrowing: the omitted block's link is gone, the kept one stays.
+        assert!(partial.contains("https://new.example"));
+        assert!(!partial.contains("https://old.example"));
+        // Extreme budget: even skeleton + pinned won't fit → None (caller keeps stats).
+        assert!(budgeted_pack(&built, 100).is_none());
+        // A budget the full text already fits is never reached via the guard, but the
+        // search still answers with omit=0 == the plain pack.
+        assert_eq!(budgeted_pack(&built, full_chars).unwrap(), built.text);
     }
 
     // One test on purpose: it redirects HOME to a temp dir, and env vars are
