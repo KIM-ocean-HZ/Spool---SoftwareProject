@@ -448,6 +448,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           content: src.content,
           annotation: src.annotation,
           refThreadId: src.refThreadId,
+          refBlockId: src.refBlockId,
           source: src.source,
           pinned: src.pinned,
           createdAt: base + i,

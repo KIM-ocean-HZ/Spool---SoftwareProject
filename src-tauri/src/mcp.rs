@@ -42,6 +42,9 @@ const FILE_MARKER: &str = "↳ attached file: ";
 const FOLDER_MARKER: &str = "↳ attached folder: ";
 const URL_MARKER: &str = "↳ attached URL: ";
 const REF_MARKER: &str = "→ Referenced thread: ";
+// v2.4 (§20.13 D2) — mirrors templates.ts REF_BLOCK_MARKER / REF_BLOCK_MISSING.
+const REF_BLOCK_MARKER: &str = "↩ cites: ";
+const REF_BLOCK_MISSING: &str = "(cited block no longer exists)";
 const ATTACHMENT_SEE_BELOW: &str = " — see Related Files & Links section below";
 
 const SECTION_PINNED: &str = "## Pinned Blocks";
@@ -129,10 +132,14 @@ pub struct BlockRow {
     pub content: String,
     pub annotation: Option<String>,
     pub ref_thread_id: Option<String>,
+    pub ref_block_id: Option<String>,
     pub source: Option<String>,
     pub pinned: bool,
     pub created_at: i64,
 }
+
+// v2.4 (D2): cited block id → (content, created_at) — mirrors assemble.ts refBlocks.
+pub type RefBlocks = std::collections::HashMap<String, (String, i64)>;
 
 pub struct AttachmentRow {
     pub block_id: String,
@@ -236,6 +243,7 @@ fn render_block(
     b: &BlockRow,
     attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
+    ref_blocks: &RefBlocks,
 ) -> Vec<String> {
     let time = format_pack_time(b.created_at);
     let star = if b.pinned { PINNED_PREFIX } else { "" };
@@ -262,6 +270,16 @@ fn render_block(
         if !note.trim().is_empty() {
             lines.push(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)));
         }
+    }
+    if let Some(cited_id) = b.ref_block_id.as_deref() {
+        lines.push(match ref_blocks.get(cited_id) {
+            Some((content, created_at)) => format!(
+                "{NOTE_INDENT}{REF_BLOCK_MARKER}[{}] {}",
+                format_pack_time(*created_at),
+                head_anchor(content)
+            ),
+            None => format!("{NOTE_INDENT}{REF_BLOCK_MARKER}{REF_BLOCK_MISSING}"),
+        });
     }
     for a in attachments.iter().filter(|a| a.block_id == b.id) {
         lines.extend(render_attachment(a));
@@ -314,9 +332,10 @@ pub fn assemble_pack(
     blocks: &[BlockRow],
     attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
+    ref_blocks: &RefBlocks,
     now_ms: i64,
 ) -> String {
-    assemble_pack_omitting(thread_title, blocks, attachments, ref_titles, now_ms, 0)
+    assemble_pack_omitting(thread_title, blocks, attachments, ref_titles, ref_blocks, now_ms, 0)
 }
 
 // v2.4 (C2): the budgeted variant drops the `omit` OLDEST blocks from the Full Record
@@ -329,6 +348,7 @@ fn assemble_pack_omitting(
     blocks: &[BlockRow],
     attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
+    ref_blocks: &RefBlocks,
     now_ms: i64,
     omit: usize,
 ) -> String {
@@ -351,7 +371,7 @@ fn assemble_pack_omitting(
         out.push(EMPTY_PINNED_LINE.to_string());
     } else {
         for b in &pinned {
-            out.extend(render_block(b, attachments, ref_titles));
+            out.extend(render_block(b, attachments, ref_titles, ref_blocks));
         }
     }
 
@@ -364,7 +384,7 @@ fn assemble_pack_omitting(
         let omitted_chars: usize = blocks[..omit]
             .iter()
             .map(|b| {
-                render_block(b, attachments, ref_titles)
+                render_block(b, attachments, ref_titles, ref_blocks)
                     .iter()
                     .map(|l| l.chars().count() + 1)
                     .sum::<usize>()
@@ -382,7 +402,7 @@ fn assemble_pack_omitting(
             if b.pinned {
                 out.push(render_pinned_placeholder(b));
             } else {
-                out.extend(render_block(b, attachments, ref_titles));
+                out.extend(render_block(b, attachments, ref_titles, ref_blocks));
             }
         }
     }
@@ -1090,7 +1110,8 @@ fn get_blocks_json(
         .map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT id, kind, content, annotation, ref_thread_id, source, pinned, created_at
+            "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
+                    pinned, created_at
              FROM blocks WHERE thread_id = ?{fsql} ORDER BY created_at ASC, rowid ASC
              LIMIT ? OFFSET ?"
         ))
@@ -1109,9 +1130,10 @@ fn get_blocks_json(
                 "content": r.get::<_, String>(2)?,
                 "annotation": r.get::<_, Option<String>>(3)?,
                 "ref_thread_id": r.get::<_, Option<String>>(4)?,
-                "source": r.get::<_, Option<String>>(5)?,
-                "pinned": r.get::<_, i64>(6)? == 1,
-                "created_at": format_pack_time(r.get::<_, i64>(7)?),
+                "ref_block_id": r.get::<_, Option<String>>(5)?,
+                "source": r.get::<_, Option<String>>(6)?,
+                "pinned": r.get::<_, i64>(7)? == 1,
+                "created_at": format_pack_time(r.get::<_, i64>(8)?),
             }))
         })
         .map_err(|e| e.to_string())?
@@ -1157,6 +1179,7 @@ struct PackBuilt {
     blocks: Vec<BlockRow>,
     attachments: Vec<AttachmentRow>,
     ref_titles: std::collections::HashMap<String, String>,
+    ref_blocks: RefBlocks,
     now_ms: i64,
 }
 
@@ -1175,6 +1198,7 @@ fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<String> {
             &built.blocks,
             &built.attachments,
             &built.ref_titles,
+            &built.ref_blocks,
             built.now_ms,
             omit,
         )
@@ -1246,7 +1270,8 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, kind, content, annotation, ref_thread_id, source, pinned, created_at
+            "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
+                    pinned, created_at
              FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -1258,14 +1283,37 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                 content: r.get(2)?,
                 annotation: r.get(3)?,
                 ref_thread_id: r.get(4)?,
-                source: r.get(5)?,
-                pinned: r.get::<_, i64>(6)? == 1,
-                created_at: r.get(7)?,
+                ref_block_id: r.get(5)?,
+                source: r.get(6)?,
+                pinned: r.get::<_, i64>(7)? == 1,
+                created_at: r.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+
+    // D2: resolve the cited blocks (any thread — citations cross thread lines). Missing
+    // rows simply stay out of the map; the renderer marks those citations as gone.
+    let mut ref_blocks: RefBlocks = RefBlocks::new();
+    {
+        let mut cited: Vec<&str> = blocks
+            .iter()
+            .filter_map(|b| b.ref_block_id.as_deref())
+            .collect();
+        cited.sort_unstable();
+        cited.dedup();
+        let mut stmt = conn
+            .prepare("SELECT content, created_at FROM blocks WHERE id = ?1")
+            .map_err(|e| e.to_string())?;
+        for id in cited {
+            if let Ok((content, created_at)) =
+                stmt.query_row([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            {
+                ref_blocks.insert(id.to_string(), (content, created_at));
+            }
+        }
+    }
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1316,7 +1364,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         .map_err(|e| e.to_string())?;
 
     Ok(PackBuilt {
-        text: assemble_pack(&title, &blocks, &attachments, &ref_titles, now_ms),
+        text: assemble_pack(&title, &blocks, &attachments, &ref_titles, &ref_blocks, now_ms),
         total_blocks,
         range_blocks,
         pinned_blocks,
@@ -1324,6 +1372,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         blocks,
         attachments,
         ref_titles,
+        ref_blocks,
         now_ms,
     })
 }
@@ -1375,7 +1424,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 6;
+const EXPECTED_SCHEMA_VERSION: i64 = 7;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -1594,6 +1643,7 @@ fn add_block_json(
     content: &str,
     source: Option<&str>,
     annotation: Option<&str>,
+    ref_block_id: Option<&str>,
 ) -> Result<String, String> {
     let content = content.trim();
     if content.is_empty() {
@@ -1604,6 +1654,25 @@ fn add_block_json(
         .map_err(|_| format!("没有 id 为 {thread_id} 的脉络 — 先用 list_threads 查看有效 id。"))?;
     if deleted.is_some() {
         return Err("该脉络已被删除。".to_string());
+    }
+    // D2: a citation must point at a live block at write time (cross-thread allowed —
+    // that is the point). It may dangle later if the citee is deleted; the pack
+    // renderer says so instead of hiding it.
+    let ref_block_id = ref_block_id.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(rid) = ref_block_id {
+        let live: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM blocks b JOIN threads t ON t.id = b.thread_id
+                 WHERE b.id = ?1 AND t.deleted_at IS NULL",
+                [rid],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if live == 0 {
+            return Err(format!(
+                "没有 id 为 {rid} 的可引用块(或其脉络已删)— ref_block_id 应来自                  search_blocks / get_blocks 的 block_id。"
+            ));
+        }
     }
     let id = new_id()?;
     let now = now_ms();
@@ -1617,9 +1686,18 @@ fn add_block_json(
     };
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute(
-        "INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
-         VALUES (?1, ?2, 'text', ?3, ?4, ?5, 0, ?6)",
-        rusqlite::params![id, thread_id, content, annotation.map(str::trim), source, now],
+        "INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_block_id, source,
+                             pinned, created_at)
+         VALUES (?1, ?2, 'text', ?3, ?4, ?5, ?6, 0, ?7)",
+        rusqlite::params![
+            id,
+            thread_id,
+            content,
+            annotation.map(str::trim),
+            ref_block_id,
+            source,
+            now
+        ],
     )
     .map_err(|e| format!("写入失败: {e}"))?;
     tx.execute(
@@ -1744,7 +1822,8 @@ fn tools_descriptor() -> Value {
                     "thread_id": { "type": "string", "description": "Thread id from list_threads / create_thread." },
                     "content": { "type": "string", "description": "The block text." },
                     "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
-                    "source": { "type": "string", "description": "Optional detail appended after the enforced '<client> · MCP' label (e.g. a paper id or URL the content came from). The client identity itself cannot be overridden." }
+                    "source": { "type": "string", "description": "Optional detail appended after the enforced '<client> · MCP' label (e.g. a paper id or URL the content came from). The client identity itself cannot be overridden." },
+                    "ref_block_id": { "type": "string", "description": "Optional citation: the block_id (from search_blocks / get_blocks) this finding builds on. Renders in packs as an '↩ cites:' line with the cited block's preview. Use this instead of ever writing ids into content." }
                 },
                 "required": ["thread_id", "content"],
                 "additionalProperties": false
@@ -1879,6 +1958,7 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("content").and_then(Value::as_str).ok_or("缺少 content 参数。")?,
                         args.get("source").and_then(Value::as_str),
                         args.get("annotation").and_then(Value::as_str),
+                        args.get("ref_block_id").and_then(Value::as_str),
                     )
                 }
             }
@@ -2211,7 +2291,9 @@ mod tests {
         out
     }
 
-    fn fixture_rows() -> (String, Vec<BlockRow>, Vec<AttachmentRow>, HashMap<String, String>, i64) {
+    fn fixture_rows(
+    ) -> (String, Vec<BlockRow>, Vec<AttachmentRow>, HashMap<String, String>, RefBlocks, i64)
+    {
         let v: Value = serde_json::from_str(FIXTURE).unwrap();
         let title = v["thread"]["title"].as_str().unwrap().to_string();
         let now = v["now"].as_i64().unwrap();
@@ -2225,6 +2307,7 @@ mod tests {
                 content: b["content"].as_str().unwrap().to_string(),
                 annotation: b["annotation"].as_str().map(String::from),
                 ref_thread_id: b["refThreadId"].as_str().map(String::from),
+                ref_block_id: b["refBlockId"].as_str().map(String::from),
                 source: b["source"].as_str().map(String::from),
                 pinned: b["pinned"].as_bool().unwrap(),
                 created_at: b["createdAt"].as_i64().unwrap(),
@@ -2250,19 +2333,33 @@ mod tests {
             .iter()
             .map(|(k, val)| (k.clone(), val.as_str().unwrap().to_string()))
             .collect();
-        (title, blocks, attachments, ref_titles, now)
+        let ref_blocks: RefBlocks = v["refBlocks"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, val)| {
+                (
+                    k.clone(),
+                    (
+                        val["content"].as_str().unwrap().to_string(),
+                        val["createdAt"].as_i64().unwrap(),
+                    ),
+                )
+            })
+            .collect();
+        (title, blocks, attachments, ref_titles, ref_blocks, now)
     }
 
     #[test]
     fn golden_pack_matches_fixture() {
-        let (title, blocks, attachments, ref_titles, now) = fixture_rows();
-        let out = assemble_pack(&title, &blocks, &attachments, &ref_titles, now);
+        let (title, blocks, attachments, ref_titles, ref_blocks, now) = fixture_rows();
+        let out = assemble_pack(&title, &blocks, &attachments, &ref_titles, &ref_blocks, now);
         assert_eq!(normalize_dates(&out), normalize_dates(EXPECTED));
     }
 
     #[test]
     fn range_filter_matches_ts_semantics() {
-        let (_, blocks, _, _, now) = fixture_rows();
+        let (_, blocks, _, _, _, now) = fixture_rows();
         let total = blocks.len();
         let all = filter_blocks_for_range(fixture_rows().1, "all", now).len();
         let pinned = filter_blocks_for_range(fixture_rows().1, "pinned", now).len();
@@ -2329,7 +2426,7 @@ mod tests {
         let before: i64 = conn
             .query_row("SELECT updated_at FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
             .unwrap();
-        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注")).unwrap();
+        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注"), None).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP");
         let (content, source, annotation): (String, String, String) = conn
@@ -2348,13 +2445,55 @@ mod tests {
         assert!(after >= before);
         // v2.1 (P0-1): a custom source is a suffix — the client label survives.
         let out =
-            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None).unwrap();
+            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None, None).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP — lecture-11.pdf");
         // deleted / missing thread refuses
-        assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
+        assert!(add_block_json(&mut conn, "nope", "x", None, None, None).is_err());
         // empty content refuses
-        assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
+        assert!(add_block_json(&mut conn, &tid, "   ", None, None, None).is_err());
+
+        // v2.4 (D2): ref_block_id — validated live at write time, stored, echoed by
+        // get_blocks, and rendered as the ↩ cites line (live + dangling) in the pack.
+        let cited: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "被引的原始结论", None, None, None).unwrap(),
+        )
+        .unwrap();
+        let cited_id = cited["block_id"].as_str().unwrap().to_string();
+        let citing: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "站在前一块上的新结论", None, None, Some(&cited_id))
+                .unwrap(),
+        )
+        .unwrap();
+        let stored: String = conn
+            .query_row(
+                "SELECT ref_block_id FROM blocks WHERE id = ?1",
+                [citing["block_id"].as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, cited_id);
+        let err =
+            add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope")).unwrap_err();
+        assert!(err.contains("ref_block_id"), "{err}");
+        let page: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS).unwrap(),
+        )
+        .unwrap();
+        let citing_row = page["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["content"] == "站在前一块上的新结论")
+            .unwrap();
+        assert_eq!(citing_row["ref_block_id"].as_str().unwrap(), cited_id);
+        let pack = build_pack(&conn, &tid, "all").unwrap().text;
+        assert!(pack.contains("↩ cites: ["), "{pack}");
+        assert!(pack.contains("被引的原始结论"));
+        // Dangling: hard-delete the citee, the line degrades explicitly.
+        conn.execute("DELETE FROM blocks WHERE id = ?1", [&cited_id]).unwrap();
+        let pack = build_pack(&conn, &tid, "all").unwrap().text;
+        assert!(pack.contains("↩ cites: (cited block no longer exists)"), "{pack}");
     }
 
     // The GUI migration registry (client.ts SCHEMA_VERSION) and this binary must agree
@@ -2533,12 +2672,12 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"))
+        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"), None)
             .unwrap();
         // Word-boundary fodder (v2.1, field report A3): "ai" inside a word must not
         // hit; standalone "AI" must.
-        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None).unwrap();
-        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None).unwrap();
+        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None, None).unwrap();
+        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None, None).unwrap();
 
         // FTS path (≥3 codepoints): {total, hits} with a **marked** snippet.
         let res: Value =
@@ -2711,6 +2850,7 @@ mod tests {
             blocks: Vec::new(),
             attachments: Vec::new(),
             ref_titles: HashMap::new(),
+            ref_blocks: RefBlocks::new(),
             now_ms: 0,
         };
         assert!(pack_guard_message(&mk(0, 0, 0, ""), "all", 100)
@@ -2761,14 +2901,14 @@ mod tests {
 
         // Clean content: no warning key at all.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None).unwrap(),
+            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None, None).unwrap(),
         )
         .unwrap();
         assert!(v.get("warning").is_none());
 
         // Suspect id in the annotation: still written verbatim, warning names the match.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM"))
+            &add_block_json(&mut conn, &tid, "结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM"), None)
                 .unwrap(),
         )
         .unwrap();
@@ -2794,6 +2934,7 @@ mod tests {
             content: format!("块 {i}:{}", "内容".repeat(120)), // ~245 chars each
             annotation: None,
             ref_thread_id: None,
+            ref_block_id: None,
             source: None,
             pinned,
             created_at: 1_750_000_000_000 + i as i64 * 60_000,
@@ -2821,7 +2962,14 @@ mod tests {
             },
         ];
         let built = PackBuilt {
-            text: assemble_pack("预算测试", &blocks, &attachments, &HashMap::new(), 1_750_001_000_000),
+            text: assemble_pack(
+                "预算测试",
+                &blocks,
+                &attachments,
+                &HashMap::new(),
+                &RefBlocks::new(),
+                1_750_001_000_000,
+            ),
             total_blocks: 20,
             range_blocks: 20,
             pinned_blocks: 1,
@@ -2829,6 +2977,7 @@ mod tests {
             blocks,
             attachments,
             ref_titles: HashMap::new(),
+            ref_blocks: RefBlocks::new(),
             now_ms: 1_750_001_000_000,
         };
         let full_chars = built.text.chars().count() as i64;

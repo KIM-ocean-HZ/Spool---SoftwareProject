@@ -31,11 +31,12 @@ const textBlock = (id: string, content: string, opts: Partial<Block> = {}): Bloc
   content,
   annotation: null,
   refThreadId: null,
+  refBlockId: null,
   source: null,
   pinned: false,
   createdAt: T(0),
   ...opts,
-});
+}) as Block;
 
 const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {}): Attachment => ({
   id,
@@ -282,6 +283,40 @@ describe('assemble', () => {
     expect(out).toContain('→ Referenced thread: 脉络快照标题');
   });
 
+  // v2.4 (§20.13 D2): block-level citations.
+  describe('block-level citation (refBlockId)', () => {
+    it('renders a cite sub-line with the cited block time + head anchor', () => {
+      const blocks = [
+        textBlock('b2', '结论建立在前一块之上', {
+          refBlockId: 'b1',
+          annotation: '写入方声明的依据',
+          createdAt: T(20),
+        }),
+      ];
+      const refBlocks = new Map([
+        ['b1', { content: '被引块的第一行\n第二行不进锚点', createdAt: T(10) }],
+      ]);
+      const out = assemble({ thread, blocks, refBlocks, now: NOW });
+      // note line first (the user's voice), then the citation.
+      const noteIdx = out.indexOf('    note: 写入方声明的依据');
+      const citeIdx = out.indexOf('    ↩ cites: [2026-05-15 09:10] 被引块的第一行 第二行不进锚点');
+      expect(noteIdx).toBeGreaterThan(-1);
+      expect(citeIdx).toBeGreaterThan(noteIdx);
+    });
+
+    it('caps the anchor at 40 chars and marks a dangling citation', () => {
+      const long = '锚'.repeat(60);
+      const blocks = [
+        textBlock('b2', '引长块', { refBlockId: 'b1' }),
+        textBlock('b3', '引已删块', { refBlockId: 'b-gone', createdAt: T(1) }),
+      ];
+      const refBlocks = new Map([['b1', { content: long, createdAt: T(0) }]]);
+      const out = assemble({ thread, blocks, refBlocks, now: NOW });
+      expect(out).toContain(`↩ cites: [2026-05-15 09:00] ${'锚'.repeat(40)}…`);
+      expect(out).toContain('↩ cites: (cited block no longer exists)');
+    });
+  });
+
   it('is a pure function (no globals, no side effects)', () => {
     const blocks = [textBlock('b1', 'hi')];
     const a = assemble({ thread, blocks, now: NOW });
@@ -382,6 +417,7 @@ describe('assemble', () => {
         now: number;
         thread: Thread;
         refTitles: Record<string, string>;
+        refBlocks: Record<string, { content: string; createdAt: number }>;
         blocks: Block[];
         attachments: Attachment[];
       };
@@ -390,6 +426,7 @@ describe('assemble', () => {
         blocks: fx.blocks,
         attachments: fx.attachments,
         refTitles: new Map(Object.entries(fx.refTitles)),
+        refBlocks: new Map(Object.entries(fx.refBlocks)),
         now: fx.now,
       });
       const expectedPath = join(__dirname, 'fixtures', 'golden-pack.expected.txt');

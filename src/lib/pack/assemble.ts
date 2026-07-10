@@ -18,6 +18,8 @@ import {
   PACK_TEMPLATES,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
+  REF_BLOCK_MARKER,
+  REF_BLOCK_MISSING,
   REF_MARKER,
   SECTION_FILES,
   SECTION_LOG,
@@ -38,6 +40,10 @@ export interface AssembleArgs {
   // Map of referenced thread id → title; used to render `kind=ref` blocks. The caller
   // (Phase 9 @-mention) supplies this. Empty map is fine for Phase 4.
   refTitles?: Map<string, string>;
+  // v2.4 (§20.13 D2): cited block id → its content + capture time, for blocks carrying
+  // refBlockId. Caller-supplied like refTitles (cited blocks may live in other threads).
+  // A citing block whose id is missing here renders the citation as no-longer-exists.
+  refBlocks?: Map<string, { content: string; createdAt: number }>;
   // v2.8 §20.7: optional task-template selector. The chosen template's closing block
   // is appended after "Related Files & Links" and before the Output Language line.
   // Default = 'default' (no extra block — pre-v2.8 behavior).
@@ -129,12 +135,14 @@ const renderAttachment = (a: Attachment): string[] => {
   return [`${NOTE_INDENT}${FILE_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
 };
 
-// One block: its header line, an optional note, then each attachment. A pinned block gets
-// the 📌 prefix wherever it is rendered — Pinned Blocks section and Full Record alike.
+// One block: its header line, an optional note, an optional block-level citation, then
+// each attachment. A pinned block gets the 📌 prefix wherever it is rendered — Pinned
+// Blocks section and Full Record alike.
 const renderBlock = (
   b: Block,
   byBlock: Map<string, Attachment[]>,
   refTitles: Map<string, string> | undefined,
+  refBlocks: Map<string, { content: string; createdAt: number }> | undefined,
 ): string[] => {
   const time = formatPackTime(b.createdAt);
   const star = b.pinned ? PINNED_PREFIX : '';
@@ -151,6 +159,14 @@ const renderBlock = (
 
   if (b.annotation?.trim()) {
     lines.push(`${NOTE_INDENT}${NOTE_MARKER}${oneLine(b.annotation)}`);
+  }
+  if (b.refBlockId) {
+    const cited = refBlocks?.get(b.refBlockId);
+    lines.push(
+      cited
+        ? `${NOTE_INDENT}${REF_BLOCK_MARKER}[${formatPackTime(cited.createdAt)}] ${headAnchor(cited.content)}`
+        : `${NOTE_INDENT}${REF_BLOCK_MARKER}${REF_BLOCK_MISSING}`,
+    );
   }
   for (const a of byBlock.get(b.id) ?? []) {
     lines.push(...renderAttachment(a));
@@ -188,6 +204,7 @@ export function assemble({
   blocks,
   attachments,
   refTitles,
+  refBlocks,
   template,
   now,
 }: AssembleArgs): string {
@@ -215,7 +232,7 @@ export function assemble({
   if (pinned.length === 0) {
     out.push(EMPTY_PINNED_LINE);
   } else {
-    for (const b of pinned) out.push(...renderBlock(b, byBlock, refTitles));
+    for (const b of pinned) out.push(...renderBlock(b, byBlock, refTitles, refBlocks));
   }
 
   // Full Record: every block in chronological order. A block's annotation and its
@@ -229,7 +246,7 @@ export function assemble({
   } else {
     for (const b of blocks) {
       if (b.pinned) out.push(renderPinnedPlaceholder(b));
-      else out.push(...renderBlock(b, byBlock, refTitles));
+      else out.push(...renderBlock(b, byBlock, refTitles, refBlocks));
     }
   }
 

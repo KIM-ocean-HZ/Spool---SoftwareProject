@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PackDialog from '@/components/Pack/PackDialog';
 import type { Attachment } from '@/lib/db/attachments';
-import type { Block } from '@/lib/db/blocks';
+import { listBlocksByIds, type Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import CompleteThreadPanel from './CompleteThreadPanel';
@@ -56,6 +56,28 @@ export default function ThreadView() {
     }
     return map;
   }, [threadsByWs]);
+
+  // v2.4 (§20.13 D2): resolve blocks cited via refBlockId (MCP writers set it; the
+  // citee may live in another thread) so the pack can render its ↩ cites preview.
+  // Missing rows stay out of the map — assemble renders those citations as gone.
+  const [refBlocks, setRefBlocks] = useState<Map<string, { content: string; createdAt: number }>>(
+    () => new Map(),
+  );
+  useEffect(() => {
+    const ids = [...new Set(blocks.map((b) => b.refBlockId).filter((id): id is string => !!id))];
+    if (ids.length === 0) {
+      setRefBlocks(new Map());
+      return;
+    }
+    let stale = false;
+    void listBlocksByIds(ids).then((rows) => {
+      if (stale) return;
+      setRefBlocks(new Map(rows.map((b) => [b.id, { content: b.content, createdAt: b.createdAt }])));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [blocks]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -116,6 +138,7 @@ export default function ThreadView() {
           blocks={blocks as Block[]}
           attachments={attachments}
           refTitles={refTitles}
+          refBlocks={refBlocks}
           onClose={() => setPackOpen(false)}
         />
       )}

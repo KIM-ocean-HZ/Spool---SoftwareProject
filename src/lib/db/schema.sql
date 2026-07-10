@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   content       TEXT NOT NULL DEFAULT '',       -- the block's main text (captured or written) / ref display name
   annotation    TEXT,                           -- the user's own note about this block (optional)
   ref_thread_id TEXT,                           -- kind=ref: the thread pointed to
+  ref_block_id  TEXT,                           -- v7 (§20.13 v2.4 D2): block-level citation, declared by the writer at insert; unenforced FK (cited block may be deleted later)
   source        TEXT,                           -- provenance label; auto-filled at capture, user-editable
   pinned        INTEGER NOT NULL DEFAULT 0,      -- marked as core context
   created_at    INTEGER NOT NULL

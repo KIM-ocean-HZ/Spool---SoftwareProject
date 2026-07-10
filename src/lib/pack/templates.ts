@@ -18,6 +18,11 @@ export const FILE_MARKER = '↳ attached file: ';
 export const FOLDER_MARKER = '↳ attached folder: ';
 export const URL_MARKER = '↳ attached URL: ';
 export const REF_MARKER = '→ Referenced thread: ';
+// v2.4 (§20.13 D2): block-level citation sub-line — "this block builds on that one".
+// English like every other pack marker (§19.13). The preview keeps the receiving AI
+// from needing another lookup; a deleted citee renders the MISSING text instead.
+export const REF_BLOCK_MARKER = '↩ cites: ';
+export const REF_BLOCK_MISSING = '(cited block no longer exists)';
 export const ATTACHMENT_SEE_BELOW = ' — see Related Files & Links section below';
 
 // --- Section headings -------------------------------------------------------------------

@@ -40,6 +40,8 @@ interface Props {
   // section (§9.5 / §9.6).
   attachments: Attachment[];
   refTitles: Map<string, string>;
+  // v2.4 (§20.13 D2): cited-block previews for blocks carrying refBlockId.
+  refBlocks: Map<string, { content: string; createdAt: number }>;
   onClose: () => void;
 }
 
@@ -48,6 +50,7 @@ export default function PackDialog({
   blocks,
   attachments,
   refTitles,
+  refBlocks,
   onClose,
 }: Props) {
   const t = useT();
@@ -70,10 +73,10 @@ export default function PackDialog({
     const packedAttachments =
       range === 'all' ? attachments : attachments.filter((a) => ids.has(a.blockId));
     return {
-      text: assemble({ thread, blocks: packedBlocks, attachments: packedAttachments, refTitles, template }),
+      text: assemble({ thread, blocks: packedBlocks, attachments: packedAttachments, refTitles, refBlocks, template }),
       packedCount: packedBlocks.length,
     };
-  }, [thread, blocks, attachments, refTitles, template, range]);
+  }, [thread, blocks, attachments, refTitles, refBlocks, template, range]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

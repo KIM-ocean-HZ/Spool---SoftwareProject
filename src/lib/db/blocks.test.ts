@@ -40,11 +40,12 @@ const block = (id: string, createdAt: number, opts: Partial<Block> = {}): Block 
   content: '',
   annotation: null,
   refThreadId: null,
+  refBlockId: null,
   source: null,
   pinned: false,
   createdAt,
   ...opts,
-});
+}) as Block;
 
 describe('computeMergedFields (§20.1)', () => {
   it('keeps the earliest block as survivor and preserves its id', () => {

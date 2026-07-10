@@ -11,6 +11,7 @@ export interface Block {
   content: string;
   annotation: string | null;   // the user's own note about this block
   refThreadId: string | null;  // kind=ref
+  refBlockId: string | null;   // v7 (§20.13 v2.4 D2): block-level citation, set by MCP writers
   source: string | null;       // provenance label, editable
   pinned: boolean;
   createdAt: number;
@@ -22,6 +23,7 @@ export interface CreateBlockArgs {
   content: string;
   annotation?: string | null;
   refThreadId?: string | null;
+  refBlockId?: string | null;
   source?: string | null;
   // Only the overlay's redirect path sets this — it re-creates a block the user may
   // already have pinned from the toast, and the pin must survive the move.
@@ -35,6 +37,7 @@ interface Row {
   content: string;
   annotation: string | null;
   ref_thread_id: string | null;
+  ref_block_id: string | null;
   source: string | null;
   pinned: number;
   created_at: number;
@@ -47,13 +50,14 @@ const fromRow = (r: Row): Block => ({
   content: r.content,
   annotation: r.annotation,
   refThreadId: r.ref_thread_id,
+  refBlockId: r.ref_block_id,
   source: r.source,
   pinned: r.pinned === 1,
   createdAt: r.created_at,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at';
+  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -69,6 +73,19 @@ export const listBlocksByThread = async (threadId: string): Promise<Block[]> => 
   const rows = await db.select<Row[]>(
     `SELECT ${SELECT_COLS} FROM blocks WHERE thread_id = $1 ORDER BY created_at ASC`,
     [threadId],
+  );
+  return rows.map(fromRow);
+};
+
+// v2.4 (§20.13 D2): resolve cited blocks (blocks.ref_block_id) for pack rendering —
+// citations may point across threads, so this is an id-set lookup, not a thread scan.
+export const listBlocksByIds = async (ids: string[]): Promise<Block[]> => {
+  if (ids.length === 0) return [];
+  const db = await getDb();
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await db.select<Row[]>(
+    `SELECT ${SELECT_COLS} FROM blocks WHERE id IN (${placeholders})`,
+    ids,
   );
   return rows.map(fromRow);
 };
@@ -91,13 +108,14 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     content: args.content,
     annotation: args.annotation ?? null,
     refThreadId: args.refThreadId ?? null,
+    refBlockId: args.refBlockId ?? null,
     source: args.source ?? null,
     pinned: args.pinned ?? false,
     createdAt: Date.now(),
   };
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       b.id,
       b.threadId,
@@ -105,6 +123,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.content,
       b.annotation,
       b.refThreadId,
+      b.refBlockId,
       b.source,
       b.pinned ? 1 : 0,
       b.createdAt,
@@ -123,11 +142,11 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
 export const insertBlocks = async (blocks: Block[]): Promise<void> => {
   if (blocks.length === 0) return;
   const db = await getDb();
-  const COLS = 9;
+  const COLS = 10;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9})`;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
     })
     .join(', ');
   const params = blocks.flatMap((b) => [
@@ -137,12 +156,13 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     b.content,
     b.annotation,
     b.refThreadId,
+    b.refBlockId,
     b.source,
     b.pinned ? 1 : 0,
     b.createdAt,
   ]);
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at) VALUES ${tuples}`,
     params,
   );
 };
@@ -195,8 +215,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, source, pinned, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       block.id,
       block.threadId,
@@ -204,6 +224,7 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.content,
       block.annotation,
       block.refThreadId,
+      block.refBlockId,
       block.source,
       block.pinned ? 1 : 0,
       block.createdAt,

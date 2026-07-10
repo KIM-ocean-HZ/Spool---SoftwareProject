@@ -33,13 +33,15 @@ const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
 // Rewind a current-schema database to the historical v2 shape: threads regain the
-// rolled-back progress/next_step columns and lose summary_source (v5→6); attachments
-// lose all four extraction-era columns (v3→4 added three, v4→5 added include_in_pack).
+// rolled-back progress/next_step columns and lose summary_source (v5→6); blocks lose
+// ref_block_id (v6→7); attachments lose all four extraction-era columns (v3→4 added
+// three, v4→5 added include_in_pack).
 const downgradeToV2 = (handle: Sqlite): void => {
   handle.exec(`
     ALTER TABLE threads ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE threads ADD COLUMN next_step TEXT;
     ALTER TABLE threads DROP COLUMN summary_source;
+    ALTER TABLE blocks DROP COLUMN ref_block_id;
     ALTER TABLE attachments DROP COLUMN extracted_text;
     ALTER TABLE attachments DROP COLUMN extracted_at;
     ALTER TABLE attachments DROP COLUMN extraction_kind;
@@ -84,11 +86,12 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(6);
+    expect(userVersion(handle)).toBe(7);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
     expect(threadCols).toContain('summary_source');
+    expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
     // The old if-chain stamped a v2 database straight to 5 without these columns —
     // the sequential walk must add all four attachment columns.
     const attCols = columnNames(handle, 'attachments');
@@ -109,15 +112,17 @@ describe('migrateSchema registry (§19.3)', () => {
     handle.exec(`
       ALTER TABLE attachments DROP COLUMN include_in_pack;
       ALTER TABLE threads DROP COLUMN summary_source;
+      ALTER TABLE blocks DROP COLUMN ref_block_id;
       PRAGMA user_version = 4;
     `);
     seedUserData(handle);
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(6);
+    expect(userVersion(handle)).toBe(7);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
+    expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -125,6 +130,7 @@ describe('migrateSchema registry (§19.3)', () => {
     applySchema(handle);
     handle.exec(`
       ALTER TABLE threads DROP COLUMN summary_source;
+      ALTER TABLE blocks DROP COLUMN ref_block_id;
       PRAGMA user_version = 5;
     `);
     seedUserData(handle);
@@ -132,22 +138,39 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(6);
+    expect(userVersion(handle)).toBe(7);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
     });
   });
 
+  it('v6 → v7 adds blocks.ref_block_id (NULL) and keeps user data', async () => {
+    applySchema(handle);
+    handle.exec(`
+      ALTER TABLE blocks DROP COLUMN ref_block_id;
+      PRAGMA user_version = 6;
+    `);
+    seedUserData(handle);
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(7);
+    expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
+      content: 'hello block',
+      ref_block_id: null,
+    });
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 6');
+    handle.exec('PRAGMA user_version = 7');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(6);
+    expect(userVersion(handle)).toBe(7);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -167,7 +190,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(6);
+    expect(userVersion(handle)).toBe(7);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;
@@ -182,6 +205,7 @@ describe('migrateSchema registry (§19.3)', () => {
     applySchema(handle);
     handle.exec(`
       ALTER TABLE threads DROP COLUMN summary_source;
+      ALTER TABLE blocks DROP COLUMN ref_block_id;
       PRAGMA user_version = 5;
     `);
     seedUserData(handle);
@@ -191,7 +215,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('seeds the tutorial thread with its six guide blocks (fresh install only)', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 6');
+    handle.exec('PRAGMA user_version = 7');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', '收件箱', 0, 1, 1);

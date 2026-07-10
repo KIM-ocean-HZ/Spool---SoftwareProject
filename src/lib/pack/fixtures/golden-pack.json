@@ -1,5 +1,5 @@
 {
-  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback.",
+  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling).",
   "now": 1750000000000,
   "thread": {
     "id": "t1",
@@ -14,7 +14,9 @@
     "updatedAt": 1749999000000,
     "completedAt": null
   },
-  "refTitles": { "t2": "实验设计" },
+  "refTitles": {
+    "t2": "实验设计"
+  },
   "blocks": [
     {
       "id": "b1",
@@ -25,7 +27,8 @@
       "refThreadId": null,
       "source": "Claude",
       "pinned": true,
-      "createdAt": 1746540000000
+      "createdAt": 1746540000000,
+      "refBlockId": null
     },
     {
       "id": "b2",
@@ -36,7 +39,8 @@
       "refThreadId": null,
       "source": "Safari",
       "pinned": false,
-      "createdAt": 1749100000000
+      "createdAt": 1749100000000,
+      "refBlockId": null
     },
     {
       "id": "b3",
@@ -47,7 +51,8 @@
       "refThreadId": "t2",
       "source": null,
       "pinned": false,
-      "createdAt": 1749200000000
+      "createdAt": 1749200000000,
+      "refBlockId": null
     },
     {
       "id": "b4",
@@ -58,7 +63,8 @@
       "refThreadId": "t-gone",
       "source": null,
       "pinned": false,
-      "createdAt": 1749300000000
+      "createdAt": 1749300000000,
+      "refBlockId": null
     },
     {
       "id": "b5",
@@ -69,7 +75,32 @@
       "refThreadId": null,
       "source": null,
       "pinned": false,
-      "createdAt": 1749996400000
+      "createdAt": 1749996400000,
+      "refBlockId": null
+    },
+    {
+      "id": "b6",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "结论:除以 sqrt(d_k) 是为了控制点积方差,防止 softmax 梯度消失",
+      "annotation": "归档自 2026-06 的一次答疑",
+      "refThreadId": null,
+      "refBlockId": "b1",
+      "source": "Claude · MCP",
+      "pinned": false,
+      "createdAt": 1749997000000
+    },
+    {
+      "id": "b7",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "旧结论,它引用的块已被删除",
+      "annotation": null,
+      "refThreadId": null,
+      "refBlockId": "b-gone",
+      "source": "Claude · MCP",
+      "pinned": false,
+      "createdAt": 1749998000000
     }
   ],
   "attachments": [
@@ -121,5 +152,11 @@
       "includeInPack": false,
       "createdAt": 1749996401000
     }
-  ]
+  ],
+  "refBlocks": {
+    "b1": {
+      "content": "Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==",
+      "createdAt": 1746540000000
+    }
+  }
 }
