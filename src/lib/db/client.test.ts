@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { __migrateSchemaForTest, __setTestDb } from './client';
+import { __migrateSchemaForTest, __seedTutorialThreadForTest, __setTestDb } from './client';
 import schemaSql from './schema.sql?raw';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -144,7 +144,8 @@ describe('migrateSchema registry (§19.3)', () => {
     handle.exec('PRAGMA user_version = 6');
     seedUserData(handle);
 
-    await __migrateSchemaForTest(db);
+    // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
+    expect(await __migrateSchemaForTest(db)).toBe(false);
 
     expect(userVersion(handle)).toBe(6);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
@@ -162,8 +163,9 @@ describe('migrateSchema registry (§19.3)', () => {
   });
 
   it('rebuilds an empty database at an unknown version from schema.sql', async () => {
-    // A fresh install: no tables yet, user_version 0.
-    await __migrateSchemaForTest(db);
+    // A fresh install: no tables yet, user_version 0. The rebuild reports fresh=true,
+    // which is what lets initDb seed the tutorial thread exactly once.
+    expect(await __migrateSchemaForTest(db)).toBe(true);
 
     expect(userVersion(handle)).toBe(6);
     const tables = (
@@ -174,5 +176,45 @@ describe('migrateSchema registry (§19.3)', () => {
     for (const t of ['workspaces', 'threads', 'blocks', 'attachments']) {
       expect(tables).toContain(t);
     }
+  });
+
+  it('walking the registry does not report fresh (no tutorial re-seed on upgrade)', async () => {
+    applySchema(handle);
+    handle.exec(`
+      ALTER TABLE threads DROP COLUMN summary_source;
+      PRAGMA user_version = 5;
+    `);
+    seedUserData(handle);
+
+    expect(await __migrateSchemaForTest(db)).toBe(false);
+  });
+
+  it('seeds the tutorial thread with its six guide blocks (fresh install only)', async () => {
+    applySchema(handle);
+    handle.exec('PRAGMA user_version = 6');
+    handle.exec(`
+      INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+        VALUES ('w1', '收件箱', 0, 1, 1);
+    `);
+
+    await __seedTutorialThreadForTest(db);
+
+    const thread = handle
+      .prepare('SELECT title, summary, summary_source, is_capture_target FROM threads')
+      .get() as Record<string, unknown>;
+    expect(thread.title).toBe('欢迎使用 Spool');
+    expect(thread.summary_source).toBe('user'); // MCP may not overwrite the card
+    expect(thread.is_capture_target).toBe(0); // 未分类 keeps the capture target
+    const blocks = handle
+      .prepare('SELECT content, annotation, source, pinned FROM blocks ORDER BY created_at ASC')
+      .all() as Record<string, unknown>[];
+    expect(blocks).toHaveLength(6);
+    expect(blocks.every((b) => b.source === 'Spool 指南')).toBe(true);
+    expect(blocks[0]!.annotation).toContain('批注');
+    expect(blocks.filter((b) => b.pinned === 1)).toHaveLength(1);
+    // The FTS triggers indexed the guide (searchable like any user block).
+    expect(
+      handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"收集面板\"'").get(),
+    ).toEqual({ c: 1 });
   });
 });

@@ -171,12 +171,16 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 
-const migrateSchema = async (db: Database): Promise<void> => {
+// Returns true only when the fresh-install path ran (empty DB rebuilt from schema.sql)
+// — the one moment the tutorial thread may be seeded (§Task 3, 2026-07-09: never on an
+// existing database; the 2026-05-29 wipe class of bugs is exactly re-running seeds
+// against user data).
+const migrateSchema = async (db: Database): Promise<boolean> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
   let current = rows[0]?.user_version ?? 0;
   if (current === SCHEMA_VERSION) {
     console.info(`[db] schema version ${current} matches; no rebuild`);
-    return;
+    return false;
   }
 
   // The schema is about to change. Snapshot first so every path below — the additive
@@ -195,7 +199,7 @@ const migrateSchema = async (db: Database): Promise<void> => {
   }
   if (current === SCHEMA_VERSION) {
     console.info(`[db] migrations complete; user_version now ${current}`);
-    return;
+    return false;
   }
 
   // Unrecognized schema version — the one path that can destroy everything. It must never
@@ -222,6 +226,7 @@ const migrateSchema = async (db: Database): Promise<void> => {
   await applySchema(db);
   await db.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   console.info(`[db] schema rebuilt; user_version set to ${SCHEMA_VERSION}`);
+  return true;
 };
 
 // Test-only export (§19.3): lets the node:sqlite-backed Vitest cases drive the real
@@ -269,6 +274,65 @@ export const ensureBaseData = async (): Promise<void> => {
   await seedDefaults(await getDb());
 };
 
+// Tutorial thread for a brand-new install (Task 3, Ocean 2026-07-09 #5). Seeded ONLY
+// from the fresh-DB rebuild path — never by seedDefaults' self-heal, so deleting it is
+// final and re-launching / clearing data can't resurrect it. The blocks are the manual:
+// each one teaches the gesture it demonstrates (content finalized with Ocean).
+const seedTutorialThread = async (db: Database): Promise<void> => {
+  const ws = await db.select<{ id: string }[]>(
+    'SELECT id FROM workspaces WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC LIMIT 1',
+  );
+  const wsId = ws[0]?.id;
+  if (!wsId) return;
+  const now = Date.now();
+  const threadId = nanoid();
+  await db.execute(
+    `INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
+                          is_capture_target, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 'user', 'active', 0, $5, $5)`,
+    [threadId, wsId, '欢迎使用 Spool', '新手教程：捕捉 → 整理 → 打包 → MCP 互通；可随时整条删除', now],
+  );
+  const blocks: { content: string; annotation?: string; pinned?: boolean }[] = [
+    {
+      content:
+        'Spool 是一张上下文工作台：把散落的资料捕进「脉络」，需要 AI 时一键打包成完整上下文。它自己不带 AI——你的数据永远只在本机。',
+      annotation: '这条灰字就是「批注」——你自己的话，打包时会原样保留给 AI。',
+    },
+    {
+      content:
+        '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。首次使用会请求「输入监听」权限。',
+    },
+    {
+      content:
+        '收集模式：长按 ⌥ 呼出收集面板，连续 ⌘C 多段内容依次入列——适合读论文/网页时批量摘录。',
+    },
+    {
+      content:
+        '重要的块点 📌 置顶（打包时进入 Key Points）；选中文字可以高亮==像这样==；每个块都能写批注。试试取消这条的置顶！',
+      pinned: true,
+    },
+    {
+      content:
+        '⌘⇧P 把整条脉络变成结构化上下文，直接粘贴给任何 AI；可选范围（仅置顶/近 7 天）与任务模板。',
+    },
+    {
+      content:
+        '设置 → 通用 → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎脉络」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
+    },
+  ];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]!;
+    await db.execute(
+      `INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
+       VALUES ($1, $2, 'text', $3, $4, $5, $6, $7)`,
+      [nanoid(), threadId, b.content, b.annotation ?? null, 'Spool 指南', b.pinned ? 1 : 0, now + i],
+    );
+  }
+};
+
+// Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
+export const __seedTutorialThreadForTest = seedTutorialThread;
+
 // Only the main window initializes the database (migrations + base-data seeding). The
 // overlay and collect windows run their own JS contexts and also open the DB at startup
 // (the collect panel reads the capture target on mount) — on a FRESH install their
@@ -293,9 +357,13 @@ const initDb = async (): Promise<Database> => {
   const db = await Database.load('sqlite:spool.db');
   if (isMainWindow()) {
     console.info('[db] loaded; checking schema version');
-    await migrateSchema(db);
+    const fresh = await migrateSchema(db);
     console.info('[db] schema ready; seeding defaults');
     await seedDefaults(db);
+    if (fresh) {
+      console.info('[db] fresh install; seeding tutorial thread');
+      await seedTutorialThread(db);
+    }
   } else {
     console.info('[db] loaded; non-main window skips migration + seeding');
   }
