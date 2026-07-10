@@ -161,11 +161,23 @@ const renderBlock = (
 // 2026-07-09: a pinned block's Full Record slot — same time/source bracket for the
 // chronology, but the body (plus note/attachments) lives only in Pinned Blocks above.
 // Before this, pinned blocks appeared verbatim twice per pack.
+// R2 field report B2: the slot carries a short head anchor so the timeline stays
+// readable without scrolling back up. Char-based to stay in lockstep with mcp.rs.
+const PLACEHOLDER_HEAD_CHARS = 40;
+const headAnchor = (content: string): string => {
+  const one = oneLine(content);
+  const chars = [...one];
+  if (chars.length <= PLACEHOLDER_HEAD_CHARS) return one;
+  return chars.slice(0, PLACEHOLDER_HEAD_CHARS).join('') + '…';
+};
+
 const renderPinnedPlaceholder = (b: Block): string => {
   const time = formatPackTime(b.createdAt);
   const bracket =
     b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
-  return `${PINNED_PREFIX}[${bracket}] ${PINNED_SEE_ABOVE}`;
+  const head = headAnchor(b.content);
+  const anchor = head.length > 0 ? `${head} ` : '';
+  return `${PINNED_PREFIX}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
 };
 
 // Pure function. No await, no fetch, no DB calls — this is the §6.4 hot path. The

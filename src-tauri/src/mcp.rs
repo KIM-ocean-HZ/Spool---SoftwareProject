@@ -270,13 +270,30 @@ fn render_block(
 }
 
 // Mirrors assemble.ts renderPinnedPlaceholder — a pinned block's chronological slot.
+// R2 field report B2: carries a short head anchor (char-truncated, lockstep with TS).
+const PLACEHOLDER_HEAD_CHARS: usize = 40;
+
+fn head_anchor(content: &str) -> String {
+    let one = one_line(content);
+    let chars: Vec<char> = one.chars().collect();
+    if chars.len() <= PLACEHOLDER_HEAD_CHARS {
+        one
+    } else {
+        let mut s: String = chars[..PLACEHOLDER_HEAD_CHARS].iter().collect();
+        s.push('…');
+        s
+    }
+}
+
 fn render_pinned_placeholder(b: &BlockRow) -> String {
     let time = format_pack_time(b.created_at);
     let bracket = match b.source.as_deref() {
         Some(src) if b.kind != "ref" => format!("{time}{SOURCE_MARKER}{src}"),
         _ => time,
     };
-    format!("{PINNED_PREFIX}[{bracket}] {PINNED_SEE_ABOVE}")
+    let head = head_anchor(&b.content);
+    let anchor = if head.is_empty() { String::new() } else { format!("{head} ") };
+    format!("{PINNED_PREFIX}[{bracket}] {anchor}{PINNED_SEE_ABOVE}")
 }
 
 // §17 range filter — port of filterBlocksForRange (assemble.ts).

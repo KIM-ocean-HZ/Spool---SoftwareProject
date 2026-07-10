@@ -67,7 +67,7 @@ Substrings wrapped in `==…==` inside any block above are sentence-level key po
 
 ## Full Record (chronological)
 
-📌 [2025-05-06 15:00 · from Claude] (pinned — full text in "Pinned Blocks" above)
+📌 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 … (pinned — full text in "Pinned Blocks" above)
 [2025-06-05 06:06 · from Safari] 课程要求:期末项目要复现一篇 2024 年后的论文
 截止 4 月 30 日
 占总分 40%
