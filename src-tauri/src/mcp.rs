@@ -20,6 +20,7 @@
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
@@ -673,6 +674,166 @@ fn find_hit(hay: &[char], needle: &[char], boundary: bool) -> Option<usize> {
     None
 }
 
+// Duplicate detection (Ocean 2026-07-09 #2): read-only by charter — Spool reports
+// near-duplicate groups with their evidence and NEVER merges; merging is curation and
+// stays with the user in the GUI (Principle 5). Similarity is character-trigram Jaccard
+// over lowercased, whitespace-collapsed text: no new dependency, language-agnostic
+// (CJK included), and exact re-captures score 1.0.
+const SIMILAR_THRESHOLD: f64 = 0.6;
+// Newest text blocks considered — bounds the O(n²) pairwise pass.
+const SIMILAR_SCAN_CAP: usize = 1000;
+const SIMILAR_DEFAULT_GROUPS: i64 = 10;
+const SIMILAR_MAX_GROUPS: i64 = 30;
+
+fn trigram_set(text: &str) -> HashSet<[char; 3]> {
+    let norm: Vec<char> = text
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .collect();
+    norm.windows(3).map(|w| [w[0], w[1], w[2]]).collect()
+}
+
+fn jaccard(a: &HashSet<[char; 3]>, b: &HashSet<[char; 3]>) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let inter = a.intersection(b).count();
+    inter as f64 / (a.len() + b.len() - inter) as f64
+}
+
+fn find_similar_blocks_json(
+    conn: &Connection,
+    thread_id: Option<&str>,
+    max_groups: Option<i64>,
+) -> Result<String, String> {
+    let max_groups = max_groups.unwrap_or(SIMILAR_DEFAULT_GROUPS).clamp(1, SIMILAR_MAX_GROUPS) as usize;
+    if let Some(tid) = thread_id {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM threads WHERE id = ?1 AND deleted_at IS NULL",
+                [tid],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if exists == 0 {
+            return Err(format!("没有 id 为 {tid} 的脉络 — 先用 list_threads 查看有效 id。"));
+        }
+    }
+
+    struct Item {
+        block_id: String,
+        thread_id: String,
+        content: String,
+        created_at: i64,
+        thread_title: String,
+        workspace: String,
+    }
+    // ref blocks are pointers, not content — only text blocks can be duplicates.
+    let sql = format!(
+        "SELECT b.id, b.thread_id, b.content, b.created_at, t.title, w.title
+         FROM blocks b
+         JOIN threads t ON t.id = b.thread_id
+         JOIN workspaces w ON w.id = t.workspace_id
+         WHERE b.kind = 'text' AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+           {} ORDER BY b.created_at DESC LIMIT {SIMILAR_SCAN_CAP}",
+        if thread_id.is_some() { "AND b.thread_id = ?1" } else { "" },
+    );
+    let map_row = |r: &rusqlite::Row| -> rusqlite::Result<Item> {
+        Ok(Item {
+            block_id: r.get(0)?,
+            thread_id: r.get(1)?,
+            content: r.get(2)?,
+            created_at: r.get(3)?,
+            thread_title: r.get(4)?,
+            workspace: r.get(5)?,
+        })
+    };
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let items: Vec<Item> = match thread_id {
+        Some(tid) => stmt.query_map([tid], map_row),
+        None => stmt.query_map([], map_row),
+    }
+    .map_err(|e| e.to_string())?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| e.to_string())?;
+
+    let grams: Vec<HashSet<[char; 3]>> = items.iter().map(|i| trigram_set(&i.content)).collect();
+
+    // Union-find over the ≥threshold pairs; near-duplicate chains collapse into one group.
+    let mut parent: Vec<usize> = (0..items.len()).collect();
+    fn root(parent: &mut Vec<usize>, mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    for i in 0..items.len() {
+        for j in (i + 1)..items.len() {
+            if jaccard(&grams[i], &grams[j]) >= SIMILAR_THRESHOLD {
+                let (ri, rj) = (root(&mut parent, i), root(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+    }
+    let mut members: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for i in 0..items.len() {
+        members.entry(root(&mut parent, i)).or_default().push(i);
+    }
+
+    let mut groups: Vec<(f64, Vec<usize>)> = members
+        .into_values()
+        .filter(|m| m.len() >= 2)
+        .map(|mut m| {
+            m.sort_by_key(|&i| items[i].created_at);
+            let mut best = 0.0f64;
+            for a in 0..m.len() {
+                for b in (a + 1)..m.len() {
+                    best = best.max(jaccard(&grams[m[a]], &grams[m[b]]));
+                }
+            }
+            (best, m)
+        })
+        .collect();
+    groups.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let total_groups = groups.len();
+
+    let rendered: Vec<Value> = groups
+        .iter()
+        .take(max_groups)
+        .map(|(sim, m)| {
+            json!({
+                "similarity": (sim * 100.0).round() / 100.0,
+                "blocks": m.iter().map(|&i| {
+                    let it = &items[i];
+                    json!({
+                        "block_id": it.block_id,
+                        "thread_id": it.thread_id,
+                        "thread_title": it.thread_title,
+                        "workspace": it.workspace,
+                        "preview": head_snippet(&it.content),
+                        "created_at": format_pack_time(it.created_at),
+                    })
+                }).collect::<Vec<Value>>(),
+            })
+        })
+        .collect();
+
+    serde_json::to_string_pretty(&json!({
+        "scanned_blocks": items.len(),
+        "threshold": SIMILAR_THRESHOLD,
+        "total_groups": total_groups,
+        "groups": rendered,
+        "note": "Spool 不提供合并——把发现讲给用户（用 preview 与 thread_title 指代，勿输出 id），由用户在应用里处置。",
+    }))
+    .map_err(|e| e.to_string())
+}
+
 // §20.13 v2.1 (field report C1): block-level paging — the middle granularity between
 // a search snippet and a full pack. Same data the pack renders, as JSON.
 const BLOCKS_DEFAULT_LIMIT: i64 = 20;
@@ -1146,7 +1307,7 @@ fn tools_descriptor() -> Value {
     json!([
         {
             "name": "list_threads",
-            "description": "List every workspace and live thread in Spool (思簿), with thread ids, status, one-line summary, block/pinned counts, approx_pack_chars (content chars; the fixed pack skeleton adds ~3k) and last-updated times. Call this first — both to pick a thread and to budget reads before get_pack.",
+            "description": "List every workspace and live thread in Spool (思簿), with thread ids, status, one-line summary, block/pinned counts, approx_pack_chars (content chars; the fixed pack skeleton adds ~3k) and last-updated times. Call this first — both to pick a thread and to budget reads before get_pack. Ids are tool parameters only; when talking to the user, name threads by their titles.",
             "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
         },
         {
@@ -1169,7 +1330,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all threads. Use this to find WHICH thread a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…** plus block/thread ids. Queries of 1–2 characters scan substrings ranked newest first (short Latin queries match whole words only).",
+            "description": "Keyword-search every block (content + user annotations) across all threads. Use this to find WHICH thread a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…** plus block/thread ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Queries of 1–2 characters scan substrings ranked newest first (short Latin queries match whole words only).",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -1178,6 +1339,19 @@ fn tools_descriptor() -> Value {
                     "limit": { "type": "integer", "description": "Max hits, default 20, cap 50." }
                 },
                 "required": ["query"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "find_similar_blocks",
+            "description": "Find groups of near-duplicate blocks (e.g. the same content captured twice), across all threads or within one. Read-only report: Spool never merges — describe each group to the user by its previews and thread titles (never raw ids) and let them curate in the app. Groups are ranked by similarity (character-trigram overlap, threshold 0.6).",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Optional: only look inside this thread (id from list_threads)." },
+                    "max_groups": { "type": "integer", "description": "Max groups returned, default 10, cap 30." }
+                },
                 "additionalProperties": false
             }
         },
@@ -1271,6 +1445,11 @@ fn handle_tool_call(params: &Value) -> Value {
                 let limit = args.get("limit").and_then(Value::as_i64);
                 search_blocks_json(&open_db(&dir)?, query, limit)
             }
+            "find_similar_blocks" => find_similar_blocks_json(
+                &open_db(&dir)?,
+                args.get("thread_id").and_then(Value::as_str),
+                args.get("max_groups").and_then(Value::as_i64),
+            ),
             "get_blocks" => {
                 let thread_id = args
                     .get("thread_id")
@@ -1481,7 +1660,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "protocolVersion": proto,
                 "capabilities": { "tools": {}, "prompts": {}, "resources": { "listChanged": true } },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. Discover projects with list_threads (check approx_pack_chars before pulling a big thread), locate topics with search_blocks, then get_pack for the full briefing — for large threads prefer range=pinned or page through get_blocks. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back (writes must be enabled in Spool's settings). If you ever compress a pack yourself: keep the section skeleton, every note: line, every sourceless entry and every ==…== span verbatim; deduplicate only the Full Record body; add nothing; store the result via add_block, never as a replacement."
+                "instructions": "Spool (思簿) is the user's local context hub. Discover projects with list_threads (check approx_pack_chars before pulling a big thread), locate topics with search_blocks, then get_pack for the full briefing — for large threads prefer range=pinned or page through get_blocks. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back; keep a thread's one-line summary fresh with set_thread_summary; spot repeated captures with find_similar_blocks (writes must be enabled in Spool's settings). HARD RULE — naming: when talking to the user, refer to threads and blocks ONLY by their titles/previews (e.g. 「毕业论文」), never by raw ids like sbC2zgTo…; ids exist solely as tool-call parameters. If you ever compress a pack yourself: keep the section skeleton, every note: line, every sourceless entry and every ==…== span verbatim; deduplicate only the Full Record body; add nothing; store the result via add_block, never as a replacement."
             }))
         }
         "ping" => Ok(json!({})),
@@ -1805,6 +1984,54 @@ mod tests {
         assert!(add_block_json(&mut conn, "nope", "x", None, None).is_err());
         // empty content refuses
         assert!(add_block_json(&mut conn, &tid, "   ", None, None).is_err());
+    }
+
+    // find_similar_blocks: trigram Jaccard grouping is read-only and skips ref blocks.
+    #[test]
+    fn find_similar_blocks_groups_duplicates() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-similar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('t1', 'ws1', '未分类', 1, 1), ('t2', 'ws1', '别处', 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
+               ('b1', 't1', 'text', 'GRE 填空题目里 mercurial 的意思是善变的', 0, 1),
+               ('b2', 't1', 'text', 'GRE 填空题目里 mercurial 的意思是善变的', 0, 2),
+               ('b3', 't1', 'text', 'GRE 填空题里 mercurial 的意思是：善变的。', 0, 3),
+               ('b4', 't2', 'text', 'GRE 填空题目里 mercurial 的意思是善变的', 0, 4),
+               ('b5', 't1', 'text', '完全不相关的一条：明天去图书馆借书', 0, 5),
+               ('b6', 't1', 'ref',  'GRE 填空题目里 mercurial 的意思是善变的', 0, 6);",
+        )
+        .unwrap();
+
+        let out = find_similar_blocks_json(&conn, None, None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let groups = v["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "{out}");
+        let ids: Vec<&str> = groups[0]["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["block_id"].as_str().unwrap())
+            .collect();
+        // The exact + near duplicates group together across threads; the unrelated
+        // block and the ref-kind copy stay out.
+        assert_eq!(ids, vec!["b1", "b2", "b3", "b4"]);
+        assert!(groups[0]["similarity"].as_f64().unwrap() > 0.99);
+
+        // Thread scoping narrows the group to that thread's members.
+        let out = find_similar_blocks_json(&conn, Some("t2"), None).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["groups"].as_array().unwrap().len(), 0);
+        // Unknown thread errors.
+        assert!(find_similar_blocks_json(&conn, Some("nope"), None).is_err());
     }
 
     // set_thread_summary provenance guard: MCP may fill an empty card or refresh its
