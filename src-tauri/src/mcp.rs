@@ -750,10 +750,16 @@ fn find_similar_blocks_json(
         created_at: i64,
         thread_title: String,
         workspace: String,
+        // R2 field report C3: the curation-decision fields — "which copy is pinned /
+        // annotated / longest" is what the user needs to pick the keeper.
+        pinned: bool,
+        has_annotation: bool,
+        source: Option<String>,
     }
     // ref blocks are pointers, not content — only text blocks can be duplicates.
     let sql = format!(
-        "SELECT b.id, b.thread_id, b.content, b.created_at, t.title, w.title
+        "SELECT b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
+                b.pinned, b.annotation IS NOT NULL, b.source
          FROM blocks b
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
@@ -769,6 +775,9 @@ fn find_similar_blocks_json(
             created_at: r.get(3)?,
             thread_title: r.get(4)?,
             workspace: r.get(5)?,
+            pinned: r.get::<_, i64>(6)? == 1,
+            has_annotation: r.get::<_, i64>(7)? == 1,
+            source: r.get(8)?,
         })
     };
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -861,6 +870,10 @@ fn find_similar_blocks_json(
                         "workspace": it.workspace,
                         "preview": head_snippet(&it.content),
                         "created_at": format_pack_time(it.created_at),
+                        "length": it.content.chars().count(),
+                        "pinned": it.pinned,
+                        "has_annotation": it.has_annotation,
+                        "source": it.source,
                     })
                 }).collect::<Vec<Value>>(),
             })
@@ -869,24 +882,33 @@ fn find_similar_blocks_json(
 
     serde_json::to_string_pretty(&json!({
         "scanned_blocks": items.len(),
+        // R2 C3: cap semantics made explicit — only the newest scan_cap text blocks
+        // are considered; on a bigger library, scanned_blocks == scan_cap means older
+        // blocks were not examined (scope with thread_id to go deeper).
+        "scan_cap": SIMILAR_SCAN_CAP,
         "threshold": SIMILAR_THRESHOLD,
         "total_groups": total_groups,
         "groups": rendered,
-        "note": "Spool 不提供合并——把发现讲给用户（用 preview 与 thread_title 指代，勿输出 id），由用户在应用里处置。",
+        "note": "Spool 不提供合并——把发现讲给用户（用 preview 与 thread_title 指代，勿输出 id；pinned/has_annotation/length 是用户挑保留块的关键信息），由用户在应用里处置。",
     }))
     .map_err(|e| e.to_string())
 }
 
 // §20.13 v2.1 (field report C1): block-level paging — the middle granularity between
 // a search snippet and a full pack. Same data the pack renders, as JSON.
+// R2 field report C1: `around_block_id` + `context` — center the page on a block (a
+// search hit) instead of guessing offsets from timestamps.
 const BLOCKS_DEFAULT_LIMIT: i64 = 20;
 const BLOCKS_MAX_LIMIT: i64 = 50;
+const BLOCKS_DEFAULT_CONTEXT: i64 = 3;
 
 fn get_blocks_json(
     conn: &Connection,
     thread_id: &str,
     offset: Option<i64>,
     limit: Option<i64>,
+    around_block_id: Option<&str>,
+    context: Option<i64>,
 ) -> Result<String, String> {
     let (title, deleted): (String, Option<i64>) = conn
         .query_row(
@@ -898,15 +920,48 @@ fn get_blocks_json(
     if deleted.is_some() {
         return Err("该脉络已被删除。".to_string());
     }
-    let offset = offset.unwrap_or(0).max(0);
-    let limit = limit.unwrap_or(BLOCKS_DEFAULT_LIMIT).clamp(1, BLOCKS_MAX_LIMIT);
+    // Centering overrides offset/limit: position = rows sorted the same way the page
+    // query sorts (created_at, then rowid as the deterministic tie-break).
+    let (offset, limit, anchor_position) = if let Some(bid) = around_block_id {
+        let position: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM blocks b, blocks t
+                 WHERE t.id = ?1 AND t.thread_id = ?2 AND b.thread_id = ?2
+                   AND (b.created_at < t.created_at
+                        OR (b.created_at = t.created_at AND b.rowid < t.rowid))",
+                rusqlite::params![bid, thread_id],
+                |r| r.get(0),
+            )
+            .map_err(|_| format!("该脉络里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"))?;
+        // COUNT returns 0 both for "first block" and "block not in this thread" — tell
+        // them apart explicitly.
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM blocks WHERE id = ?1 AND thread_id = ?2",
+                rusqlite::params![bid, thread_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if exists == 0 {
+            return Err(format!("该脉络里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"));
+        }
+        let ctx = context.unwrap_or(BLOCKS_DEFAULT_CONTEXT).clamp(0, (BLOCKS_MAX_LIMIT - 1) / 2);
+        ((position - ctx).max(0), 2 * ctx + 1, Some(position))
+    } else {
+        (
+            offset.unwrap_or(0).max(0),
+            limit.unwrap_or(BLOCKS_DEFAULT_LIMIT).clamp(1, BLOCKS_MAX_LIMIT),
+            None,
+        )
+    };
     let total: i64 = conn
         .query_row("SELECT count(*) FROM blocks WHERE thread_id = ?1", [thread_id], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
             "SELECT id, kind, content, annotation, ref_thread_id, source, pinned, created_at
-             FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC LIMIT ?2 OFFSET ?3",
+             FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC, rowid ASC
+             LIMIT ?2 OFFSET ?3",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -925,15 +980,18 @@ fn get_blocks_json(
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| e.to_string())?;
-    serde_json::to_string_pretty(&json!({
+    let mut out = json!({
         "thread_id": thread_id,
         "thread_title": title,
         "total": total,
         "offset": offset,
         "limit": limit,
         "blocks": rows,
-    }))
-    .map_err(|e| e.to_string())
+    });
+    if let Some(pos) = anchor_position {
+        out["anchor_position"] = json!(pos);
+    }
+    serde_json::to_string_pretty(&out).map_err(|e| e.to_string())
 }
 
 // Pack text plus the counts the get_pack guard (P0-2/P2-7, 2026-07-09 field report)
@@ -1184,7 +1242,9 @@ fn client_label_from_info(info: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())?;
     let lc = name.to_lowercase();
-    Some(if lc.contains("claude") {
+    // R2 field report C4: Claude's agent runtimes identify as "local-agent-mode-…"
+    // with no human-readable title — map the known slug family like the others.
+    Some(if lc.contains("claude") || lc.contains("local-agent-mode") {
         "Claude".to_string()
     } else if lc.contains("cursor") {
         "Cursor".to_string()
@@ -1400,14 +1460,16 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "get_blocks",
-            "description": "Page through one thread's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps). The middle granularity between a search snippet and a full pack — use after search_blocks to read around a hit, or to read a large thread within budget.",
+            "description": "Page through one thread's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps). The middle granularity between a search snippet and a full pack. To read around a search hit, pass its block_id as around_block_id (with optional context, default 3 each side) — this centers the page and returns anchor_position; offset/limit are ignored.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "thread_id": { "type": "string", "description": "Thread id from list_threads / search_blocks." },
                     "offset": { "type": "integer", "description": "Blocks to skip, default 0." },
-                    "limit": { "type": "integer", "description": "Blocks to return, default 20, cap 50." }
+                    "limit": { "type": "integer", "description": "Blocks to return, default 20, cap 50." },
+                    "around_block_id": { "type": "string", "description": "Center the page on this block (e.g. a search_blocks hit). Overrides offset/limit." },
+                    "context": { "type": "integer", "description": "With around_block_id: blocks each side, default 3, cap 24." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -1503,6 +1565,8 @@ fn handle_tool_call(params: &Value) -> Value {
                     thread_id,
                     args.get("offset").and_then(Value::as_i64),
                     args.get("limit").and_then(Value::as_i64),
+                    args.get("around_block_id").and_then(Value::as_str),
+                    args.get("context").and_then(Value::as_i64),
                 )
             }
             "get_pack" => {
@@ -1703,7 +1767,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "protocolVersion": proto,
                 "capabilities": { "tools": {}, "prompts": {}, "resources": { "listChanged": true } },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. Discover projects with list_threads (check approx_pack_chars before pulling a big thread), locate topics with search_blocks, then get_pack for the full briefing — for large threads prefer range=pinned or page through get_blocks. If the user asks to keep a finding or start tracking a new topic, add_block / create_thread store it back; keep a thread's one-line summary fresh with set_thread_summary; spot repeated captures with find_similar_blocks (writes must be enabled in Spool's settings). HARD RULE — naming: when talking to the user, refer to threads and blocks ONLY by their titles/previews (e.g. 「毕业论文」), never by raw ids like sbC2zgTo…; ids exist solely as tool-call parameters. If you ever compress a pack yourself: keep the section skeleton, every note: line, every sourceless entry and every ==…== span verbatim; deduplicate only the Full Record body; add nothing; store the result via add_block, never as a replacement."
+                "instructions": "Spool (思簿) is the user's local context hub. WORKFLOW: discover projects with list_threads (check approx_pack_chars before pulling a big thread); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…); spot repeated captures with find_similar_blocks (report only — merging is the user's curation); get_pack is the full briefing (prefer range=pinned or paging for large threads). READING: every pack opens with the four-category authority header (📖 Reference = ground truth; 🧩 Synthesis = someone else's AI output, not facts; 🔄 Process = dialogue traces, read for the user's evolving questions; Personal = the user's own sourceless entries and note: lines — the highest-signal material). Follow it; when categories conflict, Reference wins on facts and Personal wins on intent. WRITING (each write needs the user's consent toggles in Spool settings): file ONE finding per add_block into the thread it belongs to, with an annotation saying why it matters; create_thread only for a genuinely new topic, not per conversation; refresh a thread's one-line summary with set_thread_summary after meaningful new material — if it refuses because the card is user-written, tell the user your suggested summary instead of retrying. HARD RULE — naming: when talking to the user, refer to threads and blocks ONLY by their titles/previews (e.g. 「毕业论文」), never by raw ids like sbC2zgTo…; ids exist solely as tool-call parameters, and never write raw ids into block content or annotations (they would surface in search snippets forever). If you ever compress a pack yourself: keep the section skeleton, every note: line, every sourceless entry and every ==…== span verbatim; deduplicate only the Full Record body; add nothing; store the result via add_block, never as a replacement."
             }))
         }
         "ping" => Ok(json!({})),
@@ -2096,6 +2160,21 @@ mod tests {
         assert_eq!(v["groups"].as_array().unwrap().len(), 0);
         // Unknown thread errors.
         assert!(find_similar_blocks_json(&conn, Some("nope"), None).is_err());
+
+        // R2 C1: around_block_id centers the page (t1 order: b1,b2,b3,b5,b6 → b3 at
+        // position 2; context 1 → b2..b5) and reports the anchor position.
+        let out = get_blocks_json(&conn, "t1", None, None, Some("b3"), Some(1)).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["anchor_position"], 2);
+        let ids: Vec<&str> = v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["block_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["b2", "b3", "b5"]);
+        // A block from another thread is not silently treated as offset 0.
+        assert!(get_blocks_json(&conn, "t1", None, None, Some("b4"), None).is_err());
     }
 
     // set_thread_summary provenance guard: MCP may fill an empty card or refresh its
@@ -2230,14 +2309,16 @@ mod tests {
 
         // get_blocks paging: chronological, total independent of the page size.
         let page: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1)).unwrap()).unwrap();
+            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1), None, None).unwrap())
+                .unwrap();
         assert_eq!(page["total"], 3);
         assert_eq!(page["blocks"].as_array().unwrap().len(), 1);
         assert_eq!(page["blocks"][0]["content"], "量子退火的调参结论");
         let page2: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None).unwrap()).unwrap();
+            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None, None, None).unwrap())
+                .unwrap();
         assert_eq!(page2["blocks"][0]["content"], "AI 分类器的结论");
-        assert!(get_blocks_json(&conn, "nope", None, None).is_err());
+        assert!(get_blocks_json(&conn, "nope", None, None, None, None).is_err());
 
         // list_threads carries the one-liner summary + read-budget fields (v2.1).
         let listed: Vec<Value> =
