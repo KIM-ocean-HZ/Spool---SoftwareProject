@@ -1,4 +1,4 @@
-import { Circle, Code2, FileText, Globe, MessageSquare, Sparkles, Terminal } from 'lucide-react';
+import { Bot, Circle, Code2, FileText, Globe, MessageSquare, Sparkles, Terminal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 // Maps a block's free-text `source` to a category icon for the source badge
@@ -20,9 +20,17 @@ const RULES: readonly [RegExp, LucideIcon][] = [
   [/chatgpt|gpt|gemini|claude|copilot|openai|\bai\b/i, Sparkles],
 ];
 
+// Blocks written through the MCP server carry the enforced label "<client> · MCP"
+// (optionally "— detail"; bare "MCP" when the client sent no name) — see mcp.rs
+// mcp_source_label(). The badge gives these a quiet cowork distinction (Ocean #4,
+// 2026-07-09): a dedicated icon + a hint of accent, presence not pressure (§2.5).
+export const isMcpSource = (source: string | null): boolean =>
+  source != null && (source === 'MCP' || source.startsWith('MCP — ') || source.includes(' · MCP'));
+
 // Unknown source / no match → a small filled dot, rendered muted at the badge head.
 export function sourceIcon(source: string | null): LucideIcon {
   if (!source) return Circle;
+  if (isMcpSource(source)) return Bot;
   for (const [pattern, icon] of RULES) {
     if (pattern.test(source)) return icon;
   }

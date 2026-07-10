@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { sourceIcon } from '@/lib/blocks/sourceIcon';
+import { isMcpSource, sourceIcon } from '@/lib/blocks/sourceIcon';
 import type { Block } from '@/lib/db/blocks';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -51,12 +51,18 @@ export default function SourceBadge({ block, readOnly }: Props) {
     setEditing(false);
   };
 
+  // MCP-written blocks (cowork, Ocean #4): dedicated icon + a hint of accent so the
+  // AI's contributions read apart from the user's at a glance — badge only, the block
+  // body stays identical (§2.5 presence-not-pressure; §2.6 rejected colored blocks).
+  const mcp = isMcpSource(block.source);
+  const badgeTone = mcp ? 'text-accent' : 'text-muted';
+
   // Digest read-mode (§11.2): the badge is a static label, no click-to-edit.
   if (readOnly) {
     if (!block.source) return null;
     const Icon = sourceIcon(block.source);
     return (
-      <span className="inline-flex items-center gap-1 px-1 text-[10px] text-muted">
+      <span className={`inline-flex items-center gap-1 px-1 text-[10px] ${badgeTone}`}>
         <Icon size={12} className="flex-none" />
         {block.source}
       </span>
@@ -95,7 +101,7 @@ export default function SourceBadge({ block, readOnly }: Props) {
     return (
       <button
         onClick={() => setEditing(true)}
-        className="inline-flex items-center gap-1 rounded px-1 py-0 text-[10px] text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+        className={`inline-flex items-center gap-1 rounded px-1 py-0 text-[10px] ${badgeTone} transition-colors hover:bg-paper-2 hover:text-ink`}
         title={t('点击编辑来源')}
       >
         <Icon size={12} className="flex-none" />

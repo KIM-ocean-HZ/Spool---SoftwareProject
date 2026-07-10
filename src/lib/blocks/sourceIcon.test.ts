@@ -1,6 +1,6 @@
-import { Circle, Code2, FileText, Globe, MessageSquare, Sparkles, Terminal } from 'lucide-react';
+import { Bot, Circle, Code2, FileText, Globe, MessageSquare, Sparkles, Terminal } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
-import { sourceIcon } from './sourceIcon';
+import { isMcpSource, sourceIcon } from './sourceIcon';
 
 describe('sourceIcon', () => {
   it('maps browser sources to Globe', () => {
@@ -67,5 +67,18 @@ describe('sourceIcon', () => {
     expect(sourceIcon('Perplexity AI')).toBe(Sparkles);
     expect(sourceIcon('OpenAI')).toBe(Sparkles);
     expect(sourceIcon('Microsoft Edge')).toBe(Globe);
+  });
+
+  it('recognizes the enforced MCP source labels and maps them to Bot', () => {
+    // The three shapes mcp.rs can emit: bare, client-labeled, with custom detail.
+    for (const s of ['MCP', 'Claude · MCP', 'Claude · MCP — lecture-11.pdf', 'MCP — note']) {
+      expect(isMcpSource(s)).toBe(true);
+      expect(sourceIcon(s)).toBe(Bot);
+    }
+    // The Bot override outranks the chat-assistant rule ("Claude" alone is Sparkles).
+    expect(sourceIcon('Claude')).toBe(Sparkles);
+    expect(isMcpSource('Claude')).toBe(false);
+    expect(isMcpSource('MCP 协议笔记')).toBe(false);
+    expect(isMcpSource(null)).toBe(false);
   });
 });
