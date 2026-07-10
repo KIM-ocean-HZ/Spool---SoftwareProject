@@ -449,19 +449,30 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
 }
 
 fn list_threads_json(conn: &Connection) -> Result<String, String> {
+    // v2.4 (6a): the per-row correlated subqueries scanned blocks once per thread —
+    // O(threads × blocks). Two GROUP BY aggregates walk blocks/attachments once each.
+    // Equivalence guards: blocks carry no soft-delete (thread/workspace filtering stays
+    // in the outer WHERE); the per-attachment 8k inline cap and the
+    // include_in_pack + extracted-text conditions live inside the aggregate.
     let mut stmt = conn
         .prepare(
             "SELECT t.id, t.title, t.status, t.updated_at, w.title,
-                    (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id),
+                    COALESCE(bc.blocks, 0),
                     t.summary,
-                    (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id AND b.pinned = 1),
-                    (SELECT COALESCE(SUM(LENGTH(b.content) + COALESCE(LENGTH(b.annotation), 0)), 0)
-                       FROM blocks b WHERE b.thread_id = t.id)
-                    + (SELECT COALESCE(SUM(MIN(LENGTH(a.extracted_text), 8000)), 0)
-                         FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
-                        WHERE b2.thread_id = t.id AND a.include_in_pack = 1
-                          AND a.extracted_text IS NOT NULL)
-             FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+                    COALESCE(bc.pinned, 0),
+                    COALESCE(bc.chars, 0) + COALESCE(ac.att_chars, 0)
+             FROM threads t
+             JOIN workspaces w ON w.id = t.workspace_id
+             LEFT JOIN (SELECT thread_id,
+                               COUNT(*) AS blocks,
+                               SUM(pinned) AS pinned,
+                               SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)) AS chars
+                          FROM blocks GROUP BY thread_id) bc ON bc.thread_id = t.id
+             LEFT JOIN (SELECT b2.thread_id,
+                               SUM(MIN(LENGTH(a.extracted_text), 8000)) AS att_chars
+                          FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
+                         WHERE a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
+                         GROUP BY b2.thread_id) ac ON ac.thread_id = t.id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
              ORDER BY w.sort_order ASC, w.created_at ASC, t.updated_at DESC",
         )
@@ -524,6 +535,9 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
         created_at: i64,
         thread_title: String,
         workspace: String,
+        // v2.4 (6b): the boundary filter already locates the hit — carry its snippet
+        // instead of recomputing at render time.
+        snippet: Option<String>,
     }
     let map_row = |r: &rusqlite::Row| -> rusqlite::Result<Cand> {
         Ok(Cand {
@@ -534,6 +548,7 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
             created_at: r.get(4)?,
             thread_title: r.get(5)?,
             workspace: r.get(6)?,
+            snippet: None,
         })
     };
 
@@ -580,11 +595,17 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
             .map_err(|e| e.to_string())?;
         let rows: Vec<Cand> = if boundary {
             rows.into_iter()
-                .filter(|c| {
-                    snippet_around(&c.content, query, true).is_some()
-                        || c.annotation
+                .filter_map(|mut c| {
+                    // Same precedence as the render step: content hit first, else the
+                    // annotation with the note: prefix. Kept on the candidate (6b).
+                    let snip = snippet_around(&c.content, query, true).or_else(|| {
+                        c.annotation
                             .as_deref()
-                            .is_some_and(|a| snippet_around(a, query, true).is_some())
+                            .and_then(|a| snippet_around(a, query, true))
+                            .map(|s| format!("{NOTE_MARKER}{s}"))
+                    })?;
+                    c.snippet = Some(snip);
+                    Some(c)
                 })
                 .collect()
         } else {
@@ -600,7 +621,11 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
         .map(|c| {
             // Snippet from wherever the hit actually is; annotation-only matches used
             // to show an unrelated content head with no visible hit (field report A3).
-            let snippet = snippet_around(&c.content, query, boundary)
+            // The boundary path computed it during filtering (6b).
+            let snippet = c
+                .snippet
+                .clone()
+                .or_else(|| snippet_around(&c.content, query, boundary))
                 .or_else(|| {
                     c.annotation
                         .as_deref()
@@ -2340,6 +2365,52 @@ mod tests {
             serde_json::from_str(&search_blocks_json(&conn, "调参结论", None).unwrap()).unwrap();
         assert_eq!(gone["total"], 0);
         assert!(thread_resources(&conn).unwrap().is_empty());
+    }
+
+    // v2.4 (6a): the GROUP BY rewrite of list_threads must keep the correlated-subquery
+    // semantics — per-attachment 8k inline cap, include_in_pack/extracted-text gates,
+    // zero rows for empty threads, soft-deleted threads/workspaces excluded.
+    #[test]
+    fn list_threads_aggregates_match_row_semantics() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        let long = "x".repeat(9000);
+        conn.execute_batch(&format!(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1), ('ws2', '已删空间', 1, 1, 1);
+             UPDATE workspaces SET deleted_at = 2 WHERE id = 'ws2';
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at) VALUES
+               ('t1', 'ws1', '有料', 1, 9), ('t2', 'ws1', '空的', 1, 5),
+               ('t3', 'ws1', '已删', 1, 3), ('t4', 'ws2', '空间已删', 1, 1);
+             UPDATE threads SET deleted_at = 2 WHERE id = 't3';
+             INSERT INTO blocks (id, thread_id, kind, content, annotation, pinned, created_at) VALUES
+               ('b1', 't1', 'text', '12345', '批注九个字符啊啊啊', 1, 1),
+               ('b2', 't1', 'text', '1234567890', NULL, 0, 2),
+               ('b3', 't3', 'text', '不应计入', NULL, 0, 1);
+             INSERT INTO attachments (id, block_id, kind, target, label, extracted_text,
+                                      include_in_pack, created_at) VALUES
+               ('a1', 'b1', 'file', '/x/a.pdf', 'a.pdf', '{long}', 1, 1),
+               ('a2', 'b1', 'file', '/x/b.pdf', 'b.pdf', '弃权不内联', 0, 2),
+               ('a3', 'b2', 'file', '/x/c.pdf', 'c.pdf', NULL, 1, 3);"
+        ))
+        .unwrap();
+
+        let rows: Vec<Value> = serde_json::from_str(&list_threads_json(&conn).unwrap()).unwrap();
+        let titles: Vec<&str> = rows.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, vec!["有料", "空的"], "soft-deleted rows leak: {titles:?}");
+        let t1 = &rows[0];
+        assert_eq!(t1["blocks"], 2);
+        assert_eq!(t1["pinned"], 1);
+        // chars = content(5) + annotation(9 chars) + content(10) + capped attachment(8000);
+        // a2 is opted out, a3 has no text. LENGTH() counts chars on TEXT columns.
+        assert_eq!(t1["approx_pack_chars"], 5 + 9 + 10 + 8000);
+        let t2 = &rows[1];
+        assert_eq!(t2["blocks"], 0);
+        assert_eq!(t2["pinned"], 0);
+        assert_eq!(t2["approx_pack_chars"], 0);
     }
 
     // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's three mouths — empty thread,
