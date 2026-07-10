@@ -34,6 +34,7 @@ export default function GeneralConfig() {
   // the installed .app both show a path that works. Resolved once, on demand.
   const [exePath, setExePath] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
     claude: null,
     cursor: null,
@@ -85,6 +86,23 @@ export default function GeneralConfig() {
       setTimeout(() => setSnippetCopied(false), 1500);
     } catch (e) {
       console.error('[settings] copy mcp snippet failed', e);
+    }
+  };
+
+  // Ocean #3 (2026-07-09): a paste-ready briefing for the AI client (project
+  // instructions or the top of a chat). The server's initialize instructions carry the
+  // same rules, but not every client honours them — this puts the user in control.
+  const copyUsagePrompt = async (): Promise<void> => {
+    try {
+      await writeText(
+        t(
+          '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。',
+        ),
+      );
+      setPromptCopied(true);
+      setTimeout(() => setPromptCopied(false), 1500);
+    } catch (e) {
+      console.error('[settings] copy usage prompt failed', e);
     }
   };
 
@@ -233,6 +251,21 @@ export default function GeneralConfig() {
           <p className="mt-1 text-[11px] text-muted">
             {t('当前是开发构建 — 安装正式版后需重新接入')}
           </p>
+        )}
+        {/* Ocean #3: paste-ready usage briefing for the AI side. */}
+        {mcpEnabled && (
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted">
+              {t('接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺')}
+            </span>
+            <button
+              type="button"
+              onClick={() => void copyUsagePrompt()}
+              className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
+            >
+              {promptCopied ? t('已复制') : t('复制使用提示')}
+            </button>
+          </div>
         )}
         {mcpEnabled && (
           <div className="mt-2 rounded-md border border-line bg-paper-2/40 p-2.5">

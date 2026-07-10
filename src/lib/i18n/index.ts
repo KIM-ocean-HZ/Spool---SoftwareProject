@@ -288,6 +288,11 @@ const EN: Record<string, string> = {
   '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
     'Lets MCP-capable AI tools (Claude, Cursor, …) pull thread packs directly — from paste to zero-paste. Read-only by default, local only.',
   '高级：手动粘贴到其它 MCP 客户端的配置里': 'Advanced: paste into another MCP client’s config',
+  '接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺':
+    'Once connected, paste the AI a short "how to use Spool for me" briefing for a smoother start',
+  '复制使用提示': 'Copy usage briefing',
+  '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。':
+    'I manage my project context in Spool. You can read and write it through its MCP tools: list_threads to survey my projects; search_blocks to locate which thread a topic lives in; get_pack for the full briefing (check approx_pack_chars first; prefer range=pinned for big threads). When I ask you to remember/archive a conclusion, file it with add_block; start new topics with create_thread; refresh a thread’s one-line summary with set_thread_summary after new material lands; find_similar_blocks helps spot duplicate captures. Always refer to threads by their titles when talking to me — never output internal ids. Everything you write is automatically labeled with your source.',
   '允许 AI 写入（实验）': 'Allow AI writes (experimental)',
   'AI 可新建脉络、向脉络追加信息块。写入的块始终带来源标注（如 Claude · MCP），不会伪装成你写的。':
     'AI can create threads and append blocks. Written blocks always carry a source label (e.g. Claude · MCP) — never disguised as your own writing.',
