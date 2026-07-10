@@ -43,17 +43,17 @@ ls src-tauri/target/release/bundle/macos/   # Spool.app
 - [ ] 全新机器（或删除 `~/Library/Application Support/com.oceanjin.spool` 后）安装 .dmg，首启建库正常
 - [ ] `spctl -a -vv -t install src-tauri/target/release/bundle/macos/Spool.app` 显示 `accepted · Notarized Developer ID`
 - [ ] 双击 ⌥ 捕捉：首启系统弹「输入监听」授权（未授权时主窗口有引导条）→ 授权并重启后捕捉可用
-- [ ] 隐私模式开启 + 抓包：确认零出网（PLAN §16）
-- [ ] 不配置任何 API Key：AI 入口隐藏，捕捉/打包/搜索完好（§6.4）
+- [ ] 抓包确认零出网：本体无任何云出口（2026-07-09 剔除内置 AI 后 CSP connect-src 只放行 Tauri IPC；MCP 走 stdio 子进程，不占网络端口）
+- [ ] 全新安装零配置即全功能：捕捉/打包/搜索可用；教程脉络「欢迎使用 Spool」出现、整条可删且不复现
 - [ ] 中文输入法下 Composer 回车确认候选词不误发（2026-07 修复的回归项）
 - [ ] 旧版本数据库直接升级启动（迁移注册表自动走，升级前自动留快照）
 - [ ] README 的截图与当前 UI 一致（字体打包后外观有变，需重截）
 
 ## 4. 已知边界
 
-- **CSP**：`connect-src` 白名单只放行 Groq、Gemini 与 `localhost` 任意端口（Ollama）。
-  用户若把 Ollama 端点指向**远程**主机会被 CSP 拦截——需要时在
-  `src-tauri/tauri.conf.json` 的 csp 里追加该来源并重新构建。
+- **CSP**：`connect-src` 只放行 Tauri IPC（`'self' ipc: http://ipc.localhost`）——
+  webview 层结构性无法发起任何外部网络请求（2026-07-09 MCP-first 决策的执行面）。
+  未来若有功能需要出网，必须回到 §2.7 过滤器重新论证。
 - **更新通道**：直发意味着没有自动更新。短期靠 GitHub Releases 页手动下载；
   若要应用内更新，需引入 `tauri-plugin-updater`（PLAN §4 规定新依赖需 Ocean 批准）。
 - **Windows 构建**：`targets: all` 下 Windows 产物未签名；Windows 分发另需
