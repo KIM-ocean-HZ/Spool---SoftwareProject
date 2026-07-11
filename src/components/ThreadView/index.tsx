@@ -60,10 +60,13 @@ export default function ThreadView() {
   // v2.4 (§20.13 D2): resolve blocks cited via refBlockId (MCP writers set it; the
   // citee may live in another thread) so the pack can render its ↩ cites preview.
   // Missing rows stay out of the map — assemble renders those citations as gone.
+  // Fetched only while the pack dialog is open (review finding): the data has no other
+  // consumer, so the common editing path must not pay a DB round-trip per block change.
   const [refBlocks, setRefBlocks] = useState<Map<string, { content: string; createdAt: number }>>(
     () => new Map(),
   );
   useEffect(() => {
+    if (!packOpen) return;
     const ids = [...new Set(blocks.map((b) => b.refBlockId).filter((id): id is string => !!id))];
     if (ids.length === 0) {
       setRefBlocks(new Map());
@@ -77,7 +80,7 @@ export default function ThreadView() {
     return () => {
       stale = true;
     };
-  }, [blocks]);
+  }, [packOpen, blocks]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

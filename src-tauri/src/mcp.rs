@@ -239,16 +239,16 @@ fn render_attachment(a: &AttachmentRow) -> Vec<String> {
     vec![format!("{NOTE_INDENT}{FILE_MARKER}{label}{ATTACHMENT_SEE_BELOW}")]
 }
 
-fn render_block(
+// The one block-header line (📌 star, time/source bracket, ref-title fallback) shared
+// by the pack and digest renderers — the two surfaces must never drift (they promise
+// the same source labels). `content_cap` is the digest's truncation; None = verbatim.
+fn block_head_line(
     b: &BlockRow,
-    attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
-    ref_blocks: &RefBlocks,
-) -> Vec<String> {
+    content_cap: Option<usize>,
+) -> String {
     let time = format_pack_time(b.created_at);
     let star = if b.pinned { PINNED_PREFIX } else { "" };
-    let mut lines: Vec<String> = Vec::new();
-
     if b.kind == "ref" {
         let from_map = b
             .ref_thread_id
@@ -257,19 +257,41 @@ fn render_block(
             .map(|s| s.as_str())
             .filter(|s| !s.is_empty());
         let title = from_map.unwrap_or(if b.content.is_empty() { UNKNOWN_THREAD } else { &b.content });
-        lines.push(format!("{star}[{time}] {REF_MARKER}{title}"));
-    } else {
-        let bracket = match b.source.as_deref() {
-            Some(src) => format!("{time}{SOURCE_MARKER}{src}"),
-            None => time,
-        };
-        lines.push(format!("{star}[{bracket}] {}", b.content.trim()));
+        return format!("{star}[{time}] {REF_MARKER}{title}");
     }
-
-    if let Some(note) = b.annotation.as_deref() {
-        if !note.trim().is_empty() {
-            lines.push(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)));
+    let bracket = match b.source.as_deref() {
+        Some(src) => format!("{time}{SOURCE_MARKER}{src}"),
+        None => time,
+    };
+    let content = b.content.trim();
+    let body: String = match content_cap {
+        Some(cap) if content.chars().count() > cap => {
+            let head: String = content.chars().take(cap).collect();
+            format!("{head}\n{}", truncation_marker(content.chars().count() - cap))
         }
+        _ => content.to_string(),
+    };
+    format!("{star}[{bracket}] {body}")
+}
+
+// The `note:` sub-line under a block, shared by both renderers.
+fn block_note_line(b: &BlockRow) -> Option<String> {
+    let note = b.annotation.as_deref()?;
+    if note.trim().is_empty() {
+        return None;
+    }
+    Some(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)))
+}
+
+fn render_block(
+    b: &BlockRow,
+    attachments: &[AttachmentRow],
+    ref_titles: &std::collections::HashMap<String, String>,
+    ref_blocks: &RefBlocks,
+) -> Vec<String> {
+    let mut lines: Vec<String> = vec![block_head_line(b, ref_titles, None)];
+    if let Some(note) = block_note_line(b) {
+        lines.push(note);
     }
     if let Some(cited_id) = b.ref_block_id.as_deref() {
         lines.push(match ref_blocks.get(cited_id) {
@@ -385,18 +407,30 @@ fn assemble_pack_omitting(
     out.push(SECTION_LOG.to_string());
     out.push(String::new());
     if omit > 0 {
+        // Honest accounting (review findings): pinned blocks among the omitted slots
+        // still render in full above, so only unpinned content counts as lost; the
+        // figure is a cheap content+annotation char sum (it is labeled ~ anyway) — no
+        // throwaway rendering. No offset/limit recipe either: under range≠all those
+        // numbers would address the wrong blocks, and omit can exceed get_blocks' cap.
+        let hidden = blocks[..omit].iter().filter(|b| !b.pinned).count();
+        let pinned_omitted = omit - hidden;
         let omitted_chars: usize = blocks[..omit]
             .iter()
+            .filter(|b| !b.pinned)
             .map(|b| {
-                render_block(b, attachments, ref_titles, ref_blocks)
-                    .iter()
-                    .map(|l| l.chars().count() + 1)
-                    .sum::<usize>()
+                b.content.chars().count()
+                    + b.annotation.as_deref().map(|a| a.chars().count()).unwrap_or(0)
             })
             .sum();
+        let pinned_note = if pinned_omitted > 0 {
+            format!("; {pinned_omitted} pinned shown in full above")
+        } else {
+            String::new()
+        };
         out.push(format!(
-            "[... {omit} older blocks omitted for budget (~{omitted_chars} chars) — \
-             read them with get_blocks(offset=0, limit={omit}) or raise max_chars ...]"
+            "[... {omit} oldest timeline entries omitted for budget (~{omitted_chars} \
+             chars of unpinned content{pinned_note}) — page the thread's older blocks \
+             with get_blocks, narrow range, or raise max_chars ...]"
         ));
     }
     if blocks.is_empty() {
@@ -1006,54 +1040,30 @@ const DIGEST_BLOCK_CHAR_CAP: usize = 600;
 // Pinned anchor lines for threads without window activity.
 const DIGEST_ANCHOR_CHARS: usize = 80;
 
-// Start of the local calendar day containing `now_ms`.
-fn local_midnight_ms(now_ms: i64) -> i64 {
+// Local midnight of the calendar day `days_back` days before `now_ms`. Subtracting on
+// tm_mday (mktime normalizes out-of-range fields, tm_isdst = -1 resolves DST) keeps the
+// boundary at true local midnight even when a DST transition falls inside the window —
+// fixed-86400s arithmetic would drift it by ±1h (review finding).
+fn window_start_ms(now_ms: i64, days_back: i64) -> i64 {
     let mut tm = local_tm(now_ms);
     tm.tm_hour = 0;
     tm.tm_min = 0;
     tm.tm_sec = 0;
+    tm.tm_mday -= days_back as libc::c_int;
     tm.tm_isdst = -1;
     let secs = unsafe { libc::mktime(&mut tm) };
     (secs as i64) * 1000
 }
 
-// One digest block line: pack-style bracket + content capped at DIGEST_BLOCK_CHAR_CAP,
-// annotation as a note: sub-line. No attachments (breadth tool), no citation line.
+// One digest block entry: the shared header line capped at DIGEST_BLOCK_CHAR_CAP plus
+// the note: sub-line. No attachments (breadth tool), no citation line.
 fn digest_block_lines(
     b: &BlockRow,
     ref_titles: &std::collections::HashMap<String, String>,
 ) -> Vec<String> {
-    let time = format_pack_time(b.created_at);
-    let star = if b.pinned { PINNED_PREFIX } else { "" };
-    let mut lines: Vec<String> = Vec::new();
-    if b.kind == "ref" {
-        let from_map = b
-            .ref_thread_id
-            .as_ref()
-            .and_then(|id| ref_titles.get(id))
-            .map(|s| s.as_str())
-            .filter(|s| !s.is_empty());
-        let title = from_map.unwrap_or(if b.content.is_empty() { UNKNOWN_THREAD } else { &b.content });
-        lines.push(format!("{star}[{time}] {REF_MARKER}{title}"));
-    } else {
-        let bracket = match b.source.as_deref() {
-            Some(src) => format!("{time}{SOURCE_MARKER}{src}"),
-            None => time,
-        };
-        let content = b.content.trim();
-        let total = content.chars().count();
-        let body: String = if total > DIGEST_BLOCK_CHAR_CAP {
-            let head: String = content.chars().take(DIGEST_BLOCK_CHAR_CAP).collect();
-            format!("{head}\n{}", truncation_marker(total - DIGEST_BLOCK_CHAR_CAP))
-        } else {
-            content.to_string()
-        };
-        lines.push(format!("{star}[{bracket}] {body}"));
-    }
-    if let Some(note) = b.annotation.as_deref() {
-        if !note.trim().is_empty() {
-            lines.push(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)));
-        }
+    let mut lines = vec![block_head_line(b, ref_titles, Some(DIGEST_BLOCK_CHAR_CAP))];
+    if let Some(note) = block_note_line(b) {
+        lines.push(note);
     }
     lines
 }
@@ -1067,34 +1077,13 @@ fn get_digest_json(
 ) -> Result<String, String> {
     let days = since_days.unwrap_or(DIGEST_DEFAULT_DAYS).clamp(1, DIGEST_MAX_DAYS);
     let max_chars = max_chars.unwrap_or(DIGEST_DEFAULT_MAX_CHARS).max(0);
-    let cutoff = local_midnight_ms(now_ms) - (days - 1) * 86_400_000;
+    let cutoff = window_start_ms(now_ms, days - 1);
 
     // Workspace scope — same name matching as create_thread; unknown name errors with
     // the live list.
     let ws_id: Option<String> = match workspace_title {
         None => None,
-        Some(wt) => Some(
-            conn.query_row(
-                "SELECT id FROM workspaces
-                 WHERE deleted_at IS NULL AND lower(title) = lower(?1)
-                 ORDER BY sort_order ASC LIMIT 1",
-                [wt.trim()],
-                |r| r.get(0),
-            )
-            .map_err(|_| {
-                let names: Vec<String> = conn
-                    .prepare(
-                        "SELECT title FROM workspaces WHERE deleted_at IS NULL
-                         ORDER BY sort_order ASC",
-                    )
-                    .and_then(|mut s| {
-                        s.query_map([], |r| r.get::<_, String>(0))
-                            .and_then(|rows| rows.collect())
-                    })
-                    .unwrap_or_default();
-                format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
-            })?,
-        ),
+        Some(wt) => Some(resolve_workspace(conn, wt)?.0),
     };
 
     struct ThreadMeta {
@@ -1107,10 +1096,14 @@ fn get_digest_json(
         total_blocks: i64,
     }
     let ws_clause = if ws_id.is_some() { "AND w.id = ?1" } else { "" };
+    // Same GROUP BY aggregate as list_threads (6a) — no per-row correlated COUNT.
     let sql = format!(
         "SELECT t.id, t.title, w.title, t.status, t.updated_at, t.summary,
-                (SELECT COUNT(*) FROM blocks b WHERE b.thread_id = t.id)
-         FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+                COALESCE(bc.cnt, 0)
+         FROM threads t
+         JOIN workspaces w ON w.id = t.workspace_id
+         LEFT JOIN (SELECT thread_id, COUNT(*) AS cnt FROM blocks GROUP BY thread_id) bc
+                ON bc.thread_id = t.id
          WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL {ws_clause}
          ORDER BY t.updated_at DESC, t.id ASC"
     );
@@ -1181,13 +1174,7 @@ fn get_digest_json(
         by_thread.entry(r.thread_id.as_str()).or_default().push(&r.block);
     }
 
-    // Titles for rendering kind=ref blocks (same fallback semantics as build_pack).
-    let mut stmt = conn.prepare("SELECT id, title FROM threads").map_err(|e| e.to_string())?;
-    let ref_titles: std::collections::HashMap<String, String> = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
+    let ref_titles = load_ref_titles(conn)?;
 
     // Split: active threads (any block in window) vs pinned-only anchors.
     struct ActiveThread<'a> {
@@ -1724,14 +1711,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         .filter(|a| block_ids.contains(a.block_id.as_str()))
         .collect();
 
-    // Titles for rendering kind=ref blocks. All threads (even deleted) — the renderer
-    // falls back to the ref block's own content snapshot when the map misses.
-    let mut stmt = conn.prepare("SELECT id, title FROM threads").map_err(|e| e.to_string())?;
-    let ref_titles: std::collections::HashMap<String, String> = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
+    let ref_titles = load_ref_titles(conn)?;
 
     Ok(PackBuilt {
         text: assemble_pack(&title, &blocks, &attachments, &ref_titles, &ref_blocks, now_ms),
@@ -1881,6 +1861,44 @@ fn mcp_source_label() -> String {
     }
 }
 
+// Resolve a user-supplied workspace name (case-insensitive) to (id, title), erroring
+// with the live name list — shared by create_thread and get_digest so the two can
+// never disagree on what a name resolves to.
+fn resolve_workspace(conn: &Connection, wt: &str) -> Result<(String, String), String> {
+    conn.query_row(
+        "SELECT id, title FROM workspaces
+         WHERE deleted_at IS NULL AND lower(title) = lower(?1)
+         ORDER BY sort_order ASC LIMIT 1",
+        [wt.trim()],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .map_err(|_| {
+        let names: Vec<String> = conn
+            .prepare(
+                "SELECT title FROM workspaces WHERE deleted_at IS NULL
+                 ORDER BY sort_order ASC",
+            )
+            .and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(0)).and_then(|rows| rows.collect())
+            })
+            .unwrap_or_default();
+        format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
+    })
+}
+
+// Thread-id → title map for rendering kind=ref blocks. All threads on purpose (even
+// soft-deleted) — the renderers fall back to the ref block's own content snapshot only
+// when the map misses entirely.
+fn load_ref_titles(conn: &Connection) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut stmt = conn.prepare("SELECT id, title FROM threads").map_err(|e| e.to_string())?;
+    let map = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(map)
+}
+
 fn create_thread_json(
     conn: &Connection,
     workspace_title: Option<&str>,
@@ -1892,27 +1910,7 @@ fn create_thread_json(
         return Err("title 不能为空。".to_string());
     }
     let (ws_id, ws_title): (String, String) = match workspace_title {
-        Some(wt) => conn
-            .query_row(
-                "SELECT id, title FROM workspaces
-                 WHERE deleted_at IS NULL AND lower(title) = lower(?1)
-                 ORDER BY sort_order ASC LIMIT 1",
-                [wt.trim()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(|_| {
-                let names: Vec<String> = conn
-                    .prepare(
-                        "SELECT title FROM workspaces WHERE deleted_at IS NULL
-                         ORDER BY sort_order ASC",
-                    )
-                    .and_then(|mut s| {
-                        s.query_map([], |r| r.get::<_, String>(0))
-                            .and_then(|rows| rows.collect())
-                    })
-                    .unwrap_or_default();
-                format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
-            })?,
+        Some(wt) => resolve_workspace(conn, wt)?,
         // Default target mirrors the GUI's ordering: the first workspace (收件箱 on a
         // fresh install).
         None => conn
@@ -3467,11 +3465,12 @@ mod tests {
         let lines: Vec<&str> = partial.lines().collect();
         let log_idx = lines.iter().position(|l| *l == SECTION_LOG).unwrap();
         assert!(
-            lines[log_idx + 2].starts_with("[... ") && lines[log_idx + 2].contains("older blocks omitted"),
+            lines[log_idx + 2].starts_with("[... ")
+                && lines[log_idx + 2].contains("oldest timeline entries omitted"),
             "{}",
             lines[log_idx + 2]
         );
-        assert!(lines[log_idx + 2].contains("get_blocks(offset=0, limit="));
+        assert!(lines[log_idx + 2].contains("get_blocks"));
         // Newest block survives; the pinned oldest renders fully in Pinned Blocks even
         // though its chronological slot was omitted.
         assert!(partial.contains("块 19:"));
