@@ -1262,18 +1262,41 @@ fn get_digest_json(
         return Ok(out.join("\n") + "\n");
     }
 
-    // Greedy budget fill. Costs count chars + the joining newline per line.
+    // Budget accounting. Costs count chars + the joining newline per line. R3 BUG-3/4
+    // rewrite: everything — section headers, per-thread fallback mentions, anchor
+    // lines, the tail — is accounted, so output stays ≤ max_chars whenever the
+    // mandatory floor (header + one mention per active thread + tail) itself fits;
+    // and threads upgrade from mention to full chunk in ACTIVITY order, so a less
+    // active thread can never render in full while a more active one is degraded.
     let cost = |lines: &[String]| -> i64 {
         lines.iter().map(|l| l.chars().count() as i64 + 1).sum()
     };
+    let line_cost = |l: &str| -> i64 { l.chars().count() as i64 + 1 };
     let mut used = cost(&out);
     let unlimited = max_chars == 0;
+
+    let quiet = threads.len() - active.len() - anchors.len();
+    let tail_line = (quiet > 0).then(|| {
+        format!("——另有 {quiet} 条脉络无置顶且窗口内无活动(list_threads 查看全部)。")
+    });
+    // Fixed parts are charged into `used` up front — the tail, and (when the anchors
+    // section will exist) its header plus a worst-case omitted-count note — so the
+    // greedy passes below can only spend what is genuinely left. Emission later never
+    // re-charges these.
+    if let Some(l) = tail_line.as_deref() {
+        used += line_cost(l) + 1; // + the blank line before it
+    }
+    if !anchors.is_empty() {
+        used += 1 + line_cost("## 其余脉络的置顶锚点(窗口内无新块)") + 1;
+        used += line_cost("(+ 999 行置顶锚点未展开 — 预算所限)");
+    }
 
     if !active.is_empty() {
         let header = vec![String::new(), "## 近期活跃".to_string()];
         used += cost(&header);
         out.extend(header);
-        for t in &active {
+
+        let chunk_of = |t: &ActiveThread| -> Vec<String> {
             let mut chunk: Vec<String> = Vec::new();
             chunk.push(String::new());
             chunk.push(format!(
@@ -1299,32 +1322,59 @@ fn get_digest_json(
                     "(+ {skip} more blocks in window — get_pack / get_blocks 读全量)"
                 ));
             }
+            chunk
+        };
+        // The "who was active" answer never drops a thread — its floor is one line.
+        let fallback_of = |t: &ActiveThread| -> String {
+            format!(
+                "- {}(窗口内 {} 块,最后活动 {} — 预算所限未展开)",
+                if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
+                t.window.len() + t.pinned.iter().filter(|b| b.created_at >= cutoff).count(),
+                format_pack_time(t.latest_window)
+            )
+        };
+
+        let fallbacks: Vec<String> = active.iter().map(fallback_of).collect();
+        // Pass 1: every active thread's mention is reserved up front.
+        let mut reserved: i64 = fallbacks.iter().map(|f| line_cost(f)).sum();
+        // Pass 2: upgrade mentions to full chunks as a strict PREFIX of the activity
+        // order — the field test's complaint was a stale one-block thread rendering in
+        // full while the most active thread sat degraded, so once one thread fails to
+        // fit, everything less active stays a mention too (budget beyond that point
+        // buys consistency, not filler).
+        let mut upgraded: Vec<Option<Vec<String>>> = Vec::with_capacity(active.len());
+        let mut upgrading = true;
+        for (t, fallback) in active.iter().zip(&fallbacks) {
+            if !upgrading {
+                upgraded.push(None);
+                continue;
+            }
+            let chunk = chunk_of(t);
             let c = cost(&chunk);
-            if unlimited || used + c <= max_chars {
+            let f = line_cost(fallback);
+            if unlimited || used + reserved - f + c <= max_chars {
+                reserved -= f;
                 used += c;
-                out.extend(chunk);
+                upgraded.push(Some(chunk));
             } else {
-                // The "who was active" answer never drops a thread — over budget it
-                // degrades to one line.
-                let fallback = format!(
-                    "- {}(窗口内 {} 块,未展开 — 预算所限)",
-                    if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
-                    t.window.len() + t.pinned.iter().filter(|b| b.created_at >= cutoff).count()
-                );
-                used += fallback.chars().count() as i64 + 1;
-                out.push(fallback);
+                upgrading = false;
+                upgraded.push(None);
+            }
+        }
+        used += reserved;
+        for (rendered, fallback) in upgraded.into_iter().zip(fallbacks) {
+            match rendered {
+                Some(chunk) => out.extend(chunk),
+                None => out.push(fallback),
             }
         }
     }
 
     if !anchors.is_empty() {
-        let header = vec![
-            String::new(),
-            "## 其余脉络的置顶锚点(窗口内无新块)".to_string(),
-            String::new(),
-        ];
-        used += cost(&header);
-        out.extend(header);
+        // Header + worst-case omitted note were pre-charged above.
+        out.push(String::new());
+        out.push("## 其余脉络的置顶锚点(窗口内无新块)".to_string());
+        out.push(String::new());
         let mut omitted = 0usize;
         for (meta, pinned) in &anchors {
             for b in pinned {
@@ -1333,7 +1383,7 @@ fn get_digest_json(
                     if meta.title.is_empty() { "（无标题）" } else { &meta.title },
                     anchor_n(&b.content, DIGEST_ANCHOR_CHARS)
                 );
-                let c = line.chars().count() as i64 + 1;
+                let c = line_cost(&line);
                 if unlimited || used + c <= max_chars {
                     used += c;
                     out.push(line);
@@ -1347,12 +1397,9 @@ fn get_digest_json(
         }
     }
 
-    let quiet = threads.len() - active.len() - anchors.len();
-    if quiet > 0 {
+    if let Some(tail) = tail_line {
         out.push(String::new());
-        out.push(format!(
-            "——另有 {quiet} 条脉络无置顶且窗口内无活动(list_threads 查看全部)。"
-        ));
+        out.push(tail);
     }
 
     Ok(out.join("\n") + "\n")
@@ -2127,7 +2174,7 @@ fn tools_descriptor() -> Value {
                 "properties": {
                     "workspace_title": { "type": "string", "description": "Optional: limit to one workspace (matched by name, case-insensitive). Omit for all workspaces." },
                     "since_days": { "type": "integer", "description": "Activity window in calendar days, default 7, max 90 (counts today)." },
-                    "max_chars": { "type": "integer", "description": "Output budget, default 20000; 0 = unlimited. Over budget, thread chunks degrade to one-line mentions — no thread is silently dropped." }
+                    "max_chars": { "type": "integer", "description": "Output budget in Unicode code points, default 20000; 0 = unlimited. Threads are expanded most-recent-activity-first until the budget is reached; the rest stay as one-line mentions — no thread is silently dropped. Output stays within budget unless even one line per thread cannot fit." }
                 },
                 "additionalProperties": false
             }
@@ -2144,7 +2191,7 @@ fn tools_descriptor() -> Value {
                         "enum": RANGE_VALUES,
                         "description": "Optional scope: all (default), pinned (user-marked core blocks only), last7 / last30 (blocks captured in the last N days)."
                     },
-                    "max_chars": { "type": "integer", "description": "Output cap in characters. Default 50000; 0 = unlimited." }
+                    "max_chars": { "type": "integer", "description": "Output cap in Unicode code points (a JS .length count of the same text runs higher when astral chars are present). Default 50000; 0 = unlimited." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -3353,11 +3400,32 @@ mod tests {
         let err = get_digest_json(&conn, Some("不存在"), None, None, now).unwrap_err();
         assert!(err.contains("课程") && err.contains("生活"));
 
-        // Budget: a tiny cap degrades thread chunks to one-line mentions, drops none.
+        // Budget (R3 BUG-3/4): output stays within max_chars, no thread disappears,
+        // and upgrades are a strict prefix of the activity order — when a budget only
+        // fits the most active thread (健身计划, one small block), the bigger 算法课
+        // must be the degraded one, never the other way round.
         let d_small = get_digest_json(&conn, None, Some(7), Some(600), now).unwrap();
-        assert!(d_small.chars().count() < d1.chars().count());
+        assert!(d_small.chars().count() <= 600, "{} chars", d_small.chars().count());
         assert!(d_small.contains("算法课") && d_small.contains("健身计划"));
         assert!(d_small.contains("预算所限"), "{d_small}");
+        // Below the mandatory floor (header + one mention per thread + tail) the
+        // floor itself is the output — nothing dropped, budget necessarily exceeded.
+        let d_floor = get_digest_json(&conn, None, Some(7), Some(100), now).unwrap();
+        assert!(d_floor.contains("算法课") && d_floor.contains("健身计划"));
+        assert!(!d_floor.contains("### "), "floor must hold no full chunks: {d_floor}");
+        for budget in [500i64, 700, 1000, 1500, 2500] {
+            let d = get_digest_json(&conn, None, Some(7), Some(budget), now).unwrap();
+            assert!(
+                d.chars().count() as i64 <= budget,
+                "budget {budget} → {} chars",
+                d.chars().count()
+            );
+            assert!(d.contains("算法课") && d.contains("健身计划"), "thread dropped at {budget}");
+            // Prefix property: if the more active 健身计划 is degraded, 算法课 must be too.
+            let jsj_full = d.contains("### 生活 / 健身计划");
+            let sfk_full = d.contains("### 课程 / 算法课");
+            assert!(jsj_full || !sfk_full, "inversion at {budget}: {d}");
+        }
 
         // Narrow window (since=1: today only): t4 wrote today and stays active; t1's
         // newest block is a day old, so it degrades to a pinned-anchor thread.
