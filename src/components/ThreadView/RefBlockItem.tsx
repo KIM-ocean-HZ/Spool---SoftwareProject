@@ -43,7 +43,7 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
       data-block-id={block.id}
       onMouseEnter={readOnly ? undefined : () => setHovered(true)}
       onMouseLeave={readOnly ? undefined : () => setHovered(false)}
-      className="group relative rounded-md border border-line/60 bg-paper/40 px-3.5 py-2"
+      className="group relative rounded-md px-3.5 py-3 transition-colors hover:bg-paper-2/40"
     >
       <div className="flex items-center gap-2 text-[10px] text-muted">
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>

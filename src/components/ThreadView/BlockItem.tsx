@@ -650,12 +650,10 @@ function TextBlockItem({
               setActive(block.id);
             }
       }
-      className={`group relative rounded-md border bg-paper/40 px-3.5 py-2.5 transition-shadow ${
+      className={`group relative rounded-md px-3.5 py-3 transition-colors hover:bg-paper-2/40 ${
         block.pinned ? 'pl-4' : ''
       } ${
-        isDropTarget
-          ? 'border-accent ring-2 ring-accent ring-offset-1 ring-offset-paper'
-          : 'border-line/60'
+        isDropTarget ? 'ring-2 ring-accent ring-offset-1 ring-offset-paper' : ''
       } ${highlight ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
     >
       {block.pinned && (

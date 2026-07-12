@@ -419,7 +419,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
           </button>
         </div>
       )}
-      <div className="space-y-2">
+      <div className="space-y-1 [&_article+article]:border-t [&_article+article]:border-line/40">
         {visible.map((b, i) => {
           // Date divider above any block that opens a new calendar day — the first
           // visible block always gets one. Skipped in "by source" mode, where the feed
