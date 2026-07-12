@@ -1506,7 +1506,23 @@ fn get_blocks_json(
             )
             .map_err(|e| e.to_string())?;
         if exists == 0 {
-            return Err(format!("该脉络里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"));
+            // R3 BUG-8: when the block lives in ANOTHER thread, say which — the model
+            // can self-correct in one step instead of hunting.
+            let owner: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT t.id, t.title FROM blocks b JOIN threads t ON t.id = b.thread_id
+                     WHERE b.id = ?1 AND t.deleted_at IS NULL",
+                    [bid],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .ok();
+            return Err(match owner {
+                Some((owner_id, owner_title)) => format!(
+                    "该脉络里没有 id 为 {bid} 的块 — 它属于「{owner_title}」\
+                     (thread_id: {owner_id});换用那个 thread_id 再调用。"
+                ),
+                None => format!("该脉络里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"),
+            });
         }
         let ctx = context.unwrap_or(BLOCKS_DEFAULT_CONTEXT).clamp(0, (BLOCKS_MAX_LIMIT - 1) / 2);
         ((position - ctx).max(0), 2 * ctx + 1, Some(position))
@@ -2129,7 +2145,8 @@ fn add_block_json(
             .map_err(|e| e.to_string())?;
         if live == 0 {
             return Err(format!(
-                "没有 id 为 {rid} 的可引用块(或其脉络已删)— ref_block_id 应来自                  search_blocks / get_blocks 的 block_id。"
+                "没有 id 为 {rid} 的可引用块(或其脉络已删)— ref_block_id 应来自 \
+                 search_blocks / get_blocks 的 block_id。"
             ));
         }
     }
@@ -3070,8 +3087,12 @@ mod tests {
             .map(|b| b["block_id"].as_str().unwrap())
             .collect();
         assert_eq!(ids, vec!["b2", "b3", "b5"]);
-        // A block from another thread is not silently treated as offset 0.
-        assert!(get_blocks_json(&conn, "t1", None, None, Some("b4"), None, &NO_FILTERS).is_err());
+        // A block from another thread is not silently treated as offset 0 — and the
+        // error names the owning thread (R3 BUG-8) so the model can self-correct.
+        let err =
+            get_blocks_json(&conn, "t1", None, None, Some("b4"), None, &NO_FILTERS).unwrap_err();
+        assert!(err.contains("别处"), "{err}");
+        assert!(!err.contains("  "), "double-space artifact: {err}");
     }
 
     // set_thread_summary provenance guard: MCP may fill an empty card or refresh its
