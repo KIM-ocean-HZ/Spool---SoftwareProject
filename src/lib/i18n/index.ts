@@ -98,8 +98,7 @@ const EN: Record<string, string> = {
   '完成项目': 'Complete project',
   '重新打开': 'Reopen',
   '重新打开（清除完成时间和结论）': 'Reopen (clears completion time and conclusion)',
-  '捕捉目标': 'Capture target',
-  '设为目标': 'Set as target',
+  '更多操作': 'More actions',
   '摘要': 'Digest',
   '全记录': 'Full record',
   '清除截止日期': 'Clear deadline',
@@ -332,7 +331,7 @@ const EN: Record<string, string> = {
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
-  '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点"设为目标"': 'No capture target — open Spool and click "Set as target" in a thread header',
+  '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏 ⋯ 菜单选「设为捕捉目标」': 'No capture target — open Spool and pick "Set as capture target" from a thread header’s ⋯ menu',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',
   '已重做': 'Redone',

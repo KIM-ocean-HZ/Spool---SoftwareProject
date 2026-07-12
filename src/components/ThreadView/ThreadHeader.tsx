@@ -1,4 +1,12 @@
-import { CalendarDays, CheckCircle2, Package, Pin, RotateCcw, X } from 'lucide-react';
+import {
+  CalendarDays,
+  CheckCircle2,
+  MoreHorizontal,
+  Package,
+  Pin,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
@@ -114,6 +122,24 @@ export default function ThreadHeader({
   // 任务三 #6 (2026-07-12): resting state shows the deadline as ISO text (the pack's
   // date format); the locale-formatted native picker appears only while editing.
   const [editingDeadline, setEditingDeadline] = useState(false);
+  // 任务三 #3: the ⋯ overflow menu hosting 完成/重开 and the capture-target switch.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   // Skips the trailing debounce when Esc abandons an edit.
   const summaryCanceledRef = useRef(false);
@@ -195,45 +221,61 @@ export default function ThreadHeader({
           <span>{t('打包')}</span>
         </button>
 
-        {thread.status === 'done' ? (
+        {/* 任务三 #3 (2026-07-12): 打包 stays the header's only prominent action —
+            完成/重开 and the capture-target switch move into this ⋯ menu. The sidebar
+            row still carries the at-a-glance capture-target mark. */}
+        <div ref={menuRef} className="relative flex-none">
           <button
-            onClick={onReopen}
-            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
-            title={t('重新打开（清除完成时间和结论）')}
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label={t('更多操作')}
+            title={t('更多操作')}
+            className="flex items-center rounded-full border border-line bg-paper p-1.5 text-muted transition-colors hover:border-line-strong hover:text-ink"
           >
-            <RotateCcw size={11} />
-            <span>{t('重新打开')}</span>
+            <MoreHorizontal size={14} />
           </button>
-        ) : (
-          <button
-            onClick={onComplete}
-            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-line-strong hover:text-ink"
-            title={t('完成项目')}
-          >
-            <CheckCircle2 size={11} />
-            <span>{t('完成项目')}</span>
-          </button>
-        )}
-
-        <button
-          onClick={() => void setCaptureTarget(thread.id)}
-          disabled={thread.isCaptureTarget}
-          className={`flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs transition-colors ${
-            thread.isCaptureTarget
-              ? 'text-ink-2'
-              : 'text-muted hover:border-line-strong hover:text-ink-2'
-          }`}
-          title={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
-        >
-          <Pin size={11} className={thread.isCaptureTarget ? 'fill-current' : ''} />
-          <span>{thread.isCaptureTarget ? t('捕捉目标') : t('设为目标')}</span>
-          {thread.isCaptureTarget && (
-            <span
-              className="h-1.5 w-1.5 flex-none rounded-full bg-accent"
-              aria-hidden
-            />
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-toast)]">
+              {thread.status === 'done' ? (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onReopen();
+                  }}
+                  title={t('重新打开（清除完成时间和结论）')}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                >
+                  <RotateCcw size={12} className="flex-none" />
+                  <span>{t('重新打开')}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onComplete();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                >
+                  <CheckCircle2 size={12} className="flex-none" />
+                  <span>{t('完成项目')}</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  void setCaptureTarget(thread.id);
+                }}
+                disabled={thread.isCaptureTarget}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
+              >
+                <Pin
+                  size={12}
+                  className={`flex-none ${thread.isCaptureTarget ? 'fill-current' : ''}`}
+                />
+                <span>{thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}</span>
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Status summary — visually subordinate/optional (§9.11). Click to edit; a quiet
