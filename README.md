@@ -130,7 +130,7 @@ PLAN_EN.md            # the project blueprint and source of truth
 
 ## License
 
-MIT (planned).
+Not licensed yet — all rights reserved until a license is chosen.
 
 ## Author
 
