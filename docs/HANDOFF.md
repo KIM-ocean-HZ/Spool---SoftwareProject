@@ -155,4 +155,23 @@ Ocean 会提供 Apple Developer 账户信息。到手后按 docs/RELEASE.md 全�
 - 摩擦与缺失:逐条注明合宪性判断(只读?确定性?append-only?attributed?)
 - 10 分制总分 + 扣分明细;并回答:一个没有任何项目指令的普通用户,冷启动
   能否把 Spool 用对?差距在哪?
+
+## 六、R3.1 复核(R3 八项修复的定点回归,逐项给 通过/不通过)
+A. BUG-1:search_blocks("GRE") 不再命中 degree/greedy/progresses 等子串;
+   "cap" 不命中 capacity;中文查询仍是子串语义
+B. BUG-2:「MCP 实测 R2」里 7/10 的旧块在 pack/digest/get_blocks 的 source
+   应为「Claude · MCP」,全库不再出现 local-agent-mode 字样
+C. BUG-3:get_digest(since_days=90, max_chars=6000) 输出应 ≤ 6000 码点
+   (你若用 JS .length 计量,含 📌 等星形字符时会略高——单位差异非超预算)
+D. BUG-4:压小 max_chars 时,完整展开的脉络必须是活跃序前缀——不允许
+   更旧的小脉络全文展开而更活跃的被降级;降级行现在带最后活动时间
+E. BUG-5:get_blocks 里带 ref_block_id 的行应有内联 cited 对象
+   (thread_id/thread_title/preview/created_at);悬空引用为显式 null
+F. BUG-7:instructions 压缩至 ~1770 字符、命名硬规则开头、带四分类浓缩版
+   与「置顶锚点是截断指针」说明——确认你的客户端已完整渲染无截断
+G. BUG-8:跨脉络 around_block_id 报错应点名所属脉络标题;ref 拒绝文案
+   不再有连续空格
+H. 附注:R3 未验证的「置顶落省略区间仍完整在上」与 digest 字节一致性,
+   已由 cargo 测试锁定(budgeted_pack_fills_newest_first /
+   get_digest_deterministic_briefing),无需实测数据构造
 ```
