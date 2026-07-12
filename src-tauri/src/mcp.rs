@@ -1544,7 +1544,7 @@ fn get_blocks_json(
     }
     page_params.push(&limit);
     page_params.push(&offset);
-    let rows = stmt
+    let mut rows = stmt
         .query_map(rusqlite::params_from_iter(page_params), |r| {
             Ok(json!({
                 "block_id": r.get::<_, String>(0)?,
@@ -1561,6 +1561,32 @@ fn get_blocks_json(
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| e.to_string())?;
+
+    // R3 BUG-5: rows carrying a citation resolve it inline — thread handle + title +
+    // preview — so a consumer needs no second query; a dangling citation (citee later
+    // deleted) is an explicit null instead of an absent field.
+    {
+        let mut cite_stmt = conn
+            .prepare(
+                "SELECT b.thread_id, t.title, b.content, b.created_at
+                 FROM blocks b JOIN threads t ON t.id = b.thread_id
+                 WHERE b.id = ?1 AND t.deleted_at IS NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        for row in &mut rows {
+            let Some(rid) = row["ref_block_id"].as_str().map(String::from) else { continue };
+            row["cited"] = cite_stmt
+                .query_row([&rid], |r| {
+                    Ok(json!({
+                        "thread_id": r.get::<_, String>(0)?,
+                        "thread_title": r.get::<_, String>(1)?,
+                        "preview": head_anchor(&r.get::<_, String>(2)?),
+                        "created_at": format_pack_time(r.get::<_, i64>(3)?),
+                    }))
+                })
+                .unwrap_or(Value::Null);
+        }
+    }
     let mut out = json!({
         "thread_id": thread_id,
         "thread_title": title,
@@ -2941,6 +2967,9 @@ mod tests {
             .find(|b| b["content"] == "站在前一块上的新结论")
             .unwrap();
         assert_eq!(citing_row["ref_block_id"].as_str().unwrap(), cited_id);
+        // R3 BUG-5: the citation resolves inline — no second query needed.
+        assert_eq!(citing_row["cited"]["thread_title"], "MCP 写入测试");
+        assert!(citing_row["cited"]["preview"].as_str().unwrap().contains("被引的原始结论"));
         let pack = build_pack(&conn, &tid, "all").unwrap().text;
         assert!(pack.contains("↩ cites: ["), "{pack}");
         assert!(pack.contains("被引的原始结论"));
@@ -2948,6 +2977,17 @@ mod tests {
         conn.execute("DELETE FROM blocks WHERE id = ?1", [&cited_id]).unwrap();
         let pack = build_pack(&conn, &tid, "all").unwrap().text;
         assert!(pack.contains("↩ cites: (cited block no longer exists)"), "{pack}");
+        let page: Value = serde_json::from_str(
+            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS).unwrap(),
+        )
+        .unwrap();
+        let citing_row = page["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["content"] == "站在前一块上的新结论")
+            .unwrap();
+        assert!(citing_row["cited"].is_null(), "{citing_row}");
     }
 
     // The GUI migration registry (client.ts SCHEMA_VERSION) and this binary must agree
