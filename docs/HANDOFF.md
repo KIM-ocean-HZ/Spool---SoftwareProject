@@ -93,85 +93,54 @@ Ocean 会提供 Apple Developer 账户信息。到手后按 docs/RELEASE.md 全�
 全绿 → PLAN 修订(v2.12:D 面工具 + R3 记录 + 发布记录)+ 尾注批次 → 删除本文件 →
 总结,并把发布后的运营待办(用户反馈渠道、更新通道决策 §4)列给 Ocean。
 
-## 附录:R3 终检提示词(交 Ocean 粘贴进 Claude Desktop;2026-07-11 随 v2.4 更新)
+## 附录:R4 复测提示词(交 Ocean 粘贴进 Claude Desktop;2026-07-12 终版
+——R3 报告 7.7/10 的八项 bug 与四个摩擦项已全部修复,本提示词做定点验收)
 
 ```
-# Spool MCP 终检 R3(近最终验收;10 分制严格评分)
+# Spool MCP 复测 R4(R3 修复 + 摩擦四项验收;10 分制严格评分)
 
-你是 Spool 的验收测试员,MCP 已接入(工具面 v2.4,共 9 个工具)。这是发布前
-终检:请穷尽地测、苛刻地评。写入只允许进「MCP 实测 R2」或你新建的
-「MCP 实测 R3」;对其他脉络只读(测试拒绝路径除外——被正确拒绝即通过,
-须零副作用)。
+你是 Spool 的验收测试员,MCP 已接入(工具面 v2.4+,schema v8)。上一轮(R3)
+报告的八项 bug 与四个摩擦项均已修复,本轮是定点验收 + 复评分。写入只允许进
+「MCP 实测 R3」或你新建的「MCP 实测 R4」;对其他脉络只读(测试拒绝路径除外
+——被正确拒绝即通过,须零副作用)。
 
-## 一、回归(R1+R2 全部修复项,逐项给 通过/不通过)
-1. get_pack 超限:默认 cap 下应返回【部分渲染】——阅读表头与 Pinned Blocks
-   完整,Full Record 从最新往回装,节顶省略行标明省略条数与未置顶内容的
-   约字符量(省略区间里的置顶块会注明仍完整在上方);max_chars=0 仍可全文;
-   max_chars 压到极小(如 100)应退回统计+建议消息
-2. 置顶块占位行:带首行锚点(如「📌 [时间] 第十一课…」),全文不再重复
-3. search:短 Latin 词词边界、**命中**高亮、批注命中带 note: 前缀、{total,hits}
-4. add_block 传 source:落库为「Claude · MCP — 你的值」,前缀不可覆盖
-5. set_thread_summary:刷新「MCP 实测 · 0709」的摘要应【成功】(遗留标记已修);
-   对用户手写摘要的脉络覆盖应【被拒】,且错误信息让你把建议转述给用户
-6. get_blocks(around_block_id, context):从 search 命中一步定位读前后文,
-   验证 anchor_position;跨脉络 block_id 应报错而非静默翻页
-7. find_similar_blocks:未分类里的 GRE 重复组应带 length/pinned/has_annotation/
-   source/scan_cap;确认它只报告、绝不合并
-8. 你写入的块在 GUI 的来源应显示「Claude · MCP」而非机器 slug
-
-## 二、v2.4 新能力(本轮新增,逐项验)
-9. get_digest:同参数同库当日内两次调用应【字节一致】;活跃脉络按最新活动
-   降序;每脉络最新 5 块 + 全部置顶(置顶不占配额),单块 600 字符截断并有
-   标记;无新块但有置顶的脉络进「置顶锚点」节(一行一 pin);把 max_chars
-   压小,脉络应降级为一行提及而【不消失】;workspace_title 错误名应报错并
-   列出现有工作区;since_days=1 与 90 边界
-10. get_blocks 过滤:pinned / has_annotation / source_contains 单用与组合,
-    total 应为过滤后计数、响应回显 filters;与 around_block_id 同用应报错
-11. add_block.ref_block_id:引用另一脉络的真实块 → get_pack 里该块下应有
-    「↩ cites: [时间] 被引块预览」行;错误 id 应被拒且报错指路;在 content
-    里故意塞一个 21 位内部 id → 应照常写入但返回 warning(附匹配串)
-12. instructions 应已提及 digest 工作流与 ref_block_id 引用礼仪(冷启动对照用)
-
-## 三、冷启动行为(重要:先在【无本段提示】的新对话里做一遍再对照)
-13. 只靠服务端 instructions,你是否自然做到:对用户全程用标题指代、不把内部 id
-    写进块内容或批注(引用改用 ref_block_id)、跨脉络问题先 get_digest、按四分类
-    权威读 pack、写入礼仪(一发现一块、annotation 写关联理由、不按对话乱开脉络)?
-    明确指出 instructions 还缺什么。
-
-## 四、交互逻辑穷举(本轮重点)
-14. 端到端工作流:「帮我复习〈某课程〉」——检索→定位读上下文→归档结论
-    (依据既有块时用 ref_block_id)→刷新摘要,全程聊天内完成;记录每一步的
-    摩擦与你想要但没有的能力
-15. 跨脉络视野实战:「我最近一周在忙什么」「把三门课的置顶都给我」——一次
-    get_digest 能否直接回答?配额/锚点/来源标注是否够用?记录残余摩擦
-16. 边界:空脉络/仅 ref 块脉络上跑每个读工具(含 get_digest);max_chars 恰等
-    于全文长度(应返回全文而非守卫);find_similar 对大小写/空白差异的判定;
-    关闭「允许 AI 写入」后逐个写工具的报错质量;GUI 正开着时读写是否受干扰
-17. 错误信息质量:制造每类失败(错 id、空参数、越权写、错工作区名),报错是
-    否足以让你自主纠正而无需问用户
-
-## 五、产出
-- Bug 清单:编号、复现步骤、期望 vs 实际、严重度(P0/P1/P2)
-- 摩擦与缺失:逐条注明合宪性判断(只读?确定性?append-only?attributed?)
-- 10 分制总分 + 扣分明细;并回答:一个没有任何项目指令的普通用户,冷启动
-  能否把 Spool 用对?差距在哪?
-
-## 六、R3.1 复核(R3 八项修复的定点回归,逐项给 通过/不通过)
-A. BUG-1:search_blocks("GRE") 不再命中 degree/greedy/progresses 等子串;
-   "cap" 不命中 capacity;中文查询仍是子串语义
-B. BUG-2:「MCP 实测 R2」里 7/10 的旧块在 pack/digest/get_blocks 的 source
-   应为「Claude · MCP」,全库不再出现 local-agent-mode 字样
-C. BUG-3:get_digest(since_days=90, max_chars=6000) 输出应 ≤ 6000 码点
-   (你若用 JS .length 计量,含 📌 等星形字符时会略高——单位差异非超预算)
-D. BUG-4:压小 max_chars 时,完整展开的脉络必须是活跃序前缀——不允许
-   更旧的小脉络全文展开而更活跃的被降级;降级行现在带最后活动时间
-E. BUG-5:get_blocks 里带 ref_block_id 的行应有内联 cited 对象
+## 一、R3 八项修复回归(逐项给 通过/不通过)
+A. BUG-1 词边界:search_blocks("GRE") 不再命中 degree/greedy/progresses 等
+   子串;"cap" 不命中 capacity;中文查询仍是子串语义;total 为词边界过滤后
+   的计数(200 条扫描窗内)
+B. BUG-2 遗留 slug:全库(pack/digest/get_blocks 任一面)不再出现
+   local-agent-mode 字样;「MCP 实测 R2」旧块 source 应为「Claude · MCP」
+C. BUG-3 digest 预算:get_digest(since_days=90, max_chars=6000) 输出 ≤ 6000
+   码点(JS .length 含 📌 等星形字符会略高——单位差异不算超)
+D. BUG-4 降级顺序:压小 max_chars 时,完整展开的脉络必须是活跃序前缀——
+   绝不允许旧小脉络全文展开而更活跃的被降为一行;降级行带最后活动时间
+E. BUG-5 引用回填:get_blocks 里带 ref_block_id 的行有内联 cited 对象
    (thread_id/thread_title/preview/created_at);悬空引用为显式 null
-F. BUG-7:instructions 压缩至 ~1770 字符、命名硬规则开头、带四分类浓缩版
-   与「置顶锚点是截断指针」说明——确认你的客户端已完整渲染无截断
-G. BUG-8:跨脉络 around_block_id 报错应点名所属脉络标题;ref 拒绝文案
-   不再有连续空格
-H. 附注:R3 未验证的「置顶落省略区间仍完整在上」与 digest 字节一致性,
-   已由 cargo 测试锁定(budgeted_pack_fills_newest_first /
-   get_digest_deterministic_briefing),无需实测数据构造
+F. BUG-7 instructions:~1870 字符、命名硬规则开头、含四分类浓缩版与
+   「置顶锚点是截断指针」说明——确认你的客户端完整渲染无截断
+G. BUG-8 报错指路:跨脉络 around_block_id 报错点名所属脉络标题与 thread_id;
+   ref_block_id 拒绝文案无连续空格
+H. 附注:「置顶落省略区间仍完整在上」与 digest 字节一致性由 cargo 测试锁定,
+   无需实测构造
+
+## 二、摩擦四项新能力(逐项验)
+1. 标题寻址:list_threads(title_contains="…") 一跳拿到 id(大小写不敏感
+   子串);空串应报错;无命中返回空列表而非报错
+2. Pack 引用断链:get_pack(include_ids=true) 尾部应有「## Block IDs」侧表
+   (每个被渲染块一行:时间+首行锚点+id;超预算时被省略的未置顶块不列,
+   置顶块仍列);默认 false 无表;侧表不计入 max_chars;**实战**:直接用表里
+   的 id 发 add_block(ref_block_id=…) 引用刚读到的块——全程零 search 绕路
+3. digest 锚点:置顶锚点行加长至 ~160 码点,信息量应明显好于上轮
+4. find_similar_blocks(workspace_title="…"):只扫该工作区;与 thread_id
+   同传应报错「二选一」;错误名报错并列出现有工作区
+
+## 三、端到端链路复跑
+「帮我复习〈某课程〉并归档结论」:title_contains 拿 id →
+get_pack(include_ids=true) 读全文 → add_block 结论 + ref_block_id 直引
+刚读到的依据块 → set_thread_summary 刷新。记录:相比 R3,断链与摩擦
+是否消失?还剩什么?
+
+## 四、产出
+- 每项 通过/不通过 + 证据;仍存在的问题按 P0/P1/P2 列清单
+- 10 分制总分 + 扣分明细;回答:距离"冷启动普通用户可用"还差什么?
 ```
