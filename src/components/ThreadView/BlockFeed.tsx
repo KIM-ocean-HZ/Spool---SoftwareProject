@@ -355,17 +355,24 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             {t('松开以新建第一个块')}
           </p>
         ) : (
-          <p className="text-center text-sm italic text-muted">
-            {t('⌘C 复制后双击')}{' '}
-            <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
-              ⌥
-            </kbd>{' '}
-            {t('捕捉第一条信息；长按')}{' '}
-            <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
-              ⌥
-            </kbd>{' '}
-            {t('连续收集；或在下方直接写。')}
-          </p>
+          <div className="text-center">
+            {/* 任务三 #6: layered empty state — one primary gesture, the alternatives
+                one size down so the blank thread reads calm, not instructional. */}
+            <p className="text-sm italic text-muted">
+              {t('⌘C 复制后双击')}{' '}
+              <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
+                ⌥
+              </kbd>{' '}
+              {t('捕捉第一条信息')}
+            </p>
+            <p className="mt-2 text-xs italic text-muted/70">
+              {t('长按')}{' '}
+              <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
+                ⌥
+              </kbd>{' '}
+              {t('连续收集；或在下方直接写。')}
+            </p>
+          </div>
         )}
       </div>
     );

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { eventToAccelerator, formatAccelerator } from '@/lib/capture/shortcut';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -110,7 +111,7 @@ export default function ShortcutConfig() {
               title={t('清除捕捉快捷键')}
               className="rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
             >
-              ×
+              <X size={13} />
             </button>
           )}
         </div>

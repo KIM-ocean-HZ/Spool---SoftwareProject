@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
 
@@ -89,9 +90,9 @@ export default function PermissionBanner() {
           type="button"
           onClick={() => setDismissed(true)}
           aria-label={t('关闭')}
-          className="flex-none text-muted transition-colors hover:text-ink"
+          className="flex-none rounded p-0.5 text-muted transition-colors hover:text-ink"
         >
-          ×
+          <X size={13} />
         </button>
       </div>
       {phase === 'denied' && detailsOpen && (

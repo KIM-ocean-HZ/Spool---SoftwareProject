@@ -111,6 +111,9 @@ export default function ThreadHeader({
   // by a connected MCP client via set_thread_summary; never auto-generated in-app.
   const [editingSummary, setEditingSummary] = useState(false);
   const [summaryDraft, setSummaryDraft] = useState(thread.summary ?? '');
+  // 任务三 #6 (2026-07-12): resting state shows the deadline as ISO text (the pack's
+  // date format); the locale-formatted native picker appears only while editing.
+  const [editingDeadline, setEditingDeadline] = useState(false);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   // Skips the trailing debounce when Esc abandons an edit.
   const summaryCanceledRef = useRef(false);
@@ -322,16 +325,30 @@ export default function ThreadHeader({
 
         <div className="flex items-center gap-1.5 text-muted">
           <CalendarDays size={12} className="flex-none" />
-          <input
-            type="date"
-            value={thread.deadline != null ? toDateInput(thread.deadline) : ''}
-            onChange={(e) =>
-              void patch(thread.id, {
-                deadline: e.target.value ? fromDateInput(e.target.value) : null,
-              })
-            }
-            className="rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
-          />
+          {editingDeadline ? (
+            <input
+              type="date"
+              autoFocus
+              value={thread.deadline != null ? toDateInput(thread.deadline) : ''}
+              onChange={(e) =>
+                void patch(thread.id, {
+                  deadline: e.target.value ? fromDateInput(e.target.value) : null,
+                })
+              }
+              onBlur={() => setEditingDeadline(false)}
+              className="rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px] text-ink outline-none focus:border-line-strong"
+            />
+          ) : (
+            <button
+              onClick={() => setEditingDeadline(true)}
+              title={t('设置截止日期')}
+              className={`rounded border border-line bg-paper px-1.5 py-0.5 font-mono text-[11px] transition-colors hover:border-line-strong ${
+                thread.deadline != null ? 'text-ink' : 'text-muted/60'
+              }`}
+            >
+              {thread.deadline != null ? toDateInput(thread.deadline) : t('截止日期')}
+            </button>
+          )}
           {thread.deadline != null && (
             <button
               onClick={() => void patch(thread.id, { deadline: null })}
