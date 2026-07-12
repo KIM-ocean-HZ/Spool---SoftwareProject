@@ -550,14 +550,21 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
         .map_err(|e| format!("打开数据库失败: {e}"))
 }
 
-fn list_threads_json(conn: &Connection) -> Result<String, String> {
+fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<String, String> {
+    // R3 friction #1: "title → id" without pulling the whole list. Same matching
+    // idiom as get_blocks' source_contains (instr + ASCII case-folding).
+    if let Some(t) = title_contains {
+        if t.trim().is_empty() {
+            return Err("title_contains 不能为空串。".to_string());
+        }
+    }
     // v2.4 (6a): the per-row correlated subqueries scanned blocks once per thread —
     // O(threads × blocks). Two GROUP BY aggregates walk blocks/attachments once each.
     // Equivalence guards: blocks carry no soft-delete (thread/workspace filtering stays
     // in the outer WHERE); the per-attachment 8k inline cap and the
     // include_in_pack + extracted-text conditions live inside the aggregate.
     let mut stmt = conn
-        .prepare(
+        .prepare(&format!(
             "SELECT t.id, t.title, t.status, t.updated_at, w.title,
                     COALESCE(bc.blocks, 0),
                     t.summary,
@@ -575,12 +582,21 @@ fn list_threads_json(conn: &Connection) -> Result<String, String> {
                           FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
                          WHERE a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
                          GROUP BY b2.thread_id) ac ON ac.thread_id = t.id
-             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL{title_clause}
              ORDER BY w.sort_order ASC, w.created_at ASC, t.updated_at DESC",
-        )
+            title_clause = if title_contains.is_some() {
+                " AND instr(lower(t.title), lower(?)) > 0"
+            } else {
+                ""
+            }
+        ))
         .map_err(|e| e.to_string())?;
+    let params: Vec<&dyn rusqlite::ToSql> = match &title_contains {
+        Some(t) => vec![t],
+        None => vec![],
+    };
     let rows = stmt
-        .query_map([], |r| {
+        .query_map(rusqlite::params_from_iter(params), |r| {
             Ok(json!({
                 "thread_id": r.get::<_, String>(0)?,
                 "title": r.get::<_, String>(1)?,
@@ -872,9 +888,20 @@ fn jaccard(a: &HashSet<[char; 3]>, b: &HashSet<[char; 3]>) -> f64 {
 fn find_similar_blocks_json(
     conn: &Connection,
     thread_id: Option<&str>,
+    workspace_title: Option<&str>,
     max_groups: Option<i64>,
 ) -> Result<String, String> {
     let max_groups = max_groups.unwrap_or(SIMILAR_DEFAULT_GROUPS).clamp(1, SIMILAR_MAX_GROUPS) as usize;
+    // R3 friction #5: the middle scope between whole-library and one thread.
+    if thread_id.is_some() && workspace_title.is_some() {
+        return Err(
+            "thread_id 已限定单脉络——不要同时传 workspace_title;二选一。".to_string(),
+        );
+    }
+    let ws_id: Option<String> = match workspace_title {
+        Some(wt) => Some(resolve_workspace(conn, wt)?.0),
+        None => None,
+    };
     if let Some(tid) = thread_id {
         let exists: i64 = conn
             .query_row(
@@ -902,6 +929,13 @@ fn find_similar_blocks_json(
         source: Option<String>,
     }
     // ref blocks are pointers, not content — only text blocks can be duplicates.
+    let scope_clause = if thread_id.is_some() {
+        "AND b.thread_id = ?1"
+    } else if ws_id.is_some() {
+        "AND w.id = ?1"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
                 b.pinned, b.annotation IS NOT NULL, b.source
@@ -909,8 +943,7 @@ fn find_similar_blocks_json(
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
          WHERE b.kind = 'text' AND t.deleted_at IS NULL AND w.deleted_at IS NULL
-           {} ORDER BY b.created_at DESC LIMIT {SIMILAR_SCAN_CAP}",
-        if thread_id.is_some() { "AND b.thread_id = ?1" } else { "" },
+           {scope_clause} ORDER BY b.created_at DESC LIMIT {SIMILAR_SCAN_CAP}",
     );
     let map_row = |r: &rusqlite::Row| -> rusqlite::Result<Item> {
         Ok(Item {
@@ -926,8 +959,9 @@ fn find_similar_blocks_json(
         })
     };
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let items: Vec<Item> = match thread_id {
-        Some(tid) => stmt.query_map([tid], map_row),
+    let scope_param: Option<&str> = thread_id.or(ws_id.as_deref());
+    let items: Vec<Item> = match scope_param {
+        Some(param) => stmt.query_map([param], map_row),
         None => stmt.query_map([], map_row),
     }
     .map_err(|e| e.to_string())?
@@ -1055,8 +1089,9 @@ const DIGEST_DEFAULT_MAX_CHARS: i64 = 20_000;
 const DIGEST_THREAD_QUOTA: usize = 5;
 // Per-block render cap — the digest is a breadth tool; depth belongs to get_pack.
 const DIGEST_BLOCK_CHAR_CAP: usize = 600;
-// Pinned anchor lines for threads without window activity.
-const DIGEST_ANCHOR_CHARS: usize = 80;
+// Pinned anchor lines for threads without window activity. R3 friction #4: 80 read
+// too short in the field — pins are user-curated core, give them most of a line.
+const DIGEST_ANCHOR_CHARS: usize = 160;
 
 // Local midnight of the calendar day `days_back` days before `now_ms`. Subtracting on
 // tm_mday (mktime normalizes out-of-range fields, tm_isdst = -1 resolves DST) keeps the
@@ -1647,6 +1682,29 @@ struct PackBuilt {
     now_ms: i64,
 }
 
+// R3 friction #2: the pack deliberately hides ids in its body (naming rule), which
+// broke the "read a pack → cite a block" chain — the model had to re-search for the
+// id it was looking at. include_ids=true appends this side-table AFTER the closing
+// directive: one line per RENDERED block (omitted-unpinned blocks were not read, so
+// they are not listed). Ids stay framed as tool parameters.
+const SECTION_IDS: &str = "## Block IDs (tool parameters only — never show or store these)";
+
+fn pack_id_table(blocks: &[BlockRow], omit: usize) -> String {
+    let mut rows = String::new();
+    for (i, b) in blocks.iter().enumerate() {
+        if i < omit && !b.pinned {
+            continue; // not rendered in the budgeted pack
+        }
+        rows.push_str(&format!(
+            "- [{}] {} — {}\n",
+            format_pack_time(b.created_at),
+            anchor_n(&b.content, PLACEHOLDER_HEAD_CHARS),
+            b.id
+        ));
+    }
+    format!("\n---\n\n{SECTION_IDS}\n\n{rows}")
+}
+
 // v2.4 (C2): instead of stats-only, an over-budget pack keeps the skeleton + the full
 // Pinned Blocks section and fills the Full Record from the NEWEST block backwards until
 // max_chars; the omitted oldest blocks become one explicit line at the section top.
@@ -1654,7 +1712,7 @@ struct PackBuilt {
 // budget — the caller falls back to the stats guard message. Binary search over the
 // omit count: length decreases as omission grows (the omission line's digit count can
 // wobble it by a char or two, which the verified-endpoints search absorbs).
-fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<String> {
+fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<(String, usize)> {
     let n = built.blocks.len();
     let render = |omit: usize| {
         assemble_pack_omitting(
@@ -1669,7 +1727,7 @@ fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<String> {
     };
     let fits = |omit: usize| render(omit).chars().count() as i64 <= max_chars;
     if fits(0) {
-        return Some(render(0)); // the guard path never sends this, but keep it total
+        return Some((render(0), 0)); // the guard path never sends this, but keep it total
     }
     if !fits(n) {
         return None;
@@ -1684,7 +1742,7 @@ fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<String> {
             lo = mid;
         }
     }
-    Some(render(hi))
+    Some((render(hi), hi))
 }
 
 // One get_pack call used to return 70k+ chars (field report A1) — over the tool-result
@@ -2205,8 +2263,14 @@ fn tools_descriptor() -> Value {
     json!([
         {
             "name": "list_threads",
-            "description": "List every workspace and live thread in Spool (思簿), with thread ids, status, one-line summary, block/pinned counts, approx_pack_chars (content chars; the fixed pack skeleton adds ~3k) and last-updated times. Call this first — both to pick a thread and to budget reads before get_pack. Ids are tool parameters only; when talking to the user, name threads by their titles.",
-            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+            "description": "List every workspace and live thread in Spool (思簿), with thread ids, status, one-line summary, block/pinned counts, approx_pack_chars (content chars; the fixed pack skeleton adds ~3k) and last-updated times. Call this first — both to pick a thread and to budget reads before get_pack. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name threads by their titles.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title_contains": { "type": "string", "description": "Only threads whose title contains this text, case-insensitive — the title→id resolver." }
+                },
+                "additionalProperties": false
+            }
         },
         {
             "name": "get_digest",
@@ -2234,7 +2298,8 @@ fn tools_descriptor() -> Value {
                         "enum": RANGE_VALUES,
                         "description": "Optional scope: all (default), pinned (user-marked core blocks only), last7 / last30 (blocks captured in the last N days)."
                     },
-                    "max_chars": { "type": "integer", "description": "Output cap in Unicode code points (a JS .length count of the same text runs higher when astral chars are present). Default 50000; 0 = unlimited." }
+                    "max_chars": { "type": "integer", "description": "Output cap in Unicode code points (a JS .length count of the same text runs higher when astral chars are present). Default 50000; 0 = unlimited." },
+                    "include_ids": { "type": "boolean", "description": "Append a Block IDs side-table (one line per rendered block) after the pack, for follow-up calls like add_block.ref_block_id or get_blocks.around_block_id. Rides outside max_chars. Ids stay tool parameters — never show or write them. Default false." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -2256,12 +2321,13 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "find_similar_blocks",
-            "description": "Find groups of near-duplicate blocks (e.g. the same content captured twice), across all threads or within one. Read-only report: Spool never merges — describe each group to the user by its previews and thread titles (never raw ids) and let them curate in the app. Groups are ranked by similarity (character-trigram overlap, threshold 0.6).",
+            "description": "Find groups of near-duplicate blocks (e.g. the same content captured twice) — across the whole library, one workspace, or one thread. Read-only report: Spool never merges — describe each group to the user by its previews and thread titles (never raw ids) and let them curate in the app. Groups are ranked by similarity (character-trigram overlap, threshold 0.6).",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "thread_id": { "type": "string", "description": "Optional: only look inside this thread (id from list_threads)." },
+                    "thread_id": { "type": "string", "description": "Optional: only look inside this thread (id from list_threads). Mutually exclusive with workspace_title." },
+                    "workspace_title": { "type": "string", "description": "Optional: only look inside this workspace (matched by name, case-insensitive)." },
                     "max_groups": { "type": "integer", "description": "Max groups returned, default 10, cap 30." }
                 },
                 "additionalProperties": false
@@ -2356,7 +2422,10 @@ fn handle_tool_call(params: &Value) -> Value {
 
     let run = || -> Result<String, String> {
         match name {
-            "list_threads" => list_threads_json(&open_db(&dir)?),
+            "list_threads" => list_threads_json(
+                &open_db(&dir)?,
+                args.get("title_contains").and_then(Value::as_str),
+            ),
             "get_digest" => get_digest_json(
                 &open_db(&dir)?,
                 args.get("workspace_title").and_then(Value::as_str),
@@ -2373,6 +2442,7 @@ fn handle_tool_call(params: &Value) -> Value {
             "find_similar_blocks" => find_similar_blocks_json(
                 &open_db(&dir)?,
                 args.get("thread_id").and_then(Value::as_str),
+                args.get("workspace_title").and_then(Value::as_str),
                 args.get("max_groups").and_then(Value::as_i64),
             ),
             "get_blocks" => {
@@ -2407,15 +2477,30 @@ fn handle_tool_call(params: &Value) -> Value {
                     .get("max_chars")
                     .and_then(Value::as_i64)
                     .unwrap_or(PACK_DEFAULT_MAX_CHARS);
+                let include_ids =
+                    args.get("include_ids").and_then(Value::as_bool).unwrap_or(false);
                 let built = build_pack(&open_db(&dir)?, thread_id, range)?;
+                // R3 friction #2: the id side-table covers rendered blocks only and
+                // rides outside the max_chars accounting (bounded by what was shown).
+                let with_ids = |text: String, omit: usize| {
+                    if include_ids {
+                        let table = pack_id_table(&built.blocks, omit);
+                        format!("{text}{table}")
+                    } else {
+                        text
+                    }
+                };
                 match pack_guard_message(&built, range, max_chars) {
-                    None => Ok(built.text),
+                    None => Ok(with_ids(built.text.clone(), 0)),
                     Some(msg) => {
                         // C2: over budget (the only guard with content on hand) tries a
                         // partial render; empty thread / empty window keep their messages,
                         // as does the extreme where skeleton + pinned alone overflow.
                         if built.range_blocks > 0 {
-                            Ok(budgeted_pack(&built, max_chars).unwrap_or(msg))
+                            match budgeted_pack(&built, max_chars) {
+                                Some((text, omit)) => Ok(with_ids(text, omit)),
+                                None => Ok(msg),
+                            }
                         } else {
                             Ok(msg)
                         }
@@ -2602,7 +2687,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "protocolVersion": proto,
                 "capabilities": { "tools": {}, "prompts": {}, "resources": { "listChanged": true } },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in thread/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-thread questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are truncated pointers — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick threads with list_threads (watch approx_pack_chars); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one thread's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement."
+                "instructions": "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in thread/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-thread questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are truncated pointers — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick threads with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one thread's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement."
             }))
         }
         "ping" => Ok(json!({})),
@@ -3040,9 +3125,13 @@ mod tests {
             .unwrap();
         conn.execute_batch(
             "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
-               VALUES ('ws1', '收件箱', 0, 1, 1);
+               VALUES ('ws1', '收件箱', 0, 1, 1), ('ws2', '生活', 1, 1, 1);
              INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
-               VALUES ('t1', 'ws1', '未分类', 1, 1), ('t2', 'ws1', '别处', 1, 1);
+               VALUES ('t1', 'ws1', '未分类', 1, 1), ('t2', 'ws1', '别处', 1, 1),
+                      ('t9', 'ws2', '菜谱', 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
+               ('c1', 't9', 'text', '西红柿炒蛋:先炒蛋后下西红柿,出锅前撒糖', 0, 7),
+               ('c2', 't9', 'text', '西红柿炒蛋:先炒蛋后下西红柿,出锅前撒糖', 0, 8);
              INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
                ('b1', 't1', 'text', 'GRE 填空题目里 mercurial 的意思是善变的', 0, 1),
                ('b2', 't1', 'text', 'GRE 填空题目里 mercurial 的意思是善变的', 0, 2),
@@ -3053,11 +3142,15 @@ mod tests {
         )
         .unwrap();
 
-        let out = find_similar_blocks_json(&conn, None, None).unwrap();
+        let out = find_similar_blocks_json(&conn, None, None, None).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         let groups = v["groups"].as_array().unwrap();
-        assert_eq!(groups.len(), 1, "{out}");
-        let ids: Vec<&str> = groups[0]["blocks"]
+        assert_eq!(groups.len(), 2, "{out}");
+        let gre_group = groups
+            .iter()
+            .find(|g| g["blocks"][0]["block_id"] == "b1")
+            .expect("GRE group present");
+        let ids: Vec<&str> = gre_group["blocks"]
             .as_array()
             .unwrap()
             .iter()
@@ -3066,14 +3159,28 @@ mod tests {
         // The exact + near duplicates group together across threads; the unrelated
         // block and the ref-kind copy stay out.
         assert_eq!(ids, vec!["b1", "b2", "b3", "b4"]);
-        assert!(groups[0]["similarity"].as_f64().unwrap() > 0.99);
+        assert!(gre_group["similarity"].as_f64().unwrap() > 0.99);
+
+        // R3 friction #5: workspace scoping — 收件箱 sees only the GRE group, the
+        // recipe pair stays in 生活; unknown name errors with the live list; passing
+        // both scopes is refused.
+        let scoped: Value = serde_json::from_str(
+            &find_similar_blocks_json(&conn, None, Some("收件箱"), None).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(scoped["groups"].as_array().unwrap().len(), 1, "{scoped}");
+        assert_eq!(scoped["groups"][0]["blocks"][0]["block_id"], "b1");
+        let err = find_similar_blocks_json(&conn, None, Some("不存在"), None).unwrap_err();
+        assert!(err.contains("收件箱") && err.contains("生活"), "{err}");
+        let err = find_similar_blocks_json(&conn, Some("t1"), Some("收件箱"), None).unwrap_err();
+        assert!(err.contains("二选一"), "{err}");
 
         // Thread scoping narrows the group to that thread's members.
-        let out = find_similar_blocks_json(&conn, Some("t2"), None).unwrap();
+        let out = find_similar_blocks_json(&conn, Some("t2"), None, None).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["groups"].as_array().unwrap().len(), 0);
         // Unknown thread errors.
-        assert!(find_similar_blocks_json(&conn, Some("nope"), None).is_err());
+        assert!(find_similar_blocks_json(&conn, Some("nope"), None, None).is_err());
 
         // R2 C1: around_block_id centers the page (t1 order: b1,b2,b3,b5,b6 → b3 at
         // position 2; context 1 → b2..b5) and reports the anchor position.
@@ -3286,7 +3393,7 @@ mod tests {
 
         // list_threads carries the one-liner summary + read-budget fields (v2.1).
         let listed: Vec<Value> =
-            serde_json::from_str(&list_threads_json(&conn).unwrap()).unwrap();
+            serde_json::from_str(&list_threads_json(&conn, None).unwrap()).unwrap();
         assert_eq!(listed[0]["summary"], "摘要一句");
         // one pin: the C5 block pinned above
         assert_eq!(listed[0]["pinned"], 1);
@@ -3353,7 +3460,7 @@ mod tests {
         ))
         .unwrap();
 
-        let rows: Vec<Value> = serde_json::from_str(&list_threads_json(&conn).unwrap()).unwrap();
+        let rows: Vec<Value> = serde_json::from_str(&list_threads_json(&conn, None).unwrap()).unwrap();
         let titles: Vec<&str> = rows.iter().map(|r| r["title"].as_str().unwrap()).collect();
         assert_eq!(titles, vec!["有料", "空的"], "soft-deleted rows leak: {titles:?}");
         let t1 = &rows[0];
@@ -3366,6 +3473,16 @@ mod tests {
         assert_eq!(t2["blocks"], 0);
         assert_eq!(t2["pinned"], 0);
         assert_eq!(t2["approx_pack_chars"], 0);
+
+        // R3 friction #1: title_contains is the title→id resolver.
+        let hit: Vec<Value> =
+            serde_json::from_str(&list_threads_json(&conn, Some("有")).unwrap()).unwrap();
+        assert_eq!(hit.len(), 1);
+        assert_eq!(hit[0]["title"], "有料");
+        let none: Vec<Value> =
+            serde_json::from_str(&list_threads_json(&conn, Some("不存在")).unwrap()).unwrap();
+        assert!(none.is_empty());
+        assert!(list_threads_json(&conn, Some("  ")).is_err());
     }
 
     // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's three mouths — empty thread,
@@ -3620,10 +3737,11 @@ mod tests {
         let full_chars = built.text.chars().count() as i64;
         let budget = full_chars - 1000; // force a few omissions
 
-        let partial = budgeted_pack(&built, budget).expect("partial pack must fit");
+        let (partial, omit) = budgeted_pack(&built, budget).expect("partial pack must fit");
+        assert!(omit > 0);
         assert!(partial.chars().count() as i64 <= budget);
         // Deterministic.
-        assert_eq!(partial, budgeted_pack(&built, budget).unwrap());
+        assert_eq!(partial, budgeted_pack(&built, budget).unwrap().0);
         // Omission line at the top of Full Record, naming count + the paging escape.
         let lines: Vec<&str> = partial.lines().collect();
         let log_idx = lines.iter().position(|l| *l == SECTION_LOG).unwrap();
@@ -3646,7 +3764,15 @@ mod tests {
         assert!(budgeted_pack(&built, 100).is_none());
         // A budget the full text already fits is never reached via the guard, but the
         // search still answers with omit=0 == the plain pack.
-        assert_eq!(budgeted_pack(&built, full_chars).unwrap(), built.text);
+        assert_eq!(budgeted_pack(&built, full_chars).unwrap().0, built.text);
+
+        // R3 friction #2: the id side-table lists rendered blocks only — kept blocks
+        // and the pinned-but-omitted one; omitted unpinned rows stay out.
+        let table = pack_id_table(&built.blocks, omit);
+        assert!(table.contains(SECTION_IDS));
+        assert!(table.contains("— b19"), "{table}");
+        assert!(table.contains("— b0"), "pinned survives omission: {table}");
+        assert!(!table.contains("— b1\n"), "omitted unpinned must not list: {table}");
     }
 
     // One test on purpose: it redirects HOME to a temp dir, and env vars are
