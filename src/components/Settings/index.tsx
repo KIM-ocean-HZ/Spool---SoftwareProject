@@ -1,27 +1,29 @@
 import { X } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
-import BrowserAutomation from './BrowserAutomation';
+import AdvancedConfig from './AdvancedConfig';
 import GeneralConfig from './GeneralConfig';
+import McpConfig from './McpConfig';
 import ShortcutConfig from './ShortcutConfig';
 import { useT } from '@/lib/i18n';
 
 // Settings modal (PLAN_EN.md §9.12). Opened by the sidebar gear, ⌘, , or the tray
-// "设置" item.
+// "设置" item. 任务三 #2 (2026-07-12): one long scroll became four tabs — MCP is the
+// product's core channel, so it sits second instead of mid-scroll; the five-browser
+// automation rows and clear-all-data live in 高级.
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="border-t border-line px-5 py-4 first:border-t-0">
-      <h3 className="text-xs font-medium tracking-wide text-muted">{title}</h3>
-      <div className="mt-1">{children}</div>
-    </div>
-  );
-}
+type Tab = 'general' | 'mcp' | 'shortcuts' | 'advanced';
 
 export default function Settings() {
   const t = useT();
   const open = useSettingsStore((s) => s.panelOpen);
   const close = useSettingsStore((s) => s.closePanel);
+  const [tab, setTab] = useState<Tab>('general');
+
+  // Reopening always lands on 通用 — the dialog is transient, not a workspace.
+  useEffect(() => {
+    if (open) setTab('general');
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -33,6 +35,13 @@ export default function Settings() {
   }, [open, close]);
 
   if (!open) return null;
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'general', label: t('通用') },
+    { key: 'mcp', label: 'MCP' },
+    { key: 'shortcuts', label: t('快捷键') },
+    { key: 'advanced', label: t('高级') },
+  ];
 
   return (
     <div
@@ -55,16 +64,32 @@ export default function Settings() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          <Section title={t('全局快捷键')}>
-            <ShortcutConfig />
-          </Section>
-          <Section title={t('浏览器自动化权限')}>
-            <BrowserAutomation />
-          </Section>
-          <Section title={t('通用')}>
-            <GeneralConfig />
-          </Section>
+        <div className="flex flex-none items-center gap-1 border-b border-line px-3 pt-2">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`rounded-t-md border-b-2 px-3 py-1.5 text-xs transition-colors ${
+                tab === key
+                  ? 'border-accent text-ink'
+                  : 'border-transparent text-muted hover:text-ink-2'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-2">
+          {tab === 'general' && <GeneralConfig />}
+          {tab === 'mcp' && <McpConfig />}
+          {tab === 'shortcuts' && (
+            <div className="py-2.5">
+              <ShortcutConfig />
+            </div>
+          )}
+          {tab === 'advanced' && <AdvancedConfig />}
         </div>
       </div>
     </div>

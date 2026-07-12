@@ -223,7 +223,6 @@ const EN: Record<string, string> = {
   '上一个匹配': 'Previous match',
   '下一个匹配 (⌘G / ↵)': 'Next match (⌘G / ↵)',
   '下一个匹配': 'Next match',
-  '全局快捷键': 'Global shortcuts',
   '浏览器自动化权限': 'Browser automation access',
 
   // Complete / digest
@@ -280,6 +279,7 @@ const EN: Record<string, string> = {
   '设置': 'Settings',
   '通用': 'General',
   '快捷键': 'Shortcuts',
+  '高级': 'Advanced',
   '浏览器权限': 'Browser access',
   '开机启动': 'Launch at login',
   '登录时自动运行,捕捉快捷键随时可用': 'Runs at login so capture shortcuts are always ready',
