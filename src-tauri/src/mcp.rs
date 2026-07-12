@@ -2272,6 +2272,298 @@ fn add_block_json(
 }
 
 // ---------------------------------------------------------------------------------------
+// check_library — 存量数据卫生 (2026-07-12): read-only hygiene audit closing the R4
+// gap ("工具面已达标,差的最后一截在数据卫生"). Three mechanical detectors, in
+// write-side parity where one exists:
+//   D-URI — a spool:// URI sitting in visible text (pre-v2.4 MCP writers left these);
+//   D-ID  — suspect_raw_id, the exact detector behind add_block's write warning;
+//   D-REF — ref_block_id whose cited block is gone or its thread soft-deleted.
+// Report only, disposal stays with the user: nothing is ever rewritten — the write
+// warning is advisory (a client can ignore it), so dirt can re-enter and the audit
+// must stay repeatable. Findings locate rows by thread title + preview; the offending
+// fragment itself is quoted verbatim (it is the subject of the report, same precedent
+// as raw_id_warning). User-written text (no source label) is reported FYI-only.
+// ---------------------------------------------------------------------------------------
+
+const HYGIENE_SECTION_CAP: usize = 50;
+
+// D-URI fragment: the URI as it sits in the text — scheme plus the contiguous id/path
+// run after it (ASCII, so byte indexing after find() is safe).
+fn uri_fragment(text: &str) -> Option<String> {
+    let start = text.find("spool://")?;
+    let is_uri_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/';
+    let tail: String =
+        text[start + "spool://".len()..].chars().take_while(|&c| is_uri_char(c)).collect();
+    Some(format!("spool://{tail}"))
+}
+
+// One finding per field; D-URI wins over D-ID (the URI names the same leak, more
+// precisely — the raw-id run is part of it).
+fn hygiene_fragment(text: &str) -> Option<String> {
+    uri_fragment(text).or_else(|| suspect_raw_id(text))
+}
+
+// Where the fragment's id points, if anywhere live — the difference between a real
+// pipeline leak and an id-shaped string. Same run rule as the detector.
+fn resolve_fragment(conn: &Connection, fragment: &str) -> String {
+    use rusqlite::OptionalExtension;
+    let Some(id) = suspect_raw_id(fragment) else {
+        return String::new();
+    };
+    let thread: Option<String> = conn
+        .query_row(
+            "SELECT title FROM threads WHERE id = ?1 AND deleted_at IS NULL",
+            [&id],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap_or(None);
+    if let Some(title) = thread {
+        return format!(" → 指向现存脉络〈{title}〉");
+    }
+    let block: Option<(String, String)> = conn
+        .query_row(
+            "SELECT t.title, b.content FROM blocks b JOIN threads t ON t.id = b.thread_id
+             WHERE b.id = ?1 AND t.deleted_at IS NULL",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .unwrap_or(None);
+    if let Some((title, content)) = block {
+        return format!(" → 指向现存块(〈{title}〉:{})", head_anchor(&content));
+    }
+    " → 未指向现存对象".to_string()
+}
+
+fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> {
+    // 署名家族 (mechanical): the enforced `· MCP` marker is the only proof of AI
+    // authorship; a sourceless block is user-typed — report, never suggest edits.
+    let family = |source: Option<&str>| -> (&'static str, &'static str, &'static str) {
+        match source {
+            Some(s) if s.contains("· MCP") => (
+                "AI(MCP 署名)",
+                "在 Spool 中点击该块的来源标签即可编辑(Spool 不代改)。",
+                "在 Spool 中双击该块即可编辑正文/批注(Spool 不代改)。",
+            ),
+            Some(_) => (
+                "捕捉来源",
+                "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
+                "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
+            ),
+            None => (
+                "用户手写",
+                "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
+                "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
+            ),
+        }
+    };
+
+    // Sections 1 + 2 sources: every block in a live thread/workspace, deterministic
+    // order (thread title, then chronology, rowid as tiebreak).
+    struct AuditRow {
+        thread_title: String,
+        created_at: i64,
+        content: String,
+        annotation: Option<String>,
+        source: Option<String>,
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.title, b.created_at, b.content, b.annotation, b.source
+             FROM blocks b
+             JOIN threads t ON t.id = b.thread_id
+             JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+             ORDER BY t.title ASC, b.created_at ASC, b.rowid ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<AuditRow> = stmt
+        .query_map([], |r| {
+            Ok(AuditRow {
+                thread_title: r.get(0)?,
+                created_at: r.get(1)?,
+                content: r.get(2)?,
+                annotation: r.get(3)?,
+                source: r.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let block_entry = |row: &AuditRow, field: &str, fragment: &str, disposal: &str| -> String {
+        let (label, _, _) = family(row.source.as_deref());
+        format!(
+            "- 〈{}〉 · [{}] · 字段 {field} · 署名:{label}\n  片段:「{fragment}」{}\n  预览:{}\n  处置:{disposal}",
+            row.thread_title,
+            format_pack_time(row.created_at),
+            resolve_fragment(conn, fragment),
+            head_anchor(&row.content),
+        )
+    };
+
+    let mut sec_source: Vec<String> = Vec::new(); // 1. source 标签卫生
+    let mut sec_text: Vec<String> = Vec::new(); // 2. 正文/批注裸 id
+    for row in &rows {
+        let (_, fix_source, fix_text) = family(row.source.as_deref());
+        if let Some(frag) = row.source.as_deref().and_then(hygiene_fragment) {
+            sec_source.push(block_entry(row, "source", &frag, fix_source));
+        }
+        if let Some(frag) = hygiene_fragment(&row.content) {
+            sec_text.push(block_entry(row, "content", &frag, fix_text));
+        }
+        if let Some(frag) = row.annotation.as_deref().and_then(hygiene_fragment) {
+            sec_text.push(block_entry(row, "annotation", &frag, fix_text));
+        }
+    }
+
+    // Extended surfaces of section 2: thread titles/summaries and workspace names all
+    // render in digests/packs. Blocks first, then threads, then workspaces — mechanical.
+    struct ThreadRow {
+        title: String,
+        summary: Option<String>,
+        summary_source: Option<String>,
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.title, t.summary, t.summary_source
+             FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+             ORDER BY t.title ASC, t.id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let threads: Vec<ThreadRow> = stmt
+        .query_map([], |r| {
+            Ok(ThreadRow { title: r.get(0)?, summary: r.get(1)?, summary_source: r.get(2)? })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    for t in &threads {
+        if let Some(frag) = hygiene_fragment(&t.title) {
+            sec_text.push(format!(
+                "- 脉络标题〈{}〉\n  片段:「{frag}」{}\n  处置:标题无署名——仅供知悉,处置留给用户。",
+                t.title,
+                resolve_fragment(conn, &frag),
+            ));
+        }
+        if let Some(frag) = t.summary.as_deref().and_then(hygiene_fragment) {
+            let (label, disposal) = if t.summary_source.as_deref() == Some("mcp") {
+                ("AI(MCP 署名)", "可在 Spool 脉络头部编辑,或经用户同意用 set_thread_summary 重写(Spool 不代改)。")
+            } else {
+                ("用户手写", "用户手写摘要——仅供知悉,Spool 不建议也不会修改。")
+            };
+            sec_text.push(format!(
+                "- 〈{}〉 · 字段 summary · 署名:{label}\n  片段:「{frag}」{}\n  处置:{disposal}",
+                t.title,
+                resolve_fragment(conn, &frag),
+            ));
+        }
+    }
+    let mut stmt = conn
+        .prepare("SELECT title FROM workspaces WHERE deleted_at IS NULL ORDER BY title ASC, id ASC")
+        .map_err(|e| e.to_string())?;
+    let workspaces: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    for title in &workspaces {
+        if let Some(frag) = hygiene_fragment(title) {
+            sec_text.push(format!(
+                "- 工作区名〈{title}〉\n  片段:「{frag}」{}\n  处置:仅供知悉,处置留给用户。",
+                resolve_fragment(conn, &frag),
+            ));
+        }
+    }
+
+    // Section 3: citation integrity. The pack side already degrades a dangling ↩ line
+    // to "(cited block no longer exists)" — this just makes it visible to the user.
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.title, b.created_at, b.content,
+                    EXISTS(SELECT 1 FROM blocks c WHERE c.id = b.ref_block_id),
+                    EXISTS(SELECT 1 FROM blocks c JOIN threads ct ON ct.id = c.thread_id
+                           WHERE c.id = b.ref_block_id AND ct.deleted_at IS NULL)
+             FROM blocks b
+             JOIN threads t ON t.id = b.thread_id
+             JOIN workspaces w ON w.id = t.workspace_id
+             WHERE b.ref_block_id IS NOT NULL
+               AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+             ORDER BY t.title ASC, b.created_at ASC, b.rowid ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let citations: Vec<(String, i64, String, bool, bool)> = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    let mut sec_refs: Vec<String> = Vec::new(); // 3. 引用完整性
+    for (title, created_at, content, citee_exists, citee_live) in &citations {
+        if *citee_live {
+            continue;
+        }
+        // Two shapes of dangling: the citee row is gone (pack degrades the ↩ line to
+        // "(cited block no longer exists)"), or only its thread is soft-deleted — the
+        // row survives, so packs still inline its preview through the citation.
+        let detail = if *citee_exists {
+            "被引块所在脉络已删除;其预览仍会经引用出现在 pack 中"
+        } else {
+            "被引块已不存在;pack 已自动降级为 \"(cited block no longer exists)\""
+        };
+        sec_refs.push(format!(
+            "- 〈{title}〉 · [{}] · 引用方:「{}」\n  {detail}。仅供知悉——可删除该引用方块,或保持现状。",
+            format_pack_time(*created_at),
+            head_anchor(content),
+        ));
+    }
+
+    let mut lines: Vec<String> = vec![
+        format!("# Spool 库体检 — {}", format_pack_date(now_ms)),
+        format!(
+            "Scanned {} blocks / {} threads / {} workspaces. Findings: source 标签卫生 {} · 正文/批注裸 id {} · 引用完整性 {}。",
+            rows.len(),
+            threads.len(),
+            workspaces.len(),
+            sec_source.len(),
+            sec_text.len(),
+            sec_refs.len(),
+        ),
+        "规则(机械可验算):spool:// 子串;21 位混合大小写 nanoid 形串(与 add_block 写入警告同一检测器);ref_block_id 指向已消失的块。只读报告——Spool 不修改任何内容,处置留给用户。".to_string(),
+        String::new(),
+    ];
+    let mut render_section = |no: usize, name: &str, entries: &[String]| {
+        lines.push(format!("## {no}. {name}({})", entries.len()));
+        if entries.is_empty() {
+            lines.push("(无发现)".to_string());
+        }
+        for e in entries.iter().take(HYGIENE_SECTION_CAP) {
+            lines.push(e.clone());
+        }
+        if entries.len() > HYGIENE_SECTION_CAP {
+            lines.push(format!("(+{} more)", entries.len() - HYGIENE_SECTION_CAP));
+        }
+        lines.push(String::new());
+    };
+    render_section(1, "Source 标签卫生", &sec_source);
+    render_section(2, "正文/批注裸 id", &sec_text);
+    render_section(3, "引用完整性", &sec_refs);
+
+    let total = sec_source.len() + sec_text.len() + sec_refs.len();
+    lines.push(if total == 0 {
+        "体检通过:未发现内部管线泄漏或悬空引用。".to_string()
+    } else {
+        format!(
+            "体检未通过:共 {total} 处发现。处置留给用户——AI 署名条目可在 Spool 中直接编辑;用户手写条目仅供知悉。"
+        )
+    });
+    Ok(lines.join("\n"))
+}
+
+// ---------------------------------------------------------------------------------------
 // JSON-RPC / MCP loop
 // ---------------------------------------------------------------------------------------
 
@@ -2372,6 +2664,16 @@ fn tools_descriptor() -> Value {
             }
         },
         {
+            "name": "check_library",
+            "description": "Library hygiene audit (库体检): mechanically scan every visible text surface — block content, annotations, source labels, thread titles/summaries, workspace names — for internal-pipeline leaks (spool:// URIs and raw 21-char ids, the same detector behind add_block's write warning), plus citations whose cited block no longer exists. Read-only, deterministic report: findings are located by thread title + preview and quote the offending fragment; Spool never rewrites anything — AI-authored rows are flagged as editable in the app, user-written text is reported FYI-only and must never be 'fixed'. Run when the user asks for a library checkup (体检).",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "create_thread",
             "description": "Create a new thread (project) in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
@@ -2457,6 +2759,7 @@ fn handle_tool_call(params: &Value) -> Value {
                 let limit = args.get("limit").and_then(Value::as_i64);
                 search_blocks_json(&open_db(&dir)?, query, limit)
             }
+            "check_library" => check_library_json(&open_db(&dir)?, now_ms()),
             "find_similar_blocks" => find_similar_blocks_json(
                 &open_db(&dir)?,
                 args.get("thread_id").and_then(Value::as_str),
@@ -3717,6 +4020,130 @@ mod tests {
         )
         .unwrap();
         assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+    }
+
+    // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal
+    // stays with the user; user-written text is FYI-only.
+    #[test]
+    fn check_library_reports_all_three_sections() {
+        // D-URI fragment extraction: scheme + contiguous id/path run, nothing more.
+        assert_eq!(
+            uri_fragment("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM 那条"),
+            Some("spool://thread/sbC2zgTo9dWyq_x1XPLNM".to_string())
+        );
+        assert_eq!(uri_fragment("没有 URI"), None);
+
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-hygiene-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('sbC2zgTo9dWyq_x1XPLNM', 'ws1', '被指脉络', 1, 1),
+                      ('t1', 'ws1', '实测', 1, 1),
+                      ('t9', 'ws1', '已删', 1, 1);
+             UPDATE threads SET deleted_at = 9 WHERE id = 't9';
+             INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at) VALUES
+               -- 类 1: pre-v2.4 MCP source tail with a resolvable spool:// URI
+               ('b1', 't1', 'text', '结论甲', NULL,
+                'Claude · MCP · 依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM', 0, 1),
+               -- 类 2, AI-authored: raw id in the annotation
+               ('b2', 't1', 'text', '结论乙', '对应 sbAAAAAAAAAAAAAAAAAAB', 'Claude · MCP', 0, 2),
+               -- 类 2, user-typed (no source): report FYI-only, never suggest edits
+               ('b3', 't1', 'text', '我自己记的 sbAAAAAAAAAAAAAAAAAAB', NULL, NULL, 0, 3),
+               -- 类 2, captured source: likely an id-shaped string from the original page
+               ('b4', 't1', 'text', '网页原文带 sbAAAAAAAAAAAAAAAAAAB 形状串', NULL, 'Safari', 0, 4),
+               -- clean block: contributes to counts only
+               ('b5', 't1', 'text', '干净的一条', NULL, NULL, 0, 5),
+               -- dirty block inside a soft-deleted thread: excluded from the scan
+               ('b9', 't9', 'text', '脏 spool://thread/sbC2zgTo9dWyq_x1XPLNM', NULL, NULL, 0, 6);",
+        )
+        .unwrap();
+
+        // 类 3: a citation whose citee is later hard-deleted.
+        conn.execute_batch(
+            "INSERT INTO blocks (id, thread_id, kind, content, ref_block_id, pinned, created_at)
+               VALUES ('b6', 't1', 'text', '站在消失块上的结论', 'gone_block_id_000000x', 0, 7);",
+        )
+        .unwrap();
+
+        let now = 1_750_000_000_000;
+        let report = check_library_json(&conn, now).unwrap();
+
+        // Header counts: b9/t9 excluded, the citing block counted once.
+        assert!(report.contains("6 blocks / 2 threads / 1 workspaces"), "{report}");
+        assert!(
+            report.contains("source 标签卫生 1 · 正文/批注裸 id 3 · 引用完整性 1"),
+            "{report}"
+        );
+
+        // 类 1: fragment quoted, resolvable id annotated with the live thread's title.
+        assert!(report.contains("「spool://thread/sbC2zgTo9dWyq_x1XPLNM」"), "{report}");
+        assert!(report.contains("指向现存脉络〈被指脉络〉"), "{report}");
+        assert!(report.contains("点击该块的来源标签"), "{report}");
+
+        // 类 2 wording per family: AI editable, user FYI-only, captured low-confidence.
+        assert!(report.contains("双击该块即可编辑"), "{report}");
+        assert!(report.contains("Spool 不建议也不会修改"), "{report}");
+        assert!(report.contains("原文自带的 id 形状串"), "{report}");
+        assert!(report.contains("未指向现存对象"), "{report}");
+
+        // 类 3: dangling citation named by the citing block's preview, with the pack
+        // degradation stated.
+        assert!(report.contains("被引块已不存在"), "{report}");
+        assert!(report.contains("站在消失块上的结论"), "{report}");
+
+        // Soft-deleted thread's dirt never appears.
+        assert!(!report.contains("已删"), "{report}");
+
+        // Verdict + determinism: same library, same day → byte-identical output.
+        assert!(report.contains("体检未通过:共 5 处发现"), "{report}");
+        assert_eq!(report, check_library_json(&conn, now).unwrap());
+
+        // Dangling ref via soft-deleted citee thread: reason names the thread deletion.
+        conn.execute_batch(
+            "INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at)
+               VALUES ('c1', 'sbC2zgTo9dWyq_x1XPLNM', 'text', '被引的原文', 0, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, ref_block_id, pinned, created_at)
+               VALUES ('b7', 't1', 'text', '引用它', 'c1', 0, 8);",
+        )
+        .unwrap();
+        let live = check_library_json(&conn, now).unwrap();
+        assert!(live.contains("引用完整性 1"), "{live}"); // c1 alive: b7 is not a finding
+        conn.execute("UPDATE threads SET deleted_at = 9 WHERE id = 'sbC2zgTo9dWyq_x1XPLNM'", [])
+            .unwrap();
+        let after = check_library_json(&conn, now).unwrap();
+        assert!(after.contains("被引块所在脉络已删除"), "{after}");
+        assert!(after.contains("其预览仍会经引用出现在 pack 中"), "{after}");
+    }
+
+    #[test]
+    fn check_library_clean_library_passes() {
+        let tmp =
+            std::env::temp_dir().join(format!("spool-mcp-hygiene-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('t1', 'ws1', '日常', 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at)
+               VALUES ('b1', 't1', 'text', '一条普通笔记,internationalisations 不算 id', 0, 1);",
+        )
+        .unwrap();
+        let report = check_library_json(&conn, 1_750_000_000_000).unwrap();
+        assert!(report.contains("体检通过:未发现内部管线泄漏或悬空引用。"), "{report}");
+        assert!(report.contains("(无发现)"), "{report}");
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
