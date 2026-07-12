@@ -2097,7 +2097,12 @@ fn create_thread_json(
         rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now],
     )
     .map_err(|e| format!("写入失败: {e}"))?;
-    Ok(json!({ "thread_id": id, "workspace": ws_title, "title": title }).to_string())
+    let mut out = json!({ "thread_id": id, "workspace": ws_title, "title": title });
+    // R4 P2-1: the raw-id advisory covers every free-text write surface.
+    if let Some(hit) = suspect_raw_id(title).or_else(|| summary.and_then(suspect_raw_id)) {
+        out["warning"] = json!(raw_id_warning(&hit));
+    }
+    Ok(out.to_string())
 }
 
 // The thread's "catalogue card" (§9.11): since the MCP-first pivot the app itself never
@@ -2137,7 +2142,12 @@ fn set_thread_summary_json(
         rusqlite::params![summary, now, thread_id],
     )
     .map_err(|e| format!("写入失败: {e}"))?;
-    Ok(json!({ "thread_id": thread_id, "title": title, "summary": summary }).to_string())
+    let mut out = json!({ "thread_id": thread_id, "title": title, "summary": summary });
+    // R4 P2-1: the raw-id advisory covers every free-text write surface.
+    if let Some(hit) = suspect_raw_id(summary) {
+        out["warning"] = json!(raw_id_warning(&hit));
+    }
+    Ok(out.to_string())
 }
 
 // v2.4 (D1/5b): a raw 21-char nanoid written into content/annotation surfaces in
@@ -2146,6 +2156,13 @@ fn set_thread_summary_json(
 // nanoid alphabet with non-alphabet neighbors, requiring both cases to keep ordinary
 // 21-letter words (all-lowercase) out. False positives survive as a warning the writer
 // can ignore.
+fn raw_id_warning(hit: &str) -> String {
+    format!(
+        "文本中疑似包含内部 id(「{hit}」)。请勿把内部 id 写进任何会展示的文本——\
+         引用其他块请用 ref_block_id 参数,id 只应出现在工具参数里。本次已原样写入。"
+    )
+}
+
 fn suspect_raw_id(text: &str) -> Option<String> {
     let is_id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let chars: Vec<char> = text.chars().collect();
@@ -2214,7 +2231,8 @@ fn add_block_json(
     // default. A caller-supplied source used to replace it wholesale — letting AI
     // content masquerade as an authoritative artifact ("lecture.pdf" reads as 📖
     // Reference at consumption time). Custom detail now rides BEHIND the label.
-    let source = match source.map(str::trim).filter(|s| !s.is_empty()) {
+    let source_detail = source.map(str::trim).filter(|s| !s.is_empty());
+    let source = match source_detail {
         Some(detail) => format!("{} — {detail}", mcp_source_label()),
         None => mcp_source_label(),
     };
@@ -2241,14 +2259,14 @@ fn add_block_json(
     .map_err(|e| format!("写入失败: {e}"))?;
     tx.commit().map_err(|e| e.to_string())?;
     let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source });
-    // D1/5b: advisory only — the block was written verbatim above.
+    // D1/5b: advisory only — the block was written verbatim above. R4 P2-1: the
+    // caller-supplied source detail is a display surface too (packs, digest, GUI),
+    // so it is scanned like content and annotation.
     if let Some(hit) = suspect_raw_id(content)
         .or_else(|| annotation.and_then(suspect_raw_id))
+        .or_else(|| source_detail.and_then(suspect_raw_id))
     {
-        out["warning"] = json!(format!(
-            "content/annotation 中疑似包含内部 id(「{hit}」)。请勿把内部 id 写进块内容——\
-             引用其他块请用 ref_block_id 参数，id 只应出现在工具参数里。本块已原样写入。"
-        ));
+        out["warning"] = json!(raw_id_warning(&hit));
     }
     Ok(out.to_string())
 }
@@ -3675,6 +3693,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(stored, "对应 sbC2zgTo9dWyq_x1XPLNM");
+
+        // R4 P2-1: every free-text write surface warns — the add_block source detail,
+        // create_thread title/summary, set_thread_summary. Writes still land verbatim.
+        let v: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "结论", Some("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM"), None, None)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"), "{v}");
+        let v: Value = serde_json::from_str(
+            &create_thread_json(&conn, None, "新题", Some("接 sbC2zgTo9dWyq_x1XPLNM 继续")).unwrap(),
+        )
+        .unwrap();
+        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+        let clean: Value =
+            serde_json::from_str(&create_thread_json(&conn, None, "干净标题", None).unwrap())
+                .unwrap();
+        assert!(clean.get("warning").is_none());
+        let sid = clean["thread_id"].as_str().unwrap();
+        let v: Value = serde_json::from_str(
+            &set_thread_summary_json(&conn, sid, "总结见 sbC2zgTo9dWyq_x1XPLNM").unwrap(),
+        )
+        .unwrap();
+        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
