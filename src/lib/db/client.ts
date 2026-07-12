@@ -10,7 +10,7 @@ export const UNSORTED_THREAD_TITLE = '未分类';
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 // Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
 // attachments → blocks → threads → workspaces. Indexes and the blocks_* FTS
@@ -182,6 +182,23 @@ const MIGRATIONS: Migration[] = [
       } catch (e) {
         console.info('[db] ref_block_id: not added (likely exists)', e);
       }
+    },
+  },
+  {
+    // R3 BUG-2: rows written before the v2.3 client-label map stored the raw agent
+    // slug ("local-agent-mode-spool · MCP"); the GUI mapped it at render time but the
+    // AI-facing surfaces (pack/digest/JSON) leaked it verbatim. Normalize the stored
+    // label once — provenance semantics unchanged (same client, same · MCP marker,
+    // any " — detail" suffix preserved). Idempotent: the WHERE matches nothing after
+    // the first run.
+    from: 7,
+    to: 8,
+    name: 'normalize-legacy-mcp-source-labels',
+    run: async (db) => {
+      await db.execute(
+        "UPDATE blocks SET source = 'Claude' || substr(source, instr(source, ' · MCP')) " +
+          "WHERE source LIKE 'local-agent-mode%' AND instr(source, ' · MCP') > 0",
+      );
     },
   },
 ];
