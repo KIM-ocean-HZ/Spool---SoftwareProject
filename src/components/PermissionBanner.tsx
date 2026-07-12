@@ -23,6 +23,10 @@ export default function PermissionBanner() {
   const t = useT();
   const [phase, setPhase] = useState<Phase>('hidden');
   const [dismissed, setDismissed] = useState(false);
+  // 任务三 #1 (2026-07-12): the stale-grant recovery walkthrough is details-on-demand
+  // — the resting banner is one line, and the first screenful stays content, not
+  // warnings.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +76,15 @@ export default function PermissionBanner() {
             {t('打开系统设置')}
           </button>
         )}
+        {phase === 'denied' && (
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((v) => !v)}
+            className="flex-none text-muted transition-colors hover:text-accent"
+          >
+            {t('详情')}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setDismissed(true)}
@@ -81,7 +94,7 @@ export default function PermissionBanner() {
           ×
         </button>
       </div>
-      {phase === 'denied' && (
+      {phase === 'denied' && detailsOpen && (
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
           {t(
             '已授权却仍看到本条？旧授权可能已失效：在系统设置的列表中选中 Spool 按 − 删除，完全退出并重新打开 Spool，允许新弹窗后再退出重启一次。',

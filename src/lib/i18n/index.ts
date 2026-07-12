@@ -203,6 +203,7 @@ const EN: Record<string, string> = {
   '组合零散对话': 'Combine fragments',
   '把碎片整合成一份去重的干净总结': 'Synthesize fragments into one deduplicated summary',
   '关闭': 'Close',
+  '详情': 'Details',
   '复制到剪贴板': 'Copy to clipboard',
   '已复制': 'Copied',
   '{packed} / {total} 块 · {chars} 字符': '{packed} / {total} blocks · {chars} chars',
