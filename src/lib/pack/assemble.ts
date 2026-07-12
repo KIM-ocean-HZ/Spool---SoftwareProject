@@ -179,8 +179,10 @@ const renderBlock = (
 // Before this, pinned blocks appeared verbatim twice per pack.
 // R2 field report B2: the slot carries a short head anchor so the timeline stays
 // readable without scrolling back up. Char-based to stay in lockstep with mcp.rs.
+// Exported for the feed's CitationLine (P2-3), which shows the same anchor for a
+// cited block — one truncation semantic across pack and GUI.
 const PLACEHOLDER_HEAD_CHARS = 40;
-const headAnchor = (content: string): string => {
+export const headAnchor = (content: string): string => {
   const one = oneLine(content);
   const chars = [...one];
   if (chars.length <= PLACEHOLDER_HEAD_CHARS) return one;

@@ -143,6 +143,7 @@ const EN: Record<string, string> = {
   '标为重点（包裹 ==选区==）': 'Highlight (wrap ==selection==)',
   '引用脉络': 'Referenced thread',
   '原脉络已删除': 'Original thread was deleted',
+  '引用的块已删除': 'Cited block no longer exists',
   '跳转到这条脉络': 'Jump to this thread',
   '点击编辑来源': 'Click to edit source',
   '添加来源标签': 'Add source label',

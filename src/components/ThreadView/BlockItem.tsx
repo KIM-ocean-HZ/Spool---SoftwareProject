@@ -22,6 +22,7 @@ import { useSearchStore } from '@/stores/searchStore';
 import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
 import BlockActions from './BlockActions';
 import BlockAttachments from './BlockAttachments';
+import CitationLine from './CitationLine';
 import RefBlockItem from './RefBlockItem';
 import SourceBadge from './SourceBadge';
 
@@ -891,6 +892,10 @@ function TextBlockItem({
             />
           </div>
         ))}
+
+      {/* v2.4 P2-3: quiet citation line — the feed counterpart of the pack's ↩ cites
+          row. Only MCP-written blocks carry refBlockId, so most blocks skip this. */}
+      {block.refBlockId && <CitationLine refBlockId={block.refBlockId} />}
 
       {attachingUrl && (
         <div className="mt-2 flex items-center gap-1.5">
