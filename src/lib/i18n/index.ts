@@ -68,7 +68,6 @@ const EN: Record<string, string> = {
 
   // Sidebar
   '进行中': 'Active',
-  '本周到期': 'Due this week',
   '搁置': 'Parked',
   '聚焦': 'Focus',
   '收件箱': 'Inbox',
@@ -251,9 +250,8 @@ const EN: Record<string, string> = {
   '⌘C 复制后双击': 'Copy with ⌘C, then double-tap',
   '捕捉第一条信息；长按': 'to capture your first piece; long-press',
   '连续收集；或在下方直接写。': 'to collect in batches; or write below.',
-  '排序': 'Sort',
-  '按时间': 'By time',
-  '按来源': 'By source',
+  '排序：按时间 — 点击改为按来源': 'Sorted by time — click for by source',
+  '排序：按来源 — 点击改为按时间': 'Sorted by source — click for by time',
   '查看更早的 {n} 条': 'Show {n} earlier blocks',
   'Spool 渲染崩了': 'Spool hit a rendering error',
   '从左侧选一条脉络，或按 ⌘N 新建': 'Pick a thread on the left, or press ⌘N to create one',

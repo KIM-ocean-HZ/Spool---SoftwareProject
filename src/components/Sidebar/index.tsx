@@ -5,7 +5,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import FocusSection from './FocusSection';
-import SidebarSummary from './SidebarSummary';
 import WorkspaceGroup from './WorkspaceGroup';
 
 export default function Sidebar() {
@@ -25,8 +24,6 @@ export default function Sidebar() {
           <span className="ml-2 font-serif text-base italic text-muted">思簿</span>
         </h1>
       </header>
-
-      <SidebarSummary />
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
         <FocusSection />

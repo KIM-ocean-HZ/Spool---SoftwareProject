@@ -1,3 +1,4 @@
+import { ArrowUpDown } from 'lucide-react';
 import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
@@ -378,22 +379,27 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   return (
     <div onMouseDown={handleMouseDown} className="px-6 py-3">
-      <div className="mb-2 flex items-center justify-end gap-0.5 text-[11px]">
-        <span className="mr-1 text-muted">{t('排序')}</span>
-        {(['time', 'source'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setSortMode(m)}
-            className={`rounded-full border px-2 py-0.5 transition-colors ${
-              sortMode === m
-                ? 'border-accent text-accent'
-                : 'border-line text-muted hover:border-line-strong'
-            }`}
-          >
-            {m === 'time' ? t('按时间') : t('按来源')}
-          </button>
-        ))}
+      {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
+          cycles the two modes, current mode in the tooltip, instead of a labeled
+          pill row claiming a whole line. */}
+      <div className="mb-2 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setSortMode(sortMode === 'time' ? 'source' : 'time')}
+          title={
+            sortMode === 'time'
+              ? t('排序：按时间 — 点击改为按来源')
+              : t('排序：按来源 — 点击改为按时间')
+          }
+          aria-label={
+            sortMode === 'time'
+              ? t('排序：按时间 — 点击改为按来源')
+              : t('排序：按来源 — 点击改为按时间')
+          }
+          className="rounded p-1 text-muted transition-colors hover:text-accent"
+        >
+          <ArrowUpDown size={13} />
+        </button>
       </div>
       {hiddenCount > 0 && (
         <div className="mb-2 flex items-center justify-center">
