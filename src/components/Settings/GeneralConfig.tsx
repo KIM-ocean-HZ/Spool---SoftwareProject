@@ -35,6 +35,8 @@ export default function GeneralConfig() {
   const [exePath, setExePath] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  // 任务二 B1 (2026-07-12): the user-facing scenario list, collapsed by default (§2.5).
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
     claude: null,
     cursor: null,
@@ -96,7 +98,7 @@ export default function GeneralConfig() {
     try {
       await writeText(
         t(
-          '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。',
+          '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨脉络问题先用 get_digest；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。',
         ),
       );
       setPromptCopied(true);
@@ -265,6 +267,49 @@ export default function GeneralConfig() {
             >
               {promptCopied ? t('已复制') : t('复制使用提示')}
             </button>
+          </div>
+        )}
+        {/* 任务二 B1 (2026-07-12): scenario phrases for the USER (the seeded MCP
+            tutorial thread can never reach an existing library — 5/29 red line — so
+            veterans get the same copy-paste lines here). Collapsed by default (§2.5). */}
+        {mcpEnabled && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setExamplesOpen((v) => !v)}
+              className="text-xs text-muted transition-colors hover:text-accent"
+            >
+              {examplesOpen ? '▾ ' : '▸ '}
+              {t('示例用法：接入后可以对 AI 说什么')}
+            </button>
+            {examplesOpen && (
+              <ul className="mt-1.5 space-y-1.5 pl-4 text-xs leading-relaxed text-ink-2">
+                <li>
+                  {t('「帮我复习〈某条脉络〉，再考我两个问题」')}
+                  <span className="text-muted">{t('——读整条脉络（get_pack）')}</span>
+                </li>
+                <li>
+                  {t('「我最近一周在忙什么？」')}
+                  <span className="text-muted">{t('——跨脉络简报（get_digest）')}</span>
+                </li>
+                <li>
+                  {t('「把刚才这段结论存进〈某条脉络〉，批注一句为什么重要」')}
+                  <span className="text-muted">{t('——归档（add_block，需允许 AI 写入）')}</span>
+                </li>
+                <li>
+                  {t('「这个主题我记在哪条脉络？」')}
+                  <span className="text-muted">{t('——全库检索（search_blocks）')}</span>
+                </li>
+                <li>
+                  {t('「帮我看看有没有重复收藏的内容」')}
+                  <span className="text-muted">{t('——查重报告（find_similar_blocks）')}</span>
+                </li>
+                <li>
+                  {t('「给我的思簿做个体检」')}
+                  <span className="text-muted">{t('——数据卫生报告（check_library）')}</span>
+                </li>
+              </ul>
+            )}
           </div>
         )}
         {mcpEnabled && (

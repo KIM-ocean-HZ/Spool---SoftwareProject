@@ -239,7 +239,7 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(await __migrateSchemaForTest(db)).toBe(false);
   });
 
-  it('seeds the tutorial thread with its six guide blocks (fresh install only)', async () => {
+  it('seeds the tutorial + MCP scenario threads (fresh install only)', async () => {
     applySchema(handle);
     handle.exec('PRAGMA user_version = 8');
     handle.exec(`
@@ -249,22 +249,32 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __seedTutorialThreadForTest(db);
 
-    const thread = handle
-      .prepare('SELECT title, summary, summary_source, is_capture_target FROM threads')
-      .get() as Record<string, unknown>;
-    expect(thread.title).toBe('欢迎使用 Spool');
-    expect(thread.summary_source).toBe('user'); // MCP may not overwrite the card
-    expect(thread.is_capture_target).toBe(0); // 未分类 keeps the capture target
+    // Two seeded threads; the gesture tutorial stays newest so it tops the sidebar.
+    const threads = handle
+      .prepare(
+        'SELECT title, summary_source, is_capture_target FROM threads ORDER BY updated_at DESC',
+      )
+      .all() as Record<string, unknown>[];
+    expect(threads.map((t) => t.title)).toEqual(['欢迎使用 Spool', '让 AI 用上你的 Spool']);
+    expect(threads.every((t) => t.summary_source === 'user')).toBe(true); // MCP may not overwrite the cards
+    expect(threads.every((t) => t.is_capture_target === 0)).toBe(true); // 未分类 keeps the capture target
     const blocks = handle
       .prepare('SELECT content, annotation, source, pinned FROM blocks ORDER BY created_at ASC')
       .all() as Record<string, unknown>[];
-    expect(blocks).toHaveLength(6);
+    expect(blocks).toHaveLength(12); // 6 gesture guide + 6 MCP scenarios
     expect(blocks.every((b) => b.source === 'Spool 指南')).toBe(true);
-    expect(blocks[0]!.annotation).toContain('批注');
-    expect(blocks.filter((b) => b.pinned === 1)).toHaveLength(1);
-    // The FTS triggers indexed the guide (searchable like any user block).
+    expect(blocks.filter((b) => b.pinned === 1)).toHaveLength(2); // one anchor per thread
+    // 任务二 A2: every scenario block's annotation names the tool behind the phrase.
+    const scenarioNotes = blocks.slice(0, 6).map((b) => String(b.annotation));
+    for (const tool of ['get_pack', 'get_digest', 'add_block', 'find_similar_blocks', 'check_library']) {
+      expect(scenarioNotes.some((a) => a.includes(tool))).toBe(true);
+    }
+    // The FTS triggers indexed both threads (searchable like any user block).
     expect(
       handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"收集面板\"'").get(),
+    ).toEqual({ c: 1 });
+    expect(
+      handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"做个体检\"'").get(),
     ).toEqual({ c: 1 });
   });
 });

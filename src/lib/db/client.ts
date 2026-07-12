@@ -360,6 +360,65 @@ const seedTutorialThread = async (db: Database): Promise<void> => {
       [nanoid(), threadId, b.content, b.annotation ?? null, 'Spool 指南', b.pinned ? 1 : 0, now + i],
     );
   }
+
+  // 任务二 A2 (2026-07-12, Ocean-approved): the MCP scenarios get their own thread —
+  // one copy-paste phrase per block, the annotation naming the tool behind it. The
+  // thread is its own demo material (its review phrase asks the AI to read it).
+  // Timestamped 10s earlier so 欢迎使用 Spool stays on top of the sidebar.
+  const mcpNow = now - 10_000;
+  const mcpThreadId = nanoid();
+  await db.execute(
+    `INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
+                          is_capture_target, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 'user', 'active', 0, $5, $5)`,
+    [
+      mcpThreadId,
+      wsId,
+      '让 AI 用上你的 Spool',
+      '一块一个场景：引号里的话照抄给 AI；可随时整条删除',
+      mcpNow,
+    ],
+  );
+  const mcpBlocks: { content: string; annotation?: string; pinned?: boolean }[] = [
+    {
+      content:
+        '前提：设置 → 通用 → MCP 服务 → 一键接入 Claude Desktop / Cursor（重启客户端生效）。接好后 AI 就能直接查阅这本思簿——下面每块一个场景，引号里的话可以照抄。Spool 本体不带 AI，数据始终在本机。',
+      annotation: 'AI 只读接入即可用；要让它代写，需另开「允许 AI 写入」。',
+      pinned: true,
+    },
+    {
+      content:
+        '复习与接续：「帮我复习〈让 AI 用上你的 Spool〉这条脉络，再考我两个问题」——把标题换成你自己的脉络，就是你的复习卡。',
+      annotation: '背后是 get_pack：AI 拿到整条脉络的结构化简报，置顶块和你的批注都在里面。',
+    },
+    {
+      content: '回顾一周：「我最近一周在忙什么？」',
+      annotation: '背后是 get_digest：跨脉络简报，近 7 天各脉络的新块加常驻置顶锚点。',
+    },
+    {
+      content:
+        '随手归档：「把刚才这段结论存进〈XX〉脉络，批注一句为什么重要」（需打开「允许 AI 写入」）。',
+      annotation:
+        '背后是 add_block：AI 写入的块带「Claude · MCP」来源标签，永远和你手写的分得清；它还会用引用标注结论依据的旧块。',
+    },
+    {
+      content: '找与查重：「XX 这个主题我记在哪条脉络？」「帮我看看有没有重复收藏的内容」',
+      annotation:
+        '背后是 search_blocks / find_similar_blocks：查重只出报告，合并始终由你在 Spool 里动手。',
+    },
+    {
+      content: '库体检：「给我的思簿做个体检」',
+      annotation: '背后是 check_library：只读报告内部 id 泄漏与失效引用，不改你一个字。',
+    },
+  ];
+  for (let i = 0; i < mcpBlocks.length; i++) {
+    const b = mcpBlocks[i]!;
+    await db.execute(
+      `INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
+       VALUES ($1, $2, 'text', $3, $4, $5, $6, $7)`,
+      [nanoid(), mcpThreadId, b.content, b.annotation ?? null, 'Spool 指南', b.pinned ? 1 : 0, mcpNow + i],
+    );
+  }
 };
 
 // Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
