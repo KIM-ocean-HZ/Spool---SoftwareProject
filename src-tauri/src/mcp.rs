@@ -614,8 +614,9 @@ const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created
 const SEARCH_DEFAULT_LIMIT: i64 = 20;
 const SEARCH_MAX_LIMIT: i64 = 50;
 
-// LIKE candidates fetched before the Rust-side word-boundary filter (short Latin
-// queries only) — the filter can only shrink the set, so scan a generous window.
+// Candidates fetched before the Rust-side word-boundary filter (Latin queries) — the
+// filter can only shrink the set, so scan a generous window. Applies to both the LIKE
+// path and, since R3 BUG-1, the trigram path (FTS matches substrings by design).
 const SEARCH_LIKE_SCAN_CAP: i64 = 200;
 
 fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Result<String, String> {
@@ -625,9 +626,15 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
     }
     let limit = limit.unwrap_or(SEARCH_DEFAULT_LIMIT).clamp(1, SEARCH_MAX_LIMIT) as usize;
     let n_chars = query.chars().count();
-    // Field report A3: a 1–2 char Latin query ("AI") must not hit word-internal
-    // substrings ("obtained"). CJK stays substring — that's the whole point of trigram.
-    let boundary = n_chars < 3 && query.chars().all(|c| c.is_ascii_alphanumeric());
+    // Field reports A3 (R2) + BUG-1 (R3): a Latin query must match whole words — "AI"
+    // must not hit "obtained", and "GRE" must not hit "degree" (trigram matches
+    // substrings at ANY length; the word-boundary post-filter has to cover the FTS path
+    // too). A query counts as Latin when it is pure ASCII with alphanumeric ends —
+    // phrases with inner spaces/hyphens included. CJK stays substring — that's the
+    // whole point of trigram.
+    let boundary = query.is_ascii()
+        && query.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && query.chars().last().is_some_and(|c| c.is_ascii_alphanumeric());
 
     struct Cand {
         block_id: String,
@@ -654,6 +661,24 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
         })
     };
 
+    // Shared word-boundary post-filter (6b keeps the located snippet on the candidate).
+    let boundary_filter = |rows: Vec<Cand>| -> Vec<Cand> {
+        rows.into_iter()
+            .filter_map(|mut c| {
+                // Same precedence as the render step: content hit first, else the
+                // annotation with the note: prefix.
+                let snip = snippet_around(&c.content, query, true).or_else(|| {
+                    c.annotation
+                        .as_deref()
+                        .and_then(|a| snippet_around(a, query, true))
+                        .map(|s| format!("{NOTE_MARKER}{s}"))
+                })?;
+                c.snippet = Some(snip);
+                Some(c)
+            })
+            .collect()
+    };
+
     let (cands, total): (Vec<Cand>, i64) = if n_chars >= 3 {
         let phrase = format!("\"{}\"", query.replace('"', "\"\""));
         let where_fts = "FROM blocks_fts
@@ -661,18 +686,28 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
                  JOIN threads t ON t.id = b.thread_id
                  JOIN workspaces w ON w.id = t.workspace_id
                  WHERE blocks_fts MATCH ?1 AND t.deleted_at IS NULL AND w.deleted_at IS NULL";
-        let total: i64 = conn
-            .query_row(&format!("SELECT count(*) {where_fts}"), [&phrase], |r| r.get(0))
-            .map_err(|e| e.to_string())?;
+        // Latin queries: rank-ordered scan window, then the word-boundary filter — the
+        // raw FTS count would include substring hits ("GRE" in "degree"), so total is
+        // the filtered count within the scan cap, mirroring the LIKE path.
+        let fetch = if boundary { SEARCH_LIKE_SCAN_CAP } else { limit as i64 };
         let mut stmt = conn
             .prepare(&format!("SELECT {SEARCH_COLS} {where_fts} ORDER BY rank LIMIT ?2"))
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(rusqlite::params![&phrase, limit as i64], |r| map_row(r))
+            .query_map(rusqlite::params![&phrase, fetch], |r| map_row(r))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        (rows, total)
+        if boundary {
+            let rows = boundary_filter(rows);
+            let total = rows.len() as i64; // within the scan cap
+            (rows, total)
+        } else {
+            let total: i64 = conn
+                .query_row(&format!("SELECT count(*) {where_fts}"), [&phrase], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+            (rows, total)
+        }
     } else {
         let escaped = query
             .replace('\\', "\\\\")
@@ -695,24 +730,7 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        let rows: Vec<Cand> = if boundary {
-            rows.into_iter()
-                .filter_map(|mut c| {
-                    // Same precedence as the render step: content hit first, else the
-                    // annotation with the note: prefix. Kept on the candidate (6b).
-                    let snip = snippet_around(&c.content, query, true).or_else(|| {
-                        c.annotation
-                            .as_deref()
-                            .and_then(|a| snippet_around(a, query, true))
-                            .map(|s| format!("{NOTE_MARKER}{s}"))
-                    })?;
-                    c.snippet = Some(snip);
-                    Some(c)
-                })
-                .collect()
-        } else {
-            rows
-        };
+        let rows: Vec<Cand> = if boundary { boundary_filter(rows) } else { rows };
         let total = rows.len() as i64; // within the scan cap
         (rows, total)
     };
@@ -2134,7 +2152,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all threads. Use this to find WHICH thread a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…** plus block/thread ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Queries of 1–2 characters scan substrings ranked newest first (short Latin queries match whole words only).",
+            "description": "Keyword-search every block (content + user annotations) across all threads. Use this to find WHICH thread a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…** plus block/thread ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -3092,6 +3110,7 @@ mod tests {
         assert_eq!(res["total"], 1);
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**AI**"));
 
+
         // No hit → empty hits, not an error; blank query → error.
         let none: Value =
             serde_json::from_str(&search_blocks_json(&conn, "不存在的词", None).unwrap()).unwrap();
@@ -3164,6 +3183,21 @@ mod tests {
         // one pin: the C5 block pinned above
         assert_eq!(listed[0]["pinned"], 1);
         assert!(listed[0]["approx_pack_chars"].as_i64().unwrap() > 0);
+
+
+        // R3 BUG-1: the boundary must hold on the trigram path too — a 3+ char Latin
+        // word must not hit substrings ("GRE" inside "degree"), while the standalone
+        // word still matches; CJK keeps substring semantics.
+        add_block_json(&mut conn, &tid, "a degree of freedom in Great Deluge", None, None, None)
+            .unwrap();
+        add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None).unwrap();
+        let res: Value =
+            serde_json::from_str(&search_blocks_json(&conn, "GRE", None).unwrap()).unwrap();
+        assert_eq!(res["total"], 1, "{res}");
+        assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**GRE**"));
+        let res: Value =
+            serde_json::from_str(&search_blocks_json(&conn, "填空", None).unwrap()).unwrap();
+        assert_eq!(res["total"], 1);
 
         // Resources probe: uri shape, summary as description.
         let res = thread_resources(&conn).unwrap();
