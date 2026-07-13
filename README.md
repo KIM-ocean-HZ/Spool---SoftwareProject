@@ -1,6 +1,11 @@
+<p align="center">
+  <img src="docs/logo/spool-logo-sizes-preview.png" alt="Spool logo across sizes" width="560">
+</p>
+
 # Spool
 
 > 思簿 — a context hub for long-running projects.
+> Logo: a spool viewed from above, its thread pulling free — [watch it assemble](docs/logo/spool-logo-assembly.mp4).
 
 At the moment you naturally produce a fragment of information — a good answer from an AI, a decision buried in an email, a link to a document, a half-formed thought — Spool lets you capture that fragment effortlessly, threads fragments together under a two-tier **Workspace → Thread** structure, and packs any thread into a paste-ready briefing on demand — so you can re-enter a project, or re-brief an AI, instantly.
 

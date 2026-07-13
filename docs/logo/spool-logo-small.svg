@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Spool app icon (small flat, 16-48px)</title>
+  <rect width="1024" height="1024" rx="225" fill="#b45309"/>
+  <g transform="translate(-8,-10)">
+    <path d="M 255 364 A 297 297 0 0 1 410 233 A 297 297 0 0 1 740 703 A 297 297 0 0 1 589 799 Q 512 829 532 901" fill="none" stroke="#faf7f0" stroke-width="74" stroke-linecap="round"/>
+    <path d="M 512 338 A 174 174 0 1 1 512 686 A 174 174 0 1 1 512 338" fill="none" stroke="#faf7f0" stroke-width="62" stroke-linecap="round"/>
+    <path d="M 512 445 A 67 67 0 1 1 512 579 A 67 67 0 1 1 512 445" fill="none" stroke="#faf7f0" stroke-width="62" stroke-linecap="round"/>
+  </g>
+</svg>

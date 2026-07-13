@@ -229,10 +229,16 @@ pub fn run() {
 
                 let initial_menu =
                     capture::build_tray_menu(app.handle(), "", &[], &Default::default())?;
-                let icon = app
-                    .default_window_icon()
-                    .cloned()
-                    .ok_or("missing default window icon")?;
+                // 2026-07-13 (new logo): the app icon is now an opaque rounded square,
+                // whose alpha mask templates into a solid blob — the menu bar gets its
+                // own black-on-transparent thread mark (derived from the logo's small
+                // tier) instead of the window icon. Shipped as raw RGBA (tray.rgba,
+                // regenerate from tray.png) so no png-decode feature is pulled in.
+                let icon = tauri::image::Image::new(
+                    include_bytes!("../icons/tray.rgba"),
+                    44,
+                    44,
+                );
                 TrayIconBuilder::with_id("main")
                     .icon(icon)
                     .icon_as_template(true)
