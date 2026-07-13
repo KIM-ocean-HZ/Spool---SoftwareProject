@@ -4,6 +4,7 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import DeleteButton from '@/components/ui/DeleteButton';
 import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
+import { isDormant } from '@/lib/threads/dormancy';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -16,25 +17,34 @@ interface Props {
   activeThreadId: string | null;
 }
 
-// Thread ordering within a group (§9.9): active/parked on top — those with a deadline
-// by urgency, the rest by recency — then done threads sink to the bottom (dimmed by
-// ThreadListItem itself).
-const sortThreads = (threads: Thread[]): Thread[] => {
+// Thread ordering within a group (§9.9, #5 auto-dormancy 2026-07-13): awake threads
+// on top — those with a deadline by urgency, the rest by recency; idle ones sink into
+// a collapsed 沉睡 row (derived, zero clicks — see lib/threads/dormancy); done stays
+// at the very bottom (dimmed by ThreadListItem itself).
+const sortThreads = (
+  threads: Thread[],
+  now: number,
+): { fresh: Thread[]; dormant: Thread[]; done: Thread[] } => {
   const live = threads.filter((t) => t.status !== 'done');
   const done = threads.filter((t) => t.status === 'done');
-  const withDeadline = live
+  const dormant = live
+    .filter((t) => isDormant(t, now))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const awake = live.filter((t) => !isDormant(t, now));
+  const withDeadline = awake
     .filter((t) => t.deadline != null)
     .sort((a, b) => a.deadline! - b.deadline!);
-  const noDeadline = live
+  const noDeadline = awake
     .filter((t) => t.deadline == null)
     .sort((a, b) => b.updatedAt - a.updatedAt);
   done.sort((a, b) => (b.completedAt ?? b.updatedAt) - (a.completedAt ?? a.updatedAt));
-  return [...withDeadline, ...noDeadline, ...done];
+  return { fresh: [...withDeadline, ...noDeadline], dormant, done };
 };
 
 export default function WorkspaceGroup({ workspace, threads, activeThreadId }: Props) {
   const t = useT();
   const [collapsed, setCollapsed] = useState(false);
+  const [dormantOpen, setDormantOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [titleInput, setTitleInput] = useState(workspace.title);
   const [dragOver, setDragOver] = useState(false);
@@ -107,8 +117,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
     }
   };
 
-  const sortedThreads = useMemo(() => sortThreads(threads), [threads]);
-  const visibleThreads = collapsed ? [] : sortedThreads;
+  const { fresh, dormant, done } = useMemo(() => sortThreads(threads, Date.now()), [threads]);
   const headerTitle = workspace.title.trim() || t('未命名');
 
   return (
@@ -167,7 +176,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
 
       {!collapsed && (
         <ul className="space-y-0.5 pb-1 pl-5">
-          {visibleThreads.length === 0 && (
+          {fresh.length + dormant.length + done.length === 0 && (
             <li
               onClick={() => void onAddThread()}
               className="cursor-pointer rounded px-3 py-1.5 text-xs italic text-muted hover:bg-paper-2/50"
@@ -175,7 +184,40 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
               {t('+ 创建第一条脉络')}
             </li>
           )}
-          {visibleThreads.map((th) => (
+          {fresh.map((th) => (
+            <ThreadListItem
+              key={th.id}
+              thread={th}
+              active={th.id === activeThreadId}
+              onSelect={() => selectThread(th.id)}
+              onDelete={() => void removeThread(th.id)}
+            />
+          ))}
+          {/* #5 auto-dormancy: idle threads live behind one quiet row — no manual
+              parking. Expanding is per-workspace, session-local. */}
+          {dormant.length > 0 && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setDormantOpen((v) => !v)}
+                className="flex w-full items-center gap-1 rounded px-3 py-1 text-[10.5px] text-muted transition-colors hover:bg-paper-2/50 hover:text-ink-2"
+              >
+                {dormantOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                {t('沉睡 {n} 条', { n: dormant.length })}
+              </button>
+            </li>
+          )}
+          {dormantOpen &&
+            dormant.map((th) => (
+              <ThreadListItem
+                key={th.id}
+                thread={th}
+                active={th.id === activeThreadId}
+                onSelect={() => selectThread(th.id)}
+                onDelete={() => void removeThread(th.id)}
+              />
+            ))}
+          {done.map((th) => (
             <ThreadListItem
               key={th.id}
               thread={th}

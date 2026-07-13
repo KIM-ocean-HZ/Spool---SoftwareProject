@@ -69,6 +69,8 @@ const EN: Record<string, string> = {
   // Sidebar
   '进行中': 'Active',
   '搁置': 'Parked',
+  '沉睡': 'Dormant',
+  '沉睡 {n} 条': '{n} dormant',
   '聚焦': 'Focus',
   '收件箱': 'Inbox',
   '未分类': 'Unsorted',

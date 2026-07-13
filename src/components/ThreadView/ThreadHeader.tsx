@@ -11,7 +11,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import type { Block } from '@/lib/db/blocks';
-import type { Thread, ThreadStatus } from '@/lib/db/threads';
+import type { Thread } from '@/lib/db/threads';
+import { isDormant } from '@/lib/threads/dormancy';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -27,11 +28,6 @@ interface Props {
   viewMode: ThreadViewMode;
   onSetViewMode: (m: ThreadViewMode) => void;
 }
-
-const STATUS_OPTIONS: { value: ThreadStatus; label: string; cls: string }[] = [
-  { value: 'active', label: '进行中', cls: 'text-[var(--status-active)]' },
-  { value: 'parked', label: '搁置', cls: 'text-[var(--status-parked)]' },
-];
 
 // Quiet "this thread is getting long" threshold, in characters (block content +
 // annotations + pack-included attachment text — i.e. what actually lands in a pack).
@@ -348,21 +344,15 @@ export default function ThreadHeader({
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-1">
-            {STATUS_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => void patch(thread.id, { status: opt.value })}
-                className={`rounded-full border px-2 py-0.5 transition-colors ${
-                  thread.status === opt.value
-                    ? `border-current ${opt.cls}`
-                    : 'border-line text-muted hover:border-line-strong'
-                }`}
-              >
-                {t(opt.label)}
-              </button>
-            ))}
-          </div>
+          // #5 auto-dormancy (2026-07-13): the manual 进行中/搁置 pill pair is gone —
+          // parking is derived from idleness (lib/threads/dormancy) and any new
+          // activity wakes the thread by itself. The only status a live thread ever
+          // states is the derived one.
+          isDormant(thread, Date.now()) && (
+            <span className="rounded-full border border-line px-2 py-0.5 text-muted">
+              {t('沉睡')}
+            </span>
+          )
         )}
 
         <div className="flex items-center gap-1.5 text-muted">
