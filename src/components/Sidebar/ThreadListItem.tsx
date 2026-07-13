@@ -155,26 +155,31 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           {thread.deadline != null && thread.status !== 'done' && (
             <CountdownBadge deadline={thread.deadline} />
           )}
-          {/* One marker for capture target (§9.2 / §10.2): a filled accent pin that's
-              always visible while this thread IS the target, and a quiet hover-only
-              "set as target" button otherwise. Click sets the target without selecting
+          {/* Capture-target marker (§9.2 / §10.2, #7 2026-07-13): the target row says
+              捕捉中 in words — a bare pin icon meant nothing to first-time users. Other
+              rows keep the quiet hover-only pin that sets the target without selecting
               or navigating (separate actions). */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (!thread.isCaptureTarget) void setCaptureTarget(thread.id);
-            }}
-            aria-label={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
-            title={thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}
-            className={`flex-none rounded p-0.5 transition-colors ${
-              thread.isCaptureTarget
-                ? 'text-accent'
-                : 'invisible text-muted hover:bg-paper-2 hover:text-ink group-hover:visible'
-            }`}
-          >
-            <Pin size={11} className={thread.isCaptureTarget ? 'fill-current' : ''} />
-          </button>
+          {thread.isCaptureTarget ? (
+            <span
+              title={t('当前捕捉目标')}
+              className="flex-none text-[10px] text-accent"
+            >
+              {t('捕捉中')}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void setCaptureTarget(thread.id);
+              }}
+              aria-label={t('设为捕捉目标')}
+              title={t('设为捕捉目标')}
+              className="invisible flex-none rounded p-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink group-hover:visible"
+            >
+              <Pin size={11} />
+            </button>
+          )}
           <DeleteButton
             onConfirm={onDelete}
             title={t('删除脉络')}

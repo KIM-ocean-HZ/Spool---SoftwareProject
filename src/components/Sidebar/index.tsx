@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import FocusSection from './FocusSection';
+import RecentSection from './RecentSection';
 import WorkspaceGroup from './WorkspaceGroup';
 
 export default function Sidebar() {
@@ -26,6 +27,7 @@ export default function Sidebar() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
+        <RecentSection />
         <FocusSection />
         {workspaces.length === 0 ? (
           <div className="px-3 py-12 text-center">

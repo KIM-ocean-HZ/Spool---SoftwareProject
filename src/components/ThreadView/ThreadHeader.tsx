@@ -217,6 +217,25 @@ export default function ThreadHeader({
           <span>{t('打包')}</span>
         </button>
 
+        {/* #7 (2026-07-13): folding the capture switch into ⋯ killed its
+            discoverability for new users — a quiet ghost button restores it. When
+            this thread IS the target it becomes a plain 捕捉中 status, not a button. */}
+        {thread.status !== 'done' &&
+          (thread.isCaptureTarget ? (
+            <span className="flex flex-none items-center gap-1 text-[11px] text-muted">
+              {t('捕捉中')}
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+            </span>
+          ) : (
+            <button
+              onClick={() => void setCaptureTarget(thread.id)}
+              title={t('之后的 ⌘C+双击 ⌥ 捕捉都会落进这条脉络')}
+              className="flex flex-none items-center rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+            >
+              {t('捕捉到此')}
+            </button>
+          ))}
+
         {/* 任务三 #3 (2026-07-12): 打包 stays the header's only prominent action —
             完成/重开 and the capture-target switch move into this ⋯ menu. The sidebar
             row still carries the at-a-glance capture-target mark. */}

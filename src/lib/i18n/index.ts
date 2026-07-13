@@ -88,6 +88,11 @@ const EN: Record<string, string> = {
   '双击重命名': 'Double-click to rename',
   '当前捕捉目标': 'Current capture target',
   '设为捕捉目标': 'Set as capture target',
+  '最近': 'Recent',
+  '捕捉中': 'Capturing',
+  '设为捕捉': 'Set capture',
+  '捕捉到此': 'Capture here',
+  '之后的 ⌘C+双击 ⌥ 捕捉都会落进这条脉络': 'Future ⌘C + double-tap ⌥ captures land in this thread',
   '移动到工作区': 'Move to workspace',
   '没有其他工作区': 'No other workspaces',
   '搜索全部内容 (⌘⇧F)': 'Search everything (⌘⇧F)',
@@ -333,7 +338,7 @@ const EN: Record<string, string> = {
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
-  '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏 ⋯ 菜单选「设为捕捉目标」': 'No capture target — open Spool and pick "Set as capture target" from a thread header’s ⋯ menu',
+  '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a thread header',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',
   '已重做': 'Redone',
