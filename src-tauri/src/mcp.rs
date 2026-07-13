@@ -2099,8 +2099,15 @@ fn create_thread_json(
     .map_err(|e| format!("写入失败: {e}"))?;
     let mut out = json!({ "thread_id": id, "workspace": ws_title, "title": title });
     // R4 P2-1: the raw-id advisory covers every free-text write surface.
-    if let Some(hit) = suspect_raw_id(title).or_else(|| summary.and_then(suspect_raw_id)) {
-        out["warning"] = json!(raw_id_warning(&hit));
+    let mut hits: Vec<(&str, String)> = Vec::new();
+    if let Some(h) = suspect_raw_id(title) {
+        hits.push(("title", h));
+    }
+    if let Some(h) = summary.and_then(suspect_raw_id) {
+        hits.push(("summary", h));
+    }
+    if !hits.is_empty() {
+        out["warning"] = json!(raw_id_warning(&hits));
     }
     Ok(out.to_string())
 }
@@ -2145,7 +2152,7 @@ fn set_thread_summary_json(
     let mut out = json!({ "thread_id": thread_id, "title": title, "summary": summary });
     // R4 P2-1: the raw-id advisory covers every free-text write surface.
     if let Some(hit) = suspect_raw_id(summary) {
-        out["warning"] = json!(raw_id_warning(&hit));
+        out["warning"] = json!(raw_id_warning(&[("summary", hit)]));
     }
     Ok(out.to_string())
 }
@@ -2156,9 +2163,20 @@ fn set_thread_summary_json(
 // nanoid alphabet with non-alphabet neighbors, requiring both cases to keep ordinary
 // 21-letter words (all-lowercase) out. False positives survive as a warning the writer
 // can ignore.
-fn raw_id_warning(hit: &str) -> String {
+// R5 P3-1: when several surfaces are dirty in one call, the advisory names each of
+// them instead of only the first match. (R5 P3-2 — an id glued inside a longer
+// same-alphabet token, e.g. behind a hyphenated prefix — stays undetected by design:
+// '-' belongs to the nanoid alphabet, so splitting on it would break detection of
+// real ids that contain hyphens. check_library shares the detector, keeping the
+// tradeoff uniform and disclosed.)
+fn raw_id_warning(hits: &[(&str, String)]) -> String {
+    let list = hits
+        .iter()
+        .map(|(surface, hit)| format!("{surface}:「{hit}」"))
+        .collect::<Vec<_>>()
+        .join(";");
     format!(
-        "文本中疑似包含内部 id(「{hit}」)。请勿把内部 id 写进任何会展示的文本——\
+        "文本中疑似包含内部 id({list})。请勿把内部 id 写进任何会展示的文本——\
          引用其他块请用 ref_block_id 参数,id 只应出现在工具参数里。本次已原样写入。"
     )
 }
@@ -2261,12 +2279,20 @@ fn add_block_json(
     let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source });
     // D1/5b: advisory only — the block was written verbatim above. R4 P2-1: the
     // caller-supplied source detail is a display surface too (packs, digest, GUI),
-    // so it is scanned like content and annotation.
-    if let Some(hit) = suspect_raw_id(content)
-        .or_else(|| annotation.and_then(suspect_raw_id))
-        .or_else(|| source_detail.and_then(suspect_raw_id))
-    {
-        out["warning"] = json!(raw_id_warning(&hit));
+    // so it is scanned like content and annotation. R5 P3-1: every dirty surface is
+    // named, not just the first match.
+    let mut hits: Vec<(&str, String)> = Vec::new();
+    if let Some(h) = suspect_raw_id(content) {
+        hits.push(("content", h));
+    }
+    if let Some(h) = annotation.and_then(suspect_raw_id) {
+        hits.push(("annotation", h));
+    }
+    if let Some(h) = source_detail.and_then(suspect_raw_id) {
+        hits.push(("source", h));
+    }
+    if !hits.is_empty() {
+        out["warning"] = json!(raw_id_warning(&hits));
     }
     Ok(out.to_string())
 }
@@ -4020,6 +4046,25 @@ mod tests {
         )
         .unwrap();
         assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+
+        // R5 P3-1: with several dirty surfaces in one call, the warning names each
+        // surface with its own match instead of stopping at the first.
+        let v: Value = serde_json::from_str(
+            &add_block_json(
+                &mut conn,
+                &tid,
+                "正文串 sbAAAAAAAAAAAAAAAAAAB",
+                Some("来源串 sbCCCCCCCCCCCCCCCCCCd"),
+                Some("批注串 sbBBBBBBBBBBBBBBBBBBc"),
+                None,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let w = v["warning"].as_str().unwrap();
+        assert!(w.contains("content:「sbAAAAAAAAAAAAAAAAAAB」"), "{w}");
+        assert!(w.contains("annotation:「sbBBBBBBBBBBBBBBBBBBc」"), "{w}");
+        assert!(w.contains("source:「sbCCCCCCCCCCCCCCCCCCd」"), "{w}");
     }
 
     // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal
