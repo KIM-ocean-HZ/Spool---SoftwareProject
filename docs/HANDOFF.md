@@ -42,33 +42,29 @@
 6. 每任务独立提交;设计类任务先出方案交 Ocean 批复再动手。
 7. 写入类破坏性操作(清数据、迁移、换装)前核对证据链,换装需 Ocean 明示。
 
-## 2. 真库 3 行脏数据(等 Ocean 手改,改完即可 R5)
+## 2. 真库数据卫生 —— 已收官(2026-07-13,Ocean 授权执行)
 
-只读扫描(2026-07-12)结果,全部 AI 署名、GUI 可直接编辑:
+Ocean 授权后由会话直接修复:备份 `~/Desktop/spool-snapshot-20260713-pre-hygiene-
+manual-fix.db` 先行;实修 **4 处**(check_library 抓到了手工扫描漏掉的第 4 处
+——R4 埋在 source 里的裸 id 探针,工具价值实证):0709 块的 source 尾巴与批注
+裸 id、R3 测试块正文伪 id 与 R4 探针 source 均改为「(已清除)」措辞。修复后
+check_library 实测返回**「体检通过」**。
 
-1. 「MCP 实测 · 0709」07-09 14:16 的块(预览「Scheduling 复习卡片 ×3…」):
-   **来源标签**是 `Claude (Cowork) · MCP · 依据 spool://thread/sbC2z…`——点击
-   来源标签,删掉「· 依据 spool://…」尾巴(或改写为「— 依据〈Scheduling…〉」)。
-2. 同脉络同块的**批注**里有裸 id `sbC2zgToQ6yL7hBWxTjTg`——双击块编辑批注删掉。
-3. 「MCP 实测 R3」的 id 泄漏**测试块**(内容自带 `sbAAAAAAAAAAAAAAAAAAB`)——
-   它是 R3 故意写入的测试样本:整块删除,或保留并接受体检永远报这一条(Ocean 定)。
+## 3. 换装 —— 已完成(2026-07-13,Ocean 授权)
 
-改完在 Claude Desktop 里说「给我的思簿做个体检」(调 check_library),应回
-「体检通过」。
+/Applications/Spool.app 已是本窗口终版构建(含数据卫生、上手教育、极简化与
+交互摩擦四项;Spool Dev 签名,TCC 不受影响)。**Ocean 需重启 Claude Desktop**
+接上新 MCP 二进制(路径不变)。真库开机验证 v8 / 59 块 / 15 脉络无恙。
 
-## 3. 换装(需 Ocean 明示后执行,或 Ocean 自己跑)
+## 3b. 交互摩擦四项(Ocean 2026-07-13 反馈,已全部落地)
 
-```
-osascript -e 'tell application id "com.oceanjin.spool" to quit'
-rm -rf /Applications/Spool.app
-ditto ~/Desktop/Knote/src-tauri/target/release/bundle/macos/Spool.app /Applications/Spool.app
-open /Applications/Spool.app
-```
+#4 打包钮/选择框软琥珀(ebb4ef1);#5 自动沉睡取代手动搁置(4452c04,14 天
+无活动沉入组尾折叠行,deadline/捕捉目标/新活动免疫,status='parked' 留字段不再
+读写);#6 侧栏「最近」区(334ab1b,OPEN EDITORS 语法,目标行「捕捉中 ●」文字
+徽标 + hover「设为捕捉」);#7 头部「捕捉到此」幽灵钮恢复可发现性,浮层 no-target
+文案同步。设计稿 docs/DESIGN_UX_FRICTION.md 待并入 PLAN 后删除。
 
-签名同为 Spool Dev,输入监听授权不受影响;换装后**重启 Claude Desktop** 接上
-新 MCP 二进制(路径不变)。
-
-## 4. R5 复测(换装 + 手改后,Ocean 在 Claude Desktop 执行附录提示词)
+## 4. R5 复测(Ocean 重启 Claude Desktop 后执行附录提示词)
 
 - 报告回来逐项处置:确认→修复→独立提交;循环到 Ocean 满意收官。
 - GUI 面(引用行三态、设置 tabs、块流 B 版)已实机截图验证,不在 MCP 提示词内;
