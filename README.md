@@ -85,9 +85,20 @@ The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Acc
 
 Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your threads directly.
 
-- **One-click hookup**: Settings → 通用 → MCP 服务 → 一键接入 writes the client's config for you (with a backup). A 「复制使用提示」 button gives you a paste-ready briefing that teaches the AI how to use Spool well.
-- **Read tools**: list threads (with one-line summaries and read-budget hints), full-text search, near-duplicate detection, block paging, and the same deterministic pack the GUI produces.
-- **Write tools** (a second, separate consent): create a thread, append a block, refresh a thread's one-line summary. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand.
+- **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). A 「复制使用提示」 button gives you a paste-ready briefing that teaches the AI how to use Spool well.
+- **Read tools**: list threads (with one-line summaries and read-budget hints), a cross-thread digest of recent activity, full-text search, near-duplicate detection, block paging, the same deterministic pack the GUI produces, and a read-only library hygiene checkup.
+- **Write tools** (a second, separate consent): create a thread, append a block (optionally citing the block it builds on), refresh a thread's one-line summary. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand.
+
+### What to say once connected
+
+Each phrase maps to one tool — a fresh install seeds a tutorial thread with the same list, and Settings → MCP keeps it under 「示例用法」:
+
+- *"Help me review the ⟨…⟩ thread, then quiz me on it"* — reads the whole thread (`get_pack`)
+- *"What have I been working on this week?"* — cross-thread digest (`get_digest`)
+- *"File this conclusion into ⟨…⟩, with a note on why it matters"* — archives it (`add_block`; needs AI writes on)
+- *"Which thread did I file this topic under?"* — library-wide search (`search_blocks`)
+- *"Check whether I captured anything twice"* — duplicate report (`find_similar_blocks`)
+- *"Give my library a checkup"* — hygiene report (`check_library`)
 
 ## Keyboard shortcuts
 
