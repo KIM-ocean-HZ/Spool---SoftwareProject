@@ -674,7 +674,7 @@ function TextBlockItem({
             aria-label={selected ? t('取消选择') : t('选择此 block')}
             className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
               selected
-                ? 'border-accent bg-accent text-paper'
+                ? 'border-accent bg-accent-soft text-accent'
                 : 'border-line-strong bg-paper hover:border-accent'
             }`}
           >
