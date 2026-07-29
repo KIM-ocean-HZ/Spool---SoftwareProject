@@ -42,4 +42,4 @@
 
 ## 联系方式
 
-问题或疑虑请在 GitHub 仓库提 Issue，或联系 kimocean0531@gmail.com。
+问题或疑虑请在 GitHub 仓库提 Issue，或联系 jinhz0531@gmail.com。
