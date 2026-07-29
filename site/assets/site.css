@@ -82,7 +82,8 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
   transition: opacity 700ms cubic-bezier(0.2, 0.6, 0.2, 1), transform 700ms cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 .reveal.in-view { opacity: 1; transform: none; }
-/* sections need to sit above the margin thread's stacking context */
+/* page chrome gets its own stacking context under the margin thread (z 3)
+   and the nav (z 50) */
 main, .nav-shell, footer { position: relative; z-index: 2; }
 .reveal-stagger > * {
   opacity: 0;
@@ -96,43 +97,48 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 
 /* ---- the thread in the margins (built by main.js) ----
    A spool in each side margin pays its thread out down the page as the reader
-   scrolls, and winds it back in on the way up. Purely decorative: it lives in
-   space the layout never uses, and only appears once the margins are wide
-   enough that it can't crowd the text. */
+   scrolls, and winds it back in on the way up. The two sides sit at different
+   heights, sizes and rhythms on purpose, and each spool visibly empties: the
+   wound band (the amber ring) thins away until only the bare spokes remain.
+   Purely decorative: it lives in space the layout never uses, and only appears
+   once the margins are wide enough that it can't crowd the text. */
 .margin-thread {
   position: fixed;
   top: 0;
-  width: 56px;
+  width: 60px;
   height: 100vh;
-  z-index: 1;
+  /* above the sections (their full-bleed tinted backgrounds would otherwise
+     swallow the spools as they scroll past) but below the nav; horizontally
+     it never overlaps content — only the empty margin */
+  z-index: 3;
   pointer-events: none;
   display: none;
 }
 /* centred inside its own margin: margin width is (100vw - content)/2, so its
    midpoint sits at a quarter of the leftover, less half this element */
-.margin-thread.left { left: calc((100vw - 72rem) / 4 - 28px); }
-.margin-thread.right { right: calc((100vw - 72rem) / 4 - 28px); transform: scaleX(-1); }
+.margin-thread.left { left: calc((100vw - 72rem) / 4 - 30px); }
+.margin-thread.right { right: calc((100vw - 72rem) / 4 - 30px); }
 @media (min-width: 1240px) { .margin-thread { display: block; } }
 
-.mt-spool {
-  position: absolute;
-  top: 84px;
-  left: 0;
-  width: 56px;
-  height: 56px;
-  overflow: visible;
-}
-.mt-spool .mt-ring { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
-.mt-spool .mt-ring-in { stroke: var(--accent); opacity: 0.45; }
-.mt-spool .mt-hub { fill: var(--accent); opacity: 0.75; }
-.mt-spool .mt-tail { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; opacity: 0.8; }
+/* the spool itself — size and position are per-side, set inline by main.js */
+.mt-spool { position: absolute; overflow: visible; }
+.mt-spool .mt-flange { fill: none; stroke: var(--line-strong); stroke-width: 1.4; }
+.mt-spool .mt-flange-in { stroke-width: 1; opacity: 0.75; }
+.mt-spool .mt-spokes { stroke: var(--line-strong); stroke-width: 1.7; stroke-linecap: round; }
+/* wound thread: an opaque paper ring hides the spokes, an amber band and a
+   dashed texture over it read as turns of thread; all three shrink together */
+.mt-spool .mt-wound-mask { fill: none; stroke: var(--paper); }
+.mt-spool .mt-wound { fill: none; stroke: var(--accent); opacity: 0.5; }
+.mt-spool .mt-wound-tex { fill: none; stroke: var(--accent-2); opacity: 0.3; stroke-dasharray: 2.2 3.4; }
+.mt-spool .mt-hub { fill: var(--accent); opacity: 0.8; }
+.mt-spool .mt-hub-hole { fill: var(--paper); }
+.mt-spool .mt-notch { fill: var(--accent); opacity: 0.8; }
+.mt-spool .mt-tail { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; opacity: 0.8; }
 
 .mt-curve {
   position: absolute;
-  top: 140px;
   left: 0;
-  width: 56px;
-  height: calc(100vh - 200px);
+  width: 60px;
   overflow: visible;
 }
 .mt-path {
@@ -141,8 +147,7 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
   stroke-width: 1.6;
   stroke-linecap: round;
   opacity: 0.42;
-  stroke-dasharray: 1000;
-  stroke-dashoffset: 1000;
+  /* dasharray/offset are set by main.js in the path's own user units */
 }
 /* the thread end — positioned in viewport coordinates by main.js */
 .mt-end {

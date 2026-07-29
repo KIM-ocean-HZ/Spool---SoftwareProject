@@ -27,43 +27,126 @@
   }
 
   /* ---- the thread in the margins ----
-     A spool sits in each side margin; its thread pays out down the page as you
-     scroll and winds back in when you scroll up, the spool turning with it.
-     Decorative only: aria-hidden, pointer-events none, and CSS hides the whole
-     thing below the width where the margins are wide enough to hold it. */
+     A spool hangs in each side margin and pays its thread out down the page as
+     you scroll, winding back in on the way up. The two sides are deliberately
+     unalike — different heights, sizes, curves, phase and spin direction — and
+     each spool visibly empties as its thread leaves: the wound band thins until
+     only the bare spokes remain. Rotation comes from the geometry (arc paid
+     out ÷ current band radius), so the spool turns exactly as fast as thread
+     leaves it, speeding up as it runs low. Decorative only: aria-hidden,
+     pointer-events none, and CSS hides it below 1240px. */
   if (!reduceMotion) {
-    var CURVE =
-      'M 28 4 C 28 60, 8 92, 8 150 C 8 214, 48 246, 48 310 ' +
-      'C 48 374, 8 406, 8 470 C 8 528, 28 556, 28 600';
+    // spool geometry in its own 64×64 viewBox (centre 32)
+    var SP_FULL = 24;   // wound-band outer radius when nothing has been read
+    var SP_CORE = 8.5;  // bare-core radius once everything is paid out
 
-    var makeMargin = function (side) {
+    var SIDES = [
+      { side: 'left',
+        size: 62, top: '76px',
+        curveTop: '162px', curveHeight: 'calc(100vh - 224px)', vh: 640, dir: 1, lead: 0,
+        curve: 'M 30 0 C 30 56, 6 88, 9 150 C 12 214, 54 236, 50 300 ' +
+               'C 46 362, 4 376, 8 438 C 11 486, 46 498, 43 548 C 41 590, 30 596, 30 640' },
+      { side: 'right',
+        size: 50, top: '38vh',
+        curveTop: 'calc(38vh + 60px)', curveHeight: 'calc(62vh - 130px)', vh: 420, dir: -1, lead: 0.05,
+        curve: 'M 26 0 C 26 44, 46 68, 42 122 C 38 170, 8 182, 12 234 ' +
+               'C 15 278, 48 288, 44 336 C 40 376, 12 382, 16 420' }
+    ];
+
+    var makeMargin = function (cfg) {
       var el = document.createElement('div');
-      el.className = 'margin-thread ' + side;
+      el.className = 'margin-thread ' + cfg.side;
       el.setAttribute('aria-hidden', 'true');
       el.innerHTML =
-        '<svg class="mt-spool" viewBox="0 0 56 56">' +
-          '<g class="mt-spin" style="transform-origin:28px 28px">' +
-            '<circle class="mt-ring" cx="28" cy="28" r="24"/>' +
-            '<circle class="mt-ring" cx="28" cy="28" r="16.5"/>' +
-            '<circle class="mt-ring mt-ring-in" cx="28" cy="28" r="9"/>' +
-            '<circle class="mt-hub" cx="28" cy="28" r="3.4"/>' +
-            '<path class="mt-tail" d="M 28 4 A 24 24 0 0 1 50 19"/>' +
+        '<svg class="mt-spool" viewBox="0 0 64 64" style="width:' + cfg.size + 'px;height:' + cfg.size +
+            'px;left:' + ((60 - cfg.size) / 2) + 'px;top:' + cfg.top + '">' +
+          '<g class="mt-spin" style="transform-origin:32px 32px">' +
+            '<circle class="mt-flange" cx="32" cy="32" r="29"/>' +
+            '<circle class="mt-flange mt-flange-in" cx="32" cy="32" r="26"/>' +
+            '<path class="mt-spokes" d="M32 32 L32 8 M32 32 L52.8 44 M32 32 L11.2 44"/>' +
+            '<circle class="mt-wound-mask" cx="32" cy="32"/>' +
+            '<circle class="mt-wound" cx="32" cy="32"/>' +
+            '<circle class="mt-wound-tex" cx="32" cy="32"/>' +
+            '<path class="mt-tail"/>' +
+            '<circle class="mt-hub" cx="32" cy="32" r="5"/>' +
+            '<circle class="mt-hub-hole" cx="32" cy="32" r="1.8"/>' +
+            '<circle class="mt-notch" cx="32" cy="4.5" r="1.2"/>' +
           '</g>' +
         '</svg>' +
-        '<svg class="mt-curve" viewBox="0 0 56 600" preserveAspectRatio="none">' +
-          '<path class="mt-path" pathLength="1000" vector-effect="non-scaling-stroke" d="' + CURVE + '"/>' +
+        '<svg class="mt-curve" viewBox="0 0 60 ' + cfg.vh + '" preserveAspectRatio="none" style="top:' +
+            cfg.curveTop + ';height:' + cfg.curveHeight + '">' +
+          '<path class="mt-path" d="' + cfg.curve + '"/>' +
         '</svg>' +
         '<span class="mt-end"></span>';
       document.body.appendChild(el);
       return {
-        root: el,
+        cfg: cfg,
         spin: el.querySelector('.mt-spin'),
         svg: el.querySelector('.mt-curve'),
         path: el.querySelector('.mt-path'),
-        end: el.querySelector('.mt-end')
+        end: el.querySelector('.mt-end'),
+        mask: el.querySelector('.mt-wound-mask'),
+        wound: el.querySelector('.mt-wound'),
+        tex: el.querySelector('.mt-wound-tex'),
+        tail: el.querySelector('.mt-tail'),
+        theta: 0,
+        prev: -1
       };
     };
-    var margins = [makeMargin('left'), makeMargin('right')];
+    var margins = SIDES.map(makeMargin);
+
+    // one shared frame step, also used by the scratch/test harness math
+    var setState = function (m, p) {
+      var pp = Math.min(1, Math.max(0, (p - m.cfg.lead) / (1 - m.cfg.lead)));
+      // dash metrics in the path's own user units — the only space where
+      // Chrome keeps them stable on a stretched (preserveAspectRatio: none) svg
+      if (!m.len) {
+        m.len = m.path.getTotalLength();
+        m.path.style.strokeDasharray = m.len;
+      }
+      // the extra 1.2 keeps the round linecap from peeking out as a dot at
+      // pp = 0; at the drawn tip the .mt-end dot covers the same shortfall
+      m.path.style.strokeDashoffset = (m.len * (1 - pp) + 1.2).toFixed(1);
+
+      // the wound band empties linearly with what has been paid out
+      var rOut = SP_CORE + (SP_FULL - SP_CORE) * (1 - pp);
+      var band = rOut - SP_CORE;
+      var rMid = ((rOut + SP_CORE) / 2).toFixed(2);
+      [m.mask, m.wound, m.tex].forEach(function (c) {
+        c.setAttribute('r', rMid);
+        c.setAttribute('stroke-width', band.toFixed(2));
+      });
+      var bare = band < 0.5;
+      m.wound.style.opacity = bare ? '0' : '';
+      m.tex.style.opacity = bare ? '0' : '';
+      m.tail.style.opacity = bare ? '0' : '';
+      if (!bare) {
+        m.tail.setAttribute('d',
+          'M 32 ' + (32 - rOut).toFixed(1) +
+          ' C 39 ' + (30 - rOut).toFixed(1) + ', 46 ' + (26 - rOut).toFixed(1) + ', 55 16');
+      }
+
+      var box = m.svg.getBoundingClientRect();
+      if (!box.height) { m.prev = pp; return; }
+
+      // physical spin: arc length that left the spool over the band radius,
+      // both in on-screen pixels, integrated so direction reverses with scroll
+      if (m.prev >= 0 && pp !== m.prev) {
+        var arcPx = (pp - m.prev) * m.len * (box.height / m.cfg.vh);
+        var radPx = Math.max(rOut, SP_CORE) * (m.cfg.size / 64);
+        m.theta += m.cfg.dir * (arcPx / radPx) * 57.2958;
+        m.spin.style.transform = 'rotate(' + m.theta.toFixed(1) + 'deg)';
+      }
+      m.prev = pp;
+
+      // park the thread-end dot at the drawn tip. preserveAspectRatio is
+      // "none", so user units map independently on each axis.
+      var pt = m.path.getPointAtLength(m.len * pp);
+      m.end.style.transform =
+        'translate(' + (pt.x / 60 * box.width).toFixed(1) + 'px,' +
+        (pt.y / m.cfg.vh * box.height + box.top).toFixed(1) + 'px)';
+      m.end.style.opacity = pp > 0.004 ? '1' : '0';
+    };
 
     var prog = document.createElement('div');
     prog.className = 'thread-progress';
@@ -82,22 +165,7 @@
       tpLine.style.transform = 'scaleX(' + p + ')';
       tpTip.style.left = (p * 100) + '%';
 
-      margins.forEach(function (m) {
-        // pathLength is normalised to 1000, so the offset is just the remainder
-        m.path.style.strokeDashoffset = (1000 * (1 - p)).toFixed(1);
-        // a little under one turn across the whole page — it should read as
-        // unwinding, not spinning
-        m.spin.style.transform = 'rotate(' + (p * 190).toFixed(1) + 'deg)';
-        // park the thread-end dot at the drawn tip. preserveAspectRatio is
-        // "none", so user units map independently on each axis.
-        var box = m.svg.getBoundingClientRect();
-        if (!box.height) return;
-        var pt = m.path.getPointAtLength(m.path.getTotalLength() * p);
-        m.end.style.transform =
-          'translate(' + (pt.x / 56 * box.width).toFixed(1) + 'px,' +
-          (pt.y / 600 * box.height + box.top).toFixed(1) + 'px)';
-        m.end.style.opacity = p > 0.004 ? '1' : '0';
-      });
+      margins.forEach(function (m) { setState(m, p); });
     };
     window.addEventListener('scroll', function () {
       if (!ticking) { ticking = true; window.requestAnimationFrame(update); }
