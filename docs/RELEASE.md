@@ -17,7 +17,7 @@ CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-
 
 ```bash
 export APPLE_SIGNING_IDENTITY="Developer ID Application: <名字> (<TEAM_ID>)"
-export APPLE_ID="kimocean0531@gmail.com"
+export APPLE_ID="jinhz0531@gmail.com"   # 2026-07-13：开发者账号邮箱（旧 kimocean0531 已弃用）
 export APPLE_PASSWORD="<app专用密码>"
 export APPLE_TEAM_ID="<TEAM_ID>"
 ```
