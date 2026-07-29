@@ -1,9 +1,11 @@
-/* Spool interactive demo — a scripted simulation of the core loop.
-   Everything is client-side and preset: no network, no AI is called.
+/* Spool interactive demo — a scripted walk through the whole loop.
+   Everything is client-side and written in advance: no network, no AI is called.
    Bilingual: string tables below; rebuilt on the site language toggle.
-   Guidance model: one instruction banner updated after EVERY completed
-   action, plus a pulsing cue on the next click target.
-   Phases: capture1 → capture2 → capture3 → pack → rebrief → mcp → done */
+   Guidance: one instruction line updated after EVERY completed action, plus a
+   pulsing ring on the next thing to click.
+   Phases: capture1 → capture2 → capture3 → pack → rebrief → mcp → done
+
+   Copy rule: everyday words only, in both languages. */
 
 (function () {
   'use strict';
@@ -18,219 +20,210 @@
   var STR = {};
 
   STR.en = {
-    ribbon: 'INTERACTIVE SIMULATION · SCRIPTED DATA · NO AI CALLED',
-    replay: 'replay',
-    rail: ['1 · Capture', '2 · Pack', '3 · Re-brief', '4 · MCP'],
-    threadName: 'Distributed scheduling paper',
-    threadSub: 'deadline Friday · 3 threads in workspace',
+    ribbon: 'A WALKTHROUGH · WRITTEN IN ADVANCE · NO AI IS CALLED',
+    replay: 'start over',
+    rail: ['1 · Save', '2 · Pack', '3 · Paste', '4 · MCP'],
+    threadName: 'Job search',
+    threadSub: 'batch closes Friday · 3 projects in Work',
     side: {
-      ws1: 'Research',
-      t1: 'Distributed scheduling paper',
-      cap: '● capturing',
-      t2: 'Rust study notes',
-      t3: 'Course report',
-      ws2: 'Life',
-      t4: 'Recipes'
+      ws1: 'Work', t1: 'Job search', cap: '● saving here',
+      t2: 'Portfolio site', t3: 'Interview prep',
+      ws2: 'Study', t4: 'ML course',
+      ws3: 'Life', t5: 'Apartment hunt'
     },
-    feedEmpty: 'Captured fragments land here ↓',
+    feedEmpty: 'What you save lands here ↓',
     packBtn: '⎘ Pack',
-    addBtn: 'Add',
-    pmTitle: 'Pack this thread',
-    pmSub: 'Local assembly · paste-ready for any AI',
-    pmAssembling: 'assembling…',
-    pmStat: function (n) { return '3 blocks · ' + n + ' chars · deterministic'; },
+    addBtn: 'Save',
+    pmTitle: 'Pack this project',
+    pmSub: 'Written on your Mac · ready to paste into any AI',
+    pmAssembling: 'writing…',
+    pmStat: function (n) { return '3 notes · ' + n + ' characters'; },
     pmCopy: 'Copy',
-    pmCopied: '✓ Copied for real',
-    pmCont: 'Paste into an AI →',
-    finale: '<strong>That’s the whole loop</strong> — and notice the sidebar: Spool is a project tree, not a chat. The AI is a librarian working <em>inside your</em> structure.<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a>',
+    pmCopied: '✓ Really copied',
+    pmCont: 'Paste it into an AI →',
+    finale: '<strong>That’s the whole loop.</strong> And look at the sidebar — a job hunt, a portfolio, a course, a flat. Spool is for any project that runs longer than one sitting.<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a>',
     copyLabel: '⎘ Copy',
     copied: '✓ Copied',
     keycap: '⌥ option',
-    keyHint1: '<strong>double-tap</strong> — the on-screen key, or your real ⌥ key',
-    keyHint2: '<strong>double-tap</strong> again',
+    keyHint1: 'press it <strong>twice, quickly</strong> — on screen, or your real ⌥ key',
+    keyHint2: '<strong>twice</strong> again',
     sendBtn: '▸ Send',
-    pasteBtn: '⎘ Paste the pack',
-    nudgeMcp: 'Next: no pasting at all — MCP →',
+    pasteBtn: '⎘ Paste what Spool wrote',
+    nudgeMcp: 'Next: no pasting at all →',
 
     blocks: {
-      article: { time: '11:40', src: 'arXiv · Safari', text: 'Chapter 4 classifies straggler mitigation as speculative, proactive, or hybrid — orthogonal to our incremental/deadline split.' },
-      chat: { time: '14:05', src: 'AI chat · Web', text: 'Incremental evaluation doesn’t require divisibility — only locally O(1) reversible updates. Sums qualify; products too, via the log domain.' },
-      note: { time: '16:30', src: null, text: 'Revision order for tomorrow: fix the formula numbering in §3.2 first, then add the straggler comparison table.' },
-      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: 'Filed: §3.2 argument is complete — reversibility answers “why not truncate.” Consistent with the 6/17 baseline note; survey taxonomy cited as contrast (fn. 12).' }
+      posting: { time: '11:40', src: 'acme.com · Safari', text: 'Acme is hiring a data analyst: SQL required, Python a plus. Small team, reports to the head of ops.' },
+      chat: { time: '14:05', src: 'AI chat · Safari', text: 'For a career switch, put a projects section above work history — recruiters spend about six seconds on the first screen.' },
+      note: { time: '16:30', src: null, text: 'Order of work: rewrite the resume summary first, then the Acme cover letter.' },
+      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: 'Next step: the resume still leads with work history. Move the projects section above it before Friday’s batch.' }
     },
 
     tpl: {
-      articleBar: 'arXiv — Safari',
-      articleH: 'Scalable scheduling for ML workloads: a survey (2025)',
-      articleBody: '…latency variance remains the dominant failure mode at scale. <span class="quote-target">Chapter 4 classifies straggler mitigation as speculative, proactive, or hybrid</span> — a taxonomy the authors argue is exhaustive for synchronous training…',
-      chatBar: 'AI chat — Web',
-      chatQ: 'Does incremental evaluation require the metric to be divisible?',
-      chatA: 'No — <span class="quote-target">it doesn’t require divisibility, only locally O(1) reversible updates</span>. Sums qualify; products too, via the log domain.',
-      c3a: 'Fragments so far came from <em>outside</em>: a paper, an AI. The third kind is the one Spool values most — <strong>your own thinking</strong>.',
-      c3b: 'Notes with no source rank as the highest-signal content in every pack: your words are directives, everything else is evidence.',
-      packA: 'Three fragments, three sources, one thread — scattered context, now in one place.',
-      packB: 'Packing is pure string assembly: deterministic, no AI in the hot path. Same thread, same day, same bytes.',
-      rebriefBar: 'Any AI — new conversation, zero memory',
+      postingBar: 'Acme — Data analyst · Safari',
+      postingH: 'Data Analyst — Acme (remote)',
+      postingBody: '…you will own reporting for the operations team. <span class="quote-target">SQL required, Python a plus. Small team, reports to the head of ops.</span> We review applications in batches…',
+      chatBar: 'AI chat · Safari',
+      chatQ: 'I’m switching careers. How should I order my resume?',
+      chatA: 'Lead with what you have built: <span class="quote-target">put a projects section above work history — recruiters spend about six seconds on the first screen</span>.',
+      c3a: 'The first two notes came from <em>somewhere else</em> — a job posting, an AI. The third kind is the one Spool values most: <strong>what you decided yourself</strong>.',
+      c3b: 'Notes with no source count for the most when Spool writes the project out. Your words are decisions; everything else is just material.',
+      packA: 'Three notes, three different places, one project — the scattered bits are now in one list.',
+      packB: 'Spool writes it out on your Mac. No AI involved, and the same project always comes out the same way.',
+      rebriefBar: 'A new AI chat — knows nothing about you',
       mcpBar: 'Claude Desktop — connected to Spool ✓',
-      mcpUser: 'Where did I leave my scheduling paper? Check my Spool, then file a one-line conclusion back into the thread.'
+      mcpUser: 'Where am I with my job search? Check my Spool, then save the next step back into it.'
     },
 
     guide: {
-      start: '<b>Step 1 of 4 · Capture.</b> You’re reading a paper and one line matters. Click <strong>⎘ Copy</strong> on the highlighted sentence.',
-      copied: '<b>Copied ✓</b> — now the Spool gesture: <strong>double-tap ⌥</strong>. Use the on-screen key below, or your keyboard’s real Option key.',
-      cap1: '<b>✓ Captured — 1 of 3.</b> The source came along for free (“arXiv · Safari”). Next fragment: an AI just gave you a good answer — click <strong>⎘ Copy</strong> on it.',
-      cap2: '<b>✓ Captured — 2 of 3.</b> Last one is <strong>your own thinking</strong> — we’ve drafted a note in Spool’s composer on the right. Just press <strong>Add</strong> (or edit it first).',
-      cap3: '<b>✓ 3 of 3 — capture complete.</b> A paper, an AI, and your own note now live in one thread. Time for the crown feature: click <strong>⎘ Pack</strong> in Spool’s header.',
-      packed: '<b>✓ Packed.</b> Notice the authority sections — your note outranks the sources. Try <strong>Copy</strong> (it really hits your clipboard), then <strong>Paste into an AI →</strong>',
-      rebrief: '<b>Step 3 of 4 · Re-brief.</b> This AI conversation is brand-new — zero memory of you. Click <strong>⎘ Paste the pack</strong> and watch it pick the project straight up.',
-      pasted: '<b>See the tags?</b> Every point in the reply traces to one of your fragments — scattered information, integrated. (Scripted reply; a real paste works just like this.)',
-      mcp: '<b>Step 4 of 4 · MCP.</b> A pack briefs an AI <em>once</em>. Connected over MCP, your AI client already holds the keys to the <strong>whole library</strong> — just ask it. Click <strong>▸ Send</strong>.',
-      done: '<b>✓ Done.</b> Your AI walked 14 threads and 128 blocks spanning six weeks, answered from your real state, and filed a conclusion back — attributed, append-only. It can never touch what you wrote by hand.'
+      start: '<b>Step 1 of 4 · Save.</b> You are reading a job posting and one line matters. Click <strong>⎘ Copy</strong> on the highlighted sentence.',
+      copied: '<b>Copied ✓</b> Now the Spool part: press <strong>⌥ twice, quickly</strong>. Use the key below, or the real Option key on your keyboard.',
+      cap1: '<b>✓ Saved — 1 of 3.</b> The source came along by itself (“acme.com · Safari”). Next: an AI just told you something useful — click <strong>⎘ Copy</strong> on it.',
+      cap2: '<b>✓ Saved — 2 of 3.</b> The last one is <strong>your own decision</strong>. We have written it out for you on the right — just press <strong>Save</strong> (or edit it first).',
+      cap3: '<b>✓ 3 of 3.</b> A job posting, an AI answer and your own decision now sit in one project. Now the useful part: click <strong>⎘ Pack</strong> at the top.',
+      packed: '<b>✓ Done.</b> Notice the order — your own note comes first, above both sources. Try <strong>Copy</strong> (it really does copy), then <strong>Paste it into an AI →</strong>',
+      rebrief: '<b>Step 3 of 4 · Paste.</b> This chat is brand new and knows nothing about you. Click <strong>⎘ Paste what Spool wrote</strong>.',
+      pasted: '<b>See the little labels?</b> Every line of the answer comes from one of your notes. Scattered bits, put together. (The reply is written in advance; a real paste works the same way.)',
+      mcp: '<b>Step 4 of 4 · MCP.</b> Pasting briefs an AI <em>once</em>. Connect it to Spool instead and it can open <strong>everything you have saved</strong>, any time you ask. Click <strong>▸ Send</strong>.',
+      done: '<b>✓ That’s it.</b> It read across your projects, answered from notes you saved weeks apart, and put the next step back where it belongs — signed, and added below your own note, never over it.'
     },
 
     packText: [
-      '# Project Context: Distributed scheduling paper', '',
-      'Generated by Spool on 2026-07-29. 3 blocks total.', '', '---', '',
-      '## How to Read This Context', '',
-      'Blocks are grouped by authority. The author’s own',
-      'notes are the highest-signal content — treat them',
-      'as directives, not suggestions.', '',
-      '### ✍️ Author’s notes (highest signal)', '',
-      '- [16:30] Revision order for tomorrow: fix the',
-      '  formula numbering in §3.2 first, then add the',
-      '  straggler comparison table.', '',
-      '### 📚 Reference', '',
-      '- [11:40 · arXiv · Safari] Chapter 4 classifies',
-      '  straggler mitigation as speculative, proactive,',
-      '  or hybrid — orthogonal to the incremental /',
-      '  deadline split.', '',
-      '### 🤖 AI-derived (verify before relying on)', '',
-      '- [14:05 · AI chat] Incremental evaluation doesn’t',
-      '  require divisibility — only locally O(1)',
-      '  reversible updates. Sums qualify; products too,',
-      '  via the log domain.'
+      '# Project: Job search', '',
+      'Written by Spool. 3 notes.', '', '---', '',
+      '## How to read this', '',
+      'Notes are grouped by who wrote them. The',
+      'ones with no source are the author’s own —',
+      'treat those as decisions, not suggestions.', '',
+      '### ✍️ My own notes (count for the most)', '',
+      '- [16:30] Order of work: rewrite the resume',
+      '  summary first, then the Acme cover letter.', '',
+      '### 📚 Things I read', '',
+      '- [11:40 · acme.com · Safari] Acme is hiring a',
+      '  data analyst: SQL required, Python a plus.',
+      '  Small team, reports to the head of ops.', '',
+      '### 🤖 Written by an AI (check before trusting)', '',
+      '- [14:05 · AI chat] For a career switch, put a',
+      '  projects section above work history —',
+      '  recruiters spend about six seconds on the',
+      '  first screen.'
     ].join('\n'),
 
     aiReply:
-      '<div class="ab-line">Got it — <strong>Distributed scheduling paper</strong>, §3.2 revision. Your pack has 3 fragments from 3 sources. Synthesized:</div>' +
-      '<div class="ab-item"><span class="ab-tag you">✍️ your note</span>Order of work: formula numbering first, then the straggler comparison table.</div>' +
-      '<div class="ab-item"><span class="ab-tag ai">🤖 ai chat</span>Open §3.2 with the O(1)-reversibility argument — it directly answers “why not truncate.”</div>' +
-      '<div class="ab-item"><span class="ab-tag ref">📚 arxiv</span>The survey’s taxonomy is orthogonal to your split — cite it as contrast in related work, not as overlap.</div>' +
-      '<div class="ab-line muted-line">Three scattered fragments → one work plan. Nothing re-explained.</div>',
+      '<div class="ab-line">Got it — <strong>Job search</strong>, the Acme application. Three notes, three sources. Here is the plan:</div>' +
+      '<div class="ab-item"><span class="ab-tag you">✍️ your note</span>Work in your order: the resume summary first, then the cover letter.</div>' +
+      '<div class="ab-item"><span class="ab-tag ai">🤖 ai chat</span>Move the projects section above work history — that is what the six-second scan sees.</div>' +
+      '<div class="ab-item"><span class="ab-tag ref">📚 the posting</span>Lead with SQL. Python is only a plus, so it goes later.</div>' +
+      '<div class="ab-line muted-line">Three scattered notes → one plan. Nothing explained twice.</div>',
 
     mcpScript: [
-      { kind: 'chip', html: '⚙ <span class="tool">list_threads</span>()&nbsp; <span class="ret">→ 3 workspaces · 14 threads</span>' },
-      { kind: 'chip', html: '⚙ <span class="tool">get_digest</span>("Distributed scheduling paper")&nbsp; <span class="ret">→ 128 blocks · 42 days of work</span>' },
-      { kind: 'chip', html: '⚙ <span class="tool">search_blocks</span>("straggler")&nbsp; <span class="ret">→ 7 hits · oldest 5 weeks back</span>' },
-      { kind: 'ai', html: 'You stopped mid-revision of <strong>§3.2</strong>. Your own plan: fix the formula numbering first, then add the straggler comparison table. The July 8 reversibility argument answers the truncation objection — I’ve filed it as a conclusion in the thread.' },
-      { kind: 'chip', html: '⚙ <span class="tool">add_block</span>(conclusion, source: "Claude · MCP")&nbsp; <span class="ok">✓ filed</span>' }
+      { kind: 'chip', html: '⚙ <span class="tool">list_threads</span>()&nbsp; <span class="ret">→ 3 workspaces · 8 projects</span>' },
+      { kind: 'chip', html: '⚙ <span class="tool">get_digest</span>("Job search")&nbsp; <span class="ret">→ 5 notes over 3 weeks</span>' },
+      { kind: 'chip', html: '⚙ <span class="tool">search_blocks</span>("resume")&nbsp; <span class="ret">→ 2 hits · oldest 3 weeks back</span>' },
+      { kind: 'ai', html: 'The Acme batch closes <strong>Friday</strong>. Your own note says: resume summary first, then the cover letter. But the layout decision from three weeks ago — projects above work history — still is not done. That is the real next step, so I have saved it into the project.' },
+      { kind: 'chip', html: '⚙ <span class="tool">add_block</span>(next step, source: "Claude · MCP")&nbsp; <span class="ok">✓ saved</span>' }
     ]
   };
 
   STR.zh = {
-    ribbon: '交互模拟 · 预设数据 · 未调用任何 AI',
-    replay: '重玩',
-    rail: ['1 · 捕捉', '2 · 打包', '3 · 重新带入', '4 · MCP'],
-    threadName: '分布式调度论文',
-    threadSub: '截止周五 · 工作区内 3 条脉络',
+    ribbon: '演练 · 内容事先写好 · 未调用任何 AI',
+    replay: '重来一次',
+    rail: ['1 · 存', '2 · 打包', '3 · 粘贴', '4 · MCP'],
+    threadName: '找工作',
+    threadSub: '本轮周五截止 · 「工作」下有 3 个项目',
     side: {
-      ws1: '研究',
-      t1: '分布式调度论文',
-      cap: '● 捕捉中',
-      t2: 'Rust 学习笔记',
-      t3: '结课报告',
-      ws2: '生活',
-      t4: '菜谱收藏'
+      ws1: '工作', t1: '找工作', cap: '● 正存到这里',
+      t2: '作品集网站', t3: '面试准备',
+      ws2: '学习', t4: '机器学习课',
+      ws3: '生活', t5: '租房'
     },
-    feedEmpty: '捕捉的碎片会落在这里 ↓',
+    feedEmpty: '你存下的东西会落在这里 ↓',
     packBtn: '⎘ 打包',
-    addBtn: '添加',
-    pmTitle: '打包上下文',
-    pmSub: '本地组装 · 可直接粘贴给任何 AI',
-    pmAssembling: '组装中…',
-    pmStat: function (n) { return '3 块 · ' + n + ' 字符 · 确定性输出'; },
+    addBtn: '存下',
+    pmTitle: '把这个项目打包',
+    pmSub: '在你的 Mac 上生成 · 可直接粘给任何 AI',
+    pmAssembling: '正在生成…',
+    pmStat: function (n) { return '3 条笔记 · ' + n + ' 个字符'; },
     pmCopy: '复制',
     pmCopied: '✓ 真的复制了',
-    pmCont: '粘贴给 AI →',
-    finale: '<strong>整个循环就是这样</strong>——注意侧栏:Spool 是项目树,不是聊天工具。AI 是在<em>你的</em>结构里工作的图书管理员。<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">下载 macOS 版</a>',
+    pmCont: '粘给一个 AI →',
+    finale: '<strong>整个流程就是这样。</strong>再看看侧栏——找工作、作品集、课程、租房。只要是一次坐不完的事,Spool 都管用。<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">下载 macOS 版</a>',
     copyLabel: '⎘ 复制',
     copied: '✓ 已复制',
     keycap: '⌥ option',
-    keyHint1: '<strong>双击</strong>——点屏幕上的键,或按你键盘上真实的 ⌥ 键',
-    keyHint2: '再<strong>双击</strong>一次',
+    keyHint1: '<strong>快速按两下</strong>——点屏幕上这个键,或按你键盘上真的 ⌥ 键',
+    keyHint2: '再<strong>按两下</strong>',
     sendBtn: '▸ 发送',
-    pasteBtn: '⎘ 粘贴 pack',
-    nudgeMcp: '下一步:一个字都不用粘贴——MCP →',
+    pasteBtn: '⎘ 粘贴 Spool 生成的文字',
+    nudgeMcp: '下一步:一个字都不用粘 →',
 
     blocks: {
-      article: { time: '11:40', src: 'arXiv · Safari', text: 'Chapter 4 classifies straggler mitigation as speculative, proactive, or hybrid — orthogonal to our incremental/deadline split.' },
-      chat: { time: '14:05', src: 'AI 对话 · 网页', text: '增量评估不要求可分性——只要求局部 O(1) 可逆更新。求和满足;连乘走对数域同样满足。' },
-      note: { time: '16:30', src: null, text: '明天的改稿顺序:先修 §3.2 的公式编号,再补 straggler 对照表。' },
-      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: '归档:§3.2 论证已完整——可逆性正面回答「为什么不截断」。与 6/17 基线笔记一致;综述分类法作为对照引于脚注 12。' }
+      posting: { time: '11:40', src: 'acme.com · Safari', text: 'Acme 在招数据分析师:必须会 SQL,会 Python 加分。小团队,直接向运营负责人汇报。' },
+      chat: { time: '14:05', src: 'AI 对话 · Safari', text: '转行的话,把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒。' },
+      note: { time: '16:30', src: null, text: '做事顺序:先重写简历开头的自我介绍,再写 Acme 的求职信。' },
+      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: '下一步:简历现在还是工作经历打头。周五这轮截止前,把项目经历挪到它前面。' }
     },
 
     tpl: {
-      articleBar: 'arXiv — Safari',
-      articleH: 'Scalable scheduling for ML workloads: a survey (2025)',
-      articleBody: '…latency variance remains the dominant failure mode at scale. <span class="quote-target">Chapter 4 classifies straggler mitigation as speculative, proactive, or hybrid</span> — a taxonomy the authors argue is exhaustive…',
-      chatBar: 'AI 对话 — 网页',
-      chatQ: '增量评估要求指标可分吗?',
-      chatA: '不要求——<span class="quote-target">它不要求可分性,只要求局部 O(1) 可逆更新</span>。求和满足;连乘走对数域也满足。',
-      c3a: '前两条碎片都来自<em>外部</em>:一篇论文、一个 AI。第三种,是 Spool 最看重的——<strong>你自己的思考</strong>。',
-      c3b: '无来源的笔记在每次打包里都是最高信号:你的话是指令,其余一切只是证据。',
-      packA: '三条碎片、三个来源、一条脉络——四散的上下文,现在在同一个地方。',
-      packB: '打包是纯字符串组装:确定性、热路径无 AI。同一条脉络,同一天,逐字节一致。',
-      rebriefBar: '任意 AI — 全新对话,零记忆',
-      mcpBar: 'Claude Desktop — 已连接 Spool ✓',
-      mcpUser: '我的调度论文进行到哪了?查一下我的 Spool,然后把一句话结论归档回脉络里。'
+      postingBar: 'Acme — 数据分析师 · Safari',
+      postingH: '数据分析师 — Acme(远程)',
+      postingBody: '……你将负责运营团队的数据报表。<span class="quote-target">必须会 SQL,会 Python 加分。小团队,直接向运营负责人汇报。</span>我们会分批筛选简历……',
+      chatBar: 'AI 对话 · Safari',
+      chatQ: '我在转行,简历该怎么排顺序?',
+      chatA: '先亮你做过的东西:<span class="quote-target">把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒</span>。',
+      c3a: '前两条都来自<em>别处</em>——一条招聘信息、一个 AI。第三种才是 Spool 最看重的:<strong>你自己做的决定</strong>。',
+      c3b: '没有来源的笔记,在 Spool 生成文字时分量最重。你的话是决定,其余的都只是材料。',
+      packA: '三条笔记,三个不同的地方,同一个项目——散落的东西现在在同一份清单里。',
+      packB: '这段文字在你的 Mac 上生成,没有 AI 参与,同一个项目每次生成的结果都一样。',
+      rebriefBar: '一个新的 AI 对话 —— 对你一无所知',
+      mcpBar: 'Claude Desktop —— 已连接 Spool ✓',
+      mcpUser: '我找工作这事进行到哪了?查一下我的 Spool,然后把下一步存回去。'
     },
 
     guide: {
-      start: '<b>第 1 步(共 4 步)· 捕捉。</b>你在读一篇论文,有一句话很关键。点高亮句下面的 <strong>⎘ 复制</strong>。',
-      copied: '<b>已复制 ✓</b>——现在是 Spool 的手势:<strong>双击 ⌥</strong>。点下面的屏幕按键,或按你键盘上真实的 Option 键。',
-      cap1: '<b>✓ 已捕捉——第 1/3 条。</b>来源自动带上了(「arXiv · Safari」)。下一条:AI 刚给了你一个好回答——点它下面的 <strong>⎘ 复制</strong>。',
-      cap2: '<b>✓ 已捕捉——第 2/3 条。</b>最后一条是<strong>你自己的思考</strong>——右侧 Spool 的输入框里已经替你起好草稿,直接按<strong>添加</strong>(想改也可以先改)。',
-      cap3: '<b>✓ 3/3——捕捉完成。</b>一篇论文、一个 AI、一条你自己的笔记,现在都在同一条脉络里。轮到招牌功能了:点 Spool 头部的 <strong>⎘ 打包</strong>。',
-      packed: '<b>✓ 已打包。</b>注意权威度分区——你的笔记排在所有来源之上。试试<strong>复制</strong>(会真的进你的剪贴板),然后点<strong>粘贴给 AI →</strong>',
-      rebrief: '<b>第 3 步(共 4 步)· 重新带入。</b>这个 AI 对话是全新的——对你一无所知。点 <strong>⎘ 粘贴 pack</strong>,看它瞬间接上你的项目。',
-      pasted: '<b>看到标签了吗?</b>回复里每个论点都能追溯到你的某条碎片——零散信息,被整合了。(回复是预设的;真实粘贴的效果与此完全相同。)',
-      mcp: '<b>第 4 步(共 4 步)· MCP。</b>pack 只能简报<em>一次</em>。通过 MCP 连接后,你的 AI 客户端拿着<strong>整个库</strong>的钥匙——直接问它就行。点 <strong>▸ 发送</strong>。',
-      done: '<b>✓ 完成。</b>你的 AI 遍历了 14 条脉络、128 个块、六周的工作,基于你的真实状态作答,并把结论归档回来——有署名、只追加。你手写的内容它永远碰不了。'
+      start: '<b>第 1 步(共 4 步)· 存。</b>你在看一条招聘信息,其中一句很关键。点高亮那句下面的 <strong>⎘ 复制</strong>。',
+      copied: '<b>已复制 ✓</b> 接下来是 Spool 的部分:<strong>快速按两下 ⌥</strong>。点下面那个键,或按你键盘上真的 Option 键。',
+      cap1: '<b>✓ 已存下——第 1/3 条。</b>来源自己跟着进来了(「acme.com · Safari」)。下一条:AI 刚说了一句有用的——点它下面的 <strong>⎘ 复制</strong>。',
+      cap2: '<b>✓ 已存下——第 2/3 条。</b>最后一条是<strong>你自己的决定</strong>。右边输入框里已经替你写好了,直接按<strong>存下</strong>(想改也可以先改)。',
+      cap3: '<b>✓ 3/3。</b>一条招聘信息、一个 AI 的回答、你自己的决定,现在都在同一个项目里。轮到最有用的一步了:点上方的 <strong>⎘ 打包</strong>。',
+      packed: '<b>✓ 好了。</b>注意顺序——你自己那条排在最前,压过两个来源。试试<strong>复制</strong>(是真的会复制),然后点<strong>粘给一个 AI →</strong>',
+      rebrief: '<b>第 3 步(共 4 步)· 粘贴。</b>这个对话刚打开,对你一无所知。点 <strong>⎘ 粘贴 Spool 生成的文字</strong>。',
+      pasted: '<b>看到那些小标签了吗?</b>回答里每一条都出自你的某条笔记——散落的东西被拼起来了。(回答是事先写好的;真实粘贴的效果一样。)',
+      mcp: '<b>第 4 步(共 4 步)· MCP。</b>粘贴只能让 AI 明白<em>一次</em>。把它接到 Spool 上,它就能随时打开<strong>你存下的全部内容</strong>。点 <strong>▸ 发送</strong>。',
+      done: '<b>✓ 就是这样。</b>它跨项目读了一遍,用你几周里陆续存下的笔记作答,并把下一步放回了该在的地方——带署名,加在你那条笔记下面,而不是盖在上面。'
     },
 
     packText: [
-      '# 项目上下文:分布式调度论文', '',
-      '由 Spool 生成于 2026-07-29。共 3 块。', '', '---', '',
-      '## 如何阅读这份上下文', '',
-      '块按权威度分组。作者本人的笔记是最高信号,',
-      '请当作指令而非建议对待。', '',
-      '### ✍️ 作者笔记(最高信号)', '',
-      '- [16:30] 明天的改稿顺序:先修 §3.2 的公式编号,',
-      '  再补 straggler 对照表。', '',
-      '### 📚 参考资料', '',
-      '- [11:40 · arXiv · Safari] Chapter 4 classifies',
-      '  straggler mitigation as speculative, proactive,',
-      '  or hybrid — orthogonal to the incremental /',
-      '  deadline split.', '',
-      '### 🤖 AI 生成(使用前请核验)', '',
-      '- [14:05 · AI 对话] 增量评估不要求可分性——只要求',
-      '  局部 O(1) 可逆更新。求和满足;连乘走对数域',
-      '  同样满足。'
+      '# 项目:找工作', '',
+      '由 Spool 生成。共 3 条笔记。', '', '---', '',
+      '## 这份文字怎么读', '',
+      '笔记按「谁写的」分组。没有来源的那些是',
+      '作者本人写的——请当作决定,而不是建议。', '',
+      '### ✍️ 我自己的笔记(分量最重)', '',
+      '- [16:30] 做事顺序:先重写简历开头的自我',
+      '  介绍,再写 Acme 的求职信。', '',
+      '### 📚 我读到的东西', '',
+      '- [11:40 · acme.com · Safari] Acme 在招数据',
+      '  分析师:必须会 SQL,会 Python 加分。小',
+      '  团队,直接向运营负责人汇报。', '',
+      '### 🤖 AI 写的(采信前请核对)', '',
+      '- [14:05 · AI 对话] 转行的话,把项目经历放',
+      '  在工作经历前面——招聘的人扫第一屏大概',
+      '  只花六秒。'
     ].join('\n'),
 
     aiReply:
-      '<div class="ab-line">收到——<strong>分布式调度论文</strong>,§3.2 改稿。你的 pack 里有来自 3 个来源的 3 条碎片,整合如下:</div>' +
-      '<div class="ab-item"><span class="ab-tag you">✍️ 你的笔记</span>工作顺序:先修公式编号,再补 straggler 对照表。</div>' +
-      '<div class="ab-item"><span class="ab-tag ai">🤖 AI 对话</span>§3.2 开篇用 O(1) 可逆性论证——它正面回答「为什么不截断」。</div>' +
-      '<div class="ab-item"><span class="ab-tag ref">📚 ARXIV</span>综述的分类法与你的划分正交——在相关工作里作为对照引用,不是重叠。</div>' +
-      '<div class="ab-line muted-line">三条零散碎片 → 一份工作计划。一个字都没有重新解释。</div>',
+      '<div class="ab-line">收到——<strong>找工作</strong>,投 Acme 这件事。三条笔记来自三个地方,计划如下:</div>' +
+      '<div class="ab-item"><span class="ab-tag you">✍️ 你的笔记</span>按你定的顺序来:先改简历开头的自我介绍,再写求职信。</div>' +
+      '<div class="ab-item"><span class="ab-tag ai">🤖 AI 对话</span>把项目经历挪到工作经历前面——六秒扫一眼时看到的就是它。</div>' +
+      '<div class="ab-item"><span class="ab-tag ref">📚 招聘信息</span>SQL 放在最显眼处。Python 只是加分项,往后排。</div>' +
+      '<div class="ab-line muted-line">三条散落的笔记 → 一份计划。一个字都没有重新解释。</div>',
 
     mcpScript: [
-      { kind: 'chip', html: '⚙ <span class="tool">list_threads</span>()&nbsp; <span class="ret">→ 3 个工作区 · 14 条脉络</span>' },
-      { kind: 'chip', html: '⚙ <span class="tool">get_digest</span>("分布式调度论文")&nbsp; <span class="ret">→ 128 块 · 42 天的工作</span>' },
-      { kind: 'chip', html: '⚙ <span class="tool">search_blocks</span>("straggler")&nbsp; <span class="ret">→ 7 处命中 · 最早在 5 周前</span>' },
-      { kind: 'ai', html: '你停在 <strong>§3.2</strong> 改稿中途。你自己的计划:先修公式编号,再补 straggler 对照表。7 月 8 日的可逆性论证正面回答了截断质疑——我已把它作为结论归档进脉络。' },
-      { kind: 'chip', html: '⚙ <span class="tool">add_block</span>(conclusion, source: "Claude · MCP")&nbsp; <span class="ok">✓ 已归档</span>' }
+      { kind: 'chip', html: '⚙ <span class="tool">list_threads</span>()&nbsp; <span class="ret">→ 3 个工作区 · 8 个项目</span>' },
+      { kind: 'chip', html: '⚙ <span class="tool">get_digest</span>("找工作")&nbsp; <span class="ret">→ 3 周里存的 5 条笔记</span>' },
+      { kind: 'chip', html: '⚙ <span class="tool">search_blocks</span>("简历")&nbsp; <span class="ret">→ 2 处命中 · 最早在 3 周前</span>' },
+      { kind: 'ai', html: 'Acme 这轮<strong>周五</strong>截止。你自己那条写的是:先改简历开头,再写求职信。但三周前定下的版式决定——项目经历放在工作经历前面——到现在还没做。这才是真正的下一步,我已经把它存进项目里了。' },
+      { kind: 'chip', html: '⚙ <span class="tool">add_block</span>(下一步, source: "Claude · MCP")&nbsp; <span class="ok">✓ 已存下</span>' }
     ]
   };
 
@@ -250,8 +243,8 @@
   function tpl(name) {
     var t = L.tpl;
     if (name === 'capture1') {
-      return '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> ' + t.articleBar + '</div>' +
-        '<div class="fw-body"><h4>' + t.articleH + '</h4><p>' + t.articleBody + '</p>' +
+      return '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> ' + t.postingBar + '</div>' +
+        '<div class="fw-body"><h4>' + t.postingH + '</h4><p>' + t.postingBody + '</p>' +
         '<button class="copy-btn" data-action="copy">' + L.copyLabel + '</button></div></div>' +
         '<div class="keycap-row" hidden id="keyrow"><button class="keycap" data-action="tap">' + L.keycap + '</button>' +
         '<span class="keycap-hint">' + L.keyHint1 + '</span></div>';
@@ -307,13 +300,15 @@
       '<div class="mini-spool-bar"><span class="title">Spool<span class="zh">思簿</span></span>' +
       '<button class="pack-btn" id="packbtn" data-action="open-pack" disabled>' + L.packBtn + '</button></div>' +
       '<div class="mini-body">' +
-      '<div class="mini-side" aria-label="Workspaces and threads">' +
+      '<div class="mini-side" aria-label="Workspaces and projects">' +
       '<div class="ms-label">' + L.side.ws1 + '</div>' +
       '<div class="ms-item active">' + L.side.t1 + '<span class="ms-cap">' + L.side.cap + '</span></div>' +
       '<div class="ms-item">' + L.side.t2 + '</div>' +
       '<div class="ms-item">' + L.side.t3 + '</div>' +
       '<div class="ms-label">' + L.side.ws2 + '</div>' +
       '<div class="ms-item">' + L.side.t4 + '</div>' +
+      '<div class="ms-label">' + L.side.ws3 + '</div>' +
+      '<div class="ms-item">' + L.side.t5 + '</div>' +
       '</div>' +
       '<div class="mini-main">' +
       '<div class="thread-meta"><div class="tname">' + L.threadName + '</div>' +
@@ -367,7 +362,7 @@
   }
 
   function overlay(src) {
-    chipsrc.textContent = src || (window.spoolSiteLang === 'zh' ? '你' : 'you');
+    chipsrc.textContent = src || (window.spoolSiteLang === 'zh' ? '你自己' : 'you');
     chip.classList.add('show');
     setTimeout(function () { chip.classList.remove('show'); }, 1600);
   }
@@ -377,7 +372,7 @@
     if (empty) empty.remove();
     var card = document.createElement('article');
     card.className = 'block-card';
-    var youLbl = window.spoolSiteLang === 'zh' ? '你' : 'you';
+    var youLbl = window.spoolSiteLang === 'zh' ? '你自己' : 'you';
     var meta = '<div class="bmeta"><span>' + b.time + '</span>' +
       (b.src ? '<span class="src' + (b.mcp ? ' mcp' : '') + '">' + b.src + '</span>'
              : '<span class="src">' + youLbl + '</span>') + '</div>';
@@ -386,7 +381,7 @@
     feed.scrollTop = feed.scrollHeight;
   }
 
-  /* ---------- capture gesture ---------- */
+  /* ---------- the double-tap gesture ---------- */
 
   function armedForTap() {
     return state && (state.phase === 'capture1' || state.phase === 'capture2') && state.copied;
@@ -407,7 +402,7 @@
 
   function captureLands() {
     var first = state.phase === 'capture1';
-    var b = first ? L.blocks.article : L.blocks.chat;
+    var b = first ? L.blocks.posting : L.blocks.chat;
     state.captured++;
     overlay(b.src);
     addBlock(b);
@@ -579,7 +574,6 @@
     cue(packbtn);
   });
 
-  /* rebuild on site language switch */
   window.addEventListener('spool-lang', build);
 
   build();

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Spool 思簿 — a context hub for long-running projects</title>
-<meta name="description" content="Capture fragments effortlessly, thread them by project, and pack any thread into a paste-ready briefing. Try the interactive demo. Local-first, no account, zero telemetry.">
+<title>Spool 思簿 — never explain your project twice</title>
+<meta name="description" content="Save anything worth keeping with one key. Spool files it under the right project, with its source — then turns the whole project into text you can paste into any AI. Free, offline, no account.">
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -35,16 +35,16 @@
     <div class="hero-ring" aria-hidden="true"></div>
     <img class="mark" src="assets/spool-logo-full.svg" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
   </div>
-  <h1><span data-i18n="hero-h1">Your projects,<br>never re-explained.</span><span class="zh">思簿</span></h1>
-  <p class="tagline" data-i18n="hero-tag">Spool is a context hub for long-running projects.</p>
-  <p class="sub" data-i18n="hero-sub">Capture a fragment the moment it appears — a good AI answer, a decision buried in
-  an email, a half-formed thought. Spool threads your fragments by project and packs any thread
-  into a paste-ready briefing, so you can re-enter a project — or re-brief an AI — instantly.</p>
+  <h1><span data-i18n="hero-h1">Never explain your<br>project twice.</span><span class="zh">思簿</span></h1>
+  <p class="tagline" data-i18n="hero-tag">Spool remembers the details of everything you are working on.</p>
+  <p class="sub" data-i18n="hero-sub">Copy anything worth keeping — a good answer from an AI, a line in an email,
+  a thought before it slips away. One key saves it under the right project, together with where it
+  came from. Later, one click turns the whole project into text you can paste into any AI.</p>
   <div class="cta-row">
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest" data-i18n="dl-btn">Download for macOS</a>
     <a class="btn btn-ghost" href="#demo" data-i18n="try-btn">Try it right here ↓</a>
   </div>
-  <p class="fineprint" data-i18n="fineprint">Free · macOS (Apple&nbsp;Silicon) · Local-first · No account · Zero telemetry</p>
+  <p class="fineprint" data-i18n="fineprint">Free · macOS · Works offline · No account · Nothing is tracked</p>
 </section>
 
 <div class="thread-seg" aria-hidden="true"></div>
@@ -52,16 +52,16 @@
 <section id="demo">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="demo-k">60-second interactive demo</div>
-      <h2 data-i18n="demo-h">Do the whole loop, right now</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">Capture three fragments, pack them,
-      and watch a cold AI conversation pick your project straight up. The data is scripted —
-      the workflow is exactly the real one.</p>
+      <div class="kicker" data-i18n="demo-k">Try it — 60 seconds</div>
+      <h2 data-i18n="demo-h">Do the whole thing right here</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">Save three notes, pack them,
+      then watch a brand-new AI chat pick up your project without being told anything. The content
+      is written in advance; the steps are exactly what the app does.</p>
     </div>
     <div class="demo-shell reveal">
       <div id="demo-app"></div>
-      <noscript><p class="center muted">The interactive demo needs JavaScript — the
-      <a href="story.html">engineering story</a> and screenshots below work without it.</p></noscript>
+      <noscript><p class="center muted">The demo needs JavaScript — the
+      <a href="story.html">story page</a> and the screenshots below work without it.</p></noscript>
     </div>
   </div>
 </section>
@@ -70,10 +70,10 @@
 
 <section class="alt" id="problem">
   <div class="wrap center reveal">
-    <div class="kicker" data-i18n="prob-k">Why Spool exists</div>
-    <p class="problem" data-i18n="prob-p">LLMs do not remember your project. Every new conversation starts from zero —
-    and across many AIs, tabs, and weeks, a project’s context gets shredded.
-    <em>Spool compresses “re-explaining” into a single paste.</em></p>
+    <div class="kicker" data-i18n="prob-k">Why it exists</div>
+    <p class="problem" data-i18n="prob-p">An AI forgets your project the moment you close the tab, so you explain it
+    again. And again. Meanwhile the details sit scattered across chats, emails and tabs you closed
+    weeks ago. <em>Spool keeps them in one place, so one paste brings any AI up to speed.</em></p>
   </div>
 </section>
 
@@ -82,68 +82,65 @@
 <section id="how">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="how-k">The core loop</div>
-      <h2 data-i18n="how-h">Capture → Thread → Pack</h2>
+      <div class="kicker" data-i18n="how-k">How it works</div>
+      <h2 data-i18n="how-h">Save it, keep it, paste it</h2>
     </div>
 
     <div class="loop-row reveal">
       <div class="loop-copy">
-        <div class="n" data-i18n="l1-n">01 · CAPTURE</div>
-        <h3 data-i18n="l1-h">One keypress. No decisions.</h3>
-        <p data-i18n="l1-p">Copy anything, then double-tap <span class="kbd">⌥</span>. The fragment lands in the
-        current thread with its source detected automatically — down to the browser tab you copied
-        from. A quiet overlay confirms the save on whatever screen you’re on; the main window never
-        has to come forward. Capture rides the <span class="kbd">⌘C</span> muscle memory you
-        already have.</p>
+        <div class="n" data-i18n="l1-n">01 · SAVE</div>
+        <h3 data-i18n="l1-h">One key. Nothing to decide.</h3>
+        <p data-i18n="l1-p">Copy anything, then tap <span class="kbd">⌥</span> twice. It goes straight into the
+        project you are working on, along with where it came from — down to the browser tab. A small
+        note appears in the corner to confirm. The main window never opens, so you never lose your
+        place or your train of thought.</p>
       </div>
       <div class="loop-visual">
         <div class="mock">
           <div class="mock-titlebar"><i></i><i></i><i></i></div>
-          <p style="margin:0 0 0.7rem">…the committee noted that <span class="quote-target">the revised
-          §3.2 argument resolves the truncation question</span> and asked for one more pass on
-          notation…</p>
-          <span class="mock-chip">⌥⌥ → ✓ Captured · Mail</span>
+          <p style="margin:0 0 0.7rem">…we review applications in batches every two weeks, and
+          <span class="quote-target">the next batch closes Friday</span>. Let me know if you have
+          any questions before then…</p>
+          <span class="mock-chip">⌥⌥ → ✓ Saved · Mail</span>
         </div>
       </div>
     </div>
 
     <div class="loop-row flip reveal">
       <div class="loop-copy">
-        <div class="n" data-i18n="l2-n">02 · THREAD</div>
-        <h3 data-i18n="l2-h">A log, not a chat.</h3>
-        <p data-i18n="l2-p">Fragments accumulate in an append-only timeline per project — two tiers only, Workspace
-        → Thread, no infinite nesting. The newest blocks <em>are</em> “where you left off”: no
-        status note to maintain, no filing ceremony. Your annotations attach to any block and rank
-        above everything else later.</p>
+        <div class="n" data-i18n="l2-n">02 · KEEP</div>
+        <h3 data-i18n="l2-h">A list, not a chat.</h3>
+        <p data-i18n="l2-p">Everything you save stacks up in time order under one project. Two levels only —
+        workspace, then project. No folders to build, no tags to pick, nothing to tidy up. Come back
+        next week and the newest notes show you exactly where you stopped.</p>
       </div>
       <div class="loop-visual">
         <div class="mock">
           <div class="mock-titlebar"><i></i><i></i><i></i></div>
-          <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted)">11:40 · arXiv · Safari</div>
-          <p style="margin:0.15rem 0 0.6rem">Chapter 4 classifies straggler mitigation as speculative, proactive, or hybrid…</p>
-          <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted)">16:30 · you</div>
-          <p style="margin:0.15rem 0 0;font-style:italic;color:var(--ink-2)">Fix §3.2 numbering first, then the comparison table.</p>
+          <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted)">Jul 14 · acme.com · Safari</div>
+          <p style="margin:0.15rem 0 0.6rem">Acme is hiring a data analyst: SQL required, Python a plus.</p>
+          <div style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted)">Jul 29 · you</div>
+          <p style="margin:0.15rem 0 0;font-style:italic;color:var(--ink-2)">Resume summary first, then the cover letter.</p>
         </div>
       </div>
     </div>
 
     <div class="loop-row reveal">
       <div class="loop-copy">
-        <div class="n" data-i18n="l3-n">03 · PACK</div>
-        <h3 data-i18n="l3-h">Paste-ready context, with provenance.</h3>
-        <p data-i18n="l3-p">One click assembles the thread into a Markdown briefing sorted by authority — your own
-        words highest, references kept as references, AI-derived content flagged for verification.
-        Pure string assembly: deterministic, no AI in the hot path, works with every AI on earth
-        because it’s just text.</p>
+        <div class="n" data-i18n="l3-n">03 · PASTE</div>
+        <h3 data-i18n="l3-h">One click, ready to paste.</h3>
+        <p data-i18n="l3-p">Spool writes the project out as plain text: your own words first, things you read
+        kept as sources, anything an AI wrote marked so you can check it. Paste it into any AI —
+        or just read it yourself to get back into the work.</p>
       </div>
       <div class="loop-visual">
         <div class="mock" style="font-family:var(--font-mono);font-size:0.72rem;line-height:1.7">
           <div class="mock-titlebar"><i></i><i></i><i></i></div>
-          # Project Context: Distributed scheduling paper<br>
-          ### ✍️ Author’s notes (highest signal)<br>
-          ### 📚 Reference<br>
-          ### 🤖 AI-derived (verify first)<br>
-          <span style="color:var(--accent-2)">⎘ Copied · 3,615 chars</span>
+          # Project: Job search<br>
+          ### ✍️ My own notes (highest weight)<br>
+          ### 📚 From a source<br>
+          ### 🤖 Written by an AI (check first)<br>
+          <span style="color:var(--accent-2)">⎘ Copied · ready to paste</span>
         </div>
       </div>
     </div>
@@ -156,24 +153,23 @@
   <div class="wrap">
     <div class="center reveal">
       <div class="kicker" data-i18n="comm-k">What makes it different</div>
-      <h2 data-i18n="comm-h">Three commitments</h2>
+      <h2 data-i18n="comm-h">Three promises</h2>
     </div>
     <div class="grid-3 reveal-stagger">
       <div class="card">
-        <h3 data-i18n="c1-h">Zero-friction capture</h3>
-        <p data-i18n="c1-p">No window switch, no dialog, no tags to choose. If capture costs more than a keypress,
-        it doesn’t happen — so everything in Spool is built backwards from that keypress.</p>
+        <h3 data-i18n="c1-h">Saving costs one key</h3>
+        <p data-i18n="c1-p">If saving takes more than one key, people stop doing it. Every other decision in
+        Spool follows from that one — no window to switch to, no box to fill in, no choice to make.</p>
       </div>
       <div class="card">
-        <h3 data-i18n="c2-h">Provenance-faithful packs</h3>
-        <p data-i18n="c2-p">Every block carries where it came from and when. The AI reading your pack knows what’s
-        your judgment, what’s a source, and what another AI said — and treats them differently.</p>
+        <h3 data-i18n="c2-h">Nothing loses its source</h3>
+        <p data-i18n="c2-p">Every note keeps its time and where it came from. Months later you can still tell
+        what you decided yourself from what you simply read somewhere — and so can any AI you show it to.</p>
       </div>
       <div class="card">
-        <h3 data-i18n="c3-h">AI as librarian, not author</h3>
-        <p data-i18n="c3-p">Over MCP, your own AI clients read, search, and file into the library — every write
-        attributed and append-only. What you wrote by hand is never overwritten. Spool itself
-        ships with zero AI: no keys, no cloud.</p>
+        <h3 data-i18n="c3-h">AI helps, and signs its name</h3>
+        <p data-i18n="c3-p">Connect the AI apps you already pay for. They can read, search and add notes, and
+        every addition is signed. What you wrote by hand, no machine is allowed to change.</p>
       </div>
     </div>
   </div>
@@ -184,29 +180,28 @@
 <section>
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="app-k">The real app</div>
-      <h2 data-i18n="app-h">Quiet by design</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="app-p">Warm paper, one accent, no
-      badges fighting for attention. The interface stays out of the way until you have something
-      to file.</p>
+      <div class="kicker" data-i18n="app-k">The app</div>
+      <h2 data-i18n="app-h">Quiet on purpose</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="app-p">Warm paper, one accent colour,
+      no badges fighting for your attention. Spool stays out of the way until you have something to save.</p>
     </div>
     <div class="reveal shot-group">
       <div class="shot-tabs" role="tablist">
-        <button class="shot-tab" role="tab" data-tab="main" aria-selected="true" data-i18n="tab-main">Thread view</button>
+        <button class="shot-tab" role="tab" data-tab="main" aria-selected="true" data-i18n="tab-main">A project</button>
         <button class="shot-tab" role="tab" data-tab="pack" aria-selected="false" data-i18n="tab-pack">Packing</button>
-        <button class="shot-tab" role="tab" data-tab="digest" aria-selected="false" data-i18n="tab-digest">Digest</button>
+        <button class="shot-tab" role="tab" data-tab="digest" aria-selected="false" data-i18n="tab-digest">Wrapping up</button>
       </div>
       <div class="shot-panel" data-panel="main">
-        <img class="shot" src="assets/shots/app-thread-before.png" alt="Spool main window: sidebar of workspaces and threads, and an append-only feed of five captured blocks with timestamps, sources such as arXiv and Mail, and italic annotations" width="2200" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-main">One thread, five fragments: a pinned target, an arXiv line with your annotation, an answer from an AI chat, your own note, an email. Each keeps its time and source.</p>
+        <img class="shot" src="assets/shots/app-thread-before.png" alt="The Spool window: a list of workspaces and projects on the left, and on the right a project holding notes with their times, sources and the user's own comments" width="2200" loading="lazy">
+        <p class="shot-caption" data-i18n="cap-main">One project, five notes: your goal, a job posting, an answer from an AI chat, your own decision, an email from the recruiter. Each one keeps its time and its source.</p>
       </div>
       <div class="shot-panel" data-panel="pack" hidden>
-        <img class="shot" src="assets/pack.png" alt="The pack dialog: intent and range controls above a paste-ready Markdown briefing with authority categories" width="1100" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-pack">Packing a thread: choose intent and range, copy, paste anywhere. (Chinese UI shown — English ships too.)</p>
+        <img class="shot" src="assets/pack.png" alt="The pack window: a plain-text version of the project, grouped by who wrote each part, with a copy button" width="1100" loading="lazy">
+        <p class="shot-caption" data-i18n="cap-pack">Packing a project: pick how much to include, copy, paste. (Chinese screen shown — English is built in.)</p>
       </div>
       <div class="shot-panel" data-panel="digest" hidden>
-        <img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files and links" width="1100" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-digest">A finished thread’s digest: conclusion, pinned blocks, files &amp; links. (Chinese UI shown — English ships too.)</p>
+        <img class="shot" src="assets/digest.png" alt="A finished project in Spool, condensed to its conclusion, its most important notes, and its files and links" width="1100" loading="lazy">
+        <p class="shot-caption" data-i18n="cap-digest">A finished project, boiled down to what it concluded and the notes that mattered. (Chinese screen shown — English is built in.)</p>
       </div>
     </div>
   </div>
@@ -217,46 +212,46 @@
 <section id="mcp">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="mcp-k">MCP · beyond the paste</div>
-      <h2 data-i18n="mcp-h">Your AI, resident librarian</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">A pack briefs an AI <em>once</em>. Over the
-      <strong>Model Context Protocol</strong>, the AI clients you already own get standing access
-      instead: they read weeks of context on demand, search every thread, and file conclusions
-      back into the right place. Ten tools, two opt-in switches, no network port.</p>
+      <div class="kicker" data-i18n="mcp-k">MCP — beyond pasting</div>
+      <h2 data-i18n="mcp-h">Let your AI read your notes directly</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">A pack is one paste. With the
+      Model Context Protocol, the AI apps you already use can open your notes whenever they need
+      them: read weeks of context, search every project, and put what they find back in the right
+      place. Ten tools, two switches you turn on yourself, and no server anywhere.</p>
     </div>
 
     <div class="reveal shot-group">
       <div class="shot-tabs" role="tablist">
-        <button class="shot-tab" role="tab" data-tab="lib" aria-selected="true" data-i18n="mtab-lib">① Sees your library</button>
-        <button class="shot-tab" role="tab" data-tab="mdigest" aria-selected="false" data-i18n="mtab-digest">② Answers from weeks of context</button>
-        <button class="shot-tab" role="tab" data-tab="search" aria-selected="false" data-i18n="mtab-search">③ Knows every source</button>
-        <button class="shot-tab" role="tab" data-tab="file" aria-selected="false" data-i18n="mtab-file">④ Files back, attributed</button>
+        <button class="shot-tab" role="tab" data-tab="lib" aria-selected="true" data-i18n="mtab-lib">① It sees your projects</button>
+        <button class="shot-tab" role="tab" data-tab="mdigest" aria-selected="false" data-i18n="mtab-digest">② It answers from weeks of notes</button>
+        <button class="shot-tab" role="tab" data-tab="search" aria-selected="false" data-i18n="mtab-search">③ It knows every source</button>
+        <button class="shot-tab" role="tab" data-tab="file" aria-selected="false" data-i18n="mtab-file">④ It writes back, signed</button>
       </div>
 
       <div class="shot-panel" data-panel="lib">
-        <img class="shot" src="assets/shots/mcp-library.png" alt="An AI client listing the Spool library over MCP: two workspaces, Research and Life, with their threads, block counts and last-updated dates" width="1930" loading="lazy">
-        <p class="shot-caption" data-i18n="mcap-lib">Plain question, structured answer — the client reads workspaces, threads and block counts straight from your local library.</p>
+        <img class="shot" src="assets/shots/mcp-library.png" alt="An AI app listing the Spool library: workspaces for work, study and life, each with its projects and how many notes they hold" width="1930" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-lib">One plain question, and the AI reads your workspaces, projects and note counts straight off your Mac.</p>
       </div>
 
       <div class="shot-panel" data-panel="mdigest" hidden>
-        <img class="shot" src="assets/shots/mcp-digest.png" alt="An AI client summarising the state of a thread, weaving together a pinned sentence, a note from July 29, an arXiv reference and a committee email" width="1545" loading="lazy">
-        <p class="shot-caption" data-i18n="mcap-digest">One paragraph woven from five fragments captured across three weeks — the pinned sentence, your own revision order, the arXiv taxonomy, the committee’s reply. This is the part a paste can’t do.</p>
+        <img class="shot" src="assets/shots/mcp-digest.png" alt="An AI app summarising where a project stands, drawing on notes saved on different days from different places" width="1545" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-digest">One paragraph built from notes you saved over three weeks, from four different places. This is the part a single paste cannot do.</p>
       </div>
 
       <div class="shot-panel" data-panel="search" hidden>
-        <img class="shot" src="assets/shots/mcp-search.png" alt="Search results over MCP showing two hits, each labelled with its date, its source and whether it was the user's own note" width="1545" loading="lazy">
-        <p class="shot-caption" data-i18n="mcap-search">Every hit keeps its provenance: what came from arXiv with your annotation, and what was your own note setting the sequencing.</p>
+        <img class="shot" src="assets/shots/mcp-search.png" alt="Search results from the Spool library, each result labelled with its date, its source, and whether the user wrote it themselves" width="1545" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-search">Every result keeps its source: what you read somewhere, what an AI suggested, and what you decided yourself.</p>
       </div>
 
       <div class="shot-panel" data-panel="file" hidden>
-        <img class="shot" src="assets/shots/mcp-write.png" alt="An AI client confirming it filed a conclusion into the thread, annotated and citing the user's revision-order note" width="1535" loading="lazy">
-        <p class="shot-caption" data-i18n="mcap-file1">Asked to file a conclusion, it writes one block — annotated, and citing the note it builds on.</p>
-        <img class="shot shot-strip" src="assets/shots/mcp-filed-detail.png" alt="Detail of the Spool thread: the user's own note at 00:30, and directly below it the AI-written block at 14:56 badged Claude · MCP, with its annotation and a citation line pointing back at the user's note" width="2000" loading="lazy">
-        <p class="shot-caption" data-i18n="mcap-file2">…and here it is in Spool. Badged <strong>Claude · MCP</strong>, appended below your note — never over it — with the <strong>↩</strong> line citing the exact block it answers.</p>
+        <img class="shot" src="assets/shots/mcp-write.png" alt="An AI app confirming that it saved a conclusion into the project, with a short reason and a link to the note it builds on" width="1535" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-file1">Ask it to file a conclusion and it writes one note — with a short reason, and a link to the note it builds on.</p>
+        <img class="shot shot-strip" src="assets/shots/mcp-filed-detail.png" alt="A close-up of the Spool project: the user's own note, and directly below it the note written by an AI, marked Claude · MCP, with a line pointing back at the user's note" width="2000" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-file2">…and here it is inside Spool. Signed <strong>Claude · MCP</strong>, added <strong>below</strong> your note instead of over it, with the <strong>↩</strong> line pointing at the exact note it answers.</p>
       </div>
     </div>
 
-    <p class="center muted shot-note" data-i18n="mcp-note">Captured against a purpose-built demo library, so no personal content appears in these screenshots.</p>
+    <p class="center muted shot-note" data-i18n="mcp-note">Screenshots were taken with a library built just for this, so nothing personal appears in them.</p>
   </div>
 </section>
 
@@ -265,12 +260,12 @@
 <section class="alt">
   <div class="wrap reveal">
     <div class="kicker" data-i18n="priv-k">Privacy</div>
-    <h2 data-i18n="priv-h">Your data stays on your machine. No exceptions.</h2>
+    <h2 data-i18n="priv-h">Everything stays on your computer.</h2>
     <ul class="privacy-points">
-      <li data-i18n="pp1">No account, no server, no telemetry, no crash reporting</li>
-      <li data-i18n="pp2">Everything lives in a local SQLite file you can copy or delete</li>
-      <li data-i18n="pp3">The app’s content-security policy structurally blocks all outbound network requests</li>
-      <li data-i18n="pp4">Data leaves only when <em>your</em> MCP client reads it — behind two opt-in switches</li>
+      <li data-i18n="pp1">No account, no server — nothing is sent anywhere</li>
+      <li data-i18n="pp2">All your notes sit in one file on your Mac: copy it, back it up, or delete it</li>
+      <li data-i18n="pp3">The app is built so that it cannot reach the internet at all</li>
+      <li data-i18n="pp4">Notes only leave when your own AI app reads them, and only after you switch that on</li>
     </ul>
     <p><a href="privacy.html" data-i18n="priv-link">Read the full privacy policy →</a></p>
   </div>
@@ -280,15 +275,15 @@
 
 <section class="brand-moment reveal">
   <div class="wrap">
-    <video src="assets/spool-logo-assembly.mp4" autoplay muted loop playsinline aria-label="Animation of the Spool logo assembling: concentric rings of a thread spool, then the thread pulling free"></video>
-    <p class="shot-caption" data-i18n="brand-cap">The mark: a spool seen from above, its thread pulling free.</p>
+    <video src="assets/spool-logo-assembly.mp4" autoplay muted loop playsinline aria-label="The Spool logo drawing itself: rings of a thread spool, then the thread pulling free"></video>
+    <p class="shot-caption" data-i18n="brand-cap">The mark: a spool seen from above, with its thread pulling free.</p>
   </div>
 </section>
 
 <section class="cta-band">
   <div class="wrap reveal">
-    <h2 data-i18n="cta-h">Stop re-explaining your projects.</h2>
-    <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">Free, local-first, ready in a minute.</p>
+    <h2 data-i18n="cta-h">Stop explaining the same project again.</h2>
+    <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">Free, works offline, ready in a minute.</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest" data-i18n="dl-btn">Download for macOS</a>
   </div>
 </section>
