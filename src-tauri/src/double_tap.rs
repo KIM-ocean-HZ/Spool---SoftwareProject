@@ -1,8 +1,7 @@
 //! Double-tap ⌥ (Option) capture trigger (macOS only).
 //!
-//! A CGEventTap in `kCGEventTapOptionListenOnly` mode observes the key stream without
-//! consuming events, so ⌥ keeps working normally; we merely *count* clean ⌥ taps and
-//! emit `capture-trigger` on a double-tap within a short window.
+//! A CGEventTap observes the key stream; we count clean ⌥ taps and emit
+//! `capture-trigger` on a double-tap within a short window.
 //!
 //! Why a CGEventTap (not tauri-plugin-global-shortcut): a bare modifier key cannot be
 //! registered as a RegisterEventHotKey global shortcut — that API needs a non-modifier
@@ -17,6 +16,20 @@
 //! from wall-clock time at callback entry, which lags under load. The user still
 //! presses ⌘C to copy, then double-taps ⌥.
 //!
+//! Suppression (2026-07-29): Claude Desktop's quick-entry ALSO fires on a double-tap
+//! of ⌥, and being the MCP host it is always running — so every capture used to pop
+//! Claude's window as well. The copy-gate (below) already decides WHICH app a given
+//! double-tap belongs to; suppression makes that decision stick: the tap is created
+//! as an ACTIVE tap (kCGEventTapOptionDefault) when Accessibility is granted, and
+//! when Spool consumes a double-tap it deletes the 2nd press + its release from the
+//! stream. Other listeners then see a single tap — no popup. A bare double-tap (no
+//! recent ⌘C) is still passed through untouched, so Claude's own gesture keeps
+//! working. NOTE: the core-graphics crate wrapper cannot delete events (its callback
+//! maps `None` back to the original event), so the tap is created via raw
+//! CGEventTapCreate with our own trampoline; returning NULL is the deletion.
+//! Without Accessibility, creation of an active tap fails and we fall back to the
+//! previous listen-only behavior (both apps see the gesture).
+//!
 //! Permissions (fixed 2026-07-07): a listen-only tap only receives OTHER processes'
 //! events once the user grants Spool **Input Monitoring** (TCC). Without the grant,
 //! tap creation still SUCCEEDS — macOS just silently delivers only this process's own
@@ -26,8 +39,10 @@
 //! via CGRequestListenEventAccess when missing. The frontend asks
 //! `input_monitoring_granted` (lib.rs) and shows a quiet banner pointing at System
 //! Settings — a fresh grant only takes effect on the next launch, the already-created
-//! tap stays deaf until restart. Dev note: every ad-hoc re-sign (each rebuild)
-//! invalidates a previous grant; only a stable Developer ID signature keeps it.
+//! tap stays deaf until restart. The ACTIVE tap additionally needs **Accessibility**
+//! (AXIsProcessTrusted); install() preflights and prompts for it the same way. Dev
+//! note: every ad-hoc re-sign (each rebuild) invalidates a previous grant; only a
+//! stable Developer ID / Spool Dev signature keeps it.
 //!
 //! Self-heal (PLAN_EN.md §19.4): when macOS delivers `TapDisabledByTimeout` or
 //! `TapDisabledByUserInput`, we re-enable the tap in place via `CGEventTapEnable`.
@@ -38,16 +53,17 @@
 #![cfg(target_os = "macos")]
 
 use core_foundation::base::TCFType;
-use core_foundation::mach_port::CFMachPortRef;
+use core_foundation::boolean::CFBoolean;
+use core_foundation::dictionary::CFDictionary;
+use core_foundation::mach_port::{CFMachPort, CFMachPortRef};
 use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
-use core_graphics::event::{
-    CGEvent, CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-    CGEventTapPlacement, CGEventTapProxy, CGEventType, EventField,
-};
+use core_foundation::string::{CFString, CFStringRef};
+use core_graphics::event::{CGEvent, CGEventFlags, EventField};
 use foreign_types::ForeignType;
+use std::mem::ManuallyDrop;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
@@ -156,6 +172,13 @@ static OPT_IS_DOWN: AtomicBool = AtomicBool::new(false);
 // the collapse-toggle.
 static LAST_DOUBLE_TAP_PRESS_ID: AtomicU64 = AtomicU64::new(0);
 
+// Suppression state (2026-07-29). SUPPRESS_ACTIVE: the tap was created as an active
+// (Default) tap, so deleting events is possible. SWALLOW_NEXT_OPT_RELEASE: the 2nd
+// press of a consumed double-tap was just deleted; delete its matching release too,
+// so the outside world sees a consistent single press-release pair (the first tap).
+static SUPPRESS_ACTIVE: AtomicBool = AtomicBool::new(false);
+static SWALLOW_NEXT_OPT_RELEASE: AtomicBool = AtomicBool::new(false);
+
 // CFMachPortRef of the installed tap, stashed so the callback can re-enable in place
 // after macOS disables it (§19.4). Null until run_tap() finishes setup. Storing a
 // raw pointer is fine: the CFMachPort is held by the runloop source for the life of
@@ -165,6 +188,25 @@ static TAP_PORT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 // True once we've notified the UI that the tap is permanently disabled — re-entry
 // guard so a flapping tap doesn't toast on every disable callback.
 static NOTIFIED_DISABLED: AtomicBool = AtomicBool::new(false);
+
+// The tap callback is a plain extern "C" fn (raw CGEventTapCreate, see module doc),
+// so app-event emission goes through boxed closures installed once by install().
+struct Emitters {
+    capture_trigger: Box<dyn Fn() + Send + Sync>,
+    capture_disabled: Box<dyn Fn(&'static str) + Send + Sync>,
+    overlay_dismiss: Box<dyn Fn() + Send + Sync>,
+    collect_trigger: Box<dyn Fn() + Send + Sync>,
+    collect_collapse: Box<dyn Fn() + Send + Sync>,
+}
+static EMITTERS: OnceLock<Emitters> = OnceLock::new();
+
+// Raw CGEventType values we handle (the crate enum can't represent the two disable
+// sentinels without overflowing its mask builder — see the mask note in run_tap).
+const ET_LEFT_MOUSE_DOWN: u32 = 1;
+const ET_KEY_DOWN: u32 = 10;
+const ET_FLAGS_CHANGED: u32 = 12;
+const ET_TAP_DISABLED_TIMEOUT: u32 = 0xFFFF_FFFE;
+const ET_TAP_DISABLED_USER_INPUT: u32 = 0xFFFF_FFFF;
 
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
@@ -186,6 +228,33 @@ extern "C" {
     // already link. C `bool` maps to Rust `bool`.
     fn CGPreflightListenEventAccess() -> bool;
     fn CGRequestListenEventAccess() -> bool;
+
+    // Raw tap creation — used instead of core-graphics' CGEventTap wrapper because
+    // the wrapper's trampoline cannot return NULL (it maps `None` back to the
+    // original event), and returning NULL from the callback is precisely how an
+    // active tap deletes an event.
+    fn CGEventTapCreate(
+        tap: u32,      // kCGSessionEventTap = 1
+        place: u32,    // kCGHeadInsertEventTap = 0
+        options: u32,  // kCGEventTapOptionDefault = 0 / ListenOnly = 1
+        mask: u64,
+        callback: unsafe extern "C" fn(*const c_void, u32, *mut c_void, *mut c_void) -> *mut c_void,
+        user_info: *mut c_void,
+    ) -> CFMachPortRef;
+}
+
+const K_CG_SESSION_EVENT_TAP: u32 = 1;
+const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
+const K_CG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
+const K_CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    // Accessibility TCC state — gates ACTIVE event taps (the ones that may modify or
+    // delete events). Listen-only taps are gated by Input Monitoring instead.
+    fn AXIsProcessTrusted() -> bool;
+    fn AXIsProcessTrustedWithOptions(options: core_foundation::dictionary::CFDictionaryRef) -> bool;
+    static kAXTrustedCheckOptionPrompt: CFStringRef;
 }
 
 // Current Input Monitoring grant — polled by the frontend via the
@@ -194,16 +263,295 @@ pub fn input_monitoring_granted() -> bool {
     unsafe { CGPreflightListenEventAccess() }
 }
 
-pub fn install<R: Runtime>(app: AppHandle<R>) {
-    thread::spawn(move || run_tap(app));
+// Current Accessibility grant — the suppression tap (active mode) needs it.
+pub fn accessibility_granted() -> bool {
+    unsafe { AXIsProcessTrusted() }
 }
 
-fn run_tap<R: Runtime>(app: AppHandle<R>) {
-    // Without the Input Monitoring grant the ListenOnly tap below is still created
-    // without error but only ever sees Spool's own events (see module doc). Preflight
-    // and fire the one-shot system prompt when missing; install the tap either way so
-    // double-tap keeps working inside Spool immediately, and a fresh grant takes
-    // effect on the next launch.
+fn request_accessibility_with_prompt() -> bool {
+    unsafe {
+        let key = CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt);
+        let opts = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFBoolean::true_value().as_CFType())]);
+        AXIsProcessTrustedWithOptions(opts.as_concrete_TypeRef())
+    }
+}
+
+pub fn install<R: Runtime>(app: AppHandle<R>) {
+    // Emitters for the extern "C" callback and its timer threads. install() runs once.
+    let a1 = app.clone();
+    let a2 = app.clone();
+    let a3 = app.clone();
+    let a4 = app.clone();
+    let a5 = app.clone();
+    let _ = EMITTERS.set(Emitters {
+        capture_trigger: Box::new(move || {
+            let _ = a1.emit("capture-trigger", ());
+        }),
+        capture_disabled: Box::new(move |reason| {
+            let _ = a2.emit("capture-disabled", reason);
+        }),
+        overlay_dismiss: Box::new(move || {
+            let _ = a3.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
+        }),
+        collect_trigger: Box::new(move || {
+            let _ = a4.emit("collect-trigger", ());
+        }),
+        collect_collapse: Box::new(move || {
+            let _ = a5.emit_to("collect", "collect:toggle-collapse", ());
+        }),
+    });
+    thread::spawn(run_tap);
+}
+
+// The raw trampoline: returning the event pointer passes it through; returning NULL
+// deletes it (active taps only — for a listen-only tap the return value is ignored).
+unsafe extern "C" fn tap_trampoline(
+    _proxy: *const c_void,
+    etype: u32,
+    event: *mut c_void,
+    _user_info: *mut c_void,
+) -> *mut c_void {
+    if on_event(etype, event) {
+        event
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+// Returns true to keep the event, false to delete it. All logic lives here so the
+// trampoline stays trivial.
+fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
+    let emitters = match EMITTERS.get() {
+        Some(e) => e,
+        None => return true,
+    };
+
+    match etype {
+        ET_TAP_DISABLED_TIMEOUT | ET_TAP_DISABLED_USER_INPUT => {
+            let reason = if etype == ET_TAP_DISABLED_TIMEOUT { "timeout" } else { "user input" };
+            eprintln!("[double-tap] tap disabled ({reason}); attempting self-heal");
+            // Pull the tap's mach port we stashed at install-time and ask macOS to
+            // re-enable. If the port pointer is null, install hasn't completed yet —
+            // ignore (we'll never get a disable event before install anyway).
+            let port = TAP_PORT.load(Ordering::Acquire) as CFMachPortRef;
+            if !port.is_null() {
+                unsafe { CGEventTapEnable(port, true) };
+            }
+            SWALLOW_NEXT_OPT_RELEASE.store(false, Ordering::Relaxed);
+            // If we're still disabled next time the callback fires for a disable
+            // event, notify the UI once. CFRunLoop continues to dispatch the
+            // single-shot disable events even when the tap is off.
+            if NOTIFIED_DISABLED
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                // First-disable path: try the re-enable above and reset the
+                // double-tap counter so a stray ⌥ press from before doesn't pair
+                // with the next one. We DON'T toast yet — the re-enable usually
+                // works and a transient timeout shouldn't bother the user.
+                LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+            } else {
+                // Second consecutive disable event with no clean press in between
+                // means the self-heal didn't stick. Surface a single notice — a
+                // user-defined capture shortcut (if bound) keeps working.
+                (emitters.capture_disabled)(reason);
+            }
+            true
+        }
+        ET_LEFT_MOUSE_DOWN => {
+            // §9.13: dismiss the capture toast when the user clicks anywhere outside
+            // it (resuming work). Disarmed = the watch returns false, so this is a
+            // cheap no-op for every normal click when no toast is up.
+            let event = ManuallyDrop::new(unsafe { CGEvent::from_ptr(event_ptr as *mut _) });
+            let loc = event.location();
+            if click_outside_overlay(loc.x, loc.y) {
+                (emitters.overlay_dismiss)();
+            }
+            true
+        }
+        ET_KEY_DOWN => {
+            // Copy-gate bookkeeping: remember when a ⌘C/⌘X chord was last pressed.
+            // Repeats (key held) refresh the stamp harmlessly.
+            let event = ManuallyDrop::new(unsafe { CGEvent::from_ptr(event_ptr as *mut _) });
+            let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+            if (keycode == KEYCODE_C || keycode == KEYCODE_X)
+                && event.get_flags().contains(CGEventFlags::CGEventFlagCommand)
+            {
+                let now = unsafe { CGEventGetTimestamp(event_ptr as *const c_void) };
+                LAST_COPY_CHORD_NS.store(now, Ordering::Relaxed);
+            }
+            true
+        }
+        ET_FLAGS_CHANGED => {
+            // Any clean event passing through means the tap is healthy again —
+            // clear the latched disable flag so a future disable can re-arm the
+            // self-heal notification path.
+            NOTIFIED_DISABLED.store(false, Ordering::Relaxed);
+            let event = ManuallyDrop::new(unsafe { CGEvent::from_ptr(event_ptr as *mut _) });
+            // FlagsChanged carries the key code of the modifier that changed.
+            let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+            if keycode != KEYCODE_OPT_LEFT && keycode != KEYCODE_OPT_RIGHT {
+                return true;
+            }
+            let flags = event.get_flags();
+            // The ⌥ bit set in the post-change flags means this is the *press*
+            // edge; cleared means *release*. Both edges matter now — release
+            // bails the long-press timer (v2.8 Track B).
+            let is_press = flags.contains(CGEventFlags::CGEventFlagAlternate);
+
+            if !is_press {
+                // Release edge — mark the press session as ended so the in-flight
+                // long-press timer (if any) bails on wakeup. Does NOT update
+                // LAST_OPT_PRESS_NS (only presses count for double-tap pairing).
+                OPT_IS_DOWN.store(false, Ordering::Relaxed);
+                // Suppression: this is the release of a deleted 2nd press — delete
+                // it too, so the outside world's press/release pairing stays
+                // consistent (it saw exactly one full tap).
+                if SWALLOW_NEXT_OPT_RELEASE.swap(false, Ordering::AcqRel)
+                    && SUPPRESS_ACTIVE.load(Ordering::Relaxed)
+                {
+                    eprintln!("[double-tap] suppressed ⌥ release (2nd of consumed pair)");
+                    return false;
+                }
+                return true;
+            }
+
+            // A fresh press means any pending release-swallow is stale — drop it.
+            SWALLOW_NEXT_OPT_RELEASE.store(false, Ordering::Relaxed);
+
+            // Require ⌥ alone — a ⌥ press while ⌘/⇧/⌃ is held belongs to a combo
+            // (⌥⌘C, ⌥⇧4, …), not a deliberate tap.
+            if flags.contains(CGEventFlags::CGEventFlagCommand)
+                || flags.contains(CGEventFlags::CGEventFlagShift)
+                || flags.contains(CGEventFlags::CGEventFlagControl)
+            {
+                return true;
+            }
+
+            // Mark the press as live and stamp a fresh press_id so an older
+            // long-press timer (still sleeping from a previous press) can detect
+            // it has been superseded and bail.
+            OPT_IS_DOWN.store(true, Ordering::Relaxed);
+            let press_id = OPT_PRESS_ID.fetch_add(1, Ordering::Relaxed) + 1;
+
+            let now = unsafe { CGEventGetTimestamp(event_ptr as *const c_void) };
+            let prev = LAST_OPT_PRESS_NS.swap(now, Ordering::Relaxed);
+            // Whether to delete THIS event from the stream (2nd press of a pair
+            // that Spool consumed). Decided below; the timers still spawn either
+            // way so long-press / single-tap behavior is unchanged.
+            let mut keep = true;
+            // Log every clean ⌥ tap (with the measured gap) so a flaky double-tap
+            // can be triaged from stderr.
+            if prev == 0 {
+                eprintln!(
+                    "[double-tap] ⌥ 1st-of-pair (waiting ≤{DOUBLE_TAP_WINDOW_MS}ms for 2nd)"
+                );
+            } else {
+                // CGEventGetTimestamp is nanoseconds — straight /1e6 to ms.
+                let gap = now.saturating_sub(prev) / NANOS_PER_MS;
+                if gap <= DOUBLE_TAP_WINDOW_MS {
+                    // Copy-gate (see COPY_GATE_WINDOW_MS): only a double-tap that
+                    // follows a recent ⌘C/⌘X is a capture; a bare one is left to
+                    // Claude Desktop's identical quick-entry gesture. The gesture
+                    // mechanics (reset + press-id marking) run in both branches so
+                    // long-press / single-tap behavior is unchanged either way.
+                    let copied = LAST_COPY_CHORD_NS.load(Ordering::Relaxed);
+                    let copy_gap_ms = now.saturating_sub(copied) / NANOS_PER_MS;
+                    if !COPY_GATE_ACTIVE.load(Ordering::Relaxed)
+                        || (copied != 0 && copy_gap_ms <= COPY_GATE_WINDOW_MS)
+                    {
+                        eprintln!(
+                            "[double-tap] TRIGGER gap={gap}ms (⌘C {copy_gap_ms}ms ago)"
+                        );
+                        (emitters.capture_trigger)();
+                        // Suppression: Spool consumed this double-tap — delete the
+                        // 2nd press (and, via the flag, its release) so Claude
+                        // Desktop's identical gesture never completes.
+                        if SUPPRESS_ACTIVE.load(Ordering::Relaxed) {
+                            SWALLOW_NEXT_OPT_RELEASE.store(true, Ordering::Release);
+                            keep = false;
+                            eprintln!("[double-tap] suppressed ⌥ press (2nd of consumed pair)");
+                        }
+                    } else {
+                        eprintln!(
+                            "[double-tap] double-tap IGNORED — no ⌘C/⌘X within \
+                             {COPY_GATE_WINDOW_MS}ms (copy-gate)"
+                        );
+                    }
+                    // Reset so a third tap doesn't immediately re-trigger off the
+                    // second tap's timestamp.
+                    LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                    // Mark this press as a double-tap consumer so its single-tap timer
+                    // (spawned below) won't also fire a collapse-toggle.
+                    LAST_DOUBLE_TAP_PRESS_ID.store(press_id, Ordering::Relaxed);
+                } else {
+                    eprintln!(
+                        "[double-tap] ⌥ too-slow gap={gap}ms > {DOUBLE_TAP_WINDOW_MS}ms — count restarts"
+                    );
+                }
+            }
+
+            // v2.8 Track B: spawn a one-shot long-press detector. It sleeps the
+            // threshold, then fires collect-trigger iff (a) this same press is
+            // still down AND (b) no newer press has started in the meantime. The
+            // thread is short-lived (~600ms) and self-cleans. We do this AFTER
+            // the double-tap logic above so a fast second tap still trips capture
+            // first — and that fast second tap also increments OPT_PRESS_ID, so
+            // the first press's long-press timer will bail.
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(LONG_PRESS_THRESHOLD_MS));
+                if !OPT_IS_DOWN.load(Ordering::Relaxed) {
+                    return;
+                }
+                if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
+                    return; // superseded by a newer press
+                }
+                // Reset double-tap pairing so this long-pressed ⌥ can't also pair
+                // with a future tap for an unintended capture-trigger.
+                LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                eprintln!("[long-press] TRIGGER after {LONG_PRESS_THRESHOLD_MS}ms hold");
+                if let Some(e) = EMITTERS.get() {
+                    (e.collect_trigger)();
+                }
+            });
+
+            // v2.10 §20.9: single-tap detector. After the double-tap window settles,
+            // toggle the collect panel's collapse iff this was a clean lone tap — and
+            // only while the panel is open. Conditions: no later press (press_id
+            // unchanged), the key was released (a tap, not a hold heading for the
+            // long-press), and this press wasn't the 2nd of a double-tap (which already
+            // fired capture). Emitted straight to the collect window.
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(SINGLE_TAP_SETTLE_MS));
+                if !crate::collect::collect_panel_open() {
+                    return;
+                }
+                if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
+                    return;
+                }
+                if OPT_IS_DOWN.load(Ordering::Relaxed) {
+                    return;
+                }
+                if LAST_DOUBLE_TAP_PRESS_ID.load(Ordering::Relaxed) == press_id {
+                    return;
+                }
+                eprintln!("[single-tap] ⌥ clean tap — toggle collect collapse");
+                if let Some(e) = EMITTERS.get() {
+                    (e.collect_collapse)();
+                }
+            });
+
+            keep
+        }
+        _ => true,
+    }
+}
+
+fn run_tap() {
+    // Without the Input Monitoring grant the tap below only ever sees Spool's own
+    // events (see module doc). Preflight and fire the one-shot system prompt when
+    // missing; install the tap either way so double-tap keeps working inside Spool
+    // immediately, and a fresh grant takes effect on the next launch.
     let mut granted = unsafe { CGPreflightListenEventAccess() };
     if !granted {
         eprintln!("[double-tap] Input Monitoring NOT granted — showing system prompt");
@@ -212,243 +560,68 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
     }
     COPY_GATE_ACTIVE.store(granted, Ordering::Relaxed);
 
-    // Callback runs on the run-loop thread. Captures `app` (Clone + Send + Sync);
-    // LAST_OPT_PRESS_NS is the only shared mutable state — atomic, no locks.
-    let app_for_cb = app.clone();
-    let callback = move |_proxy: CGEventTapProxy,
-                         ev_type: CGEventType,
-                         event: &CGEvent|
-          -> Option<CGEvent> {
-        match ev_type {
-            CGEventType::LeftMouseDown => {
-                // §9.13: dismiss the capture toast when the user clicks anywhere outside
-                // it (resuming work). Disarmed = the watch returns false, so this is a
-                // cheap no-op for every normal click when no toast is up.
-                let loc = event.location();
-                if click_outside_overlay(loc.x, loc.y) {
-                    let _ = app.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
-                }
-            }
-            CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
-                let reason = match ev_type {
-                    CGEventType::TapDisabledByTimeout => "timeout",
-                    _ => "user input",
-                };
-                eprintln!("[double-tap] tap disabled ({reason}); attempting self-heal");
-                // Pull the tap's mach port we stashed at install-time and ask macOS to
-                // re-enable. If the port pointer is null, install hasn't completed yet —
-                // ignore (we'll never get a disable event before install anyway).
-                let port = TAP_PORT.load(Ordering::Acquire) as CFMachPortRef;
-                if !port.is_null() {
-                    unsafe { CGEventTapEnable(port, true) };
-                }
-                // If we're still disabled next time the callback fires for a disable
-                // event, notify the UI once. CFRunLoop continues to dispatch the
-                // single-shot disable events even when the tap is off.
-                if NOTIFIED_DISABLED
-                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    // First-disable path: try the re-enable above and reset the
-                    // double-tap counter so a stray ⌥ press from before doesn't pair
-                    // with the next one. We DON'T toast yet — the re-enable usually
-                    // works and a transient timeout shouldn't bother the user.
-                    LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
-                } else {
-                    // Second consecutive disable event with no clean press in between
-                    // means the self-heal didn't stick. Surface a single notice — a
-                    // user-defined capture shortcut (if bound) keeps working.
-                    let _ = app_for_cb.emit("capture-disabled", reason);
-                }
-            }
-            CGEventType::KeyDown => {
-                // Copy-gate bookkeeping: remember when a ⌘C/⌘X chord was last pressed.
-                // Repeats (key held) refresh the stamp harmlessly.
-                let keycode =
-                    event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
-                if (keycode == KEYCODE_C || keycode == KEYCODE_X)
-                    && event.get_flags().contains(CGEventFlags::CGEventFlagCommand)
-                {
-                    let now =
-                        unsafe { CGEventGetTimestamp(event.as_ptr() as *const c_void) };
-                    LAST_COPY_CHORD_NS.store(now, Ordering::Relaxed);
-                }
-            }
-            CGEventType::FlagsChanged => {
-                // Any clean event passing through means the tap is healthy again —
-                // clear the latched disable flag so a future disable can re-arm the
-                // self-heal notification path.
-                NOTIFIED_DISABLED.store(false, Ordering::Relaxed);
-                // FlagsChanged carries the key code of the modifier that changed.
-                let keycode =
-                    event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
-                if keycode != KEYCODE_OPT_LEFT && keycode != KEYCODE_OPT_RIGHT {
-                    return None;
-                }
-                let flags = event.get_flags();
-                // The ⌥ bit set in the post-change flags means this is the *press*
-                // edge; cleared means *release*. Both edges matter now — release
-                // bails the long-press timer (v2.8 Track B).
-                let is_press = flags.contains(CGEventFlags::CGEventFlagAlternate);
+    // Accessibility gates the ACTIVE (suppressing) tap. Preflight; prompt once when
+    // missing. Like Input Monitoring, a fresh grant takes effect on the next launch.
+    let mut ax = unsafe { AXIsProcessTrusted() };
+    if !ax {
+        eprintln!("[double-tap] Accessibility NOT granted — showing system prompt (needed to keep the double-tap exclusive to Spool)");
+        ax = request_accessibility_with_prompt();
+        eprintln!("[double-tap] Accessibility request returned trusted={ax}");
+    }
 
-                if !is_press {
-                    // Release edge — mark the press session as ended so the in-flight
-                    // long-press timer (if any) bails on wakeup. Does NOT update
-                    // LAST_OPT_PRESS_NS (only presses count for double-tap pairing).
-                    OPT_IS_DOWN.store(false, Ordering::Relaxed);
-                    return None;
-                }
+    // FlagsChanged (⌥ double-tap / long-press) + LeftMouseDown (§9.13 click-outside
+    // dismiss) + KeyDown (⌘C/⌘X copy-gate, 2026-07-08 — only when Input Monitoring
+    // is granted: an unprivileged tap never receives keyDown, and asking for it
+    // provoked a TapDisabledByUserInput in testing). The two TapDisabled sentinels
+    // are delivered to every tap regardless of the mask (their values don't fit a
+    // 1<<n mask anyway) — the callback handles them when they arrive.
+    let mut mask: u64 = (1 << ET_FLAGS_CHANGED) | (1 << ET_LEFT_MOUSE_DOWN);
+    if granted {
+        mask |= 1 << ET_KEY_DOWN;
+    }
 
-                // Require ⌥ alone — a ⌥ press while ⌘/⇧/⌃ is held belongs to a combo
-                // (⌥⌘C, ⌥⇧4, …), not a deliberate tap.
-                if flags.contains(CGEventFlags::CGEventFlagCommand)
-                    || flags.contains(CGEventFlags::CGEventFlagShift)
-                    || flags.contains(CGEventFlags::CGEventFlagControl)
-                {
-                    return None;
-                }
+    // Active tap first (event deletion possible → double-tap exclusivity); fall back
+    // to listen-only (previous behavior: both Spool and Claude see the gesture).
+    let mut port: CFMachPortRef = std::ptr::null_mut();
+    if ax {
+        port = unsafe {
+            CGEventTapCreate(
+                K_CG_SESSION_EVENT_TAP,
+                K_CG_HEAD_INSERT_EVENT_TAP,
+                K_CG_EVENT_TAP_OPTION_DEFAULT,
+                mask,
+                tap_trampoline,
+                std::ptr::null_mut(),
+            )
+        };
+    }
+    let active = !port.is_null();
+    if !active {
+        port = unsafe {
+            CGEventTapCreate(
+                K_CG_SESSION_EVENT_TAP,
+                K_CG_HEAD_INSERT_EVENT_TAP,
+                K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
+                mask,
+                tap_trampoline,
+                std::ptr::null_mut(),
+            )
+        };
+    }
+    if port.is_null() {
+        eprintln!(
+            "[double-tap] CGEventTap creation FAILED — grant Spool both \
+             Accessibility AND Input Monitoring in System Settings → Privacy & \
+             Security, then restart Spool."
+        );
+        return;
+    }
+    SUPPRESS_ACTIVE.store(active, Ordering::Relaxed);
 
-                // Mark the press as live and stamp a fresh press_id so an older
-                // long-press timer (still sleeping from a previous press) can detect
-                // it has been superseded and bail.
-                OPT_IS_DOWN.store(true, Ordering::Relaxed);
-                let press_id = OPT_PRESS_ID.fetch_add(1, Ordering::Relaxed) + 1;
-
-                let now = unsafe { CGEventGetTimestamp(event.as_ptr() as *const c_void) };
-                let prev = LAST_OPT_PRESS_NS.swap(now, Ordering::Relaxed);
-                // Log every clean ⌥ tap (with the measured gap) so a flaky double-tap
-                // can be triaged from stderr.
-                if prev == 0 {
-                    eprintln!(
-                        "[double-tap] ⌥ 1st-of-pair (waiting ≤{DOUBLE_TAP_WINDOW_MS}ms for 2nd)"
-                    );
-                } else {
-                    // CGEventGetTimestamp is nanoseconds — straight /1e6 to ms.
-                    let gap = now.saturating_sub(prev) / NANOS_PER_MS;
-                    if gap <= DOUBLE_TAP_WINDOW_MS {
-                        // Copy-gate (see COPY_GATE_WINDOW_MS): only a double-tap that
-                        // follows a recent ⌘C/⌘X is a capture; a bare one is left to
-                        // Claude Desktop's identical quick-entry gesture. The gesture
-                        // mechanics (reset + press-id marking) run in both branches so
-                        // long-press / single-tap behavior is unchanged either way.
-                        let copied = LAST_COPY_CHORD_NS.load(Ordering::Relaxed);
-                        let copy_gap_ms = now.saturating_sub(copied) / NANOS_PER_MS;
-                        if !COPY_GATE_ACTIVE.load(Ordering::Relaxed)
-                            || (copied != 0 && copy_gap_ms <= COPY_GATE_WINDOW_MS)
-                        {
-                            eprintln!(
-                                "[double-tap] TRIGGER gap={gap}ms (⌘C {copy_gap_ms}ms ago)"
-                            );
-                            let _ = app.emit("capture-trigger", ());
-                        } else {
-                            eprintln!(
-                                "[double-tap] double-tap IGNORED — no ⌘C/⌘X within \
-                                 {COPY_GATE_WINDOW_MS}ms (copy-gate)"
-                            );
-                        }
-                        // Reset so a third tap doesn't immediately re-trigger off the
-                        // second tap's timestamp.
-                        LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
-                        // Mark this press as a double-tap consumer so its single-tap timer
-                        // (spawned below) won't also fire a collapse-toggle.
-                        LAST_DOUBLE_TAP_PRESS_ID.store(press_id, Ordering::Relaxed);
-                    } else {
-                        eprintln!(
-                            "[double-tap] ⌥ too-slow gap={gap}ms > {DOUBLE_TAP_WINDOW_MS}ms — count restarts"
-                        );
-                    }
-                }
-
-                // v2.8 Track B: spawn a one-shot long-press detector. It sleeps the
-                // threshold, then fires collect-trigger iff (a) this same press is
-                // still down AND (b) no newer press has started in the meantime. The
-                // thread is short-lived (~600ms) and self-cleans. We do this AFTER
-                // the double-tap logic above so a fast second tap still trips capture
-                // first — and that fast second tap also increments OPT_PRESS_ID, so
-                // the first press's long-press timer will bail.
-                let app_for_timer = app.clone();
-                thread::spawn(move || {
-                    thread::sleep(Duration::from_millis(LONG_PRESS_THRESHOLD_MS));
-                    if !OPT_IS_DOWN.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
-                        return; // superseded by a newer press
-                    }
-                    // Reset double-tap pairing so this long-pressed ⌥ can't also pair
-                    // with a future tap for an unintended capture-trigger.
-                    LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
-                    eprintln!("[long-press] TRIGGER after {LONG_PRESS_THRESHOLD_MS}ms hold");
-                    let _ = app_for_timer.emit("collect-trigger", ());
-                });
-
-                // v2.10 §20.9: single-tap detector. After the double-tap window settles,
-                // toggle the collect panel's collapse iff this was a clean lone tap — and
-                // only while the panel is open. Conditions: no later press (press_id
-                // unchanged), the key was released (a tap, not a hold heading for the
-                // long-press), and this press wasn't the 2nd of a double-tap (which already
-                // fired capture). Emitted straight to the collect window.
-                let app_for_single = app.clone();
-                thread::spawn(move || {
-                    thread::sleep(Duration::from_millis(SINGLE_TAP_SETTLE_MS));
-                    if !crate::collect::collect_panel_open() {
-                        return;
-                    }
-                    if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
-                        return;
-                    }
-                    if OPT_IS_DOWN.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if LAST_DOUBLE_TAP_PRESS_ID.load(Ordering::Relaxed) == press_id {
-                        return;
-                    }
-                    eprintln!("[single-tap] ⌥ clean tap — toggle collect collapse");
-                    // "collect" = COLLECT_LABEL in collect.rs.
-                    let _ = app_for_single.emit_to("collect", "collect:toggle-collapse", ());
-                });
-            }
-            _ => {}
-        }
-        // ListenOnly mode: the return value is ignored by macOS, the event always
-        // passes through to the next tap unchanged.
-        None
-    };
-
-    let tap = match CGEventTap::new(
-        CGEventTapLocation::Session,
-        CGEventTapPlacement::HeadInsertEventTap,
-        CGEventTapOptions::ListenOnly,
-        // FlagsChanged (⌥ double-tap / long-press) + LeftMouseDown (§9.13 click-outside
-        // dismiss) + KeyDown (⌘C/⌘X copy-gate, 2026-07-08 — only when Input Monitoring
-        // is granted: an unprivileged tap never receives keyDown, and asking for it
-        // provoked a TapDisabledByUserInput in testing). Per Apple docs,
-        // TapDisabledByTimeout and TapDisabledByUserInput are delivered to every tap
-        // regardless of the mask — and including them PANICS at startup because their
-        // numeric values (0xFFFFFFFE / 0xFFFFFFFF) overflow core-graphics 0.23.2's
-        // `1 << ev as u64` mask builder. The callback still handles them when they
-        // arrive automatically.
-        {
-            let mut evs = vec![CGEventType::FlagsChanged, CGEventType::LeftMouseDown];
-            if granted {
-                evs.push(CGEventType::KeyDown);
-            }
-            evs
-        },
-        callback,
-    ) {
-        Ok(t) => t,
-        Err(_) => {
-            eprintln!(
-                "[double-tap] CGEventTap creation FAILED — grant Spool both \
-                 Accessibility AND Input Monitoring in System Settings → Privacy & \
-                 Security, then restart Spool."
-            );
-            return;
-        }
-    };
-
-    let source = match tap.mach_port.create_runloop_source(0) {
+    // wrap_under_create_rule takes over the +1 from CGEventTapCreate; the runloop
+    // source retains the port for the life of this (never-exiting) thread.
+    let mach_port = unsafe { CFMachPort::wrap_under_create_rule(port) };
+    let source = match mach_port.create_runloop_source(0) {
         Ok(s) => s,
         Err(_) => {
             eprintln!("[double-tap] failed to create run loop source");
@@ -460,17 +633,15 @@ fn run_tap<R: Runtime>(app: AppHandle<R>) {
     unsafe {
         current.add_source(&source, kCFRunLoopCommonModes);
     }
-    tap.enable();
+    unsafe { CGEventTapEnable(port, true) };
     // Stash the raw CFMachPortRef so the callback can re-enable the tap in place when
     // macOS disables it. Safe because the runloop source above retains the mach port
     // for as long as this thread (which never exits) keeps the runloop alive.
-    TAP_PORT.store(
-        tap.mach_port.as_concrete_TypeRef() as *mut c_void,
-        Ordering::Release,
-    );
+    TAP_PORT.store(port as *mut c_void, Ordering::Release);
     eprintln!(
-        "[double-tap] installed — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture; \
-         long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)"
+        "[double-tap] installed ({}) — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture; \
+         long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)",
+        if active { "active: consumed double-taps are exclusive to Spool" } else { "listen-only: no Accessibility, gesture stays shared" }
     );
     // CFRunLoop::run_current() blocks this thread forever — exactly what we want
     // for a long-lived event-tap listener. The thread is dedicated to this loop.

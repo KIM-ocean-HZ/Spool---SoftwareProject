@@ -31,7 +31,7 @@
 <div data-lang-section="en">
 
 <h1>Privacy Policy</h1>
-<p class="lede">Last updated: 2026-07-10. This English translation is provided for convenience;
+<p class="lede">Last updated: 2026-07-29. This English translation is provided for convenience;
 the Chinese original (switch language with the 中文 button above) is authoritative.</p>
 
 <h2>The one-sentence version</h2>
@@ -84,6 +84,12 @@ writes” is a second, separate switch.</p>
   <tr><td>Input monitoring (double-tap ⌥ capture)</td>
       <td>Detecting the Option-key double-tap / long-press gesture</td>
       <td>Double-tap ⌥ unavailable; a custom capture shortcut can be set in Settings</td></tr>
+  <tr><td>Accessibility (optional)</td>
+      <td>Keeps the capture gesture exclusive to Spool: when a capture fires, the second ⌥
+          press is removed from the event stream so other apps using the same gesture
+          (such as Claude Desktop) don't pop up alongside</td>
+      <td>Capture works exactly the same; other apps using the same gesture fire together
+          with Spool</td></tr>
   <tr><td>Automation (browser)</td>
       <td>Reading the current tab title as a source label</td>
       <td>Source falls back to the application name</td></tr>
@@ -104,7 +110,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 <div class="zh-block" id="zh" lang="zh" data-lang-section="zh">
 
 <h1>Spool（思簿）隐私政策</h1>
-<p class="lede">最后更新：2026-07-10</p>
+<p class="lede">最后更新：2026-07-29</p>
 
 <h2>一句话版本</h2>
 <p><strong>你的数据留在你的电脑上——没有例外。</strong> Spool 是纯本地软件：捕捉、整理、打包、搜索全部在本机完成，不注册账号、不上传数据、不做遥测。Spool 自身<strong>不内置任何云端 AI</strong>，也不会向任何服务器发起请求；应用的内容安全策略（CSP）在结构上禁止了 webview 的一切外部网络连接。</p>
@@ -137,6 +143,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 <table>
   <tr><th>权限</th><th>用途</th><th>拒绝的后果</th></tr>
   <tr><td>输入监听（双击 ⌥ 捕捉）</td><td>识别 Option 键的双击/长按手势</td><td>双击 ⌥ 不可用；可在设置里自定义捕捉快捷键</td></tr>
+  <tr><td>辅助功能（可选）</td><td>让捕捉手势只属于 Spool：捕捉发生时从事件流中移除第二次 ⌥ 按键，避免使用相同手势的其他应用（如 Claude Desktop）同时弹出</td><td>捕捉一切照常；但相同手势的其他应用会与 Spool 同时被触发</td></tr>
   <tr><td>自动化（浏览器）</td><td>读取当前标签页标题作为来源标注</td><td>来源退化为应用名</td></tr>
   <tr><td>剪贴板</td><td>捕捉时读取剪贴板文本</td><td>无法捕捉</td></tr>
 </table>

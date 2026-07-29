@@ -43,6 +43,21 @@ fn input_monitoring_granted() -> bool {
     }
 }
 
+// The suppression tap (double_tap.rs, 2026-07-29) needs the Accessibility grant to
+// delete a consumed double-tap from the event stream — without it the gesture is
+// shared and Claude Desktop's quick-entry pops alongside every capture.
+#[tauri::command]
+fn accessibility_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        double_tap::accessibility_granted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 // Opens System Settings directly at Privacy & Security → Input Monitoring, for the
 // banner's "open settings" button. Fixed URL, no user input — no injection surface.
 #[tauri::command]
@@ -108,6 +123,7 @@ pub fn run() {
             mcp_client_status,
             configure_mcp_client,
             input_monitoring_granted,
+            accessibility_granted,
             open_input_monitoring_settings,
         ]);
 
