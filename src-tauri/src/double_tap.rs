@@ -243,6 +243,14 @@ extern "C" {
     ) -> CFMachPortRef;
 }
 
+// Tap locations, upstream first. HID is where events enter the window server —
+// ahead of EVERY session tap, so a suppression decision there wins no matter when
+// the competing app installed its own tap. Session taps, by contrast, are ordered
+// by insertion: a head-inserted tap created after ours sits in front of ours and
+// would see the second ⌥ press before we could delete it (this is why the
+// 2026-07-29 session-level attempt still let the other app's popup through).
+// HID requires Accessibility; without it we fall back down this list.
+const K_CG_HID_EVENT_TAP: u32 = 0;
 const K_CG_SESSION_EVENT_TAP: u32 = 1;
 const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 const K_CG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
@@ -580,13 +588,16 @@ fn run_tap() {
         mask |= 1 << ET_KEY_DOWN;
     }
 
-    // Active tap first (event deletion possible → double-tap exclusivity); fall back
-    // to listen-only (previous behavior: both Spool and Claude see the gesture).
+    // Try, in order: HID + active (upstream of every session tap → the suppression
+    // decision wins regardless of who installed a tap first), session + active
+    // (deletion still works, but only against session taps installed before ours),
+    // session + listen-only (previous behavior: the gesture stays shared).
     let mut port: CFMachPortRef = std::ptr::null_mut();
+    let mut where_ = "session/listen-only";
     if ax {
         port = unsafe {
             CGEventTapCreate(
-                K_CG_SESSION_EVENT_TAP,
+                K_CG_HID_EVENT_TAP,
                 K_CG_HEAD_INSERT_EVENT_TAP,
                 K_CG_EVENT_TAP_OPTION_DEFAULT,
                 mask,
@@ -594,6 +605,24 @@ fn run_tap() {
                 std::ptr::null_mut(),
             )
         };
+        if !port.is_null() {
+            where_ = "HID/active";
+        } else {
+            eprintln!("[double-tap] HID tap unavailable — falling back to a session tap");
+            port = unsafe {
+                CGEventTapCreate(
+                    K_CG_SESSION_EVENT_TAP,
+                    K_CG_HEAD_INSERT_EVENT_TAP,
+                    K_CG_EVENT_TAP_OPTION_DEFAULT,
+                    mask,
+                    tap_trampoline,
+                    std::ptr::null_mut(),
+                )
+            };
+            if !port.is_null() {
+                where_ = "session/active";
+            }
+        }
     }
     let active = !port.is_null();
     if !active {
@@ -639,9 +668,13 @@ fn run_tap() {
     // for as long as this thread (which never exits) keeps the runloop alive.
     TAP_PORT.store(port as *mut c_void, Ordering::Release);
     eprintln!(
-        "[double-tap] installed ({}) — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) to capture; \
-         long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)",
-        if active { "active: consumed double-taps are exclusive to Spool" } else { "listen-only: no Accessibility, gesture stays shared" }
+        "[double-tap] installed at {where_} ({}) — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) \
+         to capture; long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)",
+        if active {
+            "consumed double-taps are deleted from the stream — exclusive to Spool"
+        } else {
+            "no Accessibility grant: the gesture stays shared with other listeners"
+        }
     );
     // CFRunLoop::run_current() blocks this thread forever — exactly what we want
     // for a long-lived event-tap listener. The thread is dedicated to this loop.
