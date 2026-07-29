@@ -19,6 +19,7 @@
     <nav class="nav-links">
       <a href="#demo">Try it</a>
       <a href="#how">How it works</a>
+      <a href="#mcp">MCP</a>
       <a href="story.html">Story</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
       <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download</a>
@@ -205,6 +206,41 @@
       <div class="shot-panel" data-panel="digest" hidden>
         <img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files and links" width="1100" loading="lazy">
         <p class="shot-caption">A finished thread’s digest: conclusion, pinned blocks, files &amp; links.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="thread-seg" aria-hidden="true"></div>
+
+<section id="mcp">
+  <div class="wrap">
+    <div class="loop-row reveal">
+      <div class="loop-copy">
+        <div class="kicker">MCP · beyond the paste</div>
+        <h2>Your AI, resident librarian</h2>
+        <p>A pack briefs an AI <em>once</em>. Over the <strong>Model Context Protocol</strong>,
+        the AI clients you already own — Claude Desktop, Cursor, and friends — get standing
+        access instead: they read <strong>months of context on demand</strong>, search every
+        thread in your library, and file conclusions back into the right place.</p>
+        <p>Ten tools, two opt-in switches, no network port. Every AI write is attributed and
+        append-only — your handwritten blocks are read-only to machines, permanently.</p>
+      </div>
+      <div class="loop-visual" id="mcp-shot-slot">
+        <div class="mock">
+          <div class="mock-titlebar"><i></i><i></i><i></i></div>
+          <div class="mcp-trace static">
+            <span class="tl"><span class="mono">$</span> connecting → <span class="tool">spool --mcp</span> (stdio)</span>
+            <span class="tl"><span class="ok">✓</span> connected · 10 tools exposed</span>
+            <span class="tl">→ <span class="tool">list_threads</span>()  <span class="ret">← 3 workspaces · 14 threads</span></span>
+            <span class="tl">→ <span class="tool">get_digest</span>("Distributed scheduling paper")</span>
+            <span class="tl">   <span class="ret">← 128 blocks · 42 days of work</span></span>
+            <span class="tl">→ <span class="tool">search_blocks</span>("straggler")  <span class="ret">← 7 hits, oldest 5 weeks back</span></span>
+            <span class="tl">→ <span class="tool">add_block</span>(conclusion, source: "Claude · MCP")</span>
+            <span class="tl"><span class="ok">✓</span> filed — attributed, append-only</span>
+          </div>
+        </div>
+        <p class="shot-caption">A real session, traced. Your AI sees the whole library — not one paste.</p>
       </div>
     </div>
   </div>

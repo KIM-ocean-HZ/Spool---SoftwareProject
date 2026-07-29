@@ -1,5 +1,7 @@
 /* Spool interactive demo — a scripted simulation of the core loop.
    Everything is client-side and preset: no network, no AI is called.
+   Guidance model: one instruction banner that updates after EVERY completed
+   action, plus a pulsing cue on the next click target.
    Phases: capture1 → capture2 → capture3 → pack → rebrief → mcp → done */
 
 (function () {
@@ -32,7 +34,7 @@
       time: '16:42',
       src: 'Claude · MCP',
       mcp: true,
-      text: 'Filed: §3.2 argument is complete — reversibility answers “why not truncate.” Survey taxonomy cited as contrast in fn. 12.'
+      text: 'Filed: §3.2 argument is complete — reversibility answers “why not truncate.” Consistent with the 6/17 baseline note; survey taxonomy cited as contrast (fn. 12).'
     }
   };
 
@@ -70,18 +72,23 @@
     '  via the log domain.'
   ].join('\n');
 
-  var AI_REPLY =
-    'Picking up your distributed-scheduling paper — here’s how I’d run the §3.2 revision:\n\n' +
-    '1. Follow your own ordering: formula numbering first, then the straggler table.\n' +
-    '2. Lead with the O(1)-reversibility argument — it’s your direct answer to “why not truncate.”\n' +
-    '3. Cite the survey’s speculative / proactive / hybrid taxonomy as contrast in related work — it’s orthogonal to your split, so position it as complementary.\n\n' +
-    'Want me to draft the section opening?';
+  /* Structured AI reply: each line reveals sequentially; every point is
+     tagged with the fragment it came from — extraction made visible. */
+  var AI_REPLY_HTML =
+    '<div class="ab-line">Got it — <strong>Distributed scheduling paper</strong>, §3.2 revision. ' +
+    'Your pack has 3 fragments from 3 sources. Synthesized:</div>' +
+    '<div class="ab-item"><span class="ab-tag you">✍️ your note</span>Order of work: formula numbering first, then the straggler comparison table.</div>' +
+    '<div class="ab-item"><span class="ab-tag ai">🤖 ai chat</span>Open §3.2 with the O(1)-reversibility argument — it directly answers “why not truncate.”</div>' +
+    '<div class="ab-item"><span class="ab-tag ref">📚 arxiv</span>The survey’s taxonomy is orthogonal to your split — cite it as contrast in related work, not as overlap.</div>' +
+    '<div class="ab-line muted-line">Three scattered fragments → one work plan. Nothing re-explained.</div>';
 
   var TRACE = [
     '<span class="mono">$</span> connecting → <span class="tool">spool --mcp</span> (stdio)',
     '<span class="ok">✓</span> connected · 10 tools exposed',
+    '→ <span class="tool">list_threads</span>()  <span class="ret">← 3 workspaces · 14 threads</span>',
     '→ <span class="tool">get_digest</span>("Distributed scheduling paper")',
-    '→ <span class="tool">search_blocks</span>("straggler")',
+    '   <span class="ret">← 128 blocks · 42 days of work · 2 linked threads</span>',
+    '→ <span class="tool">search_blocks</span>("straggler")  <span class="ret">← 7 hits, oldest 5 weeks back</span>',
     '→ <span class="tool">add_block</span>(conclusion, source: "Claude · MCP")',
     '<span class="ok">✓</span> filed — attributed, append-only'
   ];
@@ -91,7 +98,6 @@
   var T = {};
 
   T.capture1 =
-    '<div class="demo-instruction">Step 1 · You’re reading a paper. <strong>Copy the highlighted line.</strong></div>' +
     '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> arXiv — Safari</div>' +
     '<div class="fw-body"><h4>Scalable scheduling for ML workloads: a survey (2025)</h4>' +
     '<p>…latency variance remains the dominant failure mode at scale. ' +
@@ -99,42 +105,39 @@
     'a taxonomy the authors argue is exhaustive for synchronous training…</p>' +
     '<button class="copy-btn" data-action="copy">⎘ Copy</button></div></div>' +
     '<div class="keycap-row" hidden id="keyrow">' +
-    '<span class="keycap-hint">now</span><button class="keycap" data-action="tap">⌥ option</button>' +
-    '<span class="keycap-hint"><strong>double-tap</strong> it (your real ⌥ key works too)</span></div>';
+    '<button class="keycap" data-action="tap">⌥ option</button>' +
+    '<span class="keycap-hint"><strong>double-tap</strong> — the on-screen key, or your real ⌥ key</span></div>';
 
   T.capture2 =
-    '<div class="demo-instruction">Step 1 · Later, an AI gives you a good answer. <strong>Capture it the same way.</strong></div>' +
     '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> AI chat — Web</div>' +
     '<div class="fw-body"><div class="chat">' +
     '<div class="bubble user">Does incremental evaluation require the metric to be divisible?</div>' +
     '<div class="bubble ai">No — <span class="quote-target">it doesn’t require divisibility, only locally O(1) reversible updates</span>. Sums qualify; products too, via the log domain.</div>' +
     '</div><button class="copy-btn" data-action="copy">⎘ Copy</button></div></div>' +
     '<div class="keycap-row" hidden id="keyrow">' +
-    '<span class="keycap-hint">now</span><button class="keycap" data-action="tap">⌥ option</button>' +
+    '<button class="keycap" data-action="tap">⌥ option</button>' +
     '<span class="keycap-hint"><strong>double-tap</strong> again</span></div>';
 
   T.capture3 =
-    '<div class="demo-instruction">Step 1 · The third kind of fragment: <strong>your own thinking.</strong> ' +
-    'Type a note in Spool’s composer on the right (or just press <strong>Add</strong>).</div>' +
     '<div class="fake-window"><div class="fw-body">' +
-    '<p class="muted" style="font-size:0.85rem">Notes with no source are the <em>highest-signal</em> content in a pack — ' +
-    'Spool treats your words as directives, everything else as evidence.</p></div></div>';
+    '<p style="font-size:0.85rem;margin:0">Fragments so far came from <em>outside</em>: a paper, an AI. ' +
+    'The third kind is the one Spool values most — <strong>your own thinking</strong>.</p>' +
+    '<p class="muted" style="font-size:0.8rem;margin:0.6rem 0 0">Notes with no source rank as the ' +
+    'highest-signal content in every pack: your words are directives, everything else is evidence.</p>' +
+    '</div></div>';
 
   T.pack =
-    '<div class="demo-instruction">Step 2 · Three fragments, three sources, one place. ' +
-    '<strong>Click “Pack”</strong> in Spool’s header →</div>' +
-    '<div class="fake-window"><div class="fw-body"><p class="muted" style="font-size:0.85rem">' +
-    'Packing is pure string assembly — deterministic, no AI in the hot path. ' +
-    'Same thread, same day, same bytes.</p></div></div>';
+    '<div class="fake-window"><div class="fw-body"><p style="font-size:0.85rem;margin:0">' +
+    'Three fragments, three sources, one thread — scattered context, now in one place.</p>' +
+    '<p class="muted" style="font-size:0.8rem;margin:0.6rem 0 0">Packing is pure string assembly: ' +
+    'deterministic, no AI in the hot path. Same thread, same day, same bytes.</p></div></div>';
 
   T.rebrief =
-    '<div class="demo-instruction">Step 3 · A fresh AI conversation, zero context. <strong>Paste the pack.</strong></div>' +
-    '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> Any AI — new conversation</div>' +
+    '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> Any AI — new conversation, zero memory</div>' +
     '<div class="fw-body"><div class="chat" id="chat"></div>' +
     '<button class="copy-btn" data-action="paste" id="pastebtn">⎘ Paste the pack</button></div></div>';
 
   T.mcp =
-    '<div class="demo-instruction">Step 4 · Or skip the pasting: connect your AI over <strong>MCP</strong> and it maintains the library itself.</div>' +
     '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> Claude Desktop — tool calls</div>' +
     '<div class="fw-body"><div class="mcp-trace" id="trace">' +
     TRACE.map(function (l) { return '<span class="tl">' + l + '</span>'; }).join('') +
@@ -152,18 +155,30 @@
     '<span class="rail-step" id="rs2"><span class="tick">✓ </span>3 · Re-brief</span>' +
     '<span class="rail-step" id="rs3"><span class="tick">✓ </span>4 · MCP</span>' +
     '</div>' +
+    '<div class="demo-guide" id="guide"></div>' +
     '<div class="demo-stage">' +
     '<div class="demo-left" id="left"></div>' +
     '<div class="demo-right">' +
     '<div class="overlay-chip" id="chip"><span>✓ Captured</span><span class="src" id="chipsrc"></span></div>' +
     '<div class="mini-spool-bar"><span class="title">Spool<span class="zh">思簿</span></span>' +
     '<button class="pack-btn" id="packbtn" data-action="open-pack" disabled>⎘ Pack</button></div>' +
+    '<div class="mini-body">' +
+    '<div class="mini-side" aria-label="Workspaces and threads">' +
+    '<div class="ms-label">Research</div>' +
+    '<div class="ms-item active">Distributed scheduling paper<span class="ms-cap">● capturing</span></div>' +
+    '<div class="ms-item">Rust study notes</div>' +
+    '<div class="ms-item">Course report</div>' +
+    '<div class="ms-label">Life</div>' +
+    '<div class="ms-item">Recipes</div>' +
+    '</div>' +
+    '<div class="mini-main">' +
     '<div class="thread-meta"><div class="tname">Distributed scheduling paper</div>' +
-    '<div class="tsub">Research → thread · deadline Friday</div></div>' +
+    '<div class="tsub">deadline Friday · 3 threads in workspace</div></div>' +
     '<div class="feed" id="feed"><div class="feed-empty">Captured fragments land here ↓</div></div>' +
     '<form class="composer" id="composer" hidden><input id="noteinput" type="text" ' +
     'placeholder="Revision order for tomorrow: fix §3.2 numbering first…" aria-label="Write a note">' +
-    '<button type="submit">Add</button></form>' +
+    '<button type="submit" id="addbtn">Add</button></form>' +
+    '</div></div>' +
     '<div class="pack-modal" id="packmodal"><div class="pm-head"><h4>Pack this thread</h4>' +
     '<div class="pm-sub">Local assembly · paste-ready for any AI</div></div>' +
     '<pre id="packpre"></pre>' +
@@ -172,8 +187,8 @@
     '<button class="pm-btn primary" data-action="to-rebrief" id="contbtn" disabled>Paste into an AI →</button>' +
     '</span></div></div>' +
     '</div></div>' +
-    '<div class="demo-finale" id="finale"><strong>That’s the whole loop</strong> — capture to re-brief in about a minute. ' +
-    'The real app does it across your entire desktop, offline.<br>' +
+    '<div class="demo-finale" id="finale"><strong>That’s the whole loop</strong> — and notice the sidebar: ' +
+    'Spool is a project tree, not a chat. The AI is a librarian working <em>inside your</em> structure.<br>' +
     '<a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a></div>' +
     '</div>';
 
@@ -183,8 +198,19 @@
   var left = $('left'), feed = $('feed'), chip = $('chip'), chipsrc = $('chipsrc');
   var packbtn = $('packbtn'), composer = $('composer'), noteinput = $('noteinput');
   var modal = $('packmodal'), packpre = $('packpre'), packstat = $('packstat');
+  var guide = $('guide');
 
   var state = { phase: '', captured: 0, copied: false, taps: 0, tapAt: 0, busy: false };
+
+  /* one instruction at a time, updated after every completed action */
+  function say(html) { guide.innerHTML = html; }
+
+  /* pulsing cue on the next click target (one at a time) */
+  function cue(el) {
+    root.querySelectorAll('.cue').forEach(function (n) { n.classList.remove('cue'); });
+    if (el) el.classList.add('cue');
+  }
+  function cueIn(sel) { cue(left.querySelector(sel)); }
 
   function setPhase(p) {
     state.phase = p;
@@ -245,29 +271,52 @@
   }
 
   function captureLands() {
-    var b = state.phase === 'capture1' ? BLOCKS.article : BLOCKS.chat;
+    var first = state.phase === 'capture1';
+    var b = first ? BLOCKS.article : BLOCKS.chat;
     state.captured++;
     overlay(b.src);
     addBlock(b);
-    setPhase(state.phase === 'capture1' ? 'capture2' : 'capture3');
+    if (first) {
+      setPhase('capture2');
+      say('<b>✓ Captured — 1 of 3.</b> The source came along for free (“arXiv · Safari”). ' +
+          'Next fragment: an AI just gave you a good answer — click <strong>⎘ Copy</strong> on it.');
+      cueIn('.copy-btn');
+    } else {
+      setPhase('capture3');
+      say('<b>✓ Captured — 2 of 3.</b> Last one is <strong>your own thinking</strong>: type a note ' +
+          'in Spool’s composer on the right (or just press <strong>Add</strong> to use the suggestion).');
+      cue($('addbtn'));
+    }
   }
 
   window.addEventListener('keydown', function (e) {
     if (e.key === 'Alt' && armedForTap()) { e.preventDefault(); if (!e.repeat) tap(); }
   });
 
-  /* ---------- typewriter helpers ---------- */
+  /* ---------- typewriter ---------- */
 
-  function typeInto(el, text, cps, done) {
+  function typeInto(el, text, charsPerTick, done) {
     if (reduceMotion) { el.textContent = text; done && done(); return; }
     var i = 0;
-    var step = Math.max(1, Math.round(cps / 30));
     var t = setInterval(function () {
-      i += step;
+      i += charsPerTick;
       el.textContent = text.slice(0, i);
       el.scrollTop = el.scrollHeight;
       if (i >= text.length) { clearInterval(t); done && done(); }
     }, 33);
+  }
+
+  /* sequential reveal of pre-rendered children */
+  function revealChildren(el, delay, done) {
+    var kids = Array.prototype.slice.call(el.children);
+    var i = 0;
+    (function next() {
+      if (i < kids.length) {
+        kids[i].classList.add('on');
+        i++;
+        setTimeout(next, reduceMotion ? 0 : delay);
+      } else { done && done(); }
+    })();
   }
 
   /* ---------- actions ---------- */
@@ -284,17 +333,24 @@
       btn.disabled = true;
       var kr = left.querySelector('#keyrow');
       if (kr) kr.hidden = false;
+      say('<b>Copied ✓</b> — now the Spool gesture: <strong>double-tap ⌥</strong>. ' +
+          'Use the on-screen key below, or your keyboard’s real Option key.');
+      cueIn('.keycap');
     }
 
     if (a === 'tap') tap();
 
     if (a === 'open-pack' && state.phase === 'pack') {
+      cue(null);
       modal.classList.add('show');
       packstat.textContent = 'assembling…';
-      typeInto(packpre, PACK_TEXT, 900, function () {
+      typeInto(packpre, PACK_TEXT, 30, function () {
         packstat.textContent = '3 blocks · ' + PACK_TEXT.length + ' chars · deterministic';
         $('copypack').disabled = false;
         $('contbtn').disabled = false;
+        say('<b>✓ Packed.</b> Notice the authority sections — your note outranks the sources. ' +
+            'Try <strong>Copy</strong> (it really hits your clipboard), then <strong>Paste into an AI →</strong>');
+        cue($('contbtn'));
       });
     }
 
@@ -306,11 +362,15 @@
     if (a === 'to-rebrief') {
       modal.classList.remove('show');
       setPhase('rebrief');
+      say('<b>Step 3 of 4 · Re-brief.</b> This AI conversation is brand-new — zero memory of you. ' +
+          'Click <strong>⎘ Paste the pack</strong> and watch it pick the project straight up.');
+      cueIn('#pastebtn');
     }
 
     if (a === 'paste' && !state.busy) {
       state.busy = true;
       btn.disabled = true;
+      cue(null);
       var chat = left.querySelector('#chat');
       var u = document.createElement('div');
       u.className = 'bubble user pasted';
@@ -321,22 +381,33 @@
       chat.appendChild(ai);
       setTimeout(function () {
         ai.classList.remove('typing-dots');
-        typeInto(ai, AI_REPLY, 150, function () {
+        ai.innerHTML = '<div class="ai-brief">' + AI_REPLY_HTML + '</div>';
+        revealChildren(ai.firstChild, 550, function () {
           state.busy = false;
           var next = document.createElement('button');
           next.className = 'next-nudge';
           next.dataset.action = 'to-mcp';
-          next.textContent = 'Scripted reply — a real paste works just like this. Next: MCP →';
+          next.textContent = 'Next: skip the pasting entirely — MCP →';
           left.appendChild(next);
+          say('<b>See the tags?</b> Every point in the reply traces to one of your fragments — ' +
+              'scattered information, integrated. (Scripted reply; a real paste works just like this.)');
+          cue(next);
         });
       }, reduceMotion ? 0 : 900);
     }
 
-    if (a === 'to-mcp') setPhase('mcp');
+    if (a === 'to-mcp') {
+      setPhase('mcp');
+      say('<b>Step 4 of 4 · MCP.</b> A pack briefs an AI <em>once</em>. Connect over MCP and your AI ' +
+          'reads the <strong>whole library</strong> on demand — months of context, every thread — ' +
+          'and files results back. Click <strong>▸ Run simulated session</strong>.');
+      cueIn('#mcpbtn');
+    }
 
     if (a === 'mcp' && !state.busy) {
       state.busy = true;
       btn.disabled = true;
+      cue(null);
       var lines = left.querySelectorAll('#trace .tl');
       var i = 0;
       (function next() {
@@ -351,6 +422,8 @@
           state.phase = 'done';
           rail();
           $('finale').classList.add('show');
+          say('<b>✓ Done.</b> The AI searched 128 blocks spanning six weeks, then filed a conclusion ' +
+              'back into your thread — attributed, append-only, and it can never touch what you wrote by hand.');
         }
       })();
     }
@@ -365,7 +438,7 @@
       $('contbtn').disabled = true;
       packbtn.disabled = true;
       packbtn.classList.remove('armed');
-      setPhase('capture1');
+      start();
     }
   });
 
@@ -380,8 +453,18 @@
     packbtn.disabled = false;
     packbtn.classList.add('armed');
     setPhase('pack');
+    say('<b>✓ 3 of 3 — capture complete.</b> A paper, an AI, and your own note now live in one thread. ' +
+        'Time for the crown feature: click <strong>⎘ Pack</strong> in Spool’s header.');
+    cue(packbtn);
   });
 
   /* ---------- go ---------- */
-  setPhase('capture1');
+
+  function start() {
+    setPhase('capture1');
+    say('<b>Step 1 of 4 · Capture.</b> You’re reading a paper and one line matters. ' +
+        'Click <strong>⎘ Copy</strong> on the highlighted sentence.');
+    cueIn('.copy-btn');
+  }
+  start();
 })();
