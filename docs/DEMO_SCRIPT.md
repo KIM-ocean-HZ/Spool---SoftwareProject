@@ -23,7 +23,7 @@
 | 3 | 0:40–1:10 | 打开 Spool 主窗口:块流显示刚捕捉的块(时间+来源标签);给一块写一条批注;侧栏可见「捕捉中 ●」 | Fragments thread into an append-only timeline. Your annotations rank highest. |
 | 4 | 1:10–1:45 | 点「打包」→ 选意图 → 复制 → 粘到任意网页 AI,AI 基于上下文接着答 | One click packs the thread. One paste re-briefs any AI. Deterministic — no AI in the loop. |
 | 5 | 1:45–2:20 | Claude Desktop:让 Claude 搜库并归档一条结论 → 切回 Spool,新块出现,来源标签「Claude · MCP」 | Connect your own AI over MCP. It reads, files, and signs its work — and can never overwrite yours. |
-| 6 | 2:20–2:35 | 设置页隐私区一瞥 → 结尾卡:logo + 官网 URL | No account. No cloud. Your data stays home.<br>kim-ocean-hz.github.io/spool |
+| 6 | 2:20–2:35 | 设置页隐私区一瞥 → 结尾卡:logo + 官网 URL | No account. No cloud. Your data stays home.<br>spoolapp.org |
 
 ## 后期
 

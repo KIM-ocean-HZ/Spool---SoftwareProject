@@ -206,7 +206,7 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .reveal, .reveal-stagger > *, .thread-seg { opacity: 1 !important; transform: none !important; transition: none !important; }
+  .reveal, .reveal-stagger > * { opacity: 1 !important; transform: none !important; transition: none !important; }
   .hero-ring, .hero img.mark { animation: none !important; }
 }
 
