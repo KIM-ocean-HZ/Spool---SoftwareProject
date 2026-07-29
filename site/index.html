@@ -190,23 +190,23 @@
       badges fighting for attention. The interface stays out of the way until you have something
       to file.</p>
     </div>
-    <div class="reveal">
+    <div class="reveal shot-group">
       <div class="shot-tabs" role="tablist">
         <button class="shot-tab" role="tab" data-tab="main" aria-selected="true" data-i18n="tab-main">Thread view</button>
         <button class="shot-tab" role="tab" data-tab="pack" aria-selected="false" data-i18n="tab-pack">Packing</button>
         <button class="shot-tab" role="tab" data-tab="digest" aria-selected="false" data-i18n="tab-digest">Digest</button>
       </div>
       <div class="shot-panel" data-panel="main">
-        <img class="shot" src="assets/main.png" alt="Spool main window: sidebar of workspaces and threads, and an append-only feed of captured blocks with timestamps, sources, and annotations" width="1100" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-main">The thread view: fragments with time, source, and your annotations. (Chinese UI shown; English ships too.)</p>
+        <img class="shot" src="assets/shots/app-thread-before.png" alt="Spool main window: sidebar of workspaces and threads, and an append-only feed of five captured blocks with timestamps, sources such as arXiv and Mail, and italic annotations" width="2200" loading="lazy">
+        <p class="shot-caption" data-i18n="cap-main">One thread, five fragments: a pinned target, an arXiv line with your annotation, an answer from an AI chat, your own note, an email. Each keeps its time and source.</p>
       </div>
       <div class="shot-panel" data-panel="pack" hidden>
         <img class="shot" src="assets/pack.png" alt="The pack dialog: intent and range controls above a paste-ready Markdown briefing with authority categories" width="1100" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-pack">Packing a thread: choose intent and range, copy, paste anywhere.</p>
+        <p class="shot-caption" data-i18n="cap-pack">Packing a thread: choose intent and range, copy, paste anywhere. (Chinese UI shown — English ships too.)</p>
       </div>
       <div class="shot-panel" data-panel="digest" hidden>
         <img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files and links" width="1100" loading="lazy">
-        <p class="shot-caption" data-i18n="cap-digest">A finished thread’s digest: conclusion, pinned blocks, files &amp; links.</p>
+        <p class="shot-caption" data-i18n="cap-digest">A finished thread’s digest: conclusion, pinned blocks, files &amp; links. (Chinese UI shown — English ships too.)</p>
       </div>
     </div>
   </div>
@@ -216,34 +216,47 @@
 
 <section id="mcp">
   <div class="wrap">
-    <div class="loop-row reveal">
-      <div class="loop-copy">
-        <div class="kicker" data-i18n="mcp-k">MCP · beyond the paste</div>
-        <h2 data-i18n="mcp-h">Your AI, resident librarian</h2>
-        <p data-i18n="mcp-p1">A pack briefs an AI <em>once</em>. Over the <strong>Model Context Protocol</strong>,
-        the AI clients you already own — Claude Desktop, Cursor, and friends — get standing
-        access instead: they read <strong>months of context on demand</strong>, search every
-        thread in your library, and file conclusions back into the right place.</p>
-        <p data-i18n="mcp-p2">Ten tools, two opt-in switches, no network port. Every AI write is attributed and
-        append-only — your handwritten blocks are read-only to machines, permanently.</p>
+    <div class="center reveal">
+      <div class="kicker" data-i18n="mcp-k">MCP · beyond the paste</div>
+      <h2 data-i18n="mcp-h">Your AI, resident librarian</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">A pack briefs an AI <em>once</em>. Over the
+      <strong>Model Context Protocol</strong>, the AI clients you already own get standing access
+      instead: they read weeks of context on demand, search every thread, and file conclusions
+      back into the right place. Ten tools, two opt-in switches, no network port.</p>
+    </div>
+
+    <div class="reveal shot-group">
+      <div class="shot-tabs" role="tablist">
+        <button class="shot-tab" role="tab" data-tab="lib" aria-selected="true" data-i18n="mtab-lib">① Sees your library</button>
+        <button class="shot-tab" role="tab" data-tab="mdigest" aria-selected="false" data-i18n="mtab-digest">② Answers from weeks of context</button>
+        <button class="shot-tab" role="tab" data-tab="search" aria-selected="false" data-i18n="mtab-search">③ Knows every source</button>
+        <button class="shot-tab" role="tab" data-tab="file" aria-selected="false" data-i18n="mtab-file">④ Files back, attributed</button>
       </div>
-      <div class="loop-visual" id="mcp-shot-slot">
-        <div class="mock">
-          <div class="mock-titlebar"><i></i><i></i><i></i></div>
-          <div class="mcp-trace static">
-            <span class="tl"><span class="mono">$</span> connecting → <span class="tool">spool --mcp</span> (stdio)</span>
-            <span class="tl"><span class="ok">✓</span> connected · 10 tools exposed</span>
-            <span class="tl">→ <span class="tool">list_threads</span>()  <span class="ret">← 3 workspaces · 14 threads</span></span>
-            <span class="tl">→ <span class="tool">get_digest</span>("Distributed scheduling paper")</span>
-            <span class="tl">   <span class="ret">← 128 blocks · 42 days of work</span></span>
-            <span class="tl">→ <span class="tool">search_blocks</span>("straggler")  <span class="ret">← 7 hits, oldest 5 weeks back</span></span>
-            <span class="tl">→ <span class="tool">add_block</span>(conclusion, source: "Claude · MCP")</span>
-            <span class="tl"><span class="ok">✓</span> filed — attributed, append-only</span>
-          </div>
-        </div>
-        <p class="shot-caption" data-i18n="mcp-cap">A real session, traced. Your AI sees the whole library — not one paste.</p>
+
+      <div class="shot-panel" data-panel="lib">
+        <img class="shot" src="assets/shots/mcp-library.png" alt="An AI client listing the Spool library over MCP: two workspaces, Research and Life, with their threads, block counts and last-updated dates" width="1930" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-lib">Plain question, structured answer — the client reads workspaces, threads and block counts straight from your local library.</p>
+      </div>
+
+      <div class="shot-panel" data-panel="mdigest" hidden>
+        <img class="shot" src="assets/shots/mcp-digest.png" alt="An AI client summarising the state of a thread, weaving together a pinned sentence, a note from July 29, an arXiv reference and a committee email" width="1545" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-digest">One paragraph woven from five fragments captured across three weeks — the pinned sentence, your own revision order, the arXiv taxonomy, the committee’s reply. This is the part a paste can’t do.</p>
+      </div>
+
+      <div class="shot-panel" data-panel="search" hidden>
+        <img class="shot" src="assets/shots/mcp-search.png" alt="Search results over MCP showing two hits, each labelled with its date, its source and whether it was the user's own note" width="1545" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-search">Every hit keeps its provenance: what came from arXiv with your annotation, and what was your own note setting the sequencing.</p>
+      </div>
+
+      <div class="shot-panel" data-panel="file" hidden>
+        <img class="shot" src="assets/shots/mcp-write.png" alt="An AI client confirming it filed a conclusion into the thread, annotated and citing the user's revision-order note" width="1535" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-file1">Asked to file a conclusion, it writes one block — annotated, and citing the note it builds on.</p>
+        <img class="shot shot-strip" src="assets/shots/mcp-filed-detail.png" alt="Detail of the Spool thread: the user's own note at 00:30, and directly below it the AI-written block at 14:56 badged Claude · MCP, with its annotation and a citation line pointing back at the user's note" width="2000" loading="lazy">
+        <p class="shot-caption" data-i18n="mcap-file2">…and here it is in Spool. Badged <strong>Claude · MCP</strong>, appended below your note — never over it — with the <strong>↩</strong> line citing the exact block it answers.</p>
       </div>
     </div>
+
+    <p class="center muted shot-note" data-i18n="mcp-note">Captured against a purpose-built demo library, so no personal content appears in these screenshots.</p>
   </div>
 </section>
 

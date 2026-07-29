@@ -339,6 +339,10 @@ p { margin: 0 0 1rem; }
   margin: 0 auto;
 }
 .shot-caption { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 0.9rem; }
+.shot-group { margin-top: 2rem; }
+.shot-group .shot-caption + .shot { margin-top: 1.6rem; }
+.shot-strip { max-width: 60rem; }
+.shot-note { font-size: 0.82rem; margin-top: 1.6rem; }
 .shot-tabs { display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1.4rem; flex-wrap: wrap; }
 .shot-tab {
   font-family: var(--font-ui);
