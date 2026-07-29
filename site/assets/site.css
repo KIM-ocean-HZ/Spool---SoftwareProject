@@ -92,18 +92,67 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
 .reveal-stagger.in-view > *:nth-child(3) { transition-delay: 240ms; }
 .reveal-stagger.in-view > *:nth-child(4) { transition-delay: 360ms; }
 
-/* the thread: a vertical line that "draws" between sections */
+/* the thread: vertical lines between sections, scroll-linked in main.js —
+   they draw out as the reader scrolls down and wind back in on the way up */
 .thread-seg {
   width: 2px;
-  height: 72px;
+  height: 84px;
   margin: 0 auto;
   background: linear-gradient(var(--accent), var(--line-strong));
   border-radius: 2px;
   transform-origin: top;
   transform: scaleY(0);
-  transition: transform 900ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  will-change: transform;
 }
 .thread-seg.in-view { transform: scaleY(1); }
+/* the last thread before the spool video winds INTO it */
+.thread-seg.wind { background: linear-gradient(var(--line-strong), var(--accent)); }
+
+/* reading-progress thread: pulled out across the top as you read */
+.thread-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 60;
+  pointer-events: none;
+}
+.thread-progress .tp-line {
+  height: 2px;
+  margin-top: 1px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.thread-progress .tp-tip {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.18);
+  transform: translateX(-50%);
+}
+
+/* hero thread: draws itself once, pulling the eye from the mark to the page */
+.hero-thread { display: block; width: 64px; height: 88px; margin: -0.6rem auto 0; overflow: visible; }
+.hero-thread path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 170;
+  stroke-dashoffset: 170;
+  animation: threadDraw 1.3s 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes threadDraw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .thread-progress { display: none; }
+  .hero-thread path { animation: none; stroke-dashoffset: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
