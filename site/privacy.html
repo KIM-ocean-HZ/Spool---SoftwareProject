@@ -17,19 +17,22 @@
       Spool <span class="zh">思簿</span>
     </a>
     <nav class="nav-links">
-      <a href="./#demo">Try it</a>
-      <a href="story.html">Story</a>
+      <a href="./#demo" data-i18n="nav-try">Try it</a>
+      <a href="story.html" data-i18n="nav-story">Story</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download</a>
+      <button class="lang-toggle" type="button">中文</button>
+      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
 </div>
 
 <main class="wrap article measure" style="margin: 0 auto;">
 
+<div data-lang-section="en">
+
 <h1>Privacy Policy</h1>
 <p class="lede">Last updated: 2026-07-10. This English translation is provided for convenience;
-the <a href="#zh">Chinese original</a> below is authoritative.</p>
+the Chinese original (switch language with the 中文 button above) is authoritative.</p>
 
 <h2>The one-sentence version</h2>
 <p><strong>Your data stays on your computer — no exceptions.</strong> Spool is purely local
@@ -96,7 +99,9 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 <a href="https://github.com/KIM-ocean-HZ/spool/issues">GitHub</a>, or write to
 <a href="mailto:jinhz0531@gmail.com">jinhz0531@gmail.com</a>.</p>
 
-<div class="zh-block" id="zh" lang="zh">
+</div>
+
+<div class="zh-block" id="zh" lang="zh" data-lang-section="zh">
 
 <h1>Spool（思簿）隐私政策</h1>
 <p class="lede">最后更新：2026-07-10</p>
@@ -155,6 +160,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
   </div>
 </footer>
 
+<script src="assets/i18n.js" defer></script>
 <script src="assets/main.js" defer></script>
 </body>
 </html>

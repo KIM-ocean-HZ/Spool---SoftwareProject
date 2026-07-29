@@ -152,6 +152,17 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
   font-weight: 550;
 }
 .nav-links .nav-cta:hover { background: var(--accent-2); color: var(--paper); }
+.lang-toggle {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  padding: 0.28rem 0.85rem;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.lang-toggle:hover { border-color: var(--accent); color: var(--accent); }
 @media (max-width: 640px) { .nav-links a:not(.nav-cta) { display: none; } }
 
 /* ---------- hero ---------- */
@@ -408,10 +419,10 @@ footer a { color: var(--ink-2); }
 .rail-step .tick { display: none; }
 .rail-step.done .tick { display: inline; }
 
-/* stage */
+/* stage — right (mini-Spool with sidebar) gets the wider column */
 .demo-stage {
   display: grid;
-  grid-template-columns: 1fr 1.1fr;
+  grid-template-columns: 0.85fr 1.3fr;
   gap: 0;
   min-height: 430px;
 }
@@ -505,6 +516,34 @@ footer a { color: var(--ink-2); }
 .typing-dots::after { content: '···'; letter-spacing: 0.15em; animation: pulseDim 1.1s ease-in-out infinite; }
 @keyframes pulseDim { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
+/* tool-call chip (Claude-Desktop-style, used in the demo's MCP act) */
+.tool-chip {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 0.35rem 0.7rem;
+  max-width: 96%;
+}
+.tool-chip .tool { color: var(--accent-2); }
+.tool-chip .ret { color: var(--muted); }
+.tool-chip .ok { color: var(--ok); }
+
+/* story-page zh banner */
+.zh-note {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  margin: 1.5rem 0 0;
+}
+
 /* structured AI reply: each point tagged with the fragment it came from */
 .ai-brief { display: flex; flex-direction: column; gap: 0.45rem; }
 .ai-brief > * { opacity: 0; transform: translateY(6px); transition: opacity 400ms ease, transform 400ms ease; }
@@ -542,7 +581,7 @@ footer a { color: var(--ink-2); }
 .demo-right { background: var(--paper); display: flex; flex-direction: column; position: relative; }
 .mini-body { display: flex; flex: 1; min-height: 0; }
 .mini-side {
-  width: 148px;
+  width: 128px;
   flex-shrink: 0;
   border-right: 1px solid var(--line);
   background: var(--paper-2);
@@ -604,7 +643,7 @@ footer a { color: var(--ink-2); }
 .thread-meta .tname { font-family: var(--font-serif); font-weight: 600; font-size: 1.05rem; }
 .thread-meta .tsub { font-size: 0.75rem; color: var(--muted); }
 
-.feed { flex: 1; overflow-y: auto; padding: 0.4rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.65rem; min-height: 200px; max-height: 330px; }
+.feed { flex: 1; overflow-y: auto; padding: 0.4rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.65rem; min-height: 200px; max-height: 380px; }
 .block-card {
   border-bottom: 1px solid var(--line);
   padding: 0.55rem 0.2rem 0.65rem;
