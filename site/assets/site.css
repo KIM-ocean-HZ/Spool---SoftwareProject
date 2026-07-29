@@ -438,9 +438,22 @@ p { margin: 0 0 1rem; }
   margin: 0 auto;
 }
 .shot-caption { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 0.9rem; }
-/* the real capture toast, sitting under the stylized source window */
-.toast-shot { max-width: 24rem; margin-top: 1.1rem; }
-.toast-shot + .shot-caption { text-align: left; }
+/* 01 · SAVE — the real page (selection and all), with the real toast floating
+   over its corner so it still reads as the popup it is */
+.capture-scene { position: relative; margin: 0.4rem 0 0; }
+.capture-scene .capture-page { border-radius: var(--r-lg); }
+.capture-toast {
+  position: absolute;
+  top: -1.3rem;
+  right: -1rem;
+  width: min(56%, 21rem);
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-pop);
+}
+.capture-chip { position: absolute; left: 0.8rem; bottom: 0.8rem; box-shadow: var(--shadow-card); }
+.capture-scene + .shot-caption { text-align: left; }
 
 .shot-group { margin-top: 2rem; }
 .shot-group .shot-caption + .shot { margin-top: 1.6rem; }
