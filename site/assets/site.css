@@ -82,6 +82,8 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
   transition: opacity 700ms cubic-bezier(0.2, 0.6, 0.2, 1), transform 700ms cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 .reveal.in-view { opacity: 1; transform: none; }
+/* sections need to sit above the margin thread's stacking context */
+main, .nav-shell, footer { position: relative; z-index: 2; }
 .reveal-stagger > * {
   opacity: 0;
   transform: translateY(18px);
@@ -92,21 +94,69 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
 .reveal-stagger.in-view > *:nth-child(3) { transition-delay: 240ms; }
 .reveal-stagger.in-view > *:nth-child(4) { transition-delay: 360ms; }
 
-/* the thread: vertical lines between sections, scroll-linked in main.js —
-   they draw out as the reader scrolls down and wind back in on the way up */
-.thread-seg {
-  width: 2px;
-  height: 84px;
-  margin: 0 auto;
-  background: linear-gradient(var(--accent), var(--line-strong));
-  border-radius: 2px;
-  transform-origin: top;
-  transform: scaleY(0);
-  will-change: transform;
+/* ---- the thread in the margins (built by main.js) ----
+   A spool in each side margin pays its thread out down the page as the reader
+   scrolls, and winds it back in on the way up. Purely decorative: it lives in
+   space the layout never uses, and only appears once the margins are wide
+   enough that it can't crowd the text. */
+.margin-thread {
+  position: fixed;
+  top: 0;
+  width: 56px;
+  height: 100vh;
+  z-index: 1;
+  pointer-events: none;
+  display: none;
 }
-.thread-seg.in-view { transform: scaleY(1); }
-/* the last thread before the spool video winds INTO it */
-.thread-seg.wind { background: linear-gradient(var(--line-strong), var(--accent)); }
+/* centred inside its own margin: margin width is (100vw - content)/2, so its
+   midpoint sits at a quarter of the leftover, less half this element */
+.margin-thread.left { left: calc((100vw - 72rem) / 4 - 28px); }
+.margin-thread.right { right: calc((100vw - 72rem) / 4 - 28px); transform: scaleX(-1); }
+@media (min-width: 1240px) { .margin-thread { display: block; } }
+
+.mt-spool {
+  position: absolute;
+  top: 84px;
+  left: 0;
+  width: 56px;
+  height: 56px;
+  overflow: visible;
+}
+.mt-spool .mt-ring { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
+.mt-spool .mt-ring-in { stroke: var(--accent); opacity: 0.45; }
+.mt-spool .mt-hub { fill: var(--accent); opacity: 0.75; }
+.mt-spool .mt-tail { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; opacity: 0.8; }
+
+.mt-curve {
+  position: absolute;
+  top: 140px;
+  left: 0;
+  width: 56px;
+  height: calc(100vh - 200px);
+  overflow: visible;
+}
+.mt-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.42;
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+}
+/* the thread end — positioned in viewport coordinates by main.js */
+.mt-end {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
 
 /* reading-progress thread: pulled out across the top as you read */
 .thread-progress {
@@ -150,7 +200,7 @@ a:hover { color: var(--accent-2); text-decoration: underline; text-underline-off
 }
 @keyframes threadDraw { to { stroke-dashoffset: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .thread-progress { display: none; }
+  .thread-progress, .margin-thread { display: none; }
   .hero-thread path { animation: none; stroke-dashoffset: 0; }
 }
 

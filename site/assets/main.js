@@ -26,11 +26,45 @@
     revealed.forEach(function (el) { el.classList.add('in-view'); });
   }
 
-  /* the thread: bidirectional, tied to the reader's own scrolling */
-  var segs = Array.prototype.slice.call(document.querySelectorAll('.thread-seg'));
-  if (reduceMotion) {
-    segs.forEach(function (s) { s.classList.add('in-view'); });
-  } else {
+  /* ---- the thread in the margins ----
+     A spool sits in each side margin; its thread pays out down the page as you
+     scroll and winds back in when you scroll up, the spool turning with it.
+     Decorative only: aria-hidden, pointer-events none, and CSS hides the whole
+     thing below the width where the margins are wide enough to hold it. */
+  if (!reduceMotion) {
+    var CURVE =
+      'M 28 4 C 28 60, 8 92, 8 150 C 8 214, 48 246, 48 310 ' +
+      'C 48 374, 8 406, 8 470 C 8 528, 28 556, 28 600';
+
+    var makeMargin = function (side) {
+      var el = document.createElement('div');
+      el.className = 'margin-thread ' + side;
+      el.setAttribute('aria-hidden', 'true');
+      el.innerHTML =
+        '<svg class="mt-spool" viewBox="0 0 56 56">' +
+          '<g class="mt-spin" style="transform-origin:28px 28px">' +
+            '<circle class="mt-ring" cx="28" cy="28" r="24"/>' +
+            '<circle class="mt-ring" cx="28" cy="28" r="16.5"/>' +
+            '<circle class="mt-ring mt-ring-in" cx="28" cy="28" r="9"/>' +
+            '<circle class="mt-hub" cx="28" cy="28" r="3.4"/>' +
+            '<path class="mt-tail" d="M 28 4 A 24 24 0 0 1 50 19"/>' +
+          '</g>' +
+        '</svg>' +
+        '<svg class="mt-curve" viewBox="0 0 56 600" preserveAspectRatio="none">' +
+          '<path class="mt-path" pathLength="1000" vector-effect="non-scaling-stroke" d="' + CURVE + '"/>' +
+        '</svg>' +
+        '<span class="mt-end"></span>';
+      document.body.appendChild(el);
+      return {
+        root: el,
+        spin: el.querySelector('.mt-spin'),
+        svg: el.querySelector('.mt-curve'),
+        path: el.querySelector('.mt-path'),
+        end: el.querySelector('.mt-end')
+      };
+    };
+    var margins = [makeMargin('left'), makeMargin('right')];
+
     var prog = document.createElement('div');
     prog.className = 'thread-progress';
     prog.setAttribute('aria-hidden', 'true');
@@ -42,19 +76,27 @@
     var ticking = false;
     var update = function () {
       ticking = false;
-      var doc = document.documentElement;
-      var max = doc.scrollHeight - window.innerHeight;
+      var max = document.documentElement.scrollHeight - window.innerHeight;
       var p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+
       tpLine.style.transform = 'scaleX(' + p + ')';
       tpTip.style.left = (p * 100) + '%';
-      var vh = window.innerHeight;
-      segs.forEach(function (s) {
-        var r = s.getBoundingClientRect();
-        // The segment draws while it travels from 92% to 45% of the viewport
-        // height — scrolling back up rewinds it the same way.
-        var f = (vh * 0.92 - r.top) / (vh * 0.47);
-        f = Math.min(1, Math.max(0, f));
-        s.style.transform = 'scaleY(' + f + ')';
+
+      margins.forEach(function (m) {
+        // pathLength is normalised to 1000, so the offset is just the remainder
+        m.path.style.strokeDashoffset = (1000 * (1 - p)).toFixed(1);
+        // a little under one turn across the whole page — it should read as
+        // unwinding, not spinning
+        m.spin.style.transform = 'rotate(' + (p * 190).toFixed(1) + 'deg)';
+        // park the thread-end dot at the drawn tip. preserveAspectRatio is
+        // "none", so user units map independently on each axis.
+        var box = m.svg.getBoundingClientRect();
+        if (!box.height) return;
+        var pt = m.path.getPointAtLength(m.path.getTotalLength() * p);
+        m.end.style.transform =
+          'translate(' + (pt.x / 56 * box.width).toFixed(1) + 'px,' +
+          (pt.y / 600 * box.height + box.top).toFixed(1) + 'px)';
+        m.end.style.opacity = p > 0.004 ? '1' : '0';
       });
     };
     window.addEventListener('scroll', function () {
