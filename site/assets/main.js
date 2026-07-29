@@ -106,14 +106,34 @@
     update();
   }
 
-  /* screenshot tab groups */
-  document.querySelectorAll('.shot-tabs').forEach(function (tabs) {
-    var panels = tabs.parentElement.querySelectorAll('.shot-panel');
+  /* screenshot tab groups — tabs up top; groups with data-arrows also get
+     prev/next buttons at the image's sides */
+  document.querySelectorAll('.shot-group').forEach(function (group) {
+    var tabs = group.querySelector('.shot-tabs');
+    if (!tabs) return;
+    var btns = Array.prototype.slice.call(tabs.querySelectorAll('.shot-tab'));
+    var panels = group.querySelectorAll('.shot-panel');
+    var select = function (idx) {
+      btns.forEach(function (t, i) { t.setAttribute('aria-selected', i === idx ? 'true' : 'false'); });
+      panels.forEach(function (p) { p.hidden = p.dataset.panel !== btns[idx].dataset.tab; });
+    };
     tabs.addEventListener('click', function (e) {
       var btn = e.target.closest('.shot-tab');
-      if (!btn) return;
-      tabs.querySelectorAll('.shot-tab').forEach(function (t) { t.setAttribute('aria-selected', t === btn ? 'true' : 'false'); });
-      panels.forEach(function (p) { p.hidden = p.dataset.panel !== btn.dataset.tab; });
+      if (btn) select(btns.indexOf(btn));
+    });
+    if (!group.hasAttribute('data-arrows')) return;
+    var step = function (d) {
+      var cur = btns.findIndex(function (t) { return t.getAttribute('aria-selected') === 'true'; });
+      select((cur + d + btns.length) % btns.length);
+    };
+    [['prev', '‹', -1], ['next', '›', 1]].forEach(function (spec) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'shot-arrow ' + spec[0];
+      b.textContent = spec[1];
+      b.setAttribute('aria-label', spec[0] === 'prev' ? 'Previous screenshot' : 'Next screenshot');
+      b.addEventListener('click', function () { step(spec[2]); });
+      group.appendChild(b);
     });
   });
 })();

@@ -475,6 +475,33 @@ p { margin: 0 0 1rem; }
 }
 .shot-tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .shot-panel[hidden] { display: none; }
+/* MCP screenshots read fine narrower than the full wrap — don't fill the screen */
+#mcp .shot { max-width: 52rem; }
+
+/* prev/next arrows on tabbed screenshot groups that ask for them */
+.shot-group[data-arrows] { position: relative; }
+.shot-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 0 0.2rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  transition: color 130ms ease, border-color 130ms ease, background 130ms ease;
+}
+.shot-arrow:hover { color: var(--accent); border-color: var(--accent); background: #fff; }
+.shot-arrow.prev { left: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
+.shot-arrow.next { right: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
 
 /* ---------- privacy ---------- */
 .privacy-points { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem 2rem; margin: 1.75rem 0; padding: 0; list-style: none; }
