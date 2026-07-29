@@ -10,25 +10,42 @@
 </head>
 <body>
 
-<header class="wrap nav">
-  <a class="nav-brand" href="./">
-    <img src="assets/spool-logo-full.svg" alt="">
-    Spool <span class="zh">思簿</span>
-  </a>
-  <nav class="nav-links">
-    <a href="story.html">Engineering story</a>
-    <a href="privacy.html">Privacy</a>
-    <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-  </nav>
-</header>
+<div class="nav-shell">
+  <header class="wrap nav">
+    <a class="nav-brand" href="./">
+      <img src="assets/spool-logo-full.svg" alt="">
+      Spool <span class="zh">思簿</span>
+    </a>
+    <nav class="nav-links">
+      <a href="./#demo">Try it</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
+      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download</a>
+    </nav>
+  </header>
+</div>
 
-<main class="wrap article measure" style="margin: 0 auto;">
+<div class="wrap" style="padding-top:2.5rem">
+<div class="story-grid">
+
+<aside class="story-toc" aria-label="Contents">
+  <div class="toc-title">Contents</div>
+  <a href="#problem">The problem</a>
+  <a href="#constitution">A constitution before code</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#verification">Verification discipline</a>
+  <a href="#incident">The incident</a>
+  <a href="#pivot">Removing the AI</a>
+  <a href="#status">Where it stands</a>
+</aside>
+
+<main class="article numbered">
 
 <h1>The making of Spool</h1>
 <p class="lede">A design-and-engineering account of building a local-first context hub —
 the decisions, the discipline, and one production incident that shaped the system.</p>
 
-<h2>The problem</h2>
+<h2 id="problem">The problem</h2>
 <p>Long-running projects shred their own context. A key argument lives in one AI conversation,
 a decision in an email, a reference in a browser tab closed three weeks ago. Large language
 models make this worse, not better: they remember nothing between conversations, so every
@@ -37,7 +54,7 @@ quality of the answer.</p>
 <p>Spool's bet is narrow: if capturing a fragment costs one keypress, and re-assembling a
 project's context costs one paste, people will actually do both.</p>
 
-<h2>A constitution before code</h2>
+<h2 id="constitution">A constitution before code</h2>
 <p>The product is governed by six non-negotiable principles, written down before implementation
 and used to reject features ever since:</p>
 <ol>
@@ -52,9 +69,55 @@ and used to reject features ever since:</p>
 <p>The most consequential of these is №5. It later became an enforced write policy, a
 data-hygiene audit tool, and the reason the product could remove its built-in AI entirely.</p>
 
-<h2>Architecture</h2>
+<h2 id="architecture">Architecture</h2>
 <p>Spool is a Tauri 2 application: a Rust core with a React/TypeScript front end, backed by a
-single SQLite database.</p>
+single SQLite database. The packer is implemented twice — once per language — and pinned to
+byte-identical output by golden tests.</p>
+
+<svg class="arch-svg" viewBox="0 0 720 310" role="img" aria-label="Architecture diagram: the React GUI and the pack assembler sit above the Rust core, which owns the SQLite database; external MCP clients such as Claude Desktop connect to the Rust core over stdio.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d6cdb3"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+  <rect class="box" x="30" y="30" width="210" height="72" rx="8"/>
+  <text class="lbl" x="46" y="60">GUI — React / TypeScript</text>
+  <text class="sub" x="46" y="80">curation surface · capture overlay</text>
+
+  <rect class="box" x="300" y="30" width="170" height="72" rx="8"/>
+  <text class="lbl" x="316" y="60">Packer ×2</text>
+  <text class="sub" x="316" y="80">pure function · golden-locked</text>
+
+  <rect class="box" x="30" y="170" width="210" height="90" rx="8"/>
+  <text class="lbl" x="46" y="200">Rust core — Tauri 2</text>
+  <text class="sub" x="46" y="220">CGEventTap capture · IPC</text>
+  <text class="mono" x="46" y="240">spool --mcp → MCP server</text>
+
+  <rect class="box" x="300" y="170" width="170" height="90" rx="8"/>
+  <text class="lbl" x="316" y="200">SQLite</text>
+  <text class="sub" x="316" y="220">one local file · FTS5 trigram</text>
+  <text class="sub" x="316" y="240">pre-migration snapshots</text>
+
+  <rect class="box box-accent" x="520" y="170" width="170" height="90" rx="8"/>
+  <text class="lbl" x="536" y="200">Your AI clients</text>
+  <text class="sub" x="536" y="220">Claude Desktop · Cursor · …</text>
+  <text class="sub" x="536" y="240">read · search · file (attributed)</text>
+
+  <path class="flow" d="M 135 102 L 135 170"/>
+  <text class="sub" x="142" y="140">IPC</text>
+  <path class="flow" d="M 240 66 L 300 66"/>
+  <path class="flow" d="M 385 102 L 385 170"/>
+  <text class="sub" x="392" y="140">reads</text>
+  <path class="flow" d="M 240 215 L 300 215"/>
+  <path class="flow flow-accent" d="M 520 215 L 470 215" marker-end="url(#arrow-accent)"/>
+  <text class="mono" x="482" y="292" text-anchor="middle">stdio · MCP</text>
+  <path class="flow flow-accent" d="M 605 260 C 605 290, 250 300, 145 262" marker-end="url(#arrow-accent)"/>
+</svg>
+
 <ul>
   <li><strong>Storage</strong> — SQLite with FTS5 full-text search using a trigram tokenizer
       (chosen so Chinese text searches correctly), plus a LIKE fallback for short queries.</li>
@@ -62,15 +125,13 @@ single SQLite database.</p>
       non-activating always-on-top overlay for confirmation, and automatic source detection
       down to the browser tab title.</li>
   <li><strong>The packer</strong> — the crown feature — is a pure function from thread state to
-      Markdown. No AI, no network, no clock reads beyond block timestamps: the same thread
-      packs to the same bytes on the same day.</li>
-  <li><strong>MCP server</strong> — Spool exposes its library to AI clients (Claude Desktop,
-      Cursor, …) over the Model Context Protocol via stdio: ten tools for reading, searching,
-      filing, and auditing. Every AI write carries a source label; user-authored content is
-      read-only to machines.</li>
+      Markdown. No AI, no network: the same thread packs to the same bytes on the same day.</li>
+  <li><strong>MCP server</strong> — Spool exposes its library to AI clients over the Model
+      Context Protocol via stdio: ten tools for reading, searching, filing, and auditing. Every
+      AI write carries a source label; user-authored content is read-only to machines.</li>
 </ul>
 
-<h2>Verification discipline</h2>
+<h2 id="verification">Verification discipline</h2>
 <p>Determinism is a testable promise, so the test suite is built around it:</p>
 <ul>
   <li><strong>Cross-language golden files.</strong> The pack format is implemented twice —
@@ -87,7 +148,7 @@ single SQLite database.</p>
 acceptance: 8.5 → 7.7 → 9.5 → 9.8 across four rounds. The dip to 7.7 was the process working —
 a reviewer catching a data-hygiene gap that a later round proved fixed.</p>
 
-<h2>The incident that shaped the system</h2>
+<h2 id="incident">The incident that shaped the system</h2>
 <p>On 2026-05-29, a development build wiped the live database: a schema-rebuild branch in the
 migration code met a build/database version skew, and the "rebuild" path ran against real data.
 The postmortem produced the guardrails that now define the data layer: automatic pre-migration
@@ -97,7 +158,7 @@ so development builds can never again open the production file by accident.</p>
 <blockquote>A data-loss incident is not a line anyone wants on a project page. It is on this one
 because the guards it produced are the most load-bearing engineering in the product.</blockquote>
 
-<h2>Removing the AI to build a better AI product</h2>
+<h2 id="pivot">Removing the AI to build a better AI product</h2>
 <p>Mid-project, Spool shipped optional built-in AI providers. They were removed — entirely.
 Ordinary users can't obtain API keys or run local models, and every built-in provider weakened
 the privacy story. The replacement is architectural: Spool is the <em>context repository</em>,
@@ -106,17 +167,18 @@ decision: Spool is the editor; the AI is a plugin. Since the pivot, the app's co
 policy structurally blocks all outbound network traffic — the privacy policy is enforced by
 the build, not by promises.</p>
 
-<h2>Where it stands</h2>
+<h2 id="status">Where it stands</h2>
 <p>v0.3.0 is feature-complete and packaged for macOS: twelve implementation phases landed,
 from the data layer through capture hardening, full-text search, thread digests,
 cross-thread references, and the MCP surface. The logo — a spool seen from above, its thread
 pulling free — was designed in-house, down to the tray icon's alpha-channel template rendering.</p>
 
-<img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files & links" width="1100">
+<img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files & links" width="1100" loading="lazy">
 <p class="shot-caption">A finished thread's digest: conclusion, pinned blocks, files &amp; links.</p>
 
 <p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.3.0 release and
-will be embedded here.</em></p>
+will be embedded here. Meanwhile, the <a href="./#demo">interactive demo</a> walks the same
+loop in your browser.</em></p>
 
 <hr>
 <p class="muted">Spool is designed and built by Ocean (<a href="https://github.com/KIM-ocean-HZ">KIM-ocean-HZ</a>).
@@ -124,6 +186,8 @@ Source, roadmap, and the full product constitution are on
 <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>.</p>
 
 </main>
+</div>
+</div>
 
 <footer>
   <div class="wrap">
@@ -136,5 +200,6 @@ Source, roadmap, and the full product constitution are on
   </div>
 </footer>
 
+<script src="assets/main.js" defer></script>
 </body>
 </html>
