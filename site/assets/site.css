@@ -120,19 +120,16 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 .margin-thread.right { right: calc((100vw - 72rem) / 4 - 30px); }
 @media (min-width: 1240px) { .margin-thread { display: block; } }
 
-/* the spool itself — size and position are per-side, set inline by main.js */
-.mt-spool { position: absolute; overflow: visible; }
+/* the spool itself — size and position are per-side, set inline by main.js.
+   Deliberately minimal: one rim, the amber band of wound thread (it thins as
+   the page is read), the paying-out tail, a hub. Clicking a spool pulls more
+   thread — the page glides down about one screen — so it alone takes clicks
+   inside the otherwise pointer-transparent margin. */
+.mt-spool { position: absolute; overflow: visible; pointer-events: auto; cursor: pointer; }
 .mt-spool .mt-flange { fill: none; stroke: var(--line-strong); stroke-width: 1.4; }
-.mt-spool .mt-flange-in { stroke-width: 1; opacity: 0.75; }
-.mt-spool .mt-spokes { stroke: var(--line-strong); stroke-width: 1.7; stroke-linecap: round; }
-/* wound thread: an opaque paper ring hides the spokes, an amber band and a
-   dashed texture over it read as turns of thread; all three shrink together */
-.mt-spool .mt-wound-mask { fill: none; stroke: var(--paper); }
-.mt-spool .mt-wound { fill: none; stroke: var(--accent); opacity: 0.5; }
-.mt-spool .mt-wound-tex { fill: none; stroke: var(--accent-2); opacity: 0.3; stroke-dasharray: 2.2 3.4; }
+.mt-spool .mt-wound { fill: none; stroke: var(--accent); opacity: 0.4; transition: opacity 150ms ease; }
+.mt-spool:hover .mt-wound { opacity: 0.55; }
 .mt-spool .mt-hub { fill: var(--accent); opacity: 0.8; }
-.mt-spool .mt-hub-hole { fill: var(--paper); }
-.mt-spool .mt-notch { fill: var(--accent); opacity: 0.8; }
 .mt-spool .mt-tail { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; opacity: 0.8; }
 
 .mt-curve {
@@ -149,20 +146,6 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
   opacity: 0.42;
   /* dasharray/offset are set by main.js in the path's own user units */
 }
-/* the thread end — positioned in viewport coordinates by main.js */
-.mt-end {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 5px;
-  height: 5px;
-  margin: -2.5px 0 0 -2.5px;
-  border-radius: 50%;
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity 200ms ease;
-}
-
 /* reading-progress thread: pulled out across the top as you read */
 .thread-progress {
   position: fixed;

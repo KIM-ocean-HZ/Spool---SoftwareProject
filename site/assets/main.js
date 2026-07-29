@@ -30,11 +30,12 @@
      A spool hangs in each side margin and pays its thread out down the page as
      you scroll, winding back in on the way up. The two sides are deliberately
      unalike — different heights, sizes, curves, phase and spin direction — and
-     each spool visibly empties as its thread leaves: the wound band thins until
-     only the bare spokes remain. Rotation comes from the geometry (arc paid
+     each spool visibly empties as its thread leaves: the wound band thins away
+     until only rim and hub remain. Rotation comes from the geometry (arc paid
      out ÷ current band radius), so the spool turns exactly as fast as thread
-     leaves it, speeding up as it runs low. Decorative only: aria-hidden,
-     pointer-events none, and CSS hides it below 1240px. */
+     leaves it, speeding up as it runs low. Clicking a spool pulls more thread:
+     the page glides down about one screen. Otherwise decorative: aria-hidden,
+     no keyboard focus, and CSS hides it below 1240px. */
   if (!reduceMotion) {
     // spool geometry in its own 64×64 viewBox (centre 32)
     var SP_FULL = 24;   // wound-band outer radius when nothing has been read
@@ -62,32 +63,25 @@
             'px;left:' + ((60 - cfg.size) / 2) + 'px;top:' + cfg.top + '">' +
           '<g class="mt-spin" style="transform-origin:32px 32px">' +
             '<circle class="mt-flange" cx="32" cy="32" r="29"/>' +
-            '<circle class="mt-flange mt-flange-in" cx="32" cy="32" r="26"/>' +
-            '<path class="mt-spokes" d="M32 32 L32 8 M32 32 L52.8 44 M32 32 L11.2 44"/>' +
-            '<circle class="mt-wound-mask" cx="32" cy="32"/>' +
             '<circle class="mt-wound" cx="32" cy="32"/>' +
-            '<circle class="mt-wound-tex" cx="32" cy="32"/>' +
             '<path class="mt-tail"/>' +
-            '<circle class="mt-hub" cx="32" cy="32" r="5"/>' +
-            '<circle class="mt-hub-hole" cx="32" cy="32" r="1.8"/>' +
-            '<circle class="mt-notch" cx="32" cy="4.5" r="1.2"/>' +
+            '<circle class="mt-hub" cx="32" cy="32" r="4.5"/>' +
           '</g>' +
         '</svg>' +
         '<svg class="mt-curve" viewBox="0 0 60 ' + cfg.vh + '" preserveAspectRatio="none" style="top:' +
             cfg.curveTop + ';height:' + cfg.curveHeight + '">' +
           '<path class="mt-path" d="' + cfg.curve + '"/>' +
-        '</svg>' +
-        '<span class="mt-end"></span>';
+        '</svg>';
       document.body.appendChild(el);
+      el.querySelector('.mt-spool').addEventListener('click', function () {
+        window.scrollBy({ top: Math.round(window.innerHeight * 0.85), behavior: 'smooth' });
+      });
       return {
         cfg: cfg,
         spin: el.querySelector('.mt-spin'),
         svg: el.querySelector('.mt-curve'),
         path: el.querySelector('.mt-path'),
-        end: el.querySelector('.mt-end'),
-        mask: el.querySelector('.mt-wound-mask'),
         wound: el.querySelector('.mt-wound'),
-        tex: el.querySelector('.mt-wound-tex'),
         tail: el.querySelector('.mt-tail'),
         theta: 0,
         prev: -1
@@ -105,20 +99,16 @@
         m.path.style.strokeDasharray = m.len;
       }
       // the extra 1.2 keeps the round linecap from peeking out as a dot at
-      // pp = 0; at the drawn tip the .mt-end dot covers the same shortfall
+      // pp = 0; at any other progress it just trims the tip imperceptibly
       m.path.style.strokeDashoffset = (m.len * (1 - pp) + 1.2).toFixed(1);
 
       // the wound band empties linearly with what has been paid out
       var rOut = SP_CORE + (SP_FULL - SP_CORE) * (1 - pp);
       var band = rOut - SP_CORE;
-      var rMid = ((rOut + SP_CORE) / 2).toFixed(2);
-      [m.mask, m.wound, m.tex].forEach(function (c) {
-        c.setAttribute('r', rMid);
-        c.setAttribute('stroke-width', band.toFixed(2));
-      });
+      m.wound.setAttribute('r', ((rOut + SP_CORE) / 2).toFixed(2));
+      m.wound.setAttribute('stroke-width', band.toFixed(2));
       var bare = band < 0.5;
       m.wound.style.opacity = bare ? '0' : '';
-      m.tex.style.opacity = bare ? '0' : '';
       m.tail.style.opacity = bare ? '0' : '';
       if (!bare) {
         m.tail.setAttribute('d',
@@ -138,14 +128,6 @@
         m.spin.style.transform = 'rotate(' + m.theta.toFixed(1) + 'deg)';
       }
       m.prev = pp;
-
-      // park the thread-end dot at the drawn tip. preserveAspectRatio is
-      // "none", so user units map independently on each axis.
-      var pt = m.path.getPointAtLength(m.len * pp);
-      m.end.style.transform =
-        'translate(' + (pt.x / 60 * box.width).toFixed(1) + 'px,' +
-        (pt.y / m.cfg.vh * box.height + box.top).toFixed(1) + 'px)';
-      m.end.style.opacity = pp > 0.004 ? '1' : '0';
     };
 
     var prog = document.createElement('div');
