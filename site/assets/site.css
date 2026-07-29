@@ -578,11 +578,14 @@ footer a { color: var(--ink-2); }
 }
 @media (max-width: 800px) { .demo-stage { grid-template-columns: 1fr; } }
 
-/* guide banner: the single "what to do now" instruction, updated per action */
+/* guide banner: the single "what to do now" instruction, updated per action.
+   Quiet on purpose — the amber highlight belongs to the sentence you copy,
+   not to this banner. */
 .demo-guide {
   margin: 0.8rem 1.1rem 0.2rem;
   padding: 0.65rem 1rem;
-  background: var(--accent-soft);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: var(--r-md);
   font-size: 0.92rem;
