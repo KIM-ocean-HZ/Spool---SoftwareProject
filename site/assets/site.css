@@ -388,6 +388,10 @@ p { margin: 0 0 1rem; }
   margin: 0 auto;
 }
 .shot-caption { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 0.9rem; }
+/* the real capture toast, sitting under the stylized source window */
+.toast-shot { max-width: 24rem; margin-top: 1.1rem; }
+.toast-shot + .shot-caption { text-align: left; }
+
 .shot-group { margin-top: 2rem; }
 .shot-group .shot-caption + .shot { margin-top: 1.6rem; }
 .shot-strip { max-width: 60rem; }
