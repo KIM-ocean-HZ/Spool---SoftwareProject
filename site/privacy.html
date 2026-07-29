@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spool — Privacy Policy</title>
+<meta name="description" content="Spool's privacy policy: your data stays on your machine — no account, no server, no telemetry.">
+<link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="wrap nav">
+  <a class="nav-brand" href="./">
+    <img src="assets/spool-logo-full.svg" alt="">
+    Spool <span class="zh">思簿</span>
+  </a>
+  <nav class="nav-links">
+    <a href="story.html">Engineering story</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap article measure" style="margin: 0 auto;">
+
+<h1>Privacy Policy</h1>
+<p class="lede">Last updated: 2026-07-10. This English translation is provided for convenience;
+the <a href="#zh">Chinese original</a> below is authoritative.</p>
+
+<h2>The one-sentence version</h2>
+<p><strong>Your data stays on your computer — no exceptions.</strong> Spool is purely local
+software: capture, threading, packing, and search all happen on your machine. No account, no
+upload, no telemetry. Spool ships with <strong>no built-in cloud AI</strong> and never contacts
+any server; the app's content-security policy (CSP) structurally forbids all external network
+connections from the webview.</p>
+
+<h2>What we collect</h2>
+<p><strong>Nothing.</strong> Spool has no server. There is no account system, no usage
+analytics, no crash reporting, no advertising identifiers. The developer cannot see any of
+your content.</p>
+
+<h2>Where your data lives</h2>
+<ul>
+  <li>All content (workspaces, threads, blocks, annotations, attachment index) lives in a local
+      SQLite database: <code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
+  <li>Interface settings live in <code>settings.json</code> in the same directory (it contains
+      no secrets — Spool needs none).</li>
+  <li>Attachments are never copied or uploaded — Spool stores only the path to the original
+      file, plus (optionally) text extracted locally. PDF/Word text extraction happens entirely
+      on your machine.</li>
+  <li>Before any database schema upgrade, a snapshot backup is saved automatically in the same
+      directory.</li>
+</ul>
+<p>Deleting that directory removes all Spool data completely; “Settings → Clear all data”
+inside the app does the same.</p>
+
+<h2>When data can leave your computer</h2>
+<p>In exactly one situation, which is <strong>off by default and requires you to enable it
+yourself</strong>:</p>
+<table>
+  <tr><th>Feature</th><th>Where data goes</th><th>Notes</th></tr>
+  <tr>
+    <td>MCP service (Settings → General, off by default)</td>
+    <td>The AI client you installed and configured yourself (Claude Desktop, Cursor, …)</td>
+    <td>Your AI client reads thread content over local inter-process communication; Spool
+        listens on no network port. Where those clients send content is governed by that
+        client and your agreement with its provider.</td>
+  </tr>
+</table>
+<p>In other words: Spool never sends data anywhere on its own. When you connect an AI client
+to Spool, it is <em>that client</em> reading content under your authorization — and “allow AI
+writes” is a second, separate switch.</p>
+
+<h2>System permissions</h2>
+<table>
+  <tr><th>Permission</th><th>Purpose</th><th>If declined</th></tr>
+  <tr><td>Input monitoring (double-tap ⌥ capture)</td>
+      <td>Detecting the Option-key double-tap / long-press gesture</td>
+      <td>Double-tap ⌥ unavailable; a custom capture shortcut can be set in Settings</td></tr>
+  <tr><td>Automation (browser)</td>
+      <td>Reading the current tab title as a source label</td>
+      <td>Source falls back to the application name</td></tr>
+  <tr><td>Clipboard</td>
+      <td>Reading clipboard text at capture time</td>
+      <td>Capture unavailable</td></tr>
+</table>
+<p>Permissions are used only when the corresponding feature fires — no background monitoring.
+The clipboard is read exactly once, at the moment you press the capture shortcut.</p>
+
+<h2>Contact</h2>
+<p>Questions or concerns: open an issue on
+<a href="https://github.com/KIM-ocean-HZ/spool/issues">GitHub</a>, or write to
+<a href="mailto:jinhz0531@gmail.com">jinhz0531@gmail.com</a>.</p>
+
+<div class="zh-block" id="zh" lang="zh">
+
+<h1>Spool（思簿）隐私政策</h1>
+<p class="lede">最后更新：2026-07-10</p>
+
+<h2>一句话版本</h2>
+<p><strong>你的数据留在你的电脑上——没有例外。</strong> Spool 是纯本地软件：捕捉、整理、打包、搜索全部在本机完成，不注册账号、不上传数据、不做遥测。Spool 自身<strong>不内置任何云端 AI</strong>，也不会向任何服务器发起请求；应用的内容安全策略（CSP）在结构上禁止了 webview 的一切外部网络连接。</p>
+
+<h2>我们收集什么</h2>
+<p><strong>什么都不收集。</strong> Spool 没有服务器。没有账号系统、没有使用统计、没有崩溃上报、没有广告标识符。开发者无法看到你的任何内容。</p>
+
+<h2>数据存放在哪里</h2>
+<ul>
+  <li>所有内容（工作区、脉络、信息块、批注、附件索引）存放在本机的 SQLite 数据库：<code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
+  <li>界面设置存放在同目录的 <code>settings.json</code>（不含任何密钥——Spool 不需要）。</li>
+  <li>附件本身不复制、不上传——Spool 只保存指向原文件的路径，以及（可选的）本地提取的文字内容。PDF/Word 的文字提取也完全在本机进行。</li>
+  <li>数据库结构升级前会在同目录自动留存一份快照备份。</li>
+</ul>
+<p>删除以上目录即可彻底清除 Spool 的全部数据；应用内「设置 → 清除所有数据」亦可。</p>
+
+<h2>什么时候会有数据离开你的电脑</h2>
+<p>只有一种情况，且<strong>默认关闭、需要你亲手开启</strong>：</p>
+<table>
+  <tr><th>功能</th><th>数据去向</th><th>说明</th></tr>
+  <tr>
+    <td>MCP 服务（设置 → 通用，默认关闭）</td>
+    <td>你自己安装、自己配置的 AI 客户端（Claude Desktop、Cursor 等）</td>
+    <td>你的 AI 客户端通过本机进程间通信读取脉络内容；Spool 不监听任何网络端口。这些客户端把内容发给谁、如何使用，由该客户端及你与其服务商的协议决定。</td>
+  </tr>
+</table>
+<p>换句话说：Spool 从不主动外发数据。当你把 AI 客户端接到 Spool 上时，是<strong>那个客户端</strong>在你的授权下读取内容——「允许 AI 写入」还需要单独开启第二个开关。</p>
+
+<h2>系统权限说明</h2>
+<table>
+  <tr><th>权限</th><th>用途</th><th>拒绝的后果</th></tr>
+  <tr><td>输入监听（双击 ⌥ 捕捉）</td><td>识别 Option 键的双击/长按手势</td><td>双击 ⌥ 不可用；可在设置里自定义捕捉快捷键</td></tr>
+  <tr><td>自动化（浏览器）</td><td>读取当前标签页标题作为来源标注</td><td>来源退化为应用名</td></tr>
+  <tr><td>剪贴板</td><td>捕捉时读取剪贴板文本</td><td>无法捕捉</td></tr>
+</table>
+<p>所有权限只在对应功能触发时使用，不做后台监控；剪贴板只在你按下捕捉快捷键的那一刻读取一次。</p>
+
+<h2>联系方式</h2>
+<p>问题或疑虑请在 <a href="https://github.com/KIM-ocean-HZ/spool/issues">GitHub 仓库</a>提 Issue，或联系 <a href="mailto:jinhz0531@gmail.com">jinhz0531@gmail.com</a>。</p>
+
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Spool 思簿 · © 2026 · All rights reserved</div>
+    <div>
+      <a href="./">Home</a> ·
+      <a href="story.html">Engineering story</a> ·
+      <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

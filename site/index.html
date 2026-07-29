@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spool 思簿 — a context hub for long-running projects</title>
+<meta name="description" content="Capture fragments effortlessly, thread them by project, and pack any thread into a paste-ready briefing. Local-first, no account, zero telemetry.">
+<link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="wrap nav">
+  <a class="nav-brand" href="./">
+    <img src="assets/spool-logo-full.svg" alt="">
+    Spool <span class="zh">思簿</span>
+  </a>
+  <nav class="nav-links">
+    <a href="story.html">Engineering story</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+<section class="wrap hero">
+  <img class="mark" src="assets/spool-logo-full.svg" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
+  <h1>Spool<span class="zh">思簿</span></h1>
+  <p class="tagline">A context hub for long-running projects.</p>
+  <p class="sub">Capture a fragment the moment it appears — a good AI answer, a decision buried
+  in an email, a half-formed thought. Spool threads your fragments by project and packs any
+  thread into a paste-ready briefing, so you can re-enter a project — or re-brief an AI — instantly.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a>
+    <a class="btn btn-ghost" href="story.html">Read the engineering story</a>
+  </div>
+  <p class="fineprint">Free · macOS (Apple&nbsp;Silicon) · Local-first · No account · Zero telemetry</p>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="kicker">The core loop</div>
+    <h2>Capture → Thread → Pack</h2>
+    <p class="measure">LLMs do not remember your project. Every new conversation, you re-explain
+    the context. Across many AIs, tabs, and days, a project's context gets shredded — and
+    reassembling it falls on your memory. Spool compresses “re-explaining” into a single paste.</p>
+    <div class="loop">
+      <div class="step">
+        <div class="n">01 · CAPTURE</div>
+        <h3>One keypress, no decisions</h3>
+        <p>Double-tap <strong>⌥</strong> grabs whatever you just copied and files it into the
+        current thread. A quiet overlay confirms the save on whatever screen you're on —
+        the main window never has to come forward.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="step">
+        <div class="n">02 · THREAD</div>
+        <h3>A log, not a chat</h3>
+        <p>An append-only timeline of fragments per project. Two tiers only —
+        Workspace → Thread — no infinite nesting. The newest blocks <em>are</em> “where you
+        left off”; there is no status note to maintain.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="step">
+        <div class="n">03 · PACK</div>
+        <h3>Paste-ready context</h3>
+        <p>One click assembles the thread into a Markdown briefing with full provenance.
+        Pure string assembly — deterministic, no AI in the hot path. Paste it into any AI,
+        or read it yourself.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <img class="shot" src="assets/main.png" alt="Spool main window: a sidebar of workspaces and threads, and an append-only feed of captured blocks with timestamps, sources, and annotations" width="1100">
+    <p class="shot-caption">The thread view: captured fragments with their time, source, and your annotations.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="kicker">What makes it different</div>
+    <h2>Three commitments</h2>
+    <div class="grid-3">
+      <div class="card">
+        <h3>Zero-friction capture</h3>
+        <p>Capture rides your existing <span class="kbd">⌘C</span> muscle memory — copy, then
+        double-tap <span class="kbd">⌥</span>. No window switch, no dialog, no decisions at
+        capture time. Sources are detected automatically, down to the browser tab you copied from.</p>
+      </div>
+      <div class="card">
+        <h3>Provenance-faithful packs</h3>
+        <p>Every block carries where it came from and when. A pack sorts content by authority —
+        your own words rank highest, references stay references — so the AI reading it knows
+        what to trust. Same thread, same day, same bytes: packing is deterministic.</p>
+      </div>
+      <div class="card">
+        <h3>AI as librarian, not author</h3>
+        <p>Connect Claude Desktop, Cursor, or any MCP client and your AI can read, search, and
+        file into your library — every write attributed, append-only. What you wrote by hand
+        is never overwritten. Ships with zero built-in AI: no keys, no cloud.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">Pack, then paste anywhere</div>
+    <h2>Works with any AI — or none</h2>
+    <p class="measure">A pack is plain Markdown. Paste it into ChatGPT, Claude, Gemini, a code
+    assistant, or an email to a colleague. MCP hookup is optional and off by default; Spool is
+    fully functional with nothing configured.</p>
+    <img class="shot" src="assets/pack.png" alt="The pack dialog: scope and intent controls above a paste-ready Markdown briefing with authority categories" width="1100">
+    <p class="shot-caption">Packing a thread: choose intent and range, copy, paste. No AI in the loop.</p>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="kicker">Privacy</div>
+    <h2>Your data stays on your machine. No exceptions.</h2>
+    <ul class="privacy-points">
+      <li>No account, no server, no telemetry, no crash reporting</li>
+      <li>Everything lives in a local SQLite file you can copy or delete</li>
+      <li>The app's content-security policy structurally blocks all outbound network requests</li>
+      <li>Data leaves only when <em>your</em> MCP client reads it — behind two opt-in switches</li>
+    </ul>
+    <p><a href="privacy.html">Read the full privacy policy →</a></p>
+  </div>
+</section>
+
+<section class="brand-moment">
+  <div class="wrap">
+    <video src="assets/spool-logo-assembly.mp4" autoplay muted loop playsinline aria-label="Animation of the Spool logo assembling: concentric rings of a thread spool, then the thread pulling free"></video>
+    <p class="shot-caption">The mark: a spool seen from above, its thread pulling free.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Spool 思簿 · © 2026 · All rights reserved</div>
+    <div>
+      <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
+      <a href="story.html">Engineering story</a> ·
+      <a href="privacy.html">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

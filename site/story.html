@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The making of Spool — engineering story</title>
+<meta name="description" content="How Spool was designed and built: a local-first context hub with deterministic packing, cross-language golden tests, and an MCP-first AI architecture.">
+<link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="wrap nav">
+  <a class="nav-brand" href="./">
+    <img src="assets/spool-logo-full.svg" alt="">
+    Spool <span class="zh">思簿</span>
+  </a>
+  <nav class="nav-links">
+    <a href="story.html">Engineering story</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
+  </nav>
+</header>
+
+<main class="wrap article measure" style="margin: 0 auto;">
+
+<h1>The making of Spool</h1>
+<p class="lede">A design-and-engineering account of building a local-first context hub —
+the decisions, the discipline, and one production incident that shaped the system.</p>
+
+<h2>The problem</h2>
+<p>Long-running projects shred their own context. A key argument lives in one AI conversation,
+a decision in an email, a reference in a browser tab closed three weeks ago. Large language
+models make this worse, not better: they remember nothing between conversations, so every
+session begins with re-explanation — and the quality of that re-explanation silently caps the
+quality of the answer.</p>
+<p>Spool's bet is narrow: if capturing a fragment costs one keypress, and re-assembling a
+project's context costs one paste, people will actually do both.</p>
+
+<h2>A constitution before code</h2>
+<p>The product is governed by six non-negotiable principles, written down before implementation
+and used to reject features ever since:</p>
+<ol>
+  <li><strong>Capture must be zero-friction</strong> — one keypress, no decisions.</li>
+  <li><strong>Local-first, private by default</strong> — the app makes no network requests at all.</li>
+  <li><strong>A thread is a log, not a chat</strong> — append-only, time-ordered, quiet.</li>
+  <li><strong>Retrieval is deterministic</strong> — packing and search never call AI or the network.</li>
+  <li><strong>AI is a librarian, not an author</strong> — anything an AI files is attributed,
+      append-only, and can never overwrite what the user wrote by hand.</li>
+  <li><strong>Exactly two tiers of structure</strong> — Workspace → Thread, no infinite nesting.</li>
+</ol>
+<p>The most consequential of these is №5. It later became an enforced write policy, a
+data-hygiene audit tool, and the reason the product could remove its built-in AI entirely.</p>
+
+<h2>Architecture</h2>
+<p>Spool is a Tauri 2 application: a Rust core with a React/TypeScript front end, backed by a
+single SQLite database.</p>
+<ul>
+  <li><strong>Storage</strong> — SQLite with FTS5 full-text search using a trigram tokenizer
+      (chosen so Chinese text searches correctly), plus a LIKE fallback for short queries.</li>
+  <li><strong>Capture pipeline</strong> — a global double-tap ⌥ gesture (CGEventTap), a
+      non-activating always-on-top overlay for confirmation, and automatic source detection
+      down to the browser tab title.</li>
+  <li><strong>The packer</strong> — the crown feature — is a pure function from thread state to
+      Markdown. No AI, no network, no clock reads beyond block timestamps: the same thread
+      packs to the same bytes on the same day.</li>
+  <li><strong>MCP server</strong> — Spool exposes its library to AI clients (Claude Desktop,
+      Cursor, …) over the Model Context Protocol via stdio: ten tools for reading, searching,
+      filing, and auditing. Every AI write carries a source label; user-authored content is
+      read-only to machines.</li>
+</ul>
+
+<h2>Verification discipline</h2>
+<p>Determinism is a testable promise, so the test suite is built around it:</p>
+<ul>
+  <li><strong>Cross-language golden files.</strong> The pack format is implemented twice —
+      in TypeScript for the GUI and in Rust for the MCP server. Golden tests pin both
+      implementations to byte-identical output, so the two surfaces can never drift apart.</li>
+  <li><strong>Migration lockstep.</strong> Schema migrations live in a registry with
+      version constants asserted on both the TypeScript and Rust sides; the app snapshots the
+      database automatically before any migration runs.</li>
+  <li><strong>~170 automated tests</strong> across Vitest and cargo, including digest
+      determinism and a read-only library audit tool (<code>check_library</code>) whose report
+      is itself byte-stable within a day.</li>
+</ul>
+<p>Beyond unit tests, each release batch went through an adversarial review loop with scored
+acceptance: 8.5 → 7.7 → 9.5 → 9.8 across four rounds. The dip to 7.7 was the process working —
+a reviewer catching a data-hygiene gap that a later round proved fixed.</p>
+
+<h2>The incident that shaped the system</h2>
+<p>On 2026-05-29, a development build wiped the live database: a schema-rebuild branch in the
+migration code met a build/database version skew, and the "rebuild" path ran against real data.
+The postmortem produced the guardrails that now define the data layer: automatic pre-migration
+snapshots, a migration registry with dual-side version constants, mandatory backups before any
+operation touching the live database, and an isolated-build workflow for on-device verification
+so development builds can never again open the production file by accident.</p>
+<blockquote>A data-loss incident is not a line anyone wants on a project page. It is on this one
+because the guards it produced are the most load-bearing engineering in the product.</blockquote>
+
+<h2>Removing the AI to build a better AI product</h2>
+<p>Mid-project, Spool shipped optional built-in AI providers. They were removed — entirely.
+Ordinary users can't obtain API keys or run local models, and every built-in provider weakened
+the privacy story. The replacement is architectural: Spool is the <em>context repository</em>,
+and AI clients the user already owns operate on it through MCP. The analogy that guided the
+decision: Spool is the editor; the AI is a plugin. Since the pivot, the app's content-security
+policy structurally blocks all outbound network traffic — the privacy policy is enforced by
+the build, not by promises.</p>
+
+<h2>Where it stands</h2>
+<p>v0.3.0 is feature-complete and packaged for macOS: twelve implementation phases landed,
+from the data layer through capture hardening, full-text search, thread digests,
+cross-thread references, and the MCP surface. The logo — a spool seen from above, its thread
+pulling free — was designed in-house, down to the tray icon's alpha-channel template rendering.</p>
+
+<img class="shot" src="assets/digest.png" alt="Spool digest view: a completed thread condensed into conclusion, pinned blocks, and files & links" width="1100">
+<p class="shot-caption">A finished thread's digest: conclusion, pinned blocks, files &amp; links.</p>
+
+<p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.3.0 release and
+will be embedded here.</em></p>
+
+<hr>
+<p class="muted">Spool is designed and built by Ocean (<a href="https://github.com/KIM-ocean-HZ">KIM-ocean-HZ</a>).
+Source, roadmap, and the full product constitution are on
+<a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>.</p>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Spool 思簿 · © 2026 · All rights reserved</div>
+    <div>
+      <a href="./">Home</a> ·
+      <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
+      <a href="privacy.html">Privacy</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
