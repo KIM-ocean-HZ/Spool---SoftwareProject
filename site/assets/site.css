@@ -198,6 +198,27 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
   .hero-ring, .hero img.mark { animation: none !important; }
 }
 
+/* ---------- Chinese-mode typography ----------
+   Applied when the language toggle sets <html lang="zh-CN">. The font system
+   itself stays (Fraunces→宋体 display, Geist→苹方 body — the standard
+   serif-title / sans-body pairing); what changes is what CJK glyphs actually
+   need: no fake italics anywhere (CJK has no italic tradition — obliquing
+   just breaks the strokes), zero tracking on display sizes (the Latin
+   negative tracking makes square glyphs collide), and roomier line-heights.
+   Punctuation in the zh copy itself is fullwidth (,→，etc.), normalised at
+   the source in i18n.js / demo.js. */
+html[lang="zh-CN"] body { line-height: 1.8; }
+html[lang="zh-CN"] h1,
+html[lang="zh-CN"] h2,
+html[lang="zh-CN"] h3 { letter-spacing: 0; }
+html[lang="zh-CN"] .hero h1 { line-height: 1.3; }
+html[lang="zh-CN"] h2 { line-height: 1.42; }
+html[lang="zh-CN"] .problem { letter-spacing: 0; line-height: 1.65; }
+html[lang="zh-CN"] em,
+html[lang="zh-CN"] blockquote,
+html[lang="zh-CN"] .block-card .note,
+html[lang="zh-CN"] .ab-line.muted-line { font-style: normal; }
+
 /* ---------- nav ---------- */
 .nav-shell {
   position: sticky;
@@ -227,7 +248,8 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 }
 .nav-brand:hover { text-decoration: none; }
 .nav-brand img { width: 28px; height: 28px; }
-.nav-brand .zh { font-weight: 400; font-style: italic; color: var(--muted); font-size: 1.05rem; }
+/* 思簿 marks are CJK in every language — never slanted (CJK has no italics) */
+.nav-brand .zh { font-weight: 400; color: var(--muted); font-size: 1.05rem; }
 .nav-links { display: flex; gap: 1.4rem; align-items: center; font-size: 0.95rem; }
 .nav-links a { color: var(--ink-2); }
 .nav-links a:hover { color: var(--accent); text-decoration: none; }
@@ -281,7 +303,7 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
   letter-spacing: -0.018em;
   margin: 0 0 1.1rem;
 }
-.hero h1 .zh { font-weight: 400; font-style: italic; color: var(--muted); font-size: 0.55em; vertical-align: 0.15em; margin-left: 0.35em; }
+.hero h1 .zh { font-weight: 400; color: var(--muted); font-size: 0.55em; vertical-align: 0.15em; margin-left: 0.35em; }
 .hero .tagline {
   font-size: clamp(1.2rem, 2.6vw, 1.45rem);
   color: var(--ink-2);
@@ -757,7 +779,7 @@ footer a { color: var(--ink-2); }
   background: var(--paper-2);
 }
 .mini-spool-bar .title { font-family: var(--font-serif); font-weight: 600; font-size: 0.95rem; }
-.mini-spool-bar .title .zh { font-style: italic; font-weight: 400; color: var(--muted); font-size: 0.85em; margin-left: 0.3em; }
+.mini-spool-bar .title .zh { font-weight: 400; color: var(--muted); font-size: 0.85em; margin-left: 0.3em; }
 .pack-btn {
   font-family: var(--font-ui);
   font-size: 0.83rem;

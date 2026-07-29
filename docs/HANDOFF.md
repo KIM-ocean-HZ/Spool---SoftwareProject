@@ -19,8 +19,9 @@ push 即触发 Pages 部署,留给 Ocean 过目后执行;
 ## 1. ⚠️ 待 Ocean 动手(按阻塞程度)
 
 1. 【一条命令】`git push` —— 会自动部署官网(workflow 只认 `site/**`)。
-   六条反馈的修改和线轴新造型都在里面;**线轴的具体执行 Ocean 还没见过**,
-   想先看再推的话:本地 `open site/index.html` 即可预览(注意窗口宽度 ≥1240 才显示线轴)。
+   六条反馈的修改、线轴极简版、中文排版整顿都在里面;想先看再推:
+   本地 `open site/index.html` 预览(窗口宽度 ≥1240 才显示线轴),
+   中文版直接开 `site/index.html?lang=zh`(新加的直链参数)。
 2. 【阻塞发布】**Developer ID 证书**——确认邮件到了之后:创建并导入证书 → App 专用密码
    → export 四个变量(RELEASE.md §1)→ `npm run tauri build`。跑完喊我,验收/tag/Release 我全包。
 3. `docs/DESIGN_EN_TYPOGRAPHY.md` 两项批复(区标小型大写方案 / 官网换 EN 截图)——仍待。
@@ -72,7 +73,19 @@ push 即触发 Pages 部署,留给 Ocean 过目后执行;
 - 两个坑已修:dash 度量改用路径自身用户单位(`pathLength`+`non-scaling-stroke`
   在拉伸 svg 上不可靠);母题 z-index 提到 3(否则 .alt 全宽底色会盖住中部的右轴)。
 
-### 3.4 批量删除
+### 3.4 中文排版整顿(Ocean:「很混乱」)
+
+- **全角标点统一**:i18n.js / demo.js 的中文文案里 250+ 处半角 `,:;?!()` 转全角
+  (脚本只在紧邻 CJK 时替换;demo 里模拟 MCP 工具调用的伪代码 chip 刻意保持半角)。
+  story / privacy 的中文本来就是全角,只补了一处括号。
+- **中文永不斜体**:「思簿」标记、em、blockquote、demo 批注在 zh 模式全部直立
+  (CJK 无斜体传统,假斜只是把笔画掰歪)。
+- **zh 模式版式**(`html[lang="zh-CN"]` 生效):正文行高 1.8;标题去负字距,
+  H1 行高 1.3、H2 1.42。字体栈不动——Fraunces→宋体做标题、Geist→苹方做正文,
+  本来就是标准「宋标黑文」,乱的是标点和斜体。
+- 新增 **`?lang=zh|en` 直链参数**(压过 localStorage 记忆),中文版可直接分享。
+
+### 3.5 批量删除
 
 MergeToolbar 加「删除」按钮:与合并同款两步确认、urgent 色;逐个走单块 `remove`,
 每块各自入 §9.13 撤销栈(⌘Z 从最新开始逐个回来),确认文案如实说明。i18n 四键补 EN。

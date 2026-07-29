@@ -146,83 +146,83 @@
     pmCopy: '复制',
     pmCopied: '✓ 真的复制了',
     pmCont: '粘给一个 AI →',
-    finale: '<strong>整个流程就是这样。</strong>再看看侧栏——找工作、作品集、课程、租房。只要是一次坐不完的事,Spool 都管用。<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">下载 macOS 版</a>',
+    finale: '<strong>整个流程就是这样。</strong>再看看侧栏——找工作、作品集、课程、租房。只要是一次坐不完的事，Spool 都管用。<br><a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest">下载 macOS 版</a>',
     copyLabel: '⎘ 复制',
     copied: '✓ 已复制',
     keycap: '⌥ option',
-    keyHint1: '<strong>快速按两下</strong>——点屏幕上这个键,或按你键盘上真的 ⌥ 键',
+    keyHint1: '<strong>快速按两下</strong>——点屏幕上这个键，或按你键盘上真的 ⌥ 键',
     keyHint2: '再<strong>按两下</strong>',
     sendBtn: '▸ 发送',
     pasteBtn: '⎘ 粘贴 Spool 生成的文字',
-    nudgeMcp: '下一步:一个字都不用粘 →',
+    nudgeMcp: '下一步：一个字都不用粘 →',
 
     blocks: {
-      posting: { time: '11:40', src: 'acme.com · Safari', text: 'Acme 在招数据分析师:必须会 SQL,会 Python 加分。小团队,直接向运营负责人汇报。' },
-      chat: { time: '14:05', src: 'AI 对话 · Safari', text: '转行的话,把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒。' },
-      note: { time: '16:30', src: null, text: '做事顺序:先重写简历开头的自我介绍,再写 Acme 的求职信。' },
-      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: '下一步:简历现在还是工作经历打头。周五这轮截止前,把项目经历挪到它前面。' }
+      posting: { time: '11:40', src: 'acme.com · Safari', text: 'Acme 在招数据分析师：必须会 SQL，会 Python 加分。小团队，直接向运营负责人汇报。' },
+      chat: { time: '14:05', src: 'AI 对话 · Safari', text: '转行的话，把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒。' },
+      note: { time: '16:30', src: null, text: '做事顺序：先重写简历开头的自我介绍，再写 Acme 的求职信。' },
+      mcp: { time: '16:42', src: 'Claude · MCP', mcp: true, text: '下一步：简历现在还是工作经历打头。周五这轮截止前，把项目经历挪到它前面。' }
     },
 
     tpl: {
       postingBar: 'Acme — 数据分析师 · Safari',
-      postingH: '数据分析师 — Acme(远程)',
-      postingBody: '……你将负责运营团队的数据报表。<span class="quote-target">必须会 SQL,会 Python 加分。小团队,直接向运营负责人汇报。</span>我们会分批筛选简历……',
+      postingH: '数据分析师 — Acme（远程）',
+      postingBody: '……你将负责运营团队的数据报表。<span class="quote-target">必须会 SQL，会 Python 加分。小团队，直接向运营负责人汇报。</span>我们会分批筛选简历……',
       chatBar: 'AI 对话 · Safari',
-      chatQ: '我在转行,简历该怎么排顺序?',
-      chatA: '先亮你做过的东西:<span class="quote-target">把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒</span>。',
-      c3a: '前两条都来自<em>别处</em>——一条招聘信息、一个 AI。第三种才是 Spool 最看重的:<strong>你自己做的决定</strong>。',
-      c3b: '没有来源的笔记,在 Spool 生成文字时分量最重。你的话是决定,其余的都只是材料。',
-      packA: '三条笔记,三个不同的地方,同一个项目——散落的东西现在在同一份清单里。',
-      packB: '这段文字在你的 Mac 上生成,没有 AI 参与,同一个项目每次生成的结果都一样。',
+      chatQ: '我在转行，简历该怎么排顺序？',
+      chatA: '先亮你做过的东西：<span class="quote-target">把项目经历放在工作经历前面——招聘的人扫第一屏大概只花六秒</span>。',
+      c3a: '前两条都来自<em>别处</em>——一条招聘信息、一个 AI。第三种才是 Spool 最看重的：<strong>你自己做的决定</strong>。',
+      c3b: '没有来源的笔记，在 Spool 生成文字时分量最重。你的话是决定，其余的都只是材料。',
+      packA: '三条笔记，三个不同的地方，同一个项目——散落的东西现在在同一份清单里。',
+      packB: '这段文字在你的 Mac 上生成，没有 AI 参与，同一个项目每次生成的结果都一样。',
       rebriefBar: '一个新的 AI 对话 —— 对你一无所知',
       mcpBar: 'Claude Desktop —— 已连接 Spool ✓',
-      mcpUser: '我找工作这事进行到哪了?查一下我的 Spool,然后把下一步存回去。'
+      mcpUser: '我找工作这事进行到哪了？查一下我的 Spool，然后把下一步存回去。'
     },
 
     guide: {
-      start: '<b>第 1 步(共 4 步)· 存。</b>你在看一条招聘信息,其中一句很关键。点高亮那句下面的 <strong>⎘ 复制</strong>。',
-      copied: '<b>已复制 ✓</b> 接下来是 Spool 的部分:<strong>快速按两下 ⌥</strong>。点下面那个键,或按你键盘上真的 Option 键。',
-      cap1: '<b>✓ 已存下——第 1/3 条。</b>来源自己跟着进来了(「acme.com · Safari」)。下一条:AI 刚说了一句有用的——点它下面的 <strong>⎘ 复制</strong>。',
-      cap2: '<b>✓ 已存下——第 2/3 条。</b>最后一条是<strong>你自己的决定</strong>。右边输入框里已经替你写好了,直接按<strong>存下</strong>(想改也可以先改)。',
-      cap3: '<b>✓ 3/3。</b>一条招聘信息、一个 AI 的回答、你自己的决定,现在都在同一个项目里。轮到最有用的一步了:点上方的 <strong>⎘ 打包</strong>。',
-      packed: '<b>✓ 好了。</b>注意顺序——你自己那条排在最前,压过两个来源。试试<strong>复制</strong>(是真的会复制),然后点<strong>粘给一个 AI →</strong>',
-      rebrief: '<b>第 3 步(共 4 步)· 粘贴。</b>这个对话刚打开,对你一无所知。点 <strong>⎘ 粘贴 Spool 生成的文字</strong>。',
-      pasted: '<b>看到那些小标签了吗?</b>回答里每一条都出自你的某条笔记——散落的东西被拼起来了。(回答是事先写好的;真实粘贴的效果一样。)',
-      mcp: '<b>第 4 步(共 4 步)· MCP。</b>粘贴只能让 AI 明白<em>一次</em>。把它接到 Spool 上,它就能随时打开<strong>你存下的全部内容</strong>。点 <strong>▸ 发送</strong>。',
-      done: '<b>✓ 就是这样。</b>它跨项目读了一遍,用你几周里陆续存下的笔记作答,并把下一步放回了该在的地方——带署名,加在你那条笔记下面,而不是盖在上面。'
+      start: '<b>第 1 步（共 4 步）· 存。</b>你在看一条招聘信息，其中一句很关键。点高亮那句下面的 <strong>⎘ 复制</strong>。',
+      copied: '<b>已复制 ✓</b> 接下来是 Spool 的部分：<strong>快速按两下 ⌥</strong>。点下面那个键，或按你键盘上真的 Option 键。',
+      cap1: '<b>✓ 已存下——第 1/3 条。</b>来源自己跟着进来了（「acme.com · Safari」）。下一条：AI 刚说了一句有用的——点它下面的 <strong>⎘ 复制</strong>。',
+      cap2: '<b>✓ 已存下——第 2/3 条。</b>最后一条是<strong>你自己的决定</strong>。右边输入框里已经替你写好了，直接按<strong>存下</strong>（想改也可以先改）。',
+      cap3: '<b>✓ 3/3。</b>一条招聘信息、一个 AI 的回答、你自己的决定，现在都在同一个项目里。轮到最有用的一步了：点上方的 <strong>⎘ 打包</strong>。',
+      packed: '<b>✓ 好了。</b>注意顺序——你自己那条排在最前，压过两个来源。试试<strong>复制</strong>（是真的会复制），然后点<strong>粘给一个 AI →</strong>',
+      rebrief: '<b>第 3 步（共 4 步）· 粘贴。</b>这个对话刚打开，对你一无所知。点 <strong>⎘ 粘贴 Spool 生成的文字</strong>。',
+      pasted: '<b>看到那些小标签了吗？</b>回答里每一条都出自你的某条笔记——散落的东西被拼起来了。（回答是事先写好的；真实粘贴的效果一样。）',
+      mcp: '<b>第 4 步（共 4 步）· MCP。</b>粘贴只能让 AI 明白<em>一次</em>。把它接到 Spool 上，它就能随时打开<strong>你存下的全部内容</strong>。点 <strong>▸ 发送</strong>。',
+      done: '<b>✓ 就是这样。</b>它跨项目读了一遍，用你几周里陆续存下的笔记作答，并把下一步放回了该在的地方——带署名，加在你那条笔记下面，而不是盖在上面。'
     },
 
     packText: [
-      '# 项目:找工作', '',
+      '# 项目：找工作', '',
       '由 Spool 生成。共 3 条笔记。', '', '---', '',
       '## 这份文字怎么读', '',
       '笔记按「谁写的」分组。没有来源的那些是',
-      '作者本人写的——请当作决定,而不是建议。', '',
-      '### ✍️ 我自己的笔记(分量最重)', '',
-      '- [16:30] 做事顺序:先重写简历开头的自我',
-      '  介绍,再写 Acme 的求职信。', '',
+      '作者本人写的——请当作决定，而不是建议。', '',
+      '### ✍️ 我自己的笔记（分量最重）', '',
+      '- [16:30] 做事顺序：先重写简历开头的自我',
+      '  介绍，再写 Acme 的求职信。', '',
       '### 📚 我读到的东西', '',
       '- [11:40 · acme.com · Safari] Acme 在招数据',
-      '  分析师:必须会 SQL,会 Python 加分。小',
-      '  团队,直接向运营负责人汇报。', '',
-      '### 🤖 AI 写的(采信前请核对)', '',
-      '- [14:05 · AI 对话] 转行的话,把项目经历放',
+      '  分析师：必须会 SQL，会 Python 加分。小',
+      '  团队，直接向运营负责人汇报。', '',
+      '### 🤖 AI 写的（采信前请核对）', '',
+      '- [14:05 · AI 对话] 转行的话，把项目经历放',
       '  在工作经历前面——招聘的人扫第一屏大概',
       '  只花六秒。'
     ].join('\n'),
 
     aiReply:
-      '<div class="ab-line">收到——<strong>找工作</strong>,投 Acme 这件事。三条笔记来自三个地方,计划如下:</div>' +
-      '<div class="ab-item"><span class="ab-tag you">✍️ 你的笔记</span>按你定的顺序来:先改简历开头的自我介绍,再写求职信。</div>' +
+      '<div class="ab-line">收到——<strong>找工作</strong>，投 Acme 这件事。三条笔记来自三个地方，计划如下：</div>' +
+      '<div class="ab-item"><span class="ab-tag you">✍️ 你的笔记</span>按你定的顺序来：先改简历开头的自我介绍，再写求职信。</div>' +
       '<div class="ab-item"><span class="ab-tag ai">🤖 AI 对话</span>把项目经历挪到工作经历前面——六秒扫一眼时看到的就是它。</div>' +
-      '<div class="ab-item"><span class="ab-tag ref">📚 招聘信息</span>SQL 放在最显眼处。Python 只是加分项,往后排。</div>' +
+      '<div class="ab-item"><span class="ab-tag ref">📚 招聘信息</span>SQL 放在最显眼处。Python 只是加分项，往后排。</div>' +
       '<div class="ab-line muted-line">三条散落的笔记 → 一份计划。一个字都没有重新解释。</div>',
 
     mcpScript: [
       { kind: 'chip', html: '⚙ <span class="tool">list_threads</span>()&nbsp; <span class="ret">→ 3 个工作区 · 8 个项目</span>' },
       { kind: 'chip', html: '⚙ <span class="tool">get_digest</span>("找工作")&nbsp; <span class="ret">→ 3 周里存的 5 条笔记</span>' },
       { kind: 'chip', html: '⚙ <span class="tool">search_blocks</span>("简历")&nbsp; <span class="ret">→ 2 处命中 · 最早在 3 周前</span>' },
-      { kind: 'ai', html: 'Acme 这轮<strong>周五</strong>截止。你自己那条写的是:先改简历开头,再写求职信。但三周前定下的版式决定——项目经历放在工作经历前面——到现在还没做。这才是真正的下一步,我已经把它存进项目里了。' },
+      { kind: 'ai', html: 'Acme 这轮<strong>周五</strong>截止。你自己那条写的是：先改简历开头，再写求职信。但三周前定下的版式决定——项目经历放在工作经历前面——到现在还没做。这才是真正的下一步，我已经把它存进项目里了。' },
       { kind: 'chip', html: '⚙ <span class="tool">add_block</span>(下一步, source: "Claude · MCP")&nbsp; <span class="ok">✓ 已存下</span>' }
     ]
   };
