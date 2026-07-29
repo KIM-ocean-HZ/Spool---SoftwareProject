@@ -1,4 +1,4 @@
-import { Copy, Merge, X } from 'lucide-react';
+import { Copy, Merge, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -24,19 +24,23 @@ export default function MergeToolbar({ threadId }: Props) {
   const clearSelection = useBlocksStore((s) => s.clearSelection);
   const mergeBlocks = useBlocksStore((s) => s.mergeBlocks);
   const forwardToThread = useBlocksStore((s) => s.forwardToThread);
+  const removeBlock = useBlocksStore((s) => s.remove);
   const [merging, setMerging] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // Inline two-step confirm (the DeleteButton pattern) instead of window.confirm —
   // the only native OS dialog the app had, visually foreign to everything else.
   const [confirmingMerge, setConfirmingMerge] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pillRef = useRef<HTMLDivElement>(null);
 
   const count = selectedBlockIds.size;
 
-  // Selection changed under the armed confirm (a block was added/removed): the count in
+  // Selection changed under an armed confirm (a block was added/removed): the count in
   // the question is stale, so disarm rather than confirm something the user didn't read.
   useEffect(() => {
     setConfirmingMerge(false);
+    setConfirmingDelete(false);
   }, [count]);
 
   // Close the picker on a click outside the toolbar pill (the picker renders inside it, so a
@@ -62,6 +66,22 @@ export default function MergeToolbar({ threadId }: Props) {
       await mergeBlocks([...selectedBlockIds]);
     } finally {
       setMerging(false);
+    }
+  };
+
+  // Batch delete = the single-block remove per id, so each block gets its own §9.13
+  // delete-undo entry — ⌘Z walks them back newest-first, one at a time.
+  const handleDelete = async (): Promise<void> => {
+    if (deleting) return;
+    setConfirmingDelete(false);
+    setDeleting(true);
+    try {
+      const ids = [...selectedBlockIds];
+      for (const id of ids) await removeBlock(id);
+      clearSelection();
+      toast.notice(t('已删除 {n} 个块', { n: ids.length }));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -116,7 +136,10 @@ export default function MergeToolbar({ threadId }: Props) {
         ) : (
           <button
             type="button"
-            onClick={() => setConfirmingMerge(true)}
+            onClick={() => {
+              setConfirmingDelete(false);
+              setConfirmingMerge(true);
+            }}
             disabled={!canMerge || merging}
             className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
               canMerge && !merging
@@ -140,6 +163,42 @@ export default function MergeToolbar({ threadId }: Props) {
           <Copy size={12} />
           {t('复制到…')}
         </button>
+        {confirmingDelete ? (
+          <span className="flex items-center gap-1.5">
+            <span className="text-ink">{t('删除 {n} 个块？⌘Z 可逐个撤回', { n: count })}</span>
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              className="rounded-full px-2 py-0.5 transition-colors hover:bg-paper-2"
+              style={{ color: 'var(--urgent)' }}
+            >
+              {t('确认')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className="rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+            >
+              {t('再想想')}
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingMerge(false);
+              setConfirmingDelete(true);
+            }}
+            disabled={deleting}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
+              deleting ? 'cursor-not-allowed text-muted' : 'text-muted hover:bg-paper-2 hover:text-ink'
+            }`}
+            title={t('删除所选 block')}
+          >
+            <Trash2 size={12} />
+            {deleting ? t('删除中…') : t('删除')}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => clearSelection()}
