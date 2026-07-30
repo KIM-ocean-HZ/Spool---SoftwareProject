@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
-import { useT } from '@/lib/i18n';
+import { useLanguage, useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 // "What is on fire" (PLAN_EN.md §9.9): every thread with a deadline and not yet done,
@@ -11,6 +11,7 @@ const FOCUS_MAX = 5;
 
 export default function FocusSection() {
   const t = useT();
+  const lang = useLanguage();
   const byWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
   const select = useThreadsStore((s) => s.select);
@@ -29,7 +30,14 @@ export default function FocusSection() {
 
   return (
     <div className="mb-1 border-b border-line px-2 pb-2">
-      <div className="px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted">{t('聚焦')}</div>
+      {/* Same EN-uppercase rule as RecentSection's label. */}
+      <div
+        className={`px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted ${
+          lang === 'en' ? 'uppercase' : ''
+        }`}
+      >
+        {t('聚焦')}
+      </div>
       <ul className="space-y-0.5">
         {focus.map((th) => (
           <li

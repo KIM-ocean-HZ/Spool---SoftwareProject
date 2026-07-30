@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useT } from '@/lib/i18n';
+import { useLanguage, useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 // #6 快速捕捉 (Ocean 2026-07-13): the sidebar's OPEN-EDITORS counterpart — the 3-5
@@ -12,6 +12,7 @@ const RECENT_MAX = 4;
 
 export default function RecentSection() {
   const t = useT();
+  const lang = useLanguage();
   const byWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
   const select = useThreadsStore((s) => s.select);
@@ -32,7 +33,16 @@ export default function RecentSection() {
 
   return (
     <div className="mb-1 border-b border-line px-2 pb-2">
-      <div className="px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted">{t('最近')}</div>
+      {/* EN section labels go uppercase (DESIGN_EN_TYPOGRAPHY 待拍板 A): at 10.5px a
+          lowercase Latin word reads smaller than the same-size 汉字, and the existing
+          tracking-wide only looks right on caps. Chinese keeps its own form. */}
+      <div
+        className={`px-3 pb-1 pt-2 text-[10.5px] tracking-wide text-muted ${
+          lang === 'en' ? 'uppercase' : ''
+        }`}
+      >
+        {t('最近')}
+      </div>
       <ul className="space-y-0.5">
         {recent.map((th) => (
           <li
