@@ -25,23 +25,60 @@ export APPLE_TEAM_ID="<TEAM_ID>"
 Tauri 检测到这四个变量后会自动完成：签名（含 hardened runtime）→ notarytool
 提交公证 → staple 装订。缺任何一个则跳过对应步骤。
 
+**⚠️ Tauri 只公证 `.app`，不公证 `.dmg`**（2026-07-30 实测）。它给 dmg 签名，
+但不提交公证——用户从网上下载的是 dmg，Gatekeeper 查的也是 dmg，未公证就会弹
+「无法验证开发者」。所以 §2 第 4 步的补公证是**必做**，不是可选。
+
 ## 2. 发布步骤
 
 ```bash
 # 1. 版本号三处同步：package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
 # 2. 基线检查
 npx tsc -b && npx vitest run && (cd src-tauri && cargo check)
-# 3. 构建 + 签名 + 公证（联网，公证通常 1-10 分钟）
+# 3. 开打之前先清场（见 §2.1——不清就会在最后一步失败）
+ls /Volumes/                                          # 不该有 Spool / Spool 1 / dmg.*
+rm -f src-tauri/target/release/bundle/macos/rw.*.dmg  # 上次失败留下的临时读写卷
+# 4. 构建 + 签名 + 公证 app（联网；公证排队 2 分钟到 45 分钟都遇到过）
 npm run tauri build
-# 4. 产物
+# 5. 补公证 dmg 本身（Tauri 不做，必做）
+DMG=src-tauri/target/release/bundle/dmg/Spool_<版本>_aarch64.dmg
+xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+  --team-id "$APPLE_TEAM_ID" --wait
+xcrun stapler staple "$DMG"
+# 6. 产物
 ls src-tauri/target/release/bundle/dmg/     # Spool_<版本>_aarch64.dmg
 ls src-tauri/target/release/bundle/macos/   # Spool.app
 ```
 
+**别用 `| tail` 接 `npm run tauri build`**：管道会把退出码换成 tail 的 0，
+构建失败也看着像成功（2026-07-30 就这么被骗过一次）。重定向到文件再看。
+
+## 2.1 `bundle_dmg.sh` 失败 = 卷名被占（2026-07-30 实录）
+
+症状：app 签名与公证全部成功，最后一步
+`failed to bundle project error running bundle_dmg.sh`。
+
+原因：脚本挂载新卷时要占用卷名 `Spool`，而上次失败留下的**幽灵卷**还挂着——
+包括「dmg 文件已被删除但卷仍在挂载」这种看不见的残留。当时 `/Volumes` 下有
+`Spool`、`Spool 1`、`dmg.e8lMfv` 三个。
+
+```bash
+hdiutil info | grep -E "image-path|/Volumes"   # 找出 /dev/diskN 与来源
+hdiutil detach /dev/diskN -force               # 逐个卸载
+rm -f src-tauri/target/release/bundle/macos/rw.*.dmg
+```
+清完重跑 `npm run tauri build` 即通过。**每次构建后确认 `/Volumes` 只剩
+`Macintosh HD`**，否则下一次必然再撞。
+
 ## 3. 发布前验收清单
 
 - [ ] 全新机器（或删除 `~/Library/Application Support/com.oceanjin.spool` 后）安装 .dmg，首启建库正常
-- [ ] `spctl -a -vv -t install src-tauri/target/release/bundle/macos/Spool.app` 显示 `accepted · Notarized Developer ID`
+- [ ] **两个产物都要查**（dmg 漏公证是最容易漏的一项）：
+      `spctl -a -vv -t install <Spool.app>` 与 `spctl -a -vv -t install <dmg>`
+      都必须是 `accepted` + `source=Notarized Developer ID`。
+      dmg 若显示 `Unnotarized Developer ID`，回到 §2 第 5 步补公证。
+- [ ] `codesign -dvv <Spool.app>` 的 Authority 第一行是 Developer ID 而不是 `Spool Dev`
+      （tauri.conf.json 里配的是开发证书，靠环境变量覆盖；覆盖失败会静默用错证书）
 - [ ] 双击 ⌥ 捕捉：首启系统弹「输入监听」授权（未授权时主窗口有引导条）→ 授权并重启后捕捉可用
 - [ ] 抓包确认零出网：本体无任何云出口（2026-07-09 剔除内置 AI 后 CSP connect-src 只放行 Tauri IPC；MCP 走 stdio 子进程，不占网络端口）
 - [ ] 全新安装零配置即全功能：捕捉/打包/搜索可用；教程脉络「欢迎使用 Spool」出现、整条可删且不复现

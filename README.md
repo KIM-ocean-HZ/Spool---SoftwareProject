@@ -7,6 +7,14 @@
 > 思簿 — a context hub for long-running projects.
 > Logo: a spool viewed from above, its thread pulling free — [watch it assemble](docs/logo/spool-logo-assembly.mp4).
 
+<p align="center">
+  <b><a href="https://spoolapp.org">spoolapp.org</a></b> ·
+  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a></b>
+  <br>
+  <sub>The site walks the whole loop in an interactive demo (English / 中文) — no install needed.<br>
+  The download is a signed, notarized <code>.dmg</code>. Free, offline, no account.</sub>
+</p>
+
 At the moment you naturally produce a fragment of information — a good answer from an AI, a decision buried in an email, a link to a document, a half-formed thought — Spool lets you capture that fragment effortlessly, threads fragments together under a two-tier **Workspace → Thread** structure, and packs any thread into a paste-ready briefing on demand — so you can re-enter a project, or re-brief an AI, instantly.
 
 ## Why it exists
@@ -29,7 +37,11 @@ Spool compresses "re-explaining" into "a single paste."
 
 ## Status
 
-v1 feature-complete and packaged. macOS primary; Windows/Linux feasible via Tauri (capture-trigger details differ).
+**v0.3.0** — feature-complete and shipping. macOS primary; Windows/Linux feasible via Tauri (capture-trigger details differ).
+
+- **Distribution**: Developer ID–signed, Apple-notarized `.dmg`, straight from [Releases](https://github.com/KIM-ocean-HZ/spool/releases/latest). Not on the Mac App Store — sandboxing conflicts structurally with the global capture trigger.
+- **Website**: [spoolapp.org](https://spoolapp.org), with an interactive walkthrough of capture → pack → re-brief → MCP in English and Chinese.
+- **No auto-update channel** yet: direct distribution means new versions are a manual download.
 
 All twelve phases of the implementation roadmap are landed:
 
@@ -79,7 +91,7 @@ npm run tauri build   # production .dmg / installer
 npm test              # vitest
 ```
 
-The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). Spool prompts for Input Monitoring on first launch and shows a banner until it is granted; the grant takes effect after restarting Spool. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). Spool prompts for Input Monitoring on first launch and shows a banner until it is granted; the grant takes effect after restarting Spool. Accessibility is what makes a *consumed* double-tap exclusive: when Spool captures, it deletes the second ⌥ press from the event stream, so other apps bound to the same gesture (Claude Desktop's quick entry, for one) do not also fire. A bare double-tap with nothing freshly copied is still passed through to them untouched. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
 
 ## AI via MCP (optional, no keys, no accounts)
 
@@ -134,15 +146,31 @@ PLAN_EN.md            # the project blueprint and source of truth
 
 ## Screenshots
 
+Taken with a library built purely for demonstration — the projects and notes in them are invented, so nothing personal appears.
 
-- Main window: sidebar + active thread
-![main window: sidebar + active thread](docs/screenshots/main.png)
-- The corner overlay confirming a capture
-![the corner overlay confirming a capture](docs/screenshots/capture.png)
-- The pack dialog with assembled briefing
-![The pack dialog with assembled briefing](docs/screenshots/pack.png)
-- A completed thread's digest view
-![A completed thread's digest view](docs/screenshots/digest.png)
+**One project, five fragments.** A goal you set, a job posting you read, an answer from an AI chat, a decision of your own, an email from a recruiter — each keeping its time and its source.
+
+![The Spool main window: workspaces and projects in the sidebar, and a thread of five fragments with their times, sources and annotations](docs/screenshots/app-project.png)
+
+**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the thread it went to, and undo. The main window never comes forward.
+
+![Spool's corner overlay: the first words of the saved fragment, the thread Work / Job search it was filed under, and an undo button](docs/screenshots/capture-toast.png)
+
+**Pack** turns the thread into paste-ready Markdown: your own words first, sources kept as sources, anything an AI wrote marked so you can check it.
+
+![The pack dialog over a thread: the assembled briefing as plain text, with scope choices and a copy button](docs/screenshots/app-pack.png)
+
+**A finished project**, condensed to its conclusion and the fragments that mattered.
+
+![A completed thread's digest: the conclusion in a box, and the two highlighted fragments below](docs/screenshots/app-digest.png)
+
+**Through MCP, your own AI reads the library directly** — here it answers from workspaces and threads on the Mac, without a pack or a paste.
+
+![An AI client listing the Spool library: workspaces for work, study and life, each with its threads and note counts](docs/screenshots/mcp-library.png)
+
+**And when it files something back, it signs its name.** The AI's block is appended *below* the user's note — never over it — labelled `Claude · MCP`, with a `↩` line pointing at the exact fragment it answers.
+
+![Close-up inside Spool: the user's own note, and directly below it a block written by an AI, marked Claude · MCP, with a reference line pointing back at the cited note](docs/screenshots/mcp-filed-detail.png)
 
 ## License
 
