@@ -53,6 +53,31 @@ ls src-tauri/target/release/bundle/macos/   # Spool.app
 **别用 `| tail` 接 `npm run tauri build`**：管道会把退出码换成 tail 的 0，
 构建失败也看着像成功（2026-07-30 就这么被骗过一次）。重定向到文件再看。
 
+### 2.0.1 ⚠️ 每个 Release 必须带一个「固定名」资产（不然官网下载按钮会 404）
+
+官网和 README 的下载按钮**直接指向二进制**，走的是 GitHub 的固定名转发：
+
+```
+https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg
+```
+
+这个 URL 只认**完全一致的文件名**。Tauri 产出的名字带版本号
+（`Spool_0.3.0_aarch64.dmg`），下一版会变成 `0.4.0`，所以每次发布都要**额外上传一份
+改名成 `Spool-macOS-arm64.dmg` 的同一个文件**，两个资产并存（带版本号的那份留给
+想要明确版本的人）：
+
+```bash
+cp "$DMG" /tmp/Spool-macOS-arm64.dmg
+gh release upload v<版本> "$DMG" /tmp/Spool-macOS-arm64.dmg
+```
+
+**漏了这一步，官网的「Download for macOS」当场 404。** 发完必查：
+
+```bash
+curl -sIL -o /dev/null -w '%{http_code}\n' \
+  https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg
+```
+
 ## 2.1 `bundle_dmg.sh` 失败 = 卷名被占（2026-07-30 实录）
 
 症状：app 签名与公证全部成功，最后一步

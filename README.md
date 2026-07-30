@@ -9,7 +9,7 @@
 
 <p align="center">
   <b><a href="https://spoolapp.org">spoolapp.org</a></b> ·
-  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Download for macOS</a></b>
+  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg">Download for macOS</a></b>
   <br>
   <sub>The site walks the whole loop in an interactive demo (English / 中文) — no install needed.<br>
   The download is a signed, notarized <code>.dmg</code>. Free, offline, no account.</sub>
