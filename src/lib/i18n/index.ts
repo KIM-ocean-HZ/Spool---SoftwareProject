@@ -60,8 +60,8 @@ const EN: Record<string, string> = {
   // Input Monitoring onboarding banner (2026-07-07; stale-grant recovery 2026-07-08)
   '双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开':
     'Double-tap ⌥ capture needs the Input Monitoring permission — after granting, fully quit Spool (tray icon → Quit) and reopen',
-  '已授权 — 完全退出 Spool（托盘图标 → 退出）并重新打开后生效':
-    'Granted — takes effect after fully quitting Spool (tray icon → Quit) and reopening',
+  '已授权 — 重启 Spool 后生效': 'Granted — takes effect after Spool restarts',
+  '立即重启 Spool': 'Restart Spool now',
   '已授权却仍看到本条？旧授权可能已失效：在系统设置的列表中选中 Spool 按 − 删除，完全退出并重新打开 Spool，允许新弹窗后再退出重启一次。':
     'Granted but still seeing this? The old grant may be stale: select Spool in the System Settings list and press − to remove it, fully quit and reopen Spool, allow the new prompt, then quit and restart once more.',
   '打开系统设置': 'Open System Settings',

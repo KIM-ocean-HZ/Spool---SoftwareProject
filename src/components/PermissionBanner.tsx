@@ -8,8 +8,11 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // double-tap ⌥ CGEventTap only sees Spool's own events — capture works in-app and
 // silently does nothing everywhere else (double_tap.rs module doc). Shown at the top
 // of the main window while the grant is missing. A fresh grant only takes effect on
-// the next launch, so when the re-check (on window focus, i.e. coming back from
-// System Settings) sees it flip, the copy swaps to "restart Spool" instead of hiding.
+// the next launch — probe-verified 2026-07-31: the running process never sees the
+// grant flip on the CG side (same binary, new process preflights true while the old
+// one polls false forever), so rebuilding the tap in place is a dead end. When the
+// re-check (on window focus, i.e. coming back from System Settings) sees it flip,
+// the copy swaps to a one-click "restart Spool now" button (§2.1 route A).
 //
 // 2026-07-08: TCC binds the grant to the code signature (csreq), so with ad-hoc dev
 // builds the System Settings toggle can show ON while preflight still reports false —
@@ -65,7 +68,7 @@ export default function PermissionBanner() {
         <span className="min-w-0 flex-1 truncate">
           {phase === 'denied'
             ? t('双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开')
-            : t('已授权 — 完全退出 Spool（托盘图标 → 退出）并重新打开后生效')}
+            : t('已授权 — 重启 Spool 后生效')}
         </span>
         {/* Language escape hatch (2026-07-31, Ocean). The UI now starts in the system
             locale, so a first-launch user whose language guessed wrong needs a way back
@@ -99,6 +102,19 @@ export default function PermissionBanner() {
             className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
           >
             {t('打开系统设置')}
+          </button>
+        )}
+        {phase === 'granted-later' && (
+          <button
+            type="button"
+            onClick={() => {
+              void invoke('restart_app').catch((e) =>
+                console.warn('[permission] restart failed', e),
+              );
+            }}
+            className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+          >
+            {t('立即重启 Spool')}
           </button>
         )}
         {phase === 'denied' && (

@@ -58,6 +58,16 @@ fn accessibility_granted() -> bool {
     }
 }
 
+// §2.1 route A (2026-07-31): a fresh Input Monitoring grant never becomes visible to
+// the already-running process — probe evidence: same signed binary, a new process
+// preflights granted=1 while the pre-grant process polls 0 for 90+ minutes. So the
+// tap can only come alive through a full relaunch; this gives the banner a one-click
+// way to do it instead of narrating "tray icon → Quit → reopen".
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 // Opens System Settings directly at Privacy & Security → Input Monitoring, for the
 // banner's "open settings" button. Fixed URL, no user input — no injection surface.
 #[tauri::command]
@@ -125,6 +135,7 @@ pub fn run() {
             input_monitoring_granted,
             accessibility_granted,
             open_input_monitoring_settings,
+            restart_app,
         ]);
 
     #[cfg(desktop)]
