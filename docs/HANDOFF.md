@@ -8,12 +8,12 @@
 
 ## 0. 一句话状态
 
-**七个提交都在本地 main,未推送。** 基线全绿:`npx tsc -b` / `npx vitest run`(152)/
-`cargo test`(16)。Ocean 本机 `/Applications/Spool.app` 已是本批构建,两个授权都在,
-tap 在 `HID/active`。真库已备份,验证全程未被污染(12 块、`integrity_check ok`)。
+**八个提交都在本地 main,未推送。** 基线全绿:`npx tsc -b` / `npx vitest run`(152)/
+`cargo test`(16)。Ocean 本机 `/Applications/Spool.app` 仍是**上一批**构建(闪窗修复还没装机),
+两个授权都在,tap 在 `HID/active`。真库未被碰过(`integrity_check ok`,15 块)。
 
-上一版交接的四件事全做完了(§4)。**这一版只剩一件真正的活:§1 的 note-first 收尾。**
-另外新加一件产品向任务:**官网/app 里把 MCP 生态讲清楚**(§2)。
+上一版交接的四件事全做完了(§4)。**闪窗 bug 已定案并修掉(§1.4),中文输入法那条 Ocean
+实测结案。** 剩下的是 §1 的 note-first 主线(route C)与 §2 的 MCP 生态宣传。
 
 ---
 
@@ -46,6 +46,11 @@ placeholder 都在,**但接着打的字全进了 TextEdit,批注是 NULL**;前�
   **关键点**:现在链路是 `hotkey → Rust emit → JS 监听 → invoke show_capture_overlay`,
   绕了一整圈异步,轮到激活时授权窗口早过期了。要试就得在**收到热键/tap 事件的那一刻、
   在 Rust 侧同步**把 app 激活,再让后续流程走原路。双击 ⌥ 同理(在 `double_tap.rs` 回调里)。
+  ⚠️ **C-1 的前提被 §1.4 的实测动摇了**:激活请求并没有「过期作废」,而是被**挂起**并在
+  几秒后兑现(所以才有闪窗)。也就是说「授权窗口过期」多半不是失败原因,
+  提前到 Rust 侧同步调用未必改变结果 —— 真正没解决的是**兑现的那一刻键盘也没进浮窗**。
+  动手前先花十分钟验一件事:激活兑现之后,key window 到底是主窗还是浮窗
+  (实测 `AXFocusedWindow` 给的是主窗)。若恒为主窗,C-1 就白做,该直接谈 C-2 / A。
 - **C-2 引 `tauri-nspanel`**。**依赖需 Ocean 单独批**(硬规则 2)。
   注意手写 NSPanel 版本已证伪:若该插件也只是同一套 AppKit API,大概率同样结果 ——
   批之前先想清楚它凭什么能绕过约束 1,别为了引而引。
@@ -55,11 +60,35 @@ placeholder 都在,**但接着打的字全进了 TextEdit,批注是 NULL**;前�
 「光标已经在批注框里 / cursor already in the note box」这句是**不准确的**
 (只有 Spool 已在前台时才成立)。这批文案已提交但**未推送**,正好赶得上改。
 
-### 1.3 还欠 Ocean 两条真手指验证(脚本验不了)
+### 1.3 上一版欠的两条验证 —— 都结了
 
-1. **闪窗 bug 是否真修好**。`ecd71a9` 改了顺序(先激活来源 app、再隐藏浮窗),
-   推理清楚但我用合成点击复现不了(点击总落到别的窗口上)。**请点一下浮窗的 × 确认**。
-2. **中文输入法**下写批注:组合汉字时按 Enter / Esc 会不会误触发保存或丢弃。
+1. **中文输入法**下 Enter/Esc 误触发:**✅ Ocean 2026-08-01 实测不误触发,结案。**
+2. **闪窗**:Ocean 回「没修好,点 × 和 Esc 都会闪」→ 已重查并修掉,见 §1.4。
+
+### 1.4 闪窗定案(`a696d4a`):两个独立成因,`ecd71a9` 一个都没打中
+
+完整推导、实测表格与两条局限写在 `docs/DESIGN_CAPTURE_NOTE_FIRST.md` §3.5。摘要:
+
+- **成因一(主因):`win.set_focus()` 里的 `activateIgnoringOtherApps:YES`。**
+  从后台 app 调用时现代 macOS 不是「忽略」而是**挂起**,等 Spool 下次有够格当 key 的
+  窗口时兑现 —— 正好是浮窗被 `orderOut` 那一瞬。所以主窗是**关闭时**窜前的,
+  调隐藏/激活的先后顺序不可能拦住。**比闪窗更严重的是**:没人碰的那次捕捉(8 秒自动消失)
+  走不到归还分支,Spool 直接把前台端走不还。**修法:删掉 `set_focus()`** ——
+  `win.show()` 本身就是 `makeKeyAndOrderFront`,该做的一件不少。
+- **成因二(Ocean 说的「点 × 会闪」):点浮窗必然激活 Spool,macOS 按 app 整体分层。**
+  修法:浮窗存续期间把主窗压到 `BelowNormalWindowLevel`(`set_always_on_bottom`,
+  不引依赖不写 objc),来源 app 激活之后再恢复。
+- **顺带**:焦点归还基本没生效过 —— 前台查询只有 80ms 预算却要跑 osascript。
+  Rust 侧改为兜底读 2 秒内的 `FRONTMOST_CACHE`。
+
+**验证方法本身建议留用**:`CGWindowListCopyWindowInfo` 每 20ms 采一次 z-order(十几行 C,
+源码在会话 scratchpad)。z-order 是客观事实,比「看着像闪了一下」可靠;
+上一版就是因为只能靠合成点击复现才判断错了成因。
+
+⚠️ **两条隔离构建验不了的**(§3.5 有详情):① 新 identifier 没有 System Events 自动化授权,
+`get_foreground_app()` 恒 None,「有来源 app」那条分支是用临时环境变量喂进去验的;
+② **Spool 已在前台时批注框到底有没有光标,这次没能证实**(合成键入打完批注仍是 NULL,
+但删 `set_focus()` 前后一模一样,不是本次改动引入的)。§4.3 记的那条 ✅ 值得复核。
 
 ---
 
@@ -111,7 +140,9 @@ ChatGPT · Codex**,最好带各自 logo,一眼看懂。
 - **`AGENTS.md` 不提交。** 仓库根目录有个未跟踪的 `AGENTS.md`(Codex 版的同一份行为规则),
   **Ocean 2026-07-31 明确:不提交**。⚠️ 别用 `git add -A` 一把梭,会把它扫进去
   (本窗发生过一次,已拆出来)。提交前先 `git status --short` 看一眼。
-- **推送需 Ocean 明示**(硬规则 7)。七个提交都在本地。
+- **推送需 Ocean 明示**(硬规则 7)。八个提交都在本地。
+- **装机版落后一批**:闪窗修复(`a696d4a`)只在源码里,`/Applications/Spool.app` 还是旧的。
+  要让 Ocean 用上得重新构建 + 换装(破坏性操作,需明示,流程见 §4.4 与 RELEASE.md)。
   ⚠️ 推 main 会触发 `pages.yml` 自动部署官网,而官网文案里「光标已经在批注框里」那句
   在 §1.2 拍板前是不准确的 —— **别在改文案前推**。
 
