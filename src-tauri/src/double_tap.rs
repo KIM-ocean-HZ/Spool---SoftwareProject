@@ -276,6 +276,7 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
             let _ = a2.emit("capture-disabled", reason);
         }),
         overlay_dismiss: Box::new(move || {
+            crate::capture::forget_restore_focus();
             let _ = a3.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
         }),
     });

@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 #[cfg(target_os = "macos")]
 use std::sync::Mutex;
@@ -728,6 +730,76 @@ fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f6
 // consumed by hide_capture_overlay (every dismiss path funnels through it).
 static RESTORE_FOCUS_APP: Mutex<Option<String>> = Mutex::new(None);
 
+// Cache-only read of the frontmost app — never spawns osascript, so it is free on the
+// capture hot path. useCapture starts get_foreground_app() at the top of every capture
+// but only waits FRONTMOST_HOT_PATH_MS (80ms) for it before shipping the payload, and
+// an osascript round trip rarely beats that; the answer lands in FRONTMOST_CACHE a few
+// hundred ms later, still well inside the 2s window. Without this fallback
+// `prev_source_app` is null on most captures, the stash below stays empty, and nothing
+// ever hands the keyboard back to the app the user was working in.
+#[cfg(target_os = "macos")]
+fn frontmost_from_cache() -> Option<String> {
+    let cache = FRONTMOST_CACHE.lock().ok()?;
+    let entry = cache.as_ref()?;
+    if Instant::now().duration_since(entry.at).as_millis() >= FRONTMOST_CACHE_MS {
+        return None;
+    }
+    entry.value.as_ref().map(|v| v.app.clone())
+}
+
+// A click outside the toast dismisses it, but that click also picked a new frontmost
+// app — the user's own choice. Drop the stash so hide_capture_overlay doesn't pull them
+// back to where they were before the capture.
+#[cfg(target_os = "macos")]
+pub(crate) fn forget_restore_focus() {
+    *RESTORE_FOCUS_APP.lock().unwrap() = None;
+}
+
+// Set while the main window is parked below normal window level for a toast's lifetime.
+#[cfg(target_os = "macos")]
+static MAIN_WINDOW_PARKED: AtomicBool = AtomicBool::new(false);
+
+// Second half of the 2026-07-31 "main window flashes to the front" bug — the half that
+// survives after the deferred activation above is gone. Clicking the toast (the ✕, the
+// pin, the note box) activates Spool, because it is an ordinary window of a background
+// app, and macOS layers windows per application: the moment Spool becomes active, every
+// visible window it owns goes over every window of the app the user was reading. So the
+// main window rides up on the click, and drops back only once the source app is
+// re-activated on dismiss. Measured: z-order flips in the same sample as the click.
+//
+// A window one level below normal cannot be placed over a normal-level window by any
+// app, so parking the main window there for the toast's lifetime removes every path
+// that could lift it — activation and key-window promotion alike.
+//
+// Caller gates this on having a source app to go back to, which is the same thing as
+// "the user is working somewhere else": when they are in Spool itself the stash is
+// empty, and parking then would shove the window they are reading behind everything.
+#[cfg(target_os = "macos")]
+fn park_main_window<R: Runtime>(app: &AppHandle<R>) {
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    if !main.is_visible().unwrap_or(false) {
+        return;
+    }
+    if main.set_always_on_bottom(true).is_ok() {
+        MAIN_WINDOW_PARKED.store(true, Ordering::SeqCst);
+    }
+}
+
+// Put the main window back at normal level. Call this only once the source app is
+// active again: setLevel reorders the window within its new level, which is harmless
+// under another app but would raise it if Spool still held the foreground.
+#[cfg(target_os = "macos")]
+fn unpark_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if !MAIN_WINDOW_PARKED.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_always_on_bottom(false);
+    }
+}
+
 // Show the overlay over the user's active screen with a fresh capture payload.
 // Sequencing: reset size → reposition → emit data → show. The window's React
 // listener swaps the toast state in <16ms, so by the time show() repaints the user
@@ -761,24 +833,36 @@ pub fn show_capture_overlay<R: Runtime>(
     let _ = (origin_x, origin_y); // click-outside dismiss is macOS-only (CGEventTap)
     register_undo_shortcut(&app);
     // Stash the source app *before* show — show() activates Spool as a side effect, so
-    // querying after would always return "Spool".
+    // querying after would always return "Spool". Never stash "Spool" itself: activating
+    // it by name makes LaunchServices launch a SECOND instance against the same SQLite
+    // file (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
     #[cfg(target_os = "macos")]
-    let prev_app = payload.prev_source_app.clone();
+    {
+        let stash = payload
+            .prev_source_app
+            .clone()
+            .or_else(frontmost_from_cache)
+            .filter(|name| !name.eq_ignore_ascii_case("spool"));
+        // Park before show(): clicking the toast activates Spool, and macOS layers
+        // windows per app, so the main window would ride up over what the user is
+        // reading (see park_main_window).
+        if stash.is_some() {
+            park_main_window(&app);
+        }
+        *RESTORE_FOCUS_APP.lock().unwrap() = stash;
+    }
     app.emit_to(OVERLAY_LABEL, "overlay:show", payload)
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
-    // Note-first (2026-07-31): the toast opens with its note box ready for typing, so
-    // it must BECOME KEY — but without activating Spool, or the user's app loses focus
-    // and its window order shuffles. A non-activating panel is the only way macOS
-    // grants both. Never stash "Spool" itself: activating it by name makes
-    // LaunchServices launch a SECOND instance against the same SQLite file (the
-    // 2026-05-29 incident pattern), and there is nothing to restore anyway.
-    win.set_focus().map_err(|e| e.to_string())?;
-    #[cfg(target_os = "macos")]
-    {
-        *RESTORE_FOCUS_APP.lock().unwrap() =
-            prev_app.filter(|name| !name.eq_ignore_ascii_case("spool"));
-    }
+    // Note-first: show() is already makeKeyAndOrderFront, so when Spool owns the
+    // foreground the toast becomes key on its own and the note box takes the cursor.
+    // set_focus() would add only `activateIgnoringOtherApps:` on top of that — and from
+    // a background app macOS does not honour it outright, it *defers* it: the request
+    // is granted the moment Spool next has a window eligible to be key, which is when
+    // the toast is ordered out. That is the "main window flashes to the front" bug,
+    // measured landing in the same 20ms sample as the toast disappearing, and on the
+    // untouched-toast path it never came back at all — the app just kept the keyboard.
+    // Asking to activate is what breaks it, so we don't ask.
     Ok(())
 }
 
@@ -790,35 +874,35 @@ pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     crate::double_tap::disarm_overlay_dismiss();
     unregister_undo_shortcut(&app);
     let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
+        #[cfg(target_os = "macos")]
+        unpark_main_window(&app);
         return Ok(());
     };
-    // Note-first: give the keyboard back to where the user was working — but only if
-    // the overlay still held it (Esc / Enter / × mid-typing). A click-outside dismissal
-    // or a ⌘Tab already moved focus to an app the USER chose; yanking it to the stashed
-    // one would fight them, so the stash is dropped unused in that case.
+    // Note-first: give the keyboard back to where the user was working. The stash is
+    // empty when the user was already in Spool (nothing to restore) and when a
+    // click-outside dismissal cleared it — that click moved focus to an app the USER
+    // chose, and yanking them to the stashed one would fight them.
     #[cfg(target_os = "macos")]
     {
-        let had_focus = win.is_focused().unwrap_or(false);
         let stashed = RESTORE_FOCUS_APP.lock().unwrap().take();
-        if had_focus {
-            if let Some(name) = stashed.filter(|n| is_safe_app_name(n)) {
-                // ORDER MATTERS (2026-07-31 bug): hiding a key window while Spool is
-                // still the active app makes AppKit promote the main window to key —
-                // it flashes to the front, then drops back once the source app
-                // activates. So activate the source app FIRST, hide after. Off-thread
-                // so the command returns at once; React has already unmounted the
-                // toast and the window is transparent, so the ~100ms it stays up is
-                // invisible. .status() (not .spawn()) so the osascript child is reaped.
-                std::thread::spawn(move || {
-                    let script = format!("tell application \"{}\" to activate", name);
-                    let _ = std::process::Command::new("osascript")
-                        .args(["-e", &script])
-                        .status();
-                    let _ = win.hide();
-                });
-                return Ok(());
-            }
+        if let Some(name) = stashed.filter(|n| is_safe_app_name(n)) {
+            // Activate the source app FIRST, hide after: while Spool still holds the
+            // foreground, hiding the toast hands key status to the main window. Off-thread
+            // so the command returns at once; React has already unmounted the toast and
+            // the window is transparent, so the ~100ms it stays up is invisible.
+            // .status() (not .spawn()) so the osascript child is reaped.
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                let script = format!("tell application \"{}\" to activate", name);
+                let _ = std::process::Command::new("osascript")
+                    .args(["-e", &script])
+                    .status();
+                let _ = win.hide();
+                unpark_main_window(&handle);
+            });
+            return Ok(());
         }
+        unpark_main_window(&app);
     }
     win.hide().map_err(|e| e.to_string())?;
     Ok(())

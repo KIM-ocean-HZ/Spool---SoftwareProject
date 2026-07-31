@@ -101,8 +101,9 @@ Ocean 说「点击外部即代表无笔记」——按字面实现会把已敲�
 
 1. **焦点归还来源 app**。隔离构建没有输入监听权限,tap 只看得见 Spool 自己的事件,
    所以合成触发时 Spool 必须在前台 → `prev_source_app` 恒为 "Spool" → 按设计不做
-   activate,这条分支跑不到。
+   activate,这条分支跑不到。 → **2026-08-01 已用可绑定快捷键 + z-order 采样验完,见 §3.5。**
 2. **中文输入法**里 Enter/Esc 不误触发(`isImeComposing` 需真 IME)。
+   → **✅ Ocean 2026-08-01 实测:不误触发,结案。**
 3. **正式版(HID/active)路径**下的整套行为 —— 见下面这条新发现。
 
 ### 🚨 阻断级发现(2026-07-31 晚):从别的 app 捕捉时,「直接打字」在 macOS 上做不到
@@ -156,6 +157,73 @@ Ocean 说「点击外部即代表无笔记」——按字面实现会把已敲�
 
 **结论**:凡要验证正式版上的手势,只能真手指按;脚本验证一律走无授权的隔离
 identifier。已记进 memory `double-tap-exclusivity`。
+
+### 3.5 闪窗 bug 定案(2026-08-01):**两个独立成因,ecd71a9 一个都没打中**
+
+Ocean 反馈 `ecd71a9` 没修好(点 ✕ 和 Esc 都还闪)。这次不靠推理了 —— 用
+`CGWindowListCopyWindowInfo`(前→后顺序)每 20ms 采一次 z-order,配可绑定捕捉快捷键
+从 TextEdit 触发,把两个成因分别拍死。**测法本身值得留着**:z-order 是客观事实,
+比「看着像闪了一下」可靠得多,探针源码在会话 scratchpad,十几行 C。
+
+**成因一:`set_focus()` 埋下的「延迟激活」** —— 这才是主因,而且比闪窗更严重。
+
+| 时刻 | 实测 |
+|---|---|
+| t=0 | TextEdit 在前,Spool 主窗在它后面一层 |
+| t=+1.1s 浮窗弹出 | **前台仍是 TextEdit**,主窗没动 —— 说明 `activateIgnoringOtherApps` 当场没生效 |
+| t=+9.2s 浮窗消失 | **同一帧**里主窗窜到最前,`frontmost=spool`,而且**再也不还回去** |
+
+`win.set_focus()` = `makeKeyAndOrderFront` + `activateIgnoringOtherApps:YES`。后半句从后台
+app 调用时,现代 macOS 不是「忽略」而是**挂起**:等 Spool 下次有一个够格当 key 的窗口时
+再兑现 —— 那一刻正好是浮窗被 `orderOut` 的瞬间。所以主窗是在**关闭时**窜上来的,
+`ecd71a9` 调整「先激活来源 app 再隐藏」的顺序,最多改变它掉回去的快慢,不可能拦住。
+
+而**没人碰的那次捕捉(8 秒自动消失)根本走不到归还分支**,于是 Spool 就这么把前台端走了 ——
+用户过一会儿回来打字,字进的是 Spool。这条比闪窗更值得修。
+
+**修法**:删掉 `set_focus()`。`win.show()` 本身就是 `makeKeyAndOrderFront`(tao 的
+`set_visible(true)`),Spool 已在前台时该做的事一件不少;`set_focus()` 多出来的只有那句
+有害的激活请求。**不求激活,就没有挂起的激活。**
+
+**成因二:点浮窗 = 激活 Spool,而 macOS 按 app 分层** —— 这条才是 Ocean 说的「点 ✕ 会闪」。
+
+浮窗是后台 app 的普通窗口,点它(✕ / 图钉 / 批注框)必然激活 Spool;macOS 一激活就把该 app
+**所有可见窗口**整体抬到别人上面,主窗因此在**点击那一刻**窜前,直到关闭时归还来源 app 才掉回去。
+实测 z-order 就在点击那一帧翻转。
+
+**修法**:浮窗在的整段时间,把主窗压到 `BelowNormalWindowLevel`(比普通层低一级)。
+低一级的窗口在窗口服务器眼里永远盖不住任何 app 的普通窗口,于是激活也好、key 窗口提升也好,
+都抬不动它。用 Tauri 现成的 `set_always_on_bottom`,**不引依赖、不写 objc**。
+只在「有来源 app 可归还」时压(等价于「用户人在别的 app」);人在 Spool 里时压了会把
+他正在看的窗口塞到最底下。恢复必须**等来源 app 激活之后**再做 —— `setLevel` 会在新层里
+重排一次,Spool 还占着前台时重排就等于抬起来。
+
+**顺带修的第三个坑:归还焦点基本没生效过。** `useCapture` 只给前台 app 查询
+`FRONTMOST_HOT_PATH_MS = 80ms`,而这查询要跑一趟 osascript,几乎必然超时 →
+`prev_source_app` 为 null → 栈空 → 什么都不还。现在 Rust 侧兜底读
+`FRONTMOST_CACHE`(2s 内的结果,不新起 osascript,热路径零成本)。
+另外 `had_focus` 这个闸门也删了:note-first 之后浮窗从别的 app 弹出时**从来就不是 key**,
+这个闸门等于把归还整条路封死。改用「点外部消失时清栈」来表达同一个意图 ——
+那一下点击是用户自己选了新的前台 app,不该把他拽回去。
+
+**验证矩阵(隔离构建 `com.oceanjin.spool.verify`,来源 app = TextEdit,已拆干净)**
+
+| 场景 | 修前 | 修后 |
+|---|---|---|
+| 弹出后不碰,8 秒自动消失 | 主窗窜前 + **前台被 Spool 端走不还** | ✅ 主窗不动,前台始终 TextEdit |
+| 点 ✕ 关闭 | 点击那刻主窗窜前 | ✅ 全程主窗压在 -1 层,关闭后回原位,前台回 TextEdit |
+| 主窗层级 | 恒 0 | 浮窗在时 -1,消失后恢复 0 |
+
+⚠️ **隔离构建验不了的一条**:新 identifier 没有 System Events 的自动化授权,
+`get_foreground_app()` 恒返回 None(捕捉的 `source` 列也全是 NULL),所以「有来源 app」
+那条分支是用临时环境变量喂进去验的,归还用的 osascript 本身实测 exit 0。
+正式版有授权,这条路径天然可用。
+
+⚠️ **另一条本次没能证实的**:Spool **已在前台**时批注框到底有没有拿到光标。合成键入
+(`CGEventKeyboardSetUnicodeString`)打完 + Enter,批注仍是 NULL —— 但**删 `set_focus()`
+前后一模一样**(用环境变量 A/B 过),所以不是本次改动引入的。
+截图看批注框也没有 focus 描边。§4.3 记的「双击后光标在批注框(Spool 已在前台时)✅」
+这条**值得 Ocean 用真手指复核一次**;若确实没光标,note-first 的前提比 §3 记的还要弱。
 
 ## 4. 截图数据环境(Ocean 重拍用)
 
