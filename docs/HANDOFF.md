@@ -8,9 +8,10 @@
 
 ## 0. 一句话状态
 
-**八个提交都在本地 main,未推送。** 基线全绿:`npx tsc -b` / `npx vitest run`(152)/
-`cargo test`(16)。Ocean 本机 `/Applications/Spool.app` 仍是**上一批**构建(闪窗修复还没装机),
-两个授权都在,tap 在 `HID/active`。真库未被碰过(`integrity_check ok`,15 块)。
+**18 个提交在本地 main 未推送**(本窗贡献两个)。基线全绿:`npx tsc -b` /
+`npx vitest run`(152)/ `cargo test`(16)。Ocean 本机 `/Applications/Spool.app`
+**已换成含闪窗修复的这批**(2026-08-01 01:25,见 §4.6),两个授权都在,tap 在 `HID/active`。
+真库 `integrity_check ok`,v8 / 15 块,换装前后未变。
 
 上一版交接的四件事全做完了(§4)。**闪窗 bug 已定案并修掉(§1.4),中文输入法那条 Ocean
 实测结案。** 剩下的是 §1 的 note-first 主线(route C)与 §2 的 MCP 生态宣传。
@@ -140,9 +141,8 @@ ChatGPT · Codex**,最好带各自 logo,一眼看懂。
 - **`AGENTS.md` 不提交。** 仓库根目录有个未跟踪的 `AGENTS.md`(Codex 版的同一份行为规则),
   **Ocean 2026-07-31 明确:不提交**。⚠️ 别用 `git add -A` 一把梭,会把它扫进去
   (本窗发生过一次,已拆出来)。提交前先 `git status --short` 看一眼。
-- **推送需 Ocean 明示**(硬规则 7)。八个提交都在本地。
-- **装机版落后一批**:闪窗修复(`a696d4a`)只在源码里,`/Applications/Spool.app` 还是旧的。
-  要让 Ocean 用上得重新构建 + 换装(破坏性操作,需明示,流程见 §4.4 与 RELEASE.md)。
+- **推送需 Ocean 明示**(硬规则 7)。`git rev-list --count origin/main..main` = **18**
+  (跨好几个窗口攒下来的,本窗贡献 `a696d4a` `0e91cb2` 两个)。
   ⚠️ 推 main 会触发 `pages.yml` 自动部署官网,而官网文案里「光标已经在批注框里」那句
   在 §1.2 拍板前是不准确的 —— **别在改文案前推**。
 
@@ -203,6 +203,32 @@ false(同一签名的二进制新开进程立刻返回 true)—— CG 按进程�
 Chrome 那个提示来自 **Google Safe Browsing 的下载信誉**(按全网下载量算),与 Apple 公证
 是两套独立系统 —— 公证管的是 macOS Gatekeeper,那条链路上一批已端到端验过。
 Ocean 观察到 Codex 的下载也一样,正好印证。下载量上来会自己消失。**已定调跳过。**
+
+### 4.6 换装含闪窗修复的构建(2026-08-01,Ocean 明示)
+
+`/Applications/Spool.app` 已换成 `a696d4a` 这批。**关键一步是签名身份必须和旧装机版一模一样**
+(TCC 的 csreq 绑代码签名,换签名 = 两个授权当场失效,memory `isolated-verify-workflow` §6):
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Hanze JIN (Q5Y5JRXZ58)"
+npx tauri build --bundles app        # 只出 .app,本地换装不需要 dmg
+ditto <新>/Spool.app /Applications/Spool.app   # 用 ditto 不用 cp -R,保签名
+```
+
+装前查了 `mdfind kMDItemCFBundleIdentifier` 只有两个认领者,装后仍是两个 ——
+**没留下「Spool 2.app」**。旧版进废纸篓 `Spool-0.3.0-pre-flashfix-<时间>.app`。
+真库换装前 `VACUUM INTO` 快照:`~/Desktop/spool-snapshot-20260801-pre-flashfix-install.db`
+(`integrity_check ok`,v8,15 块);库的 `user_version` 与代码 `SCHEMA_VERSION` 都是 8,
+不触发任何迁移分支。
+
+**换装后启动日志一行定生死**:
+`[double-tap] installed at HID/active (consumed double-taps are deleted from the stream …)`
+—— 出现这行就说明输入监听 + 辅助功能都还在。抓法:
+`open --stdout out.log --stderr err.log -a /Applications/Spool.app`。
+
+⚠️ **未公证**(公证要 App 专用密码,硬规则 8 不落盘)。本地 `ditto` 进去的拷贝没有
+quarantine 标记,启动不受影响;**对外发版必须补 RELEASE.md §2 第 5 步。**
+⚠️ 换装时 Claude Desktop 的 `--mcp` 子进程没动(它们持有旧 inode,继续工作到自己退出为止)。
 
 ---
 
