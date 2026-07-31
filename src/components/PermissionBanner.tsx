@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 // Quiet onboarding bar (2026-07-07): without the macOS Input Monitoring grant the
 // double-tap ⌥ CGEventTap only sees Spool's own events — capture works in-app and
@@ -22,6 +23,8 @@ type Phase = 'hidden' | 'denied' | 'granted-later';
 
 export default function PermissionBanner() {
   const t = useT();
+  const language = useSettingsStore((s) => s.language);
+  const update = useSettingsStore((s) => s.update);
   const [phase, setPhase] = useState<Phase>('hidden');
   const [dismissed, setDismissed] = useState(false);
   // 任务三 #1 (2026-07-12): the stale-grant recovery walkthrough is details-on-demand
@@ -64,6 +67,27 @@ export default function PermissionBanner() {
             ? t('双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开')
             : t('已授权 — 完全退出 Spool（托盘图标 → 退出）并重新打开后生效')}
         </span>
+        {/* Language escape hatch (2026-07-31, Ocean). The UI now starts in the system
+            locale, so a first-launch user whose language guessed wrong needs a way back
+            that does not require reading the language they can't read. This bar is the
+            first thing on screen for every new install (the grant is always missing at
+            that point), which makes it the one reliable place to put it. Writing the
+            setting is also what marks the language as user-chosen — from here on nothing
+            auto-follows the system locale. */}
+        <div className="flex flex-none items-center gap-0.5">
+          {(['zh', 'en'] as const).map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              onClick={() => void update({ language: lang })}
+              className={`rounded px-1.5 py-0.5 text-[11px] transition-colors ${
+                language === lang ? 'text-accent' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {lang === 'zh' ? '中文' : 'English'}
+            </button>
+          ))}
+        </div>
         {phase === 'denied' && (
           <button
             type="button"
