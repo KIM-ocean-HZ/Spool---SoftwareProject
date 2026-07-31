@@ -28,7 +28,9 @@
 //! maps `None` back to the original event), so the tap is created via raw
 //! CGEventTapCreate with our own trampoline; returning NULL is the deletion.
 //! Without Accessibility, creation of an active tap fails and we fall back to the
-//! previous listen-only behavior (both apps see the gesture).
+//! previous listen-only behavior (both apps see the gesture). The same fallback is
+//! taken deliberately when Input Monitoring is missing (§5.3): the copy-gate below is
+//! then unenforceable, and suppressing without a gate would swallow EVERY double-tap.
 //!
 //! Permissions (fixed 2026-07-07): a listen-only tap only receives OTHER processes'
 //! events once the user grants Spool **Input Monitoring** (TCC). Without the grant,
@@ -588,13 +590,22 @@ fn run_tap() {
         mask |= 1 << ET_KEY_DOWN;
     }
 
+    // Suppression requires BOTH grants (2026-07-31, HANDOFF §5.3). Accessibility is what
+    // makes deleting an event possible at all — but Input Monitoring is what makes the
+    // copy-gate above enforceable, and without the gate every bare double-tap counts as
+    // capture. Granting only Accessibility therefore produced the exact inverse of the
+    // gate's purpose: Spool swallowed every double-tap ⌥ system-wide and Claude Desktop's
+    // identical gesture never fired (found in the 2026-07-30 clean-install smoke test,
+    // log: `TRIGGER gap=193ms (⌘C 164222197ms ago)`). No enforceable gate → no exclusivity.
+    let suppress = ax && granted;
+
     // Try, in order: HID + active (upstream of every session tap → the suppression
     // decision wins regardless of who installed a tap first), session + active
     // (deletion still works, but only against session taps installed before ours),
     // session + listen-only (previous behavior: the gesture stays shared).
     let mut port: CFMachPortRef = std::ptr::null_mut();
     let mut where_ = "session/listen-only";
-    if ax {
+    if suppress {
         port = unsafe {
             CGEventTapCreate(
                 K_CG_HID_EVENT_TAP,
@@ -672,8 +683,11 @@ fn run_tap() {
          to capture; long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)",
         if active {
             "consumed double-taps are deleted from the stream — exclusive to Spool"
-        } else {
+        } else if !ax {
             "no Accessibility grant: the gesture stays shared with other listeners"
+        } else {
+            "no Input Monitoring grant: the copy-gate cannot be enforced, so the gesture \
+             stays shared with other listeners (§5.3)"
         }
     );
     // CFRunLoop::run_current() blocks this thread forever — exactly what we want
