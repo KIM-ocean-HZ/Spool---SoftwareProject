@@ -300,7 +300,10 @@ const EN: Record<string, string> = {
   'MCP 服务（实验）': 'MCP server (experimental)',
   '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
     'Lets MCP-capable AI tools (Claude, Cursor, …) pull thread packs directly — from paste to zero-paste. Read-only by default, local only.',
-  '高级：手动粘贴到其它 MCP 客户端的配置里': 'Advanced: paste into another MCP client’s config',
+  '你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页':
+    'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
+  '去下载': 'Get it',
+  '装好后这里就能一键接入': 'Once installed, one-click connect works here',
   '接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺':
     'Once connected, paste the AI a short "how to use Spool for me" briefing for a smoother start',
   '复制使用提示': 'Copy usage briefing',

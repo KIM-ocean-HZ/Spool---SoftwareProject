@@ -33,6 +33,10 @@ serde_json = "1"
 # matching the frontend's formatPackTime.
 rusqlite = "0.32"
 libc = "0.2"
+# 2026-07-31 决策① (DESIGN_MCP_ONECLICK §0, Ocean 批): ChatGPT 桌面版 / Codex CLI 的
+# ~/.codex/config.toml 一键接入。toml_edit 而非 toml:round-trip 保留用户文件的注释与
+# 格式,merge 一个表不重排整个文件。
+toml_edit = "0.25.11"
 
 # macOS-only: a CGEventTap in ListenOnly mode watches FlagsChanged events to detect a
 # double-tap of ⌥ (Option) as the capture trigger. PLAN §4 deps list amended per user

@@ -2914,15 +2914,18 @@ fn handle_tool_call(params: &Value) -> Value {
 //
 // `root` existing ≈ the client is installed (a file for the CLIs, a directory for the
 // apps). `key` is the object the server entries live under — every client here uses
-// `mcpServers` except VS Code, which calls it `servers`. `typed` writes an explicit
-// `"type": "stdio"` in the entry: Claude Code's own `claude mcp add` writes it (verified
-// 2026-07-31 against the real CLI) and VS Code's schema names it, while Claude Desktop
-// and Cursor have only ever taken command/args — so they are left exactly as they were.
+// `mcpServers` except VS Code (`servers`) and Codex (`mcp_servers`). `typed` writes an
+// explicit `"type": "stdio"` in the entry: Claude Code's own `claude mcp add` writes it
+// (verified 2026-07-31 against the real CLI) and VS Code's schema names it, while Claude
+// Desktop and Cursor have only ever taken command/args — so they are left exactly as
+// they were. `toml` switches the whole read/merge path to toml_edit (ChatGPT desktop /
+// Codex CLI share ~/.codex/config.toml — the one non-JSON target, decision ① 2026-07-31).
 struct ClientSpec {
     root: PathBuf,
     cfg: PathBuf,
     key: &'static str,
     typed: bool,
+    toml: bool,
 }
 
 fn client_config_paths(client: &str) -> Result<ClientSpec, String> {
@@ -2932,30 +2935,38 @@ fn client_config_paths(client: &str) -> Result<ClientSpec, String> {
         "claude" => {
             let root = home.join("Library/Application Support/Claude");
             let cfg = root.join("claude_desktop_config.json");
-            ClientSpec { root, cfg, key: "mcpServers", typed: false }
+            ClientSpec { root, cfg, key: "mcpServers", typed: false, toml: false }
         }
         "cursor" => {
             let root = home.join(".cursor");
             let cfg = root.join("mcp.json");
-            ClientSpec { root, cfg, key: "mcpServers", typed: false }
+            ClientSpec { root, cfg, key: "mcpServers", typed: false, toml: false }
         }
         // Claude Code (CLI). User scope = top-level `mcpServers` in ~/.claude.json,
         // i.e. what `claude mcp add --scope user` writes; available in every project.
         "claude-code" => {
             let cfg = home.join(".claude.json");
-            ClientSpec { root: cfg.clone(), cfg, key: "mcpServers", typed: true }
+            ClientSpec { root: cfg.clone(), cfg, key: "mcpServers", typed: true, toml: false }
         }
         // VS Code (Copilot chat). User-profile mcp.json — servers available in every
         // workspace, the equivalent of "user scope" elsewhere.
         "vscode" => {
             let root = home.join("Library/Application Support/Code");
             let cfg = root.join("User/mcp.json");
-            ClientSpec { root, cfg, key: "servers", typed: true }
+            ClientSpec { root, cfg, key: "servers", typed: true, toml: false }
         }
         "windsurf" => {
             let root = home.join(".codeium/windsurf");
             let cfg = root.join("mcp_config.json");
-            ClientSpec { root, cfg, key: "mcpServers", typed: false }
+            ClientSpec { root, cfg, key: "mcpServers", typed: false, toml: false }
+        }
+        // ChatGPT desktop / Codex CLI / Codex IDE extensions share this one file
+        // (DESIGN_MCP_ONECLICK §2, sources checked 2026-07-31). `[mcp_servers.spool]`
+        // with command/args — no explicit type field in their schema.
+        "codex" => {
+            let root = home.join(".codex");
+            let cfg = root.join("config.toml");
+            ClientSpec { root, cfg, key: "mcp_servers", typed: false, toml: true }
         }
         other => return Err(format!("unknown MCP client: {other}")),
     };
@@ -2975,14 +2986,27 @@ pub fn client_status(client: &str) -> Result<String, String> {
     let Ok(raw) = std::fs::read_to_string(&spec.cfg) else {
         return Ok("unconfigured".into());
     };
-    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
-        return Ok("unconfigured".into());
+    let cmd: Option<String> = if spec.toml {
+        let Ok(doc) = raw.parse::<toml_edit::DocumentMut>() else {
+            return Ok("unconfigured".into());
+        };
+        doc.get(spec.key)
+            .and_then(|i| i.as_table_like())
+            .and_then(|t| t.get("spool"))
+            .and_then(|i| i.as_table_like())
+            .and_then(|t| t.get("command"))
+            .and_then(|i| i.as_str())
+            .map(str::to_owned)
+    } else {
+        let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+            return Ok("unconfigured".into());
+        };
+        v.get(spec.key)
+            .and_then(|m| m.get("spool"))
+            .and_then(|s| s.get("command"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     };
-    let cmd = v
-        .get(spec.key)
-        .and_then(|m| m.get("spool"))
-        .and_then(|s| s.get("command"))
-        .and_then(Value::as_str);
     match cmd {
         None => Ok("unconfigured".into()),
         Some(c) => {
@@ -3002,9 +3026,12 @@ pub fn client_status(client: &str) -> Result<String, String> {
 // existing file is an error (merging is impossible; replacing could destroy the
 // user's other server entries), never silently overwritten.
 pub fn configure_client(client: &str) -> Result<String, String> {
-    let ClientSpec { root, cfg, key, typed } = client_config_paths(client)?;
+    let ClientSpec { root, cfg, key, typed, toml } = client_config_paths(client)?;
     if !root.exists() {
         return Ok("not-installed".into());
+    }
+    if toml {
+        return configure_client_toml(&cfg, key);
     }
     let mut v: Value = match std::fs::read_to_string(&cfg) {
         Ok(raw) => serde_json::from_str(&raw)
@@ -3041,6 +3068,44 @@ pub fn configure_client(client: &str) -> Result<String, String> {
 
     let pretty = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
     std::fs::write(&cfg, pretty + "\n").map_err(|e| format!("写入失败: {e}"))?;
+    Ok("written".into())
+}
+
+// The TOML twin of the JSON merge above, same contract: back up first, touch only
+// `<key>.spool`, refuse to write over a file we cannot parse. toml_edit (not toml) on
+// purpose — it round-trips the user's comments and formatting, so merging one table
+// does not reshuffle their file.
+fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = match std::fs::read_to_string(cfg) {
+        Ok(raw) => raw
+            .parse()
+            .map_err(|e| format!("现有配置文件无法解析（已保持原样）: {e}"))?,
+        Err(_) => toml_edit::DocumentMut::new(),
+    };
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+
+    if cfg.exists() {
+        let bak = cfg.with_extension("toml.bak");
+        std::fs::copy(cfg, &bak).map_err(|e| format!("备份失败，未写入: {e}"))?;
+    }
+
+    let servers = doc.entry(key).or_insert(toml_edit::table());
+    // Implicit parent → the output is a clean `[mcp_servers.spool]` section, not an
+    // empty `[mcp_servers]` header floating above it.
+    if let Some(t) = servers.as_table_mut() {
+        t.set_implicit(true);
+    }
+    let Some(servers) = servers.as_table_like_mut() else {
+        return Err(format!("现有配置的 {key} 不是表（已保持原样）"));
+    };
+    let mut entry = toml_edit::Table::new();
+    entry.insert("command", toml_edit::value(exe.to_string_lossy().as_ref()));
+    let mut args = toml_edit::Array::new();
+    args.push("--mcp");
+    entry.insert("args", toml_edit::value(args));
+    servers.insert("spool", toml_edit::Item::Table(entry));
+
+    std::fs::write(cfg, doc.to_string()).map_err(|e| format!("写入失败: {e}"))?;
     Ok("written".into())
 }
 
@@ -4411,5 +4476,43 @@ mod tests {
         std::fs::create_dir_all(tmp.join(".codeium/windsurf")).unwrap();
         assert_eq!(configure_client("windsurf").unwrap(), "written");
         assert_eq!(client_status("windsurf").unwrap(), "configured");
+
+        // Codex (ChatGPT desktop / Codex CLI, decision ① 2026-07-31): the one TOML
+        // target. Fresh write, then a merge that must keep the user's comments, other
+        // tables and top-level keys byte-for-byte (that's why toml_edit, not toml).
+        assert_eq!(client_status("codex").unwrap(), "not-installed");
+        assert_eq!(configure_client("codex").unwrap(), "not-installed");
+        std::fs::create_dir_all(tmp.join(".codex")).unwrap();
+        assert_eq!(client_status("codex").unwrap(), "unconfigured");
+        assert_eq!(configure_client("codex").unwrap(), "written");
+        assert_eq!(client_status("codex").unwrap(), "configured");
+        let codex_cfg = tmp.join(".codex/config.toml");
+        let fresh = std::fs::read_to_string(&codex_cfg).unwrap();
+        assert!(fresh.contains("[mcp_servers.spool]"), "{fresh}");
+        std::fs::write(
+            &codex_cfg,
+            "# my settings\nmodel = \"o3\"\n\n[mcp_servers.other]\ncommand = \"/bin/echo\"\n\n[mcp_servers.spool]\ncommand = \"/stale/path\"\nargs = [\"--mcp\"]\n",
+        )
+        .unwrap();
+        assert_eq!(client_status("codex").unwrap(), "stale");
+        assert_eq!(configure_client("codex").unwrap(), "written");
+        let merged = std::fs::read_to_string(&codex_cfg).unwrap();
+        assert!(merged.contains("# my settings"), "{merged}");
+        assert!(merged.contains("model = \"o3\""), "{merged}");
+        assert!(merged.contains("[mcp_servers.other]"), "{merged}");
+        let doc: toml_edit::DocumentMut = merged.parse().unwrap();
+        assert_eq!(
+            doc["mcp_servers"]["spool"]["command"].as_str().unwrap(),
+            exe.to_string_lossy()
+        );
+        assert_eq!(doc["mcp_servers"]["spool"]["args"][0].as_str().unwrap(), "--mcp");
+        assert!(std::fs::read_to_string(tmp.join(".codex/config.toml.bak"))
+            .unwrap()
+            .contains("/stale/path"));
+
+        // Unparseable TOML: refuse rather than clobber, same as the JSON path.
+        std::fs::write(&codex_cfg, "model = [broken").unwrap();
+        assert!(configure_client("codex").is_err());
+        assert_eq!(std::fs::read_to_string(&codex_cfg).unwrap(), "model = [broken");
     }
 }

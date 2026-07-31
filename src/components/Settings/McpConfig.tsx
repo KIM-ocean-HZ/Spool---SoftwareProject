@@ -12,16 +12,18 @@ type McpClientStatus = 'not-installed' | 'unconfigured' | 'configured' | 'stale'
 // 2026-07-31 (Ocean): Claude Code promoted to a first-class one-click target, and the
 // other popular clients that keep their MCP servers in a plain JSON file joined it —
 // same one button, each written in that client's own shape (mcp.rs client_config_paths).
-// Claude first, per "get the Claude path perfect before widening". Clients that take
-// their config through a GUI (Cherry Studio, DeepChat, …) or a TOML file (ChatGPT
-// desktop / Codex) can't be written this way — they use the copy-snippet below.
-type McpClient = 'claude' | 'claude-code' | 'cursor' | 'vscode' | 'windsurf';
+// Claude first, per "get the Claude path perfect before widening". Decision ① added
+// ChatGPT desktop / Codex (one shared TOML file, merged via toml_edit). Clients that
+// take their config through a GUI (Cherry Studio, DeepChat, …) can't be written from
+// outside — they use the copy-snippet below (decision ②: that's enough for them).
+type McpClient = 'claude' | 'claude-code' | 'cursor' | 'vscode' | 'windsurf' | 'codex';
 const MCP_CLIENTS: { key: McpClient; label: string }[] = [
   { key: 'claude', label: 'Claude Desktop' },
   { key: 'claude-code', label: 'Claude Code' },
   { key: 'cursor', label: 'Cursor' },
   { key: 'vscode', label: 'VS Code' },
   { key: 'windsurf', label: 'Windsurf' },
+  { key: 'codex', label: 'ChatGPT / Codex' },
 ];
 
 // §20.12 MCP local server (experimental, default OFF). The toggle gates the
@@ -47,6 +49,7 @@ export default function McpConfig() {
     cursor: null,
     vscode: null,
     windsurf: null,
+    codex: null,
   });
   const [connecting, setConnecting] = useState<McpClient | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -159,7 +162,7 @@ export default function McpConfig() {
                   : s === 'not-installed'
                     ? { text: t('未检测到'), color: 'var(--muted)' }
                     : null;
-          const showButton = s === 'unconfigured' || s === 'stale' || s === 'not-installed';
+          const showButton = s === 'unconfigured' || s === 'stale';
           return (
             <li key={key} className="flex items-center justify-between gap-3 py-1">
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{label}</span>
@@ -172,10 +175,26 @@ export default function McpConfig() {
                 <button
                   type="button"
                   onClick={() => void connectClient(key)}
-                  disabled={busy || s === 'not-installed'}
+                  disabled={busy}
                   className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-50"
                 >
                   {busy ? t('写入中…') : s === 'stale' ? t('更新配置') : t('一键接入')}
+                </button>
+              )}
+              {/* Decision ③ (2026-07-31): a missing client stays listed in gray and the
+                  row tells you what to install — the button opens its official page. */}
+              {s === 'not-installed' && (
+                <button
+                  type="button"
+                  title={t('装好后这里就能一键接入')}
+                  onClick={() => {
+                    void invoke('open_mcp_client_page', { client: key }).catch((e) =>
+                      console.warn('[settings] open client page failed', e),
+                    );
+                  }}
+                  className="flex-none rounded-md border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+                >
+                  {t('去下载')}
                 </button>
               )}
             </li>
@@ -253,7 +272,9 @@ export default function McpConfig() {
       {mcpEnabled && (
         <div className="mt-2 rounded-md border border-line bg-paper-2/40 p-2.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted">{t('高级：手动粘贴到其它 MCP 客户端的配置里')}</span>
+            <span className="text-xs text-muted">
+              {t('你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页')}
+            </span>
             <button
               type="button"
               onClick={() => void copySnippet()}

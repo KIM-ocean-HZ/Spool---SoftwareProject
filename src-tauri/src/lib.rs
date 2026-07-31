@@ -58,6 +58,35 @@ fn accessibility_granted() -> bool {
     }
 }
 
+// Decision ③ (2026-07-31): clients that are not installed stay listed in gray, with a
+// pointer to where to get them. Fixed key→URL table — no user input reaches `open`.
+// URLs checked alive 2026-07-31; they are external facts, re-verify before editing.
+#[tauri::command]
+fn open_mcp_client_page(client: String) -> Result<(), String> {
+    let url = match client.as_str() {
+        "claude" => "https://claude.ai/download",
+        "claude-code" => "https://claude.com/claude-code",
+        "cursor" => "https://cursor.com",
+        "vscode" => "https://code.visualstudio.com",
+        "windsurf" => "https://windsurf.com",
+        "codex" => "https://developers.openai.com/codex",
+        other => return Err(format!("unknown MCP client: {other}")),
+    };
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = url;
+        Err("macOS only".into())
+    }
+}
+
 // §2.1 route A (2026-07-31): a fresh Input Monitoring grant never becomes visible to
 // the already-running process — probe evidence: same signed binary, a new process
 // preflights granted=1 while the pre-grant process polls 0 for 90+ minutes. So the
@@ -132,6 +161,7 @@ pub fn run() {
             mcp_exe_path,
             mcp_client_status,
             configure_mcp_client,
+            open_mcp_client_page,
             input_monitoring_granted,
             accessibility_granted,
             open_input_monitoring_settings,
