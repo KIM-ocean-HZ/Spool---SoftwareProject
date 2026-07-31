@@ -6,6 +6,7 @@ import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import ToastRack from '@/components/ui/Toast';
+import { setSeedLanguage } from '@/lib/db/client';
 import { t } from '@/lib/i18n';
 import { useCapture } from '@/hooks/useCapture';
 import { useCollect } from '@/hooks/useCollect';
@@ -33,6 +34,7 @@ export default function App() {
   const select = useThreadsStore((s) => s.select);
   const createThread = useThreadsStore((s) => s.create);
   const loadSettings = useSettingsStore((s) => s.load);
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
   const openSettings = useSettingsStore((s) => s.openPanel);
 
   useCapture();
@@ -41,12 +43,19 @@ export default function App() {
   useSearch();
   useUndo();
 
+  // Settings load FIRST, and the resolved language is handed to the db module before
+  // anything opens the database (2026-07-31, HANDOFF §2.2/§2.3): on a fresh install the
+  // tutorial threads are seeded once, in the language this launch starts in — and at
+  // first launch settings.json does not exist yet, so that language comes from the
+  // system locale. Loading workspaces is what opens the DB, hence the single sequence.
   useEffect(() => {
     void (async () => {
+      await loadSettings();
+      setSeedLanguage(useSettingsStore.getState().language);
       await loadWorkspaces();
       await loadThreads();
     })();
-  }, [loadWorkspaces, loadThreads]);
+  }, [loadSettings, loadWorkspaces, loadThreads]);
 
   useEffect(() => {
     if (!activeId && captureTargetId) {
@@ -69,13 +78,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [activeThread, workspaces, createThread, openSettings]);
 
-  // Load persisted settings, then push the saved shortcuts to Rust so a user's
-  // re-bound keys take effect (§19.1). Rust registered the search default at setup();
-  // capture has no default (2026-07-07) — null here means "no capture shortcut bound".
-  // set_shortcuts no-ops when the persisted pair already equals what's registered.
+  // Once settings are in, push the saved shortcuts to Rust so a user's re-bound keys
+  // take effect (§19.1). Rust registered the search default at setup(); capture has no
+  // default (2026-07-07) — null here means "no capture shortcut bound". set_shortcuts
+  // no-ops when the persisted pair already equals what's registered. Keyed off `loaded`
+  // rather than calling load() again: the boot sequence above owns that call.
   useEffect(() => {
+    if (!settingsLoaded) return;
     void (async () => {
-      await loadSettings();
       void useSettingsStore.getState().loadAutostart();
       // v2.7: backfill text extraction for legacy file attachments (§9.6). Runs after
       // settings load so it honours the auto-extract switch; background, never blocks UI.
@@ -87,7 +97,7 @@ export default function App() {
         console.warn('[shortcuts] applying persisted shortcuts failed', e);
       }
     })();
-  }, [loadSettings]);
+  }, [settingsLoaded]);
 
   // §20.13: the MCP write tools insert threads/blocks from OUTSIDE this process, so
   // the stores' in-memory state can go stale while Spool is in the background. Coming

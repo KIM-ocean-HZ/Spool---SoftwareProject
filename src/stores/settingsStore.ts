@@ -31,8 +31,9 @@ interface SettingsState {
   // Default OFF — reading packs and letting an external AI insert rows are different
   // trust levels. Also read straight from settings.json by the --mcp subprocess.
   mcpWriteEnabled: boolean;
-  // UI language. 'zh' is the product default (§18 rule 11); 'en' switches every
-  // surface via the lib/i18n dictionary. Persisted; other windows re-read on change.
+  // UI language. Defaults to the system locale (see detectSystemLanguage); 'en' vs 'zh'
+  // switches every surface via the lib/i18n dictionary. Persisted only once the user
+  // picks one by hand; other windows re-read on change.
   language: 'zh' | 'en';
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
@@ -46,6 +47,20 @@ interface SettingsState {
   openPanel: () => void;
   closePanel: () => void;
 }
+
+// UI language on a machine that has never picked one (2026-07-31, Ocean): English is
+// the default, and a Chinese system gets Chinese without touching anything. The webview's
+// navigator.language is the system locale — enough on its own, no plugin-os needed.
+//
+// The rule that keeps this from fighting the user: `language` is written to
+// settings.json ONLY by an explicit switch (Settings → 语言 / the onboarding banner), so
+// a persisted value always means "the user chose this" and load() lets it win. Nothing
+// auto-writes the detected value back.
+export const languageForLocale = (locale: string | undefined): 'zh' | 'en' =>
+  locale?.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+
+const detectSystemLanguage = (): 'zh' | 'en' =>
+  languageForLocale(globalThis.navigator?.language);
 
 let storePromise: Promise<Store> | null = null;
 const getStore = (): Promise<Store> => {
@@ -84,7 +99,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   autoExtractAttachments: true,
   mcpEnabled: false,
   mcpWriteEnabled: false,
-  language: 'zh',
+  language: detectSystemLanguage(),
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,
