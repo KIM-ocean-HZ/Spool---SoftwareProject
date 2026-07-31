@@ -667,24 +667,6 @@ fn is_safe_app_name(name: &str) -> bool {
         && !name.contains('\r')
 }
 
-// Re-activate a previously-frontmost app via osascript. The spawned thread waits on
-// .status() rather than .spawn() so the osascript child process is reaped — leaving
-// zombies via .spawn() accumulates over time (hundreds of captures) and can starve
-// per-user resources, which matches the "fails after a while of testing" symptom.
-// The thread itself is short-lived (~50-200ms while osascript runs) and self-cleans.
-#[cfg(target_os = "macos")]
-fn reactivate_app_async(name: String) {
-    std::thread::spawn(move || {
-        if !is_safe_app_name(&name) {
-            return;
-        }
-        let script = format!("tell application \"{}\" to activate", name);
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", &script])
-            .status();
-    });
-}
-
 // Find the monitor containing the system cursor — that's "the screen the user is
 // looking at." Falls back to the primary monitor when cursor coords are unavailable
 // (e.g. headless CI) or none of the available monitors contains the cursor.
@@ -786,11 +768,11 @@ pub fn show_capture_overlay<R: Runtime>(
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
     // Note-first (2026-07-31): the toast opens with its note box ready for typing, so
-    // the overlay must BECOME key — the inverse of the old behavior, which handed
-    // focus straight back to the source app. The source app gets focus back on hide
-    // instead (see hide_capture_overlay). Never stash "Spool" itself: activating it
-    // by name makes LaunchServices launch a SECOND instance against the same SQLite
-    // file (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
+    // it must BECOME KEY — but without activating Spool, or the user's app loses focus
+    // and its window order shuffles. A non-activating panel is the only way macOS
+    // grants both. Never stash "Spool" itself: activating it by name makes
+    // LaunchServices launch a SECOND instance against the same SQLite file (the
+    // 2026-05-29 incident pattern), and there is nothing to restore anyway.
     win.set_focus().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
     {
@@ -807,26 +789,38 @@ pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     #[cfg(target_os = "macos")]
     crate::double_tap::disarm_overlay_dismiss();
     unregister_undo_shortcut(&app);
-    let mut had_focus = false;
-    if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
-        had_focus = win.is_focused().unwrap_or(false);
-        win.hide().map_err(|e| e.to_string())?;
-    }
+    let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
+        return Ok(());
+    };
     // Note-first: give the keyboard back to where the user was working — but only if
     // the overlay still held it (Esc / Enter / × mid-typing). A click-outside dismissal
     // or a ⌘Tab already moved focus to an app the USER chose; yanking it to the stashed
     // one would fight them, so the stash is dropped unused in that case.
     #[cfg(target_os = "macos")]
     {
+        let had_focus = win.is_focused().unwrap_or(false);
         let stashed = RESTORE_FOCUS_APP.lock().unwrap().take();
         if had_focus {
-            if let Some(name) = stashed {
-                reactivate_app_async(name);
+            if let Some(name) = stashed.filter(|n| is_safe_app_name(n)) {
+                // ORDER MATTERS (2026-07-31 bug): hiding a key window while Spool is
+                // still the active app makes AppKit promote the main window to key —
+                // it flashes to the front, then drops back once the source app
+                // activates. So activate the source app FIRST, hide after. Off-thread
+                // so the command returns at once; React has already unmounted the
+                // toast and the window is transparent, so the ~100ms it stays up is
+                // invisible. .status() (not .spawn()) so the osascript child is reaped.
+                std::thread::spawn(move || {
+                    let script = format!("tell application \"{}\" to activate", name);
+                    let _ = std::process::Command::new("osascript")
+                        .args(["-e", &script])
+                        .status();
+                    let _ = win.hide();
+                });
+                return Ok(());
             }
         }
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = had_focus;
+    win.hide().map_err(|e| e.to_string())?;
     Ok(())
 }
 
