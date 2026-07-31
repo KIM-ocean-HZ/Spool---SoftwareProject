@@ -247,7 +247,7 @@ describe('migrateSchema registry (§19.3)', () => {
         VALUES ('w1', '收件箱', 0, 1, 1);
     `);
 
-    await __seedTutorialThreadForTest(db);
+    await __seedTutorialThreadForTest(db, 'zh');
 
     // Two seeded threads; the gesture tutorial stays newest so it tops the sidebar.
     const threads = handle
@@ -276,5 +276,41 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(
       handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"做个体检\"'").get(),
     ).toEqual({ c: 1 });
+  });
+
+  // 2026-07-31 (HANDOFF §2.2): the seed is per-language — an English first launch must
+  // not land Chinese tutorial rows in the database, since these are user data and no
+  // later language switch re-translates them.
+  it('seeds the tutorial in English when the install starts in en', async () => {
+    applySchema(handle);
+    handle.exec('PRAGMA user_version = 8');
+    handle.exec(`
+      INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+        VALUES ('w1', 'Inbox', 0, 1, 1);
+    `);
+
+    await __seedTutorialThreadForTest(db, 'en');
+
+    const threads = handle
+      .prepare('SELECT title FROM threads ORDER BY updated_at DESC')
+      .all() as Record<string, unknown>[];
+    expect(threads.map((t) => t.title)).toEqual([
+      'Welcome to Spool',
+      'Put your AI to work on Spool',
+    ]);
+    const blocks = handle
+      .prepare('SELECT content, annotation, source, pinned FROM blocks ORDER BY created_at ASC')
+      .all() as Record<string, unknown>[];
+    expect(blocks).toHaveLength(12);
+    expect(blocks.every((b) => b.source === 'Spool Guide')).toBe(true);
+    expect(blocks.filter((b) => b.pinned === 1)).toHaveLength(2);
+    // Ocean 2026-07-30: "everything but the logo is English" — no CJK ideographs and no
+    // CJK punctuation (「」〈〉，。) anywhere in the seeded copy. ⌘/⌥/📌 are not CJK.
+    const cjk = /[一-鿿　-〿＀-￯]/;
+    for (const b of blocks) {
+      expect(cjk.test(String(b.content))).toBe(false);
+      expect(cjk.test(String(b.annotation ?? ''))).toBe(false);
+    }
+    for (const t of threads) expect(cjk.test(String(t.title))).toBe(false);
   });
 });

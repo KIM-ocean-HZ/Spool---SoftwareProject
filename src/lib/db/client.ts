@@ -6,6 +6,24 @@ import schemaSql from './schema.sql?raw';
 export const INBOX_WORKSPACE_TITLE = '收件箱';
 export const UNSORTED_THREAD_TITLE = '未分类';
 
+// Seeded rows are per-language (2026-07-31, HANDOFF §2.2). Unlike UI strings — Chinese
+// literal as the key, translated at render (lib/i18n) — these land in the database as
+// ordinary user data: editable, deletable, and never re-translated by a later language
+// switch. So a fresh install is seeded once, in the language the user starts in.
+export type SeedLanguage = 'zh' | 'en';
+
+const INBOX_TITLE: Record<SeedLanguage, string> = { zh: INBOX_WORKSPACE_TITLE, en: 'Inbox' };
+const UNSORTED_TITLE: Record<SeedLanguage, string> = { zh: UNSORTED_THREAD_TITLE, en: 'Unsorted' };
+
+// Set by App.tsx from the resolved UI language BEFORE anything opens the database (it
+// awaits the settings load first) — the seed paths below are the only readers. Kept as
+// module state rather than an import of settingsStore: db/client.ts is imported by the
+// node-based Vitest suites, and the store pulls in Tauri's event IPC at module scope.
+let seedLanguage: SeedLanguage = 'zh';
+export const setSeedLanguage = (lang: SeedLanguage): void => {
+  seedLanguage = lang;
+};
+
 // Bump this whenever schema.sql changes, and add a named step to MIGRATIONS that
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
@@ -269,7 +287,7 @@ export const __migrateSchemaForTest = migrateSchema;
 // thread (the capture target). Runs at startup, and again after a deletion — so deleting
 // the capture-target thread, or every thread / the Inbox workspace, self-heals by
 // recreating an empty Inbox rather than leaving capture with no target.
-const seedDefaults = async (db: Database): Promise<void> => {
+const seedDefaults = async (db: Database, lang: SeedLanguage): Promise<void> => {
   const now = Date.now();
 
   const wsRows = await db.select<{ c: number }[]>(
@@ -280,7 +298,7 @@ const seedDefaults = async (db: Database): Promise<void> => {
     wsId = nanoid();
     await db.execute(
       'INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)',
-      [wsId, INBOX_WORKSPACE_TITLE, 0, now, now],
+      [wsId, INBOX_TITLE[lang], 0, now, now],
     );
   } else {
     const first = await db.select<{ id: string }[]>(
@@ -296,129 +314,221 @@ const seedDefaults = async (db: Database): Promise<void> => {
     await db.execute(
       `INSERT INTO threads (id, workspace_id, title, status, is_capture_target, created_at, updated_at)
        VALUES ($1, $2, $3, 'active', 1, $4, $5)`,
-      [nanoid(), wsId, UNSORTED_THREAD_TITLE, now, now],
+      [nanoid(), wsId, UNSORTED_TITLE[lang], now, now],
     );
   }
 };
 
 // Public entry point for the same guarantee, called by the stores after a deletion.
 export const ensureBaseData = async (): Promise<void> => {
-  await seedDefaults(await getDb());
+  await seedDefaults(await getDb(), seedLanguage);
 };
 
 // Tutorial thread for a brand-new install (Task 3, Ocean 2026-07-09 #5). Seeded ONLY
 // from the fresh-DB rebuild path — never by seedDefaults' self-heal, so deleting it is
 // final and re-launching / clearing data can't resurrect it. The blocks are the manual:
 // each one teaches the gesture it demonstrates (content finalized with Ocean).
-const seedTutorialThread = async (db: Database): Promise<void> => {
-  const ws = await db.select<{ id: string }[]>(
-    'SELECT id FROM workspaces WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC LIMIT 1',
-  );
-  const wsId = ws[0]?.id;
-  if (!wsId) return;
-  const now = Date.now();
+interface SeedBlock {
+  content: string;
+  annotation?: string;
+  pinned?: boolean;
+}
+interface SeedThread {
+  title: string;
+  summary: string;
+  blocks: SeedBlock[];
+}
+
+// 任务二 A2 (2026-07-12, Ocean-approved): the MCP scenarios get their own thread —
+// one copy-paste phrase per block, the annotation naming the tool behind it. The
+// thread is its own demo material (its review phrase asks the AI to read it).
+const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp: SeedThread }> = {
+  zh: {
+    source: 'Spool 指南',
+    gesture: {
+      title: '欢迎使用 Spool',
+      summary: '新手教程：捕捉 → 整理 → 打包 → MCP 互通；可随时整条删除',
+      blocks: [
+        {
+          content:
+            'Spool 是一张上下文工作台：把散落的资料捕进「脉络」，需要 AI 时一键打包成完整上下文。它自己不带 AI——你的数据永远只在本机。',
+          annotation: '这条灰字就是「批注」——你自己的话，打包时会原样保留给 AI。',
+        },
+        {
+          content:
+            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。首次使用会请求「输入监听」权限。',
+        },
+        {
+          content:
+            '收集模式：长按 ⌥ 呼出收集面板，连续 ⌘C 多段内容依次入列——适合读论文/网页时批量摘录。',
+        },
+        {
+          content:
+            '重要的块点 📌 置顶（打包时进入 Key Points）；选中文字可以高亮==像这样==；每个块都能写批注。试试取消这条的置顶！',
+          pinned: true,
+        },
+        {
+          content:
+            '⌘⇧P 把整条脉络变成结构化上下文，直接粘贴给任何 AI；可选范围（仅置顶/近 7 天）与任务模板。',
+        },
+        {
+          content:
+            '设置 → 通用 → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎脉络」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
+        },
+      ],
+    },
+    mcp: {
+      title: '让 AI 用上你的 Spool',
+      summary: '一块一个场景：引号里的话照抄给 AI；可随时整条删除',
+      blocks: [
+        {
+          content:
+            '前提：设置 → 通用 → MCP 服务 → 一键接入 Claude Desktop / Cursor（重启客户端生效）。接好后 AI 就能直接查阅这本思簿——下面每块一个场景，引号里的话可以照抄。Spool 本体不带 AI，数据始终在本机。',
+          annotation: 'AI 只读接入即可用；要让它代写，需另开「允许 AI 写入」。',
+          pinned: true,
+        },
+        {
+          content:
+            '复习与接续：「帮我复习〈让 AI 用上你的 Spool〉这条脉络，再考我两个问题」——把标题换成你自己的脉络，就是你的复习卡。',
+          annotation: '背后是 get_pack：AI 拿到整条脉络的结构化简报，置顶块和你的批注都在里面。',
+        },
+        {
+          content: '回顾一周：「我最近一周在忙什么？」',
+          annotation: '背后是 get_digest：跨脉络简报，近 7 天各脉络的新块加常驻置顶锚点。',
+        },
+        {
+          content:
+            '随手归档：「把刚才这段结论存进〈XX〉脉络，批注一句为什么重要」（需打开「允许 AI 写入」）。',
+          annotation:
+            '背后是 add_block：AI 写入的块带「Claude · MCP」来源标签，永远和你手写的分得清；它还会用引用标注结论依据的旧块。',
+        },
+        {
+          content: '找与查重：「XX 这个主题我记在哪条脉络？」「帮我看看有没有重复收藏的内容」',
+          annotation:
+            '背后是 search_blocks / find_similar_blocks：查重只出报告，合并始终由你在 Spool 里动手。',
+        },
+        {
+          content: '库体检：「给我的思簿做个体检」',
+          annotation: '背后是 check_library：只读报告内部 id 泄漏与失效引用，不改你一个字。',
+        },
+      ],
+    },
+  },
+  en: {
+    source: 'Spool Guide',
+    gesture: {
+      title: 'Welcome to Spool',
+      summary: 'Quick tour: capture → sort → pack → hand it to your AI. Delete any time.',
+      blocks: [
+        {
+          content:
+            'Spool is a workbench for context: capture scattered material into a thread, then pack the whole thread into one ready-made context whenever you need an AI. Spool ships no AI of its own — your data never leaves this machine.',
+          annotation:
+            'This grey line is an annotation — your own words. Packing passes them to the AI exactly as written.',
+        },
+        {
+          content:
+            'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target thread. The first capture asks for the Input Monitoring permission.',
+        },
+        {
+          content:
+            'Collect mode: hold ⌥ to open the collect panel, then ⌘C one passage after another and they queue up — made for reading a paper or a long page and taking several excerpts.',
+        },
+        {
+          content:
+            'Pin the blocks that matter with 📌 (they lead the pack as Key Points); select text to highlight it ==like this==; every block can carry an annotation. Try unpinning this one!',
+          pinned: true,
+        },
+        {
+          content:
+            '⌘⇧P turns the whole thread into structured context you can paste into any AI. Pick a range (pinned only / last 7 days) and a task template.',
+        },
+        {
+          content:
+            'Settings → General → connect Claude Desktop or Cursor in one click. Then tell your AI "read my welcome thread" — it can look things up, search, and file conclusions back for you. Blocks written by an AI carry a source tag, so they never blur with your own notes.',
+        },
+      ],
+    },
+    mcp: {
+      title: 'Put your AI to work on Spool',
+      summary: 'One scenario per block: copy the line in quotes to your AI. Delete any time.',
+      blocks: [
+        {
+          content:
+            'First: Settings → General → MCP → connect Claude Desktop or Cursor in one click (restart the client to apply). After that your AI can read this notebook directly — one scenario per block below, and the line in quotes is meant to be copied as-is. Spool ships no AI of its own; your data stays on this machine.',
+          annotation:
+            'Read-only access is enough for all of this; to let the AI write back, turn on "Allow AI to write" as well.',
+          pinned: true,
+        },
+        {
+          content:
+            'Review and pick up where you left off: "Walk me through my \'Put your AI to work on Spool\' thread, then quiz me on two things." Swap in one of your own threads and it becomes your revision card.',
+          annotation:
+            'That runs get_pack: the AI gets the whole thread as a structured brief, pinned blocks and your annotations included.',
+        },
+        {
+          content: 'Look back on a week: "What have I been working on lately?"',
+          annotation:
+            'That runs get_digest: a brief across threads — the last 7 days of new blocks, plus the standing pinned anchors.',
+        },
+        {
+          content:
+            'File something on the spot: "Save that conclusion into my \'XX\' thread and note why it matters." (Needs "Allow AI to write".)',
+          annotation:
+            'That runs add_block: blocks written by an AI carry a "Claude · MCP" source tag and never blur with your own; it also cites the older blocks a conclusion rests on.',
+        },
+        {
+          content:
+            'Find things, spot repeats: "Which thread did I write about XX in?" "Check whether I saved the same thing twice."',
+          annotation:
+            'That runs search_blocks / find_similar_blocks: the duplicate check only reports — merging is always yours to do, inside Spool.',
+        },
+        {
+          content: 'Check the library: "Run a health check on my notebook."',
+          annotation:
+            'That runs check_library: a read-only report on leaked internal ids and broken references. It changes nothing.',
+        },
+      ],
+    },
+  },
+};
+
+const insertSeedThread = async (
+  db: Database,
+  wsId: string,
+  thread: SeedThread,
+  source: string,
+  at: number,
+): Promise<void> => {
   const threadId = nanoid();
   await db.execute(
     `INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
                           is_capture_target, created_at, updated_at)
      VALUES ($1, $2, $3, $4, 'user', 'active', 0, $5, $5)`,
-    [threadId, wsId, '欢迎使用 Spool', '新手教程：捕捉 → 整理 → 打包 → MCP 互通；可随时整条删除', now],
+    [threadId, wsId, thread.title, thread.summary, at],
   );
-  const blocks: { content: string; annotation?: string; pinned?: boolean }[] = [
-    {
-      content:
-        'Spool 是一张上下文工作台：把散落的资料捕进「脉络」，需要 AI 时一键打包成完整上下文。它自己不带 AI——你的数据永远只在本机。',
-      annotation: '这条灰字就是「批注」——你自己的话，打包时会原样保留给 AI。',
-    },
-    {
-      content:
-        '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。首次使用会请求「输入监听」权限。',
-    },
-    {
-      content:
-        '收集模式：长按 ⌥ 呼出收集面板，连续 ⌘C 多段内容依次入列——适合读论文/网页时批量摘录。',
-    },
-    {
-      content:
-        '重要的块点 📌 置顶（打包时进入 Key Points）；选中文字可以高亮==像这样==；每个块都能写批注。试试取消这条的置顶！',
-      pinned: true,
-    },
-    {
-      content:
-        '⌘⇧P 把整条脉络变成结构化上下文，直接粘贴给任何 AI；可选范围（仅置顶/近 7 天）与任务模板。',
-    },
-    {
-      content:
-        '设置 → 通用 → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎脉络」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
-    },
-  ];
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i]!;
+  for (let i = 0; i < thread.blocks.length; i++) {
+    const b = thread.blocks[i]!;
     await db.execute(
       `INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
        VALUES ($1, $2, 'text', $3, $4, $5, $6, $7)`,
-      [nanoid(), threadId, b.content, b.annotation ?? null, 'Spool 指南', b.pinned ? 1 : 0, now + i],
+      [nanoid(), threadId, b.content, b.annotation ?? null, source, b.pinned ? 1 : 0, at + i],
     );
   }
+};
 
-  // 任务二 A2 (2026-07-12, Ocean-approved): the MCP scenarios get their own thread —
-  // one copy-paste phrase per block, the annotation naming the tool behind it. The
-  // thread is its own demo material (its review phrase asks the AI to read it).
-  // Timestamped 10s earlier so 欢迎使用 Spool stays on top of the sidebar.
-  const mcpNow = now - 10_000;
-  const mcpThreadId = nanoid();
-  await db.execute(
-    `INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
-                          is_capture_target, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, 'user', 'active', 0, $5, $5)`,
-    [
-      mcpThreadId,
-      wsId,
-      '让 AI 用上你的 Spool',
-      '一块一个场景：引号里的话照抄给 AI；可随时整条删除',
-      mcpNow,
-    ],
+const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<void> => {
+  const ws = await db.select<{ id: string }[]>(
+    'SELECT id FROM workspaces WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC LIMIT 1',
   );
-  const mcpBlocks: { content: string; annotation?: string; pinned?: boolean }[] = [
-    {
-      content:
-        '前提：设置 → 通用 → MCP 服务 → 一键接入 Claude Desktop / Cursor（重启客户端生效）。接好后 AI 就能直接查阅这本思簿——下面每块一个场景，引号里的话可以照抄。Spool 本体不带 AI，数据始终在本机。',
-      annotation: 'AI 只读接入即可用；要让它代写，需另开「允许 AI 写入」。',
-      pinned: true,
-    },
-    {
-      content:
-        '复习与接续：「帮我复习〈让 AI 用上你的 Spool〉这条脉络，再考我两个问题」——把标题换成你自己的脉络，就是你的复习卡。',
-      annotation: '背后是 get_pack：AI 拿到整条脉络的结构化简报，置顶块和你的批注都在里面。',
-    },
-    {
-      content: '回顾一周：「我最近一周在忙什么？」',
-      annotation: '背后是 get_digest：跨脉络简报，近 7 天各脉络的新块加常驻置顶锚点。',
-    },
-    {
-      content:
-        '随手归档：「把刚才这段结论存进〈XX〉脉络，批注一句为什么重要」（需打开「允许 AI 写入」）。',
-      annotation:
-        '背后是 add_block：AI 写入的块带「Claude · MCP」来源标签，永远和你手写的分得清；它还会用引用标注结论依据的旧块。',
-    },
-    {
-      content: '找与查重：「XX 这个主题我记在哪条脉络？」「帮我看看有没有重复收藏的内容」',
-      annotation:
-        '背后是 search_blocks / find_similar_blocks：查重只出报告，合并始终由你在 Spool 里动手。',
-    },
-    {
-      content: '库体检：「给我的思簿做个体检」',
-      annotation: '背后是 check_library：只读报告内部 id 泄漏与失效引用，不改你一个字。',
-    },
-  ];
-  for (let i = 0; i < mcpBlocks.length; i++) {
-    const b = mcpBlocks[i]!;
-    await db.execute(
-      `INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, created_at)
-       VALUES ($1, $2, 'text', $3, $4, $5, $6, $7)`,
-      [nanoid(), mcpThreadId, b.content, b.annotation ?? null, 'Spool 指南', b.pinned ? 1 : 0, mcpNow + i],
-    );
-  }
+  const wsId = ws[0]?.id;
+  if (!wsId) return;
+  const copy = TUTORIAL[lang];
+  const now = Date.now();
+  await insertSeedThread(db, wsId, copy.gesture, copy.source, now);
+  // The MCP thread is timestamped 10s earlier so the gesture tutorial stays on top of
+  // the sidebar.
+  await insertSeedThread(db, wsId, copy.mcp, copy.source, now - 10_000);
 };
 
 // Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
@@ -450,10 +560,10 @@ const initDb = async (): Promise<Database> => {
     console.info('[db] loaded; checking schema version');
     const fresh = await migrateSchema(db);
     console.info('[db] schema ready; seeding defaults');
-    await seedDefaults(db);
+    await seedDefaults(db, seedLanguage);
     if (fresh) {
-      console.info('[db] fresh install; seeding tutorial thread');
-      await seedTutorialThread(db);
+      console.info(`[db] fresh install; seeding tutorial thread (lang=${seedLanguage})`);
+      await seedTutorialThread(db, seedLanguage);
     }
   } else {
     console.info('[db] loaded; non-main window skips migration + seeding');
@@ -485,5 +595,5 @@ export const clearAllData = async (): Promise<void> => {
   for (const t of ['attachments', 'blocks', 'threads', 'workspaces']) {
     await db.execute(`DELETE FROM ${t}`);
   }
-  await seedDefaults(db);
+  await seedDefaults(db, seedLanguage);
 };
