@@ -1,6 +1,4 @@
-import { emit } from '@tauri-apps/api/event';
 import { create } from 'zustand';
-import { CAPTURE_TARGET_CHANGED_EVENT } from '@/lib/collect/protocol';
 import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/threads';
 import type { Thread, ThreadPatch } from '@/lib/db/threads';
@@ -120,9 +118,6 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
       }
     }
     set({ threadsByWorkspace: groupByWorkspace(flat), captureTargetId: id });
-    // Tell the collect panel (separate window) the destination moved so its header line
-    // stays current while open (§20.9). It re-reads the target, so no payload.
-    void emit(CAPTURE_TARGET_CHANGED_EVENT).catch(() => {});
   },
 
   remove: async (id) => {

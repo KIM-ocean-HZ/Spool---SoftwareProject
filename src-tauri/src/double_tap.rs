@@ -67,7 +67,6 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
 // =============================================================================
@@ -139,19 +138,13 @@ static COPY_GATE_ACTIVE: AtomicBool = AtomicBool::new(false);
 // Two ⌥ taps within this window count as a double-tap. Matches the macOS system
 // double-click default; reliable at this tight value because the interval is measured
 // from hardware timestamps, not from (latency-prone) callback delivery time.
+//
+// 2026-07-31 (DESIGN_CAPTURE_NOTE_FIRST §1.3): the long-press (collect panel) and
+// single-tap (collapse toggle) gestures that used to share this key are GONE — three
+// gestures on one key with overlapping windows made "single tap" structurally
+// ambiguous (two taps 300–500ms apart read as collapse + capture). Double-tap is now
+// the only ⌥ gesture.
 const DOUBLE_TAP_WINDOW_MS: u64 = 500;
-
-// v2.8 §20 Track B: long-press ⌥ opens the collect-mode staging toast. Threshold is
-// long enough that a fast double-tap (≤500ms each press window) can't coincidentally
-// trigger collect — the user has to deliberately hold the key. Made a named constant
-// per the prompt so the kill criterion in §20.8 reads as one tunable.
-const LONG_PRESS_THRESHOLD_MS: u64 = 600;
-
-// v2.10 §20.9: a clean isolated ⌥ tap (no 2nd tap, not held into a long-press) toggles the
-// collect panel's collapse — but only while the panel is open. Kept well under the full
-// double-tap window so the collapse feels responsive; real capture double-taps land far
-// faster than this, so the first tap of one almost never mis-fires a collapse.
-const SINGLE_TAP_SETTLE_MS: u64 = 300;
 
 const NANOS_PER_MS: u64 = 1_000_000;
 
@@ -159,20 +152,6 @@ const NANOS_PER_MS: u64 = 1_000_000;
 // so the tap callback — dispatched on its own run-loop thread — reads/writes lock-free.
 // 0 means "no first tap yet"; a real CGEvent timestamp is never 0.
 static LAST_OPT_PRESS_NS: AtomicU64 = AtomicU64::new(0);
-
-// v2.8 Track B long-press state. PRESS_ID monotonically increments on every clean ⌥
-// press; OPT_IS_DOWN tracks the live press/release edge. A long-press timer thread
-// spawned on press captures the current PRESS_ID and, after LONG_PRESS_THRESHOLD_MS,
-// fires collect-trigger ONLY if (a) OPT_IS_DOWN is still true and (b) PRESS_ID hasn't
-// moved (the user hasn't pressed-released-repressed in the meantime). This guarantees
-// a stray double-tap can't accidentally also trip the long-press.
-static OPT_PRESS_ID: AtomicU64 = AtomicU64::new(0);
-static OPT_IS_DOWN: AtomicBool = AtomicBool::new(false);
-
-// v2.10 §20.9: press_id of the press that last fired a double-tap capture. That press's
-// single-tap timer reads this to know it was the 2nd of a pair (not a lone tap) and skip
-// the collapse-toggle.
-static LAST_DOUBLE_TAP_PRESS_ID: AtomicU64 = AtomicU64::new(0);
 
 // Suppression state (2026-07-29). SUPPRESS_ACTIVE: the tap was created as an active
 // (Default) tap, so deleting events is possible. SWALLOW_NEXT_OPT_RELEASE: the 2nd
@@ -197,8 +176,6 @@ struct Emitters {
     capture_trigger: Box<dyn Fn() + Send + Sync>,
     capture_disabled: Box<dyn Fn(&'static str) + Send + Sync>,
     overlay_dismiss: Box<dyn Fn() + Send + Sync>,
-    collect_trigger: Box<dyn Fn() + Send + Sync>,
-    collect_collapse: Box<dyn Fn() + Send + Sync>,
 }
 static EMITTERS: OnceLock<Emitters> = OnceLock::new();
 
@@ -291,8 +268,6 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
     let a1 = app.clone();
     let a2 = app.clone();
     let a3 = app.clone();
-    let a4 = app.clone();
-    let a5 = app.clone();
     let _ = EMITTERS.set(Emitters {
         capture_trigger: Box::new(move || {
             let _ = a1.emit("capture-trigger", ());
@@ -302,12 +277,6 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
         }),
         overlay_dismiss: Box::new(move || {
             let _ = a3.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
-        }),
-        collect_trigger: Box::new(move || {
-            let _ = a4.emit("collect-trigger", ());
-        }),
-        collect_collapse: Box::new(move || {
-            let _ = a5.emit_to("collect", "collect:toggle-collapse", ());
         }),
     });
     thread::spawn(run_tap);
@@ -405,15 +374,12 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             }
             let flags = event.get_flags();
             // The ⌥ bit set in the post-change flags means this is the *press*
-            // edge; cleared means *release*. Both edges matter now — release
-            // bails the long-press timer (v2.8 Track B).
+            // edge; cleared means *release*.
             let is_press = flags.contains(CGEventFlags::CGEventFlagAlternate);
 
             if !is_press {
-                // Release edge — mark the press session as ended so the in-flight
-                // long-press timer (if any) bails on wakeup. Does NOT update
-                // LAST_OPT_PRESS_NS (only presses count for double-tap pairing).
-                OPT_IS_DOWN.store(false, Ordering::Relaxed);
+                // Release edge. Does NOT update LAST_OPT_PRESS_NS (only presses
+                // count for double-tap pairing).
                 // Suppression: this is the release of a deleted 2nd press — delete
                 // it too, so the outside world's press/release pairing stays
                 // consistent (it saw exactly one full tap).
@@ -438,17 +404,10 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
                 return true;
             }
 
-            // Mark the press as live and stamp a fresh press_id so an older
-            // long-press timer (still sleeping from a previous press) can detect
-            // it has been superseded and bail.
-            OPT_IS_DOWN.store(true, Ordering::Relaxed);
-            let press_id = OPT_PRESS_ID.fetch_add(1, Ordering::Relaxed) + 1;
-
             let now = unsafe { CGEventGetTimestamp(event_ptr as *const c_void) };
             let prev = LAST_OPT_PRESS_NS.swap(now, Ordering::Relaxed);
             // Whether to delete THIS event from the stream (2nd press of a pair
-            // that Spool consumed). Decided below; the timers still spawn either
-            // way so long-press / single-tap behavior is unchanged.
+            // that Spool consumed). Decided below.
             let mut keep = true;
             // Log every clean ⌥ tap (with the measured gap) so a flaky double-tap
             // can be triaged from stderr.
@@ -462,9 +421,7 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
                 if gap <= DOUBLE_TAP_WINDOW_MS {
                     // Copy-gate (see COPY_GATE_WINDOW_MS): only a double-tap that
                     // follows a recent ⌘C/⌘X is a capture; a bare one is left to
-                    // Claude Desktop's identical quick-entry gesture. The gesture
-                    // mechanics (reset + press-id marking) run in both branches so
-                    // long-press / single-tap behavior is unchanged either way.
+                    // Claude Desktop's identical quick-entry gesture.
                     let copied = LAST_COPY_CHORD_NS.load(Ordering::Relaxed);
                     let copy_gap_ms = now.saturating_sub(copied) / NANOS_PER_MS;
                     if !COPY_GATE_ACTIVE.load(Ordering::Relaxed)
@@ -491,65 +448,12 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
                     // Reset so a third tap doesn't immediately re-trigger off the
                     // second tap's timestamp.
                     LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
-                    // Mark this press as a double-tap consumer so its single-tap timer
-                    // (spawned below) won't also fire a collapse-toggle.
-                    LAST_DOUBLE_TAP_PRESS_ID.store(press_id, Ordering::Relaxed);
                 } else {
                     eprintln!(
                         "[double-tap] ⌥ too-slow gap={gap}ms > {DOUBLE_TAP_WINDOW_MS}ms — count restarts"
                     );
                 }
             }
-
-            // v2.8 Track B: spawn a one-shot long-press detector. It sleeps the
-            // threshold, then fires collect-trigger iff (a) this same press is
-            // still down AND (b) no newer press has started in the meantime. The
-            // thread is short-lived (~600ms) and self-cleans. We do this AFTER
-            // the double-tap logic above so a fast second tap still trips capture
-            // first — and that fast second tap also increments OPT_PRESS_ID, so
-            // the first press's long-press timer will bail.
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(LONG_PRESS_THRESHOLD_MS));
-                if !OPT_IS_DOWN.load(Ordering::Relaxed) {
-                    return;
-                }
-                if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
-                    return; // superseded by a newer press
-                }
-                // Reset double-tap pairing so this long-pressed ⌥ can't also pair
-                // with a future tap for an unintended capture-trigger.
-                LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
-                eprintln!("[long-press] TRIGGER after {LONG_PRESS_THRESHOLD_MS}ms hold");
-                if let Some(e) = EMITTERS.get() {
-                    (e.collect_trigger)();
-                }
-            });
-
-            // v2.10 §20.9: single-tap detector. After the double-tap window settles,
-            // toggle the collect panel's collapse iff this was a clean lone tap — and
-            // only while the panel is open. Conditions: no later press (press_id
-            // unchanged), the key was released (a tap, not a hold heading for the
-            // long-press), and this press wasn't the 2nd of a double-tap (which already
-            // fired capture). Emitted straight to the collect window.
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(SINGLE_TAP_SETTLE_MS));
-                if !crate::collect::collect_panel_open() {
-                    return;
-                }
-                if OPT_PRESS_ID.load(Ordering::Relaxed) != press_id {
-                    return;
-                }
-                if OPT_IS_DOWN.load(Ordering::Relaxed) {
-                    return;
-                }
-                if LAST_DOUBLE_TAP_PRESS_ID.load(Ordering::Relaxed) == press_id {
-                    return;
-                }
-                eprintln!("[single-tap] ⌥ clean tap — toggle collect collapse");
-                if let Some(e) = EMITTERS.get() {
-                    (e.collect_collapse)();
-                }
-            });
 
             keep
         }
@@ -579,7 +483,7 @@ fn run_tap() {
         eprintln!("[double-tap] Accessibility request returned trusted={ax}");
     }
 
-    // FlagsChanged (⌥ double-tap / long-press) + LeftMouseDown (§9.13 click-outside
+    // FlagsChanged (⌥ double-tap) + LeftMouseDown (§9.13 click-outside
     // dismiss) + KeyDown (⌘C/⌘X copy-gate, 2026-07-08 — only when Input Monitoring
     // is granted: an unprivileged tap never receives keyDown, and asking for it
     // provoked a TapDisabledByUserInput in testing). The two TapDisabled sentinels
@@ -680,7 +584,7 @@ fn run_tap() {
     TAP_PORT.store(port as *mut c_void, Ordering::Release);
     eprintln!(
         "[double-tap] installed at {where_} ({}) — double-tap ⌥ (within {DOUBLE_TAP_WINDOW_MS}ms) \
-         to capture; long-press ⌥ (hold {LONG_PRESS_THRESHOLD_MS}ms) for collect-mode (v2.8 §20 Track B)",
+         to capture",
         if active {
             "consumed double-taps are deleted from the stream — exclusive to Spool"
         } else if !ax {

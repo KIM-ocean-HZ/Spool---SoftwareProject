@@ -90,7 +90,7 @@ export default function MergeToolbar({ threadId }: Props) {
     const n = await forwardToThread([...selectedBlockIds], picked.threadId);
     if (n > 0) {
       // Empty patch = touch updated_at, so the target thread rises in the sidebar's
-      // recency order (same idiom as the redirect / collect-send paths).
+      // recency order (same idiom as the redirect path).
       void useThreadsStore.getState().patch(picked.threadId, {});
       toast.notice(t('已复制 {n} 个块到「{target}」', { n, target: `${picked.workspaceTitle} / ${picked.threadTitle}` }));
     }

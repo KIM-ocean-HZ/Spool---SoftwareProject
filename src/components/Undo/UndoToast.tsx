@@ -1,8 +1,7 @@
 import { RotateCcw } from 'lucide-react';
 
 // §9.13 / §13.2 — undo-confirmation card. Same look as the capture overlay's inline undo
-// card, extracted so the collect panel can show its own undo feedback in its window.
-// Presentational only: the parent owns visibility + auto-dismiss timing.
+// card. Presentational only: the parent owns visibility + auto-dismiss timing.
 export interface UndoToastProps {
   label: string;
   preview?: string;

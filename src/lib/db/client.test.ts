@@ -271,7 +271,7 @@ describe('migrateSchema registry (§19.3)', () => {
     }
     // The FTS triggers indexed both threads (searchable like any user block).
     expect(
-      handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"收集面板\"'").get(),
+      handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"批注框\"'").get(),
     ).toEqual({ c: 1 });
     expect(
       handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"做个体检\"'").get(),

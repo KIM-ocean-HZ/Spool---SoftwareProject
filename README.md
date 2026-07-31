@@ -31,7 +31,7 @@ Spool compresses "re-explaining" into "a single paste."
       └───────────── days later ──────────────┘
 ```
 
-- **Capture** — a global shortcut grabs whatever is on your clipboard and writes it into the current thread. Rides existing Cmd+C muscle memory. No decisions at capture time. A non-activating overlay confirms the save on whatever screen you're on, so the main window never has to come forward.
+- **Capture** — a global shortcut grabs whatever is on your clipboard and writes it into the current thread. Rides existing Cmd+C muscle memory. No decisions at capture time. The confirmation overlay opens with the cursor already in a note box — type the thought that made you save this and press Enter, or click anywhere to skip. Your own note outlives the excerpt, and connected AIs treat it as the highest-signal line. The main window never has to come forward.
 - **Thread** — an append-only timeline of fragments under one project. Two tiers only: Workspace (big topic) → Thread (small project). No infinite nesting. On open the feed lands at the newest blocks — they ARE "where you left off," no manual status note to maintain.
 - **Pack** — one click assembles a paste-ready Markdown briefing of the thread. Pure string assembly, no AI in the hot path, fully deterministic.
 
@@ -116,7 +116,7 @@ Each phrase maps to one tool — a fresh install seeds a tutorial thread with th
 
 | Key | Action |
 |---|---|
-| Double-tap ⌥ | Capture clipboard (macOS only, system-global) |
+| Double-tap ⌥ | Capture clipboard, then just type to leave a note (macOS only, system-global) |
 | ⌘⇧F | Global search |
 | ⌘⇧P | Pack the active thread |
 | ⌘N | New thread in the current workspace |
@@ -152,7 +152,7 @@ Taken with a library built purely for demonstration — the projects and notes i
 
 ![The Spool main window: workspaces and projects in the sidebar, and a thread of five fragments with their times, sources and annotations](docs/screenshots/app-project.png)
 
-**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the thread it went to, and undo. The main window never comes forward.
+**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the thread it went to, a note box ready for the thought you had, and undo. The main window never comes forward.
 
 ![Spool's corner overlay: the first words of the saved fragment, the thread Work / Job search it was filed under, and an undo button](docs/screenshots/capture-toast.png)
 

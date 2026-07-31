@@ -136,8 +136,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         await store.set(k, v as unknown as string | boolean);
       }
       await store.save();
-      // Overlay + collect run their own store instances off the same settings.json;
-      // broadcast so a change (language, …) reaches them without a restart.
+      // The overlay runs its own store instance off the same settings.json;
+      // broadcast so a change (language, …) reaches it without a restart.
       void emit('settings:changed').catch(() => {});
     } catch (e) {
       console.warn('settings save failed', e);
@@ -166,7 +166,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   closePanel: () => set({ panelOpen: false }),
 }));
 
-// Cross-window settings sync: each window (main / overlay / collect) runs its own store
+// Cross-window settings sync: each window (main / overlay) runs its own store
 // instance over the same settings.json. Any window's update() broadcasts; every window —
 // including the sender, harmlessly — re-reads so language flips apply live.
 // Module-scope on purpose: the store is a singleton per window, so this listener is too.

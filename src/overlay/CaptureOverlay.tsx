@@ -34,10 +34,11 @@ import { isImeComposing } from '@/lib/utils/ime';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { t, useT } from '@/lib/i18n';
 
-// v2.8 §20.6: longer dwell so the user has time to decide whether to expand for
-// pin/note. Click-anywhere-on-toast → expand (deliberate); × button or Esc →
-// dismiss; this fallback applies only when the user never touched the toast.
-// Increased from 2.5s (too short for note typing) to 8s on Ocean's feedback.
+// Note-first (2026-07-31, DESIGN_CAPTURE_NOTE_FIRST): the toast opens with the note
+// editor visible and focused — capture invites a thought, typing is zero-friction.
+// Enter commits (Shift+Enter = newline), click-outside keeps a non-empty draft and
+// skips the note otherwise, Esc discards. The dwell below only applies while the
+// note box is EMPTY and untouched; any typed text keeps the toast up.
 const TOAST_AUTO_DISMISS_MS = 8000;
 const NOTICE_AUTO_DISMISS_MS = 2200;
 // v2.9 §9.13: undo/redo confirmation dwell — short, paused on hover so the user can click 重做.
@@ -47,7 +48,6 @@ const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
   capture: '捕获',
   merge: '合并',
   delete: '删除',
-  collect_send: '暂存合并',
   highlight: '高亮',
   thread_delete: '删除项目',
   workspace_delete: '删除工作区',
@@ -115,10 +115,10 @@ export default function CaptureOverlay() {
   const [hover, setHover] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  // v2.8 §20.6: pin/note expansion. The toast's default state is byte-for-byte the
-  // glanceable card; pin + annotation controls appear ONLY after a deliberate click
-  // on the toast body. The click also disables auto-dismiss (user has engaged), and
-  // a × button + Esc become the only ways to dismiss until they finish.
+  // Note-first (2026-07-31): the note editor is part of the toast's default state —
+  // `expanded` flips to true on every fresh capture (the Rust side hands the overlay
+  // keyboard focus at the same moment). It only exists as state so the undo/notice
+  // cards can render without the editor.
   const [expanded, setExpanded] = useState(false);
   // Local mirrors so pin/annotate writes feel instant; cross-window sync follows.
   const [pinned, setPinned] = useState(false);
@@ -184,9 +184,9 @@ export default function CaptureOverlay() {
         setContent({ kind: 'toast', data: e.payload });
         setHover(false);
         setPickerOpen(false);
-        // v2.8 §20.6: each fresh capture starts collapsed and resets pin/note state —
-        // a previous expansion never bleeds into the next capture.
-        setExpanded(false);
+        // Note-first: every fresh capture opens with a clean, focused note editor —
+        // the previous capture's draft/pin state never bleeds into this one.
+        setExpanded(true);
         setPinned(false);
         setAnnotationDraft('');
         pendingNoteRef.current = null;
@@ -263,13 +263,14 @@ export default function CaptureOverlay() {
     };
   }, []);
 
-  // Auto-dismiss timer. Paused while the pointer is over the card OR the picker is
-  // open OR the user has expanded for pin/note (v2.8 §20.6 — a deliberate click
-  // engages the toast and the fallback no longer applies). Notices use a slightly
-  // shorter timeout since there's nothing to interact with on them.
+  // Auto-dismiss timer. Paused while the pointer is over the card, the picker is
+  // open, or the note box has ANY text (note-first: typed thoughts never vanish on a
+  // timer — Enter / click-outside / Esc finish them). An empty, untouched toast goes
+  // away on its own. Notices use a slightly shorter timeout since there's nothing to
+  // interact with on them.
   useEffect(() => {
     if (!content) return;
-    if (hover || pickerOpen || expanded) return;
+    if (hover || pickerOpen || annotationDraft.length > 0) return;
     const ms =
       content.kind === 'notice'
         ? NOTICE_AUTO_DISMISS_MS
@@ -281,7 +282,7 @@ export default function CaptureOverlay() {
       hideOverlay();
     }, ms);
     return () => clearTimeout(t);
-  }, [content, hover, pickerOpen, expanded]);
+  }, [content, hover, pickerOpen, annotationDraft]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -310,8 +311,9 @@ export default function CaptureOverlay() {
     return () => ro.disconnect();
   }, [content, expanded, pickerOpen]);
 
-  // v2.8 §20.6: Esc dismisses while a toast is showing (the only window-level
-  // keystroke we listen for, so the overlay still feels glanceable / non-blocking).
+  // Esc dismisses while a toast is showing. Note-first semantics: Esc is the explicit
+  // "no note" exit, so the draft is DISCARDED (click-outside is the ambient exit and
+  // keeps a non-empty draft — see the dismiss listener below).
   useEffect(() => {
     if (!content) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -319,7 +321,7 @@ export default function CaptureOverlay() {
       // composition — it must not dismiss the toast mid-note.
       if (isImeComposing(e)) return;
       if (e.key === 'Escape') {
-        flushPendingNote();
+        pendingNoteRef.current = null;
         setContent(null);
         setExpanded(false);
         hideOverlay();
@@ -327,7 +329,7 @@ export default function CaptureOverlay() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [content, flushPendingNote]);
+  }, [content]);
 
   // v2.9 §9.13: Rust's mouse-down tap fires this when the user clicks outside the toast
   // (resuming work). Dismiss the same way Esc / × does — let the user keep working.
@@ -350,13 +352,16 @@ export default function CaptureOverlay() {
     };
   }, [flushPendingNote]);
 
-  // Focus the annotation textarea on expand so the user can start typing without an
-  // extra click. The pin button keeps tab-order priority by being declared first.
+  // Note-first: focus the annotation textarea the moment the toast (re)renders with
+  // the editor open — Rust has just handed this window keyboard focus (set_focus in
+  // show_capture_overlay), so typing flows straight into the note with no click.
+  // Keyed on content too: a rapid re-capture re-runs this even though `expanded`
+  // never flipped back to false in between.
   useEffect(() => {
     if (expanded && annotationRef.current) {
       annotationRef.current.focus();
     }
-  }, [expanded]);
+  }, [expanded, content]);
 
   if (!content) return null;
 
@@ -490,16 +495,21 @@ export default function CaptureOverlay() {
     hideOverlay();
   };
 
-  // Finish editing the note: commit + collapse (so auto-dismiss can resume). Cancel: discard
-  // the draft + collapse. Same shape as a block's annotation editor (§3.6 unification).
+  // Note-first exits. Finish (Enter / 完成): commit the draft and dismiss — the user
+  // is done with this capture, focus goes back to their app (Rust side of hide).
+  // Cancel (Esc): discard the draft and dismiss.
   const finishNote = (): void => {
     flushPendingNote();
+    setContent(null);
     setExpanded(false);
+    hideOverlay();
   };
   const cancelNote = (): void => {
     pendingNoteRef.current = null;
     setAnnotationDraft('');
+    setContent(null);
     setExpanded(false);
+    hideOverlay();
   };
 
   return (
@@ -537,13 +547,10 @@ export default function CaptureOverlay() {
       </div>
 
       {/* Body — the captured content takes the lead; attribution is a quiet condensed line.
-          Drag to move; double-click anywhere to reveal the note editor (no visible affordance,
-          per the redesign — keeps the toast clean). */}
+          Drag to move. The note editor below is always open (note-first). */}
       <div
         className="cursor-grab px-3.5 pb-2 pt-2.5 pr-14 active:cursor-grabbing"
         onMouseDown={startToastDrag}
-        onDoubleClick={() => setExpanded(true)}
-        title={tr('双击添加批注')}
       >
         <div className="line-clamp-2 whitespace-pre-wrap break-words font-ui text-[14px] leading-snug text-ink">
           {toast.fullContent}
@@ -559,8 +566,11 @@ export default function CaptureOverlay() {
         </div>
       </div>
 
-      {/* Note editor — revealed by double-clicking the body. Enter = newline; 「完成」 (or
-          click-away / Tab) commits; Esc cancels — identical to a block's annotation (§3.6). */}
+      {/* Note editor — open and focused from the moment the toast appears (note-first).
+          Enter commits + dismisses (Shift+Enter = newline); Esc discards + dismisses;
+          clicking outside the toast keeps a non-empty draft. No onBlur commit: in-toast
+          clicks (pin / redirect / drag) blur the textarea but must not end the capture —
+          the per-keystroke ref mirror below is what the eventual dismiss path flushes. */}
       {expanded && (
         <div className="border-t border-line px-3.5 py-2.5">
           <textarea
@@ -576,21 +586,25 @@ export default function CaptureOverlay() {
                 draft: e.target.value,
               };
             }}
-            onBlur={finishNote}
             onKeyDown={(e) => {
               if (isImeComposing(e.nativeEvent)) {
-                // Composition-cancel Esc: swallow it so the window-level Esc can't
-                // dismiss the toast either; the IME handles the key itself.
+                // Composition keys (Enter confirms, Esc cancels the IME): swallow so
+                // neither the commit below nor the window-level Esc can fire mid-IME.
                 e.stopPropagation();
+                return;
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                finishNote();
                 return;
               }
               if (e.key === 'Escape') {
                 e.preventDefault();
-                e.stopPropagation(); // keep the window-level Esc from dismissing the toast
+                e.stopPropagation(); // the window-level Esc would double-dismiss
                 cancelNote();
               }
             }}
-            placeholder={tr('批注（可选）')}
+            placeholder={tr('留一句想法…（Enter 保存，Esc 跳过）')}
             rows={2}
             spellCheck={false}
             className="w-full resize-none rounded-md border border-line bg-paper-2/40 px-2 py-1.5 font-ui text-[12px] leading-[1.5] text-ink-2 placeholder:text-muted/70 outline-none focus:border-line-strong focus:bg-paper focus:text-ink"

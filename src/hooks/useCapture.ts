@@ -16,14 +16,9 @@ import {
   type OverlayAction,
   type OverlayNotice,
 } from '@/lib/capture/overlayProtocol';
-import {
-  APPEND_COLLECT_ITEM_COMMAND,
-  type CollectAppendPayload,
-} from '@/lib/collect/protocol';
 import { updateBlockSource } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { buildPreview, useCaptureStore } from '@/stores/captureStore';
-import { useCollectStore } from '@/stores/collectStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
 import { buildCaptureUndo, useUndoStore } from '@/stores/undoStore';
@@ -174,8 +169,7 @@ export function useCapture(): void {
         const t0 = performance.now();
         // Payload `true` marks the user-bound global-shortcut path (set in lib.rs; no
         // default binding since 2026-07-07); a unit/null payload is the double-tap ⌥
-        // path (double_tap.rs). The bound shortcut is the §20.9 escape hatch — it
-        // always writes a block, even while the collect panel is open.
+        // path (double_tap.rs).
         const viaShortcut = e.payload === true;
         if (DEV) console.info('[capture] trigger', viaShortcut ? '(shortcut)' : '(⌥⌥)');
         if (inFlightRef.current) {
@@ -193,26 +187,6 @@ export function useCapture(): void {
           tlog('clipboard read', t0, `len=${text.length}`);
           if (!text) {
             showNoticeInOverlay({ kind: 'empty' });
-            return;
-          }
-
-          // §20.9: while the collect panel is open, a double-tap ⌥ capture stages into the
-          // panel instead of writing a block — NO DB write. The user-bound shortcut
-          // (viaShortcut) is exempt: it stays the direct-write escape hatch. The normal
-          // capture path below is otherwise byte-for-byte unchanged.
-          if (useCollectStore.getState().panelOpen && !viaShortcut) {
-            const frontmost = await Promise.race([
-              frontmostPromise,
-              sleep(FRONTMOST_HOT_PATH_MS).then(() => null),
-            ]);
-            const collectPayload: CollectAppendPayload = {
-              text,
-              source: frontmost?.source ?? null,
-            };
-            void invoke(APPEND_COLLECT_ITEM_COMMAND, { payload: collectPayload }).catch(
-              (err) => console.error('[collect] append_collect_item failed', err),
-            );
-            tlog('collect item staged', t0);
             return;
           }
 

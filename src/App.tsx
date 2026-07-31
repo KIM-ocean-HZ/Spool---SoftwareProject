@@ -9,7 +9,6 @@ import ToastRack from '@/components/ui/Toast';
 import { setSeedLanguage } from '@/lib/db/client';
 import { t } from '@/lib/i18n';
 import { useCapture } from '@/hooks/useCapture';
-import { useCollect } from '@/hooks/useCollect';
 import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useUndo } from '@/hooks/useUndo';
@@ -38,7 +37,6 @@ export default function App() {
   const openSettings = useSettingsStore((s) => s.openPanel);
 
   useCapture();
-  useCollect();
   useTrayMenu();
   useSearch();
   useUndo();

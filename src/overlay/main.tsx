@@ -16,8 +16,6 @@ if (!root) {
 }
 
 // The overlay window hosts the capture toast / failure notice / undo confirmation.
-// Collect mode (§20.9) moved to its own dedicated window (collect.html) in Phase 11.5
-// step 5 — it no longer shares the overlay.
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <CaptureOverlay />

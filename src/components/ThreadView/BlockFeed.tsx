@@ -366,11 +366,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
               {t('捕捉第一条信息')}
             </p>
             <p className="mt-2 text-xs italic text-muted/70">
-              {t('长按')}{' '}
-              <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
-                ⌥
-              </kbd>{' '}
-              {t('连续收集；或在下方直接写。')}
+              {t('捕捉后可以顺手留一句想法；或在下方直接写。')}
             </p>
           </div>
         )}

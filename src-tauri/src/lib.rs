@@ -1,5 +1,4 @@
 mod capture;
-mod collect;
 #[cfg(target_os = "macos")]
 mod double_tap;
 pub mod mcp;
@@ -153,11 +152,6 @@ pub fn run() {
             capture::disarm_capture_dismiss,
             capture::set_shortcuts,
             capture::probe_browser_automation,
-            collect::open_collect_panel,
-            collect::close_collect_panel,
-            collect::resize_collect_panel,
-            collect::reposition_collect_panel,
-            collect::append_collect_item,
             mcp_exe_path,
             mcp_client_status,
             configure_mcp_client,
@@ -207,9 +201,8 @@ pub fn run() {
                         eprintln!("[shortcut] capture state={:?}", event.state());
                         if event.state() == ShortcutState::Pressed {
                             // Payload `true` marks this as the user-bound capture shortcut
-                            // (no default since 2026-07-07) so the frontend can keep it a
-                            // direct-write escape hatch even while the §20.9 collect panel
-                            // is open (double-tap ⌥ sends a null payload and stages).
+                            // (no default since 2026-07-07), distinguishing it from the
+                            // double-tap ⌥ path (null payload) in the frontend's logs.
                             let _ = app.emit("capture-trigger", true);
                         }
                     } else if shortcut == &search_acc {

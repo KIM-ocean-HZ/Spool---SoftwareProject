@@ -360,7 +360,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '收集模式：长按 ⌥ 呼出收集面板，连续 ⌘C 多段内容依次入列——适合读论文/网页时批量摘录。',
+            '留下想法：捕捉弹窗里光标已经在批注框里，直接打字写下你此刻的想法，Enter 保存——你的话比摘录本身更值钱，AI 也会优先看它。不想写就点旁边任意处跳过。',
         },
         {
           content:
@@ -432,7 +432,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            'Collect mode: hold ⌥ to open the collect panel, then ⌘C one passage after another and they queue up — made for reading a paper or a long page and taking several excerpts.',
+            "Leave a note: the capture popup opens with the cursor already in the note box — just type what you're thinking and press Enter. Your own words are worth more than the excerpt, and AIs read them first. Don't want one? Click anywhere else to skip.",
         },
         {
           content:

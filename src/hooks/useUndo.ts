@@ -1,16 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import { emit } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 import {
   SHOW_UNDO_OVERLAY_COMMAND,
   type OverlayUndoPayload,
 } from '@/lib/capture/overlayProtocol';
-import {
-  COLLECT_RESTAGE_EVENT,
-  type CollectRestagePayload,
-} from '@/lib/collect/protocol';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { useCollectStore } from '@/stores/collectStore';
 import { previewForEntry, threadIdForEntry, useUndoStore } from '@/stores/undoStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -48,16 +42,6 @@ export const runUndo = async (): Promise<void> => {
   const entry = await useUndoStore.getState().undo();
   if (entry) {
     await refreshAfterUndoRedo(entry);
-    // §9.13: undoing a collect_send re-stages its original items into the panel when the
-    // panel is still open (the collect window only re-stages into an empty buffer).
-    // Otherwise this is just the merged-block delete handled in undoStore.
-    if (entry.kind === 'collect_send' && useCollectStore.getState().panelOpen) {
-      void emit(COLLECT_RESTAGE_EVENT, {
-        items: entry.payload.originalStagingItems,
-      } satisfies CollectRestagePayload).catch((e) =>
-        console.warn('[undo] collect restage emit failed', e),
-      );
-    }
     showUndoOverlay({
       op: entry.kind,
       preview: previewForEntry(entry),

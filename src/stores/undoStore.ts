@@ -19,7 +19,6 @@ import { restoreWorkspace, softDeleteWorkspace } from '@/lib/db/workspaces';
 import * as undoLog from '@/lib/undo/undoLog';
 import type {
   CapturePayload,
-  CollectSendPayload,
   DeletePayload,
   ForwardPayload,
   HighlightPayload,
@@ -81,17 +80,6 @@ export const buildMergeUndo = (payload: MergePayload): UndoEntry => ({
   invalidated: false,
 });
 
-// §20.9: a Send writes the merged staging block; undo deletes it, and an edit to it
-// invalidates the entry (§9.13).
-export const buildCollectSendUndo = (payload: CollectSendPayload): UndoEntry => ({
-  id: nanoid(),
-  kind: 'collect_send',
-  timestamp: Date.now(),
-  payload,
-  affectedBlockIds: [payload.blockId],
-  invalidated: false,
-});
-
 // Step 6 §20.5: highlight gesture. Tracks the block so a later content/annotation edit
 // invalidates this entry (the user's edit wins).
 export const buildHighlightUndo = (payload: HighlightPayload): UndoEntry => ({
@@ -141,7 +129,6 @@ export const buildForwardUndo = (payload: ForwardPayload): UndoEntry => ({
 export const threadIdForEntry = (entry: UndoEntry): string => {
   switch (entry.kind) {
     case 'capture':
-    case 'collect_send':
     case 'merge':
     case 'highlight':
     case 'forward':
@@ -166,7 +153,6 @@ const previewText = (raw: string): string => {
 export const previewForEntry = (entry: UndoEntry): string => {
   switch (entry.kind) {
     case 'capture':
-    case 'collect_send':
       return previewText(entry.payload.content);
     case 'delete':
       return previewText(entry.payload.block.content);
@@ -199,14 +185,9 @@ const reverseAndBuildRedo = async (
   entry: UndoEntry,
 ): Promise<() => Promise<void>> => {
   switch (entry.kind) {
-    case 'capture':
-    case 'collect_send': {
-      // Snapshot the live block (source may have been back-filled since capture, or it is
-      // the merged staging block) so redo restores it faithfully, then delete it. §9.13:
-      // undoing a collect_send deletes the merged block here; re-staging the original items
-      // into the panel (when it is open + empty) is handled by the orchestration layer
-      // (hooks/useUndo.ts runUndo), which can reach the collect window over an event — this
-      // store stays free of cross-window/IPC concerns.
+    case 'capture': {
+      // Snapshot the live block (source may have been back-filled since capture) so
+      // redo restores it faithfully, then delete it.
       const block = await getBlockById(entry.payload.blockId);
       const attachments = block ? await listAttachmentsByBlock(block.id) : [];
       await deleteBlock(entry.payload.blockId);

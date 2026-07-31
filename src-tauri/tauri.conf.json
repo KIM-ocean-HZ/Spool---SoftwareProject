@@ -37,22 +37,6 @@
         "visible": false,
         "shadow": false,
         "acceptFirstMouse": true
-      },
-      {
-        "label": "collect",
-        "title": "Spool Collect",
-        "url": "collect.html",
-        "width": 340,
-        "height": 132,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "resizable": false,
-        "focus": false,
-        "visible": false,
-        "shadow": false,
-        "acceptFirstMouse": true
       }
     ],
     "security": {

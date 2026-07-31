@@ -740,6 +740,12 @@ fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f6
     Ok((target_x, target_y))
 }
 
+// Note-first (2026-07-31, DESIGN_CAPTURE_NOTE_FIRST): the toast now opens with its
+// note box focused, so the overlay TAKES keyboard focus on show and gives it back on
+// hide. This is the app we hand focus back to — stashed by show_capture_overlay,
+// consumed by hide_capture_overlay (every dismiss path funnels through it).
+static RESTORE_FOCUS_APP: Mutex<Option<String>> = Mutex::new(None);
+
 // Show the overlay over the user's active screen with a fresh capture payload.
 // Sequencing: reset size → reposition → emit data → show. The window's React
 // listener swaps the toast state in <16ms, so by the time show() repaints the user
@@ -779,18 +785,17 @@ pub fn show_capture_overlay<R: Runtime>(
     app.emit_to(OVERLAY_LABEL, "overlay:show", payload)
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
-    // Re-activate the user's source app so their next ⌘C goes there, not to Spool.
-    // BUT never re-activate Spool itself: when the user captured while Spool was the
-    // frontmost app, `prev_source_app` is "Spool", and `tell application "Spool" to
-    // activate` makes LaunchServices *launch* the bundled Spool.app as a SECOND instance.
-    // That second process opens the same SQLite file and the two contend for it
-    // ("database is locked"). There is also nothing to restore focus to — the user is
-    // already in Spool — so skipping the reactivation is correct, not just safe.
+    // Note-first (2026-07-31): the toast opens with its note box ready for typing, so
+    // the overlay must BECOME key — the inverse of the old behavior, which handed
+    // focus straight back to the source app. The source app gets focus back on hide
+    // instead (see hide_capture_overlay). Never stash "Spool" itself: activating it
+    // by name makes LaunchServices launch a SECOND instance against the same SQLite
+    // file (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
+    win.set_focus().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if let Some(name) = prev_app {
-        if !name.eq_ignore_ascii_case("spool") {
-            reactivate_app_async(name);
-        }
+    {
+        *RESTORE_FOCUS_APP.lock().unwrap() =
+            prev_app.filter(|name| !name.eq_ignore_ascii_case("spool"));
     }
     Ok(())
 }
@@ -802,9 +807,26 @@ pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     #[cfg(target_os = "macos")]
     crate::double_tap::disarm_overlay_dismiss();
     unregister_undo_shortcut(&app);
+    let mut had_focus = false;
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
+        had_focus = win.is_focused().unwrap_or(false);
         win.hide().map_err(|e| e.to_string())?;
     }
+    // Note-first: give the keyboard back to where the user was working — but only if
+    // the overlay still held it (Esc / Enter / × mid-typing). A click-outside dismissal
+    // or a ⌘Tab already moved focus to an app the USER chose; yanking it to the stashed
+    // one would fight them, so the stash is dropped unused in that case.
+    #[cfg(target_os = "macos")]
+    {
+        let stashed = RESTORE_FOCUS_APP.lock().unwrap().take();
+        if had_focus {
+            if let Some(name) = stashed {
+                reactivate_app_async(name);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = had_focus;
     Ok(())
 }
 
