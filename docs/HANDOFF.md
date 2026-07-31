@@ -11,10 +11,13 @@
 **v0.3.0 已公开发布**,官网下载按钮**直接下 dmg**。
 主线「上手体验」四件事**只剩 §2.1 一件**:2.2(英文教程)、2.3(默认跟随系统语言 + 提示条切语言)
 已落地并实机验证过,§5.3(半授权抢手势)也一并修了。基线全绿:`npx tsc -b` /
-`npx vitest run`(155)。**未推送**,五个提交都在本地 main。
+`npx vitest run`(155)+ `cargo test`(16)。**未推送**,八个提交都在本地 main。
 
 **§2.1 卡在一个探针上,要你两步**(见 §1.1):Ocean 选了 B 路线(免重启重建 tap),
 探针已经写好在跑,但需要你授权它、敲几下键盘才能出结论。**Windows 版仍排最后。**
+
+2026-07-31 后半程另外做完:**一键接入扩到五个客户端**(§5.7)、**重拍三张截图**(§5.8)、
+**邮箱只放官网**已定调(§3.1)。新的待拍板集中在 `docs/DESIGN_MCP_ONECLICK.md` §0。
 
 ---
 
@@ -31,14 +34,18 @@
    系统设置 → 隐私与安全性 → 输入监听 → 勾 Spool → **托盘退出 → 重开**。
    ⚠️ 这个「半授权」状态原本会抢掉 Claude Desktop 的双击 ⌥ —— **已在本批次修掉**(§5.6),
    但你装的正式版还是旧的,授权前仍是那个行为。
-3. 【历史数据要不要装回】桌面 `Spool-Data-Archive-2026-07-30/`,`README.txt` 有恢复步骤。
-   现在 app 里是全新空库 + 教程脉络。废纸篓里还有第二份保险,确认无误后可清空。
-4. 【重启 Claude Desktop】`spool-demo` 条目已删,重启才生效。
-5. 【一个小澄清,挡着 §4.2】现在 app 的一键接入只支持
-   Claude Desktop 与 Cursor 两个目标
-   (`claude mcp add` / `~/.claude.json` / 项目级 `.mcp.json`),没做。
-   要不要把它加成第一等公民,决定了 §4.2 的第一步。
-6. 【演示视频】`docs/DEMO_SCRIPT.md` 分镜已写好,你实机录。
+3. ~~历史数据要不要装回~~ **Ocean 2026-07-31:不装回。** 桌面
+   `Spool-Data-Archive-2026-07-30/` 与废纸篓里的第二份**先别删**(没人要求删),
+   要清由你自己动手。app 里就用现在这个新库。
+4. ~~重启 Claude Desktop~~ **已重启(Ocean 2026-07-31)**,`spool-demo` 条目已生效移除。
+5. ~~Claude Code 要不要做成一键接入~~ **Ocean 2026-07-31:做,并且其他热门 AI 工具
+   也用各自的方法加进来,用户使用方法尽可能简单。已实现**(§5.7):
+   Claude Code / VS Code / Windsurf 三个新目标已上,剩下的选型见
+   `docs/DESIGN_MCP_ONECLICK.md` §0 三个待拍板点(其中 ChatGPT 桌面版要引 TOML 依赖)。
+6. 【下一个要你拍的板】`docs/DESIGN_MCP_ONECLICK.md` §0:①ChatGPT 桌面版/Codex
+   要不要做(它用 TOML,得引依赖,我建议做)②国内 GUI 型客户端只给「复制配置」够不够
+   ③没装的客户端要不要继续显示成灰色。
+7. 【演示视频】`docs/DEMO_SCRIPT.md` 分镜已写好,你实机录。
    Ocean 已定:**录英文版**——英文教程现在有了(§5.6),干净安装在你这台机器上
    首启就是全英文,可以开录了。**但要用干净数据目录录**:你日常那份库的
    `settings.json` 里有 `language: "zh"`,而且教程行是当初按中文播的,不会回译。
@@ -250,10 +257,8 @@ identifier,两个授权都没有,走的是 `!ax` 那条老分支。**下一个�
 
 区标选 A:EN 下 `uppercase`、`tracking-wide` 保留、**字号不动**,中文分支不变。
 官网/README **没有**换 EN 截图——理由写在 `docs/DESIGN_EN_TYPOGRAPHY.md` 末尾。
-⚠️ 那份批复里「默认语言仍是 zh」的前提**已被 Ocean 推翻**,而且 §2.2/2.3 已经落地(§5.6)——
-`docs/DESIGN_EN_TYPOGRAPHY.md` 末尾那段「不换 EN 截图」的理由**现在站不住了**:
-默认就是英文,界面和教程都有英文版。**官网/README 换不换 EN 截图,该重新拍板了**
-(截图多场景铁律见 memory `next-stage-goals-website-portfolio`)。
+⚠️ 那份批复里「默认语言仍是 zh」的前提已被推翻;「不换 EN 截图」的判断
+**Ocean 2026-07-31 也推翻了(「换英文」)**,**已执行**,见 §5.8。
 
 ### 5.5 临时环境已拆
 
@@ -307,6 +312,45 @@ Claude Desktop 配置里的 `spool-demo` 条目(已删,改动前备份
 **顺手修的**:教程里两处「设置 → 通用 → 一键接入」写错了,一键接入自 2026-07-12 分标签页后
 就在 **MCP** 页,照着点找不到。中英两套一起改(`9940a68`)。
 ⚠️ **存量库的旧文案不会变**(种子不补存量库),Ocean 自己那份库里还是「设置 → 通用」。
+
+### 5.7 一键接入扩到五个客户端(2026-07-31,`eed4dcd`)
+
+Ocean 批:Claude Code 升第一等公民 + 其他热门 AI 工具用各自方法加进来 + 越简单越好。
+凡是把 MCP 服务器存在**可合并 JSON 文件**里的客户端,都走同一个按钮:
+
+| 客户端 | 文件 | 键 |
+|---|---|---|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | `mcpServers` |
+| **Claude Code** | `~/.claude.json`(顶层 = user scope) | `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers` |
+| **VS Code** | `~/Library/Application Support/Code/User/mcp.json` | **`servers`** |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
+
+**两个容易写错的点(已实证)**:VS Code 的键是 `servers`,写成 `mcpServers` 对方不报错、
+只是当没看见;Claude Code 的「装了」是**一个文件**不是目录,条目带 `"type": "stdio"`。
+两点都是在**临时 HOME 里跑 `claude mcp add --scope user`、看它自己写出什么**确认的——
+**以后再加客户端都该这么验,别照博客写。**
+
+⚠️ **只跑了单元测试,没在真机点过按钮**:点下去会写 Ocean 真实的
+`~/.claude.json` / VS Code 配置,属于对外部环境的写操作,没你明示不做。
+隔离构建里验的是**只读的检测状态**。你要真机验的话,先备份那两个文件。
+
+剩下的目标(ChatGPT 桌面版/Codex 的 TOML、国内 GUI 型客户端)写在
+`docs/DESIGN_MCP_ONECLICK.md`,三个待拍板点在 §0。
+
+### 5.8 重拍截图(2026-07-31,`8c58388`)
+
+Ocean 拍板「换英文」。查下来实情是:**演示库和截图本来就是英文的**
+(`seed-demo-library.sh` 里就是 `language=en`)——`DESIGN_EN_TYPOGRAPHY.md` 里
+「现有脚本种的是中文」当时写错了。真正过期的是**区标大小写**:改成 uppercase 之后
+旧图里还是 `Recent`/`Focus`。
+
+所以重拍的是**唯一会漂移的那三张**(含侧边栏):主窗口 / 打包弹窗 / 完成态摘要,
+外加由它们裁出的三个站点资产。浮层、`pack-dialog`、`app-thread-after`、所有 `mcp-*`
+都不含区标,**故意没动**——重拍只会引入无谓差异。站点 HTML 一行没改(`<img width>` 按宽度写)。
+
+**手法记一笔**:完成态(Digest 视图)是 `status='done'` 触发的,直接 `UPDATE threads`
+比在 UI 里点「完成」再输结论可靠得多;`digest` 字段有值但 status 不是 done 不会出那个视图。
 
 ---
 
