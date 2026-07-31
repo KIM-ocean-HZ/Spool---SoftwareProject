@@ -2910,23 +2910,56 @@ fn handle_tool_call(params: &Value) -> Value {
 // Pure fs + JSON logic — Tauri command wrappers live in lib.rs.
 // ---------------------------------------------------------------------------------------
 
-// (detection root, config file) per client. The root existing ≈ the client is installed.
-fn client_config_paths(client: &str) -> Result<(PathBuf, PathBuf), String> {
+// Where a client keeps its MCP servers, and in what shape.
+//
+// `root` existing ≈ the client is installed (a file for the CLIs, a directory for the
+// apps). `key` is the object the server entries live under — every client here uses
+// `mcpServers` except VS Code, which calls it `servers`. `typed` writes an explicit
+// `"type": "stdio"` in the entry: Claude Code's own `claude mcp add` writes it (verified
+// 2026-07-31 against the real CLI) and VS Code's schema names it, while Claude Desktop
+// and Cursor have only ever taken command/args — so they are left exactly as they were.
+struct ClientSpec {
+    root: PathBuf,
+    cfg: PathBuf,
+    key: &'static str,
+    typed: bool,
+}
+
+fn client_config_paths(client: &str) -> Result<ClientSpec, String> {
     let home = std::env::var("HOME").map_err(|e| format!("no HOME: {e}"))?;
     let home = PathBuf::from(home);
-    match client {
+    let spec = match client {
         "claude" => {
             let root = home.join("Library/Application Support/Claude");
             let cfg = root.join("claude_desktop_config.json");
-            Ok((root, cfg))
+            ClientSpec { root, cfg, key: "mcpServers", typed: false }
         }
         "cursor" => {
             let root = home.join(".cursor");
             let cfg = root.join("mcp.json");
-            Ok((root, cfg))
+            ClientSpec { root, cfg, key: "mcpServers", typed: false }
         }
-        other => Err(format!("unknown MCP client: {other}")),
-    }
+        // Claude Code (CLI). User scope = top-level `mcpServers` in ~/.claude.json,
+        // i.e. what `claude mcp add --scope user` writes; available in every project.
+        "claude-code" => {
+            let cfg = home.join(".claude.json");
+            ClientSpec { root: cfg.clone(), cfg, key: "mcpServers", typed: true }
+        }
+        // VS Code (Copilot chat). User-profile mcp.json — servers available in every
+        // workspace, the equivalent of "user scope" elsewhere.
+        "vscode" => {
+            let root = home.join("Library/Application Support/Code");
+            let cfg = root.join("User/mcp.json");
+            ClientSpec { root, cfg, key: "servers", typed: true }
+        }
+        "windsurf" => {
+            let root = home.join(".codeium/windsurf");
+            let cfg = root.join("mcp_config.json");
+            ClientSpec { root, cfg, key: "mcpServers", typed: false }
+        }
+        other => return Err(format!("unknown MCP client: {other}")),
+    };
+    Ok(spec)
 }
 
 // Read-only probe for the Settings UI badge:
@@ -2935,18 +2968,18 @@ fn client_config_paths(client: &str) -> Result<(PathBuf, PathBuf), String> {
 //   configured    — spool entry points at THIS running binary
 //   stale         — spool entry exists but points elsewhere (old/dev/deleted build)
 pub fn client_status(client: &str) -> Result<String, String> {
-    let (root, cfg) = client_config_paths(client)?;
-    if !root.is_dir() {
+    let spec = client_config_paths(client)?;
+    if !spec.root.exists() {
         return Ok("not-installed".into());
     }
-    let Ok(raw) = std::fs::read_to_string(&cfg) else {
+    let Ok(raw) = std::fs::read_to_string(&spec.cfg) else {
         return Ok("unconfigured".into());
     };
     let Ok(v) = serde_json::from_str::<Value>(&raw) else {
         return Ok("unconfigured".into());
     };
     let cmd = v
-        .get("mcpServers")
+        .get(spec.key)
         .and_then(|m| m.get("spool"))
         .and_then(|s| s.get("command"))
         .and_then(Value::as_str);
@@ -2969,8 +3002,8 @@ pub fn client_status(client: &str) -> Result<String, String> {
 // existing file is an error (merging is impossible; replacing could destroy the
 // user's other server entries), never silently overwritten.
 pub fn configure_client(client: &str) -> Result<String, String> {
-    let (root, cfg) = client_config_paths(client)?;
-    if !root.is_dir() {
+    let ClientSpec { root, cfg, key, typed } = client_config_paths(client)?;
+    if !root.exists() {
         return Ok("not-installed".into());
     }
     let mut v: Value = match std::fs::read_to_string(&cfg) {
@@ -2991,15 +3024,20 @@ pub fn configure_client(client: &str) -> Result<String, String> {
     let servers = v
         .as_object_mut()
         .expect("checked is_object above")
-        .entry("mcpServers")
+        .entry(key)
         .or_insert_with(|| json!({}));
     if !servers.is_object() {
-        return Err("现有配置的 mcpServers 不是对象（已保持原样）".into());
+        return Err(format!("现有配置的 {key} 不是对象（已保持原样）"));
     }
-    servers.as_object_mut().expect("checked above").insert(
-        "spool".into(),
-        json!({ "command": exe.to_string_lossy(), "args": ["--mcp"] }),
-    );
+    let entry = if typed {
+        json!({ "type": "stdio", "command": exe.to_string_lossy(), "args": ["--mcp"] })
+    } else {
+        json!({ "command": exe.to_string_lossy(), "args": ["--mcp"] })
+    };
+    servers
+        .as_object_mut()
+        .expect("checked above")
+        .insert("spool".into(), entry);
 
     let pretty = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
     std::fs::write(&cfg, pretty + "\n").map_err(|e| format!("写入失败: {e}"))?;
@@ -4336,5 +4374,42 @@ mod tests {
         std::fs::write(&cfg, "{broken").unwrap();
         assert!(configure_client("claude").is_err());
         assert_eq!(std::fs::read_to_string(&cfg).unwrap(), "{broken");
+
+        // 2026-07-31: Claude Code (CLI). "Installed" is a FILE, not a directory, and the
+        // entry carries an explicit type — matching what `claude mcp add --scope user`
+        // writes. The rest of ~/.claude.json (onboarding state, per-project settings) is
+        // the client's own bookkeeping and must survive untouched.
+        assert_eq!(client_status("claude-code").unwrap(), "not-installed");
+        let cc = tmp.join(".claude.json");
+        std::fs::write(&cc, r#"{"numStartups":7,"projects":{"/tmp/x":{"allowedTools":[]}}}"#)
+            .unwrap();
+        assert_eq!(client_status("claude-code").unwrap(), "unconfigured");
+        assert_eq!(configure_client("claude-code").unwrap(), "written");
+        assert_eq!(client_status("claude-code").unwrap(), "configured");
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&cc).unwrap()).unwrap();
+        assert_eq!(v["numStartups"], 7);
+        assert_eq!(v["projects"]["/tmp/x"]["allowedTools"], json!([]));
+        assert_eq!(v["mcpServers"]["spool"]["type"], "stdio");
+        assert_eq!(v["mcpServers"]["spool"]["args"], json!(["--mcp"]));
+        assert!(tmp.join(".claude.json.bak").exists());
+
+        // VS Code keeps its servers under `servers`, not `mcpServers` — writing the
+        // wrong key would leave the user with a config the client silently ignores.
+        assert_eq!(client_status("vscode").unwrap(), "not-installed");
+        let vsc = tmp.join("Library/Application Support/Code/User");
+        std::fs::create_dir_all(&vsc).unwrap();
+        assert_eq!(client_status("vscode").unwrap(), "unconfigured");
+        assert_eq!(configure_client("vscode").unwrap(), "written");
+        assert_eq!(client_status("vscode").unwrap(), "configured");
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(vsc.join("mcp.json")).unwrap()).unwrap();
+        assert_eq!(v["servers"]["spool"]["type"], "stdio");
+        assert!(v.get("mcpServers").is_none());
+
+        // Windsurf: same shape as Claude Desktop, different path.
+        assert_eq!(client_status("windsurf").unwrap(), "not-installed");
+        std::fs::create_dir_all(tmp.join(".codeium/windsurf")).unwrap();
+        assert_eq!(configure_client("windsurf").unwrap(), "written");
+        assert_eq!(client_status("windsurf").unwrap(), "configured");
     }
 }

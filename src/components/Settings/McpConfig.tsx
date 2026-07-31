@@ -9,10 +9,19 @@ import { useT } from '@/lib/i18n';
 // "written" is a UI-only refinement of "configured" — the entry now points at this
 // binary, but the client reads its config at launch, so a restart note is the truth.
 type McpClientStatus = 'not-installed' | 'unconfigured' | 'configured' | 'stale' | 'written';
-type McpClient = 'claude' | 'cursor';
+// 2026-07-31 (Ocean): Claude Code promoted to a first-class one-click target, and the
+// other popular clients that keep their MCP servers in a plain JSON file joined it —
+// same one button, each written in that client's own shape (mcp.rs client_config_paths).
+// Claude first, per "get the Claude path perfect before widening". Clients that take
+// their config through a GUI (Cherry Studio, DeepChat, …) or a TOML file (ChatGPT
+// desktop / Codex) can't be written this way — they use the copy-snippet below.
+type McpClient = 'claude' | 'claude-code' | 'cursor' | 'vscode' | 'windsurf';
 const MCP_CLIENTS: { key: McpClient; label: string }[] = [
   { key: 'claude', label: 'Claude Desktop' },
+  { key: 'claude-code', label: 'Claude Code' },
   { key: 'cursor', label: 'Cursor' },
+  { key: 'vscode', label: 'VS Code' },
+  { key: 'windsurf', label: 'Windsurf' },
 ];
 
 // §20.12 MCP local server (experimental, default OFF). The toggle gates the
@@ -34,7 +43,10 @@ export default function McpConfig() {
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
     claude: null,
+    'claude-code': null,
     cursor: null,
+    vscode: null,
+    windsurf: null,
   });
   const [connecting, setConnecting] = useState<McpClient | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
