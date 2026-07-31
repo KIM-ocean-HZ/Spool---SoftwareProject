@@ -353,8 +353,9 @@ export default function CaptureOverlay() {
   }, [flushPendingNote]);
 
   // Note-first: focus the annotation textarea the moment the toast (re)renders with
-  // the editor open — Rust has just handed this window keyboard focus (set_focus in
-  // show_capture_overlay), so typing flows straight into the note with no click.
+  // the editor open. DOM focus is recorded whether or not the window is key yet, so it
+  // is already in place by the time show_capture_overlay takes the foreground (see its
+  // "Note-first activation" section) and typing flows straight into the note.
   // Keyed on content too: a rapid re-capture re-runs this even though `expanded`
   // never flipped back to false in between.
   useEffect(() => {

@@ -625,11 +625,11 @@ fn open_with_default_app(target: &str) -> std::io::Result<()> {
 // life of the app — we only show/hide/reposition it on capture, so the user never
 // pays the cost of webview creation on the hot path (§16: <200ms keypress → toast).
 //
-// macOS focus-stealing note: `focus: false` in the window config combined with
-// never calling set_focus() on the overlay is enough in practice — the window
-// appears without becoming key, and the user's foreground app keeps the keyboard.
-// True NSPanel-style guarantees (canBecomeKeyWindow override) require native
-// Cocoa code and are deferred unless QA proves it necessary.
+// macOS focus note: since note-first (2026-07-31) the capture toast deliberately DOES
+// take the foreground, and gives it back on every dismiss path — see the "Note-first
+// activation" section below for how, and why it is not set_focus(). The notice and undo
+// overlays are untouched by that: they have nothing to type into, so they still appear
+// without disturbing the user's foreground app.
 
 const OVERLAY_LABEL: &str = "overlay";
 const OVERLAY_WIDTH: u32 = 340;
@@ -728,7 +728,13 @@ fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f6
 // note box focused, so the overlay TAKES keyboard focus on show and gives it back on
 // hide. This is the app we hand focus back to — stashed by show_capture_overlay,
 // consumed by hide_capture_overlay (every dismiss path funnels through it).
+//
+// Two stashes for the two routes below: the pid one is used whenever Accessibility is
+// granted (see the AX section), the name one is the fallback for when it isn't. Exactly
+// one of them is ever set for a given capture.
 static RESTORE_FOCUS_APP: Mutex<Option<String>> = Mutex::new(None);
+#[cfg(target_os = "macos")]
+static RESTORE_FOCUS_PID: Mutex<Option<i32>> = Mutex::new(None);
 
 // Cache-only read of the frontmost app — never spawns osascript, so it is free on the
 // capture hot path. useCapture starts get_foreground_app() at the top of every capture
@@ -753,6 +759,7 @@ fn frontmost_from_cache() -> Option<String> {
 #[cfg(target_os = "macos")]
 pub(crate) fn forget_restore_focus() {
     *RESTORE_FOCUS_APP.lock().unwrap() = None;
+    *RESTORE_FOCUS_PID.lock().unwrap() = None;
 }
 
 // Set while the main window is parked below normal window level for a toast's lifetime.
@@ -800,6 +807,129 @@ fn unpark_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+// =============================================================================
+// Note-first activation (2026-08-01, DESIGN_CAPTURE_NOTE_FIRST §3.6)
+// =============================================================================
+//
+// Typing straight into the note box requires Spool to be the ACTIVE app. macOS delivers
+// keystrokes only to the active app, so a key window inside a background app receives
+// nothing — proved by the reverted NSPanel experiment, which got `isKeyWindow=true` and
+// still no keyboard. Ocean confirmed the other half by hand on 2026-08-01: when Spool
+// already owns the foreground the note box takes the cursor and typing works; the only
+// broken case is capturing from another app.
+//
+// The AppKit route to activation is closed. `activateIgnoringOtherApps:` from a
+// background app is neither honoured nor refused — it is DEFERRED, and cashed in the
+// next time Spool has a key-eligible window, which is the "main window flashes to the
+// front on dismiss" bug measured in §3.5. Calling it earlier does not change that; the
+// request itself is what misbehaves, so we never make it.
+//
+// The accessibility route is open, and costs no new grant: the suppressing event tap
+// (double_tap.rs) already requires Accessibility. Setting `AXFrontmost` on an
+// application element is exactly what `System Events`' `set frontmost of process` does,
+// it applies immediately rather than being queued, and it works on any pid — so the
+// same call serves both directions: take the foreground on show, give it back on hide.
+// Restoring by pid also drops the two hazards of the name route (an app whose
+// LaunchServices name differs from what we observed, and `tell application "Spool"`
+// launching a second instance against the live database).
+//
+// Without the Accessibility grant nothing here fires and capture behaves exactly as it
+// did before: no activation, and focus restored by app name through osascript.
+
+#[cfg(target_os = "macos")]
+type AXUIElementRef = *const std::ffi::c_void;
+
+// The AX attribute names are CFSTR() macros in the SDK headers, not exported symbols —
+// hence the string literals rather than `extern static` declarations.
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        element: AXUIElementRef,
+        attribute: core_foundation::string::CFStringRef,
+        value: *mut core_foundation::base::CFTypeRef,
+    ) -> i32;
+    fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: core_foundation::string::CFStringRef,
+        value: core_foundation::base::CFTypeRef,
+    ) -> i32;
+    fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
+}
+
+#[cfg(target_os = "macos")]
+const AX_ERROR_SUCCESS: i32 = 0;
+
+// pid of the app the user is currently working in, read straight from the accessibility
+// server — synchronous, no subprocess, so it is free on the capture hot path (unlike
+// get_foreground_app's osascript, which the frontend can only afford to wait 80ms for).
+#[cfg(target_os = "macos")]
+fn ax_focused_app_pid() -> Option<i32> {
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::string::CFString;
+    unsafe {
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return None;
+        }
+        let attr = CFString::from_static_string("AXFocusedApplication");
+        let mut value: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(system, attr.as_concrete_TypeRef(), &mut value);
+        CFRelease(system as CFTypeRef);
+        if err != AX_ERROR_SUCCESS || value.is_null() {
+            return None;
+        }
+        let mut pid: i32 = 0;
+        let err = AXUIElementGetPid(value as AXUIElementRef, &mut pid);
+        CFRelease(value);
+        if err != AX_ERROR_SUCCESS || pid <= 0 {
+            None
+        } else {
+            Some(pid)
+        }
+    }
+}
+
+// Make `pid` the active app. Returns false when the accessibility server refuses (no
+// grant, or the target has no AX presence) — every caller treats that as "leave focus
+// where it is", never as an error worth surfacing.
+#[cfg(target_os = "macos")]
+fn ax_set_frontmost(pid: i32) -> bool {
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::string::CFString;
+    unsafe {
+        let element = AXUIElementCreateApplication(pid);
+        if element.is_null() {
+            return false;
+        }
+        let attr = CFString::from_static_string("AXFrontmost");
+        let yes = CFBoolean::true_value();
+        let err =
+            AXUIElementSetAttributeValue(element, attr.as_concrete_TypeRef(), yes.as_CFTypeRef());
+        CFRelease(element as CFTypeRef);
+        err == AX_ERROR_SUCCESS
+    }
+}
+
+// The app to take the foreground from and hand it back to, or None when there is
+// nothing to do: Accessibility isn't granted (fall back to the name route), or Spool is
+// already the active app (Ocean's 2026-08-01 test: that case already works untouched).
+#[cfg(target_os = "macos")]
+fn ax_source_app_pid() -> Option<i32> {
+    if !crate::double_tap::accessibility_granted() {
+        return None;
+    }
+    let pid = ax_focused_app_pid()?;
+    if pid == std::process::id() as i32 {
+        None
+    } else {
+        Some(pid)
+    }
+}
+
 // Show the overlay over the user's active screen with a fresh capture payload.
 // Sequencing: reset size → reposition → emit data → show. The window's React
 // listener swaps the toast state in <16ms, so by the time show() repaints the user
@@ -836,33 +966,46 @@ pub fn show_capture_overlay<R: Runtime>(
     // querying after would always return "Spool". Never stash "Spool" itself: activating
     // it by name makes LaunchServices launch a SECOND instance against the same SQLite
     // file (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
+    // Whether to take the foreground for the toast — true only when the accessibility
+    // route is available AND the user is working in some other app.
     #[cfg(target_os = "macos")]
-    {
-        let stash = payload
-            .prev_source_app
-            .clone()
-            .or_else(frontmost_from_cache)
-            .filter(|name| !name.eq_ignore_ascii_case("spool"));
-        // Park before show(): clicking the toast activates Spool, and macOS layers
-        // windows per app, so the main window would ride up over what the user is
-        // reading (see park_main_window).
-        if stash.is_some() {
+    let take_foreground = {
+        let source_pid = ax_source_app_pid();
+        // Name route (no Accessibility grant): restore-only, no activation. Skipped
+        // entirely when we have a pid, so the two stashes never both hold a value.
+        let stash = if source_pid.is_some() {
+            None
+        } else {
+            payload
+                .prev_source_app
+                .clone()
+                .or_else(frontmost_from_cache)
+                .filter(|name| !name.eq_ignore_ascii_case("spool"))
+        };
+        // Park before show(): activating Spool — whether we do it below or the user does
+        // it by clicking the toast — raises every visible window it owns, so the main
+        // window would ride up over what the user is reading (see park_main_window).
+        if source_pid.is_some() || stash.is_some() {
             park_main_window(&app);
         }
+        *RESTORE_FOCUS_PID.lock().unwrap() = source_pid;
         *RESTORE_FOCUS_APP.lock().unwrap() = stash;
-    }
+        source_pid.is_some()
+    };
     app.emit_to(OVERLAY_LABEL, "overlay:show", payload)
         .map_err(|e| e.to_string())?;
     win.show().map_err(|e| e.to_string())?;
-    // Note-first: show() is already makeKeyAndOrderFront, so when Spool owns the
-    // foreground the toast becomes key on its own and the note box takes the cursor.
-    // set_focus() would add only `activateIgnoringOtherApps:` on top of that — and from
-    // a background app macOS does not honour it outright, it *defers* it: the request
-    // is granted the moment Spool next has a window eligible to be key, which is when
-    // the toast is ordered out. That is the "main window flashes to the front" bug,
-    // measured landing in the same 20ms sample as the toast disappearing, and on the
-    // untouched-toast path it never came back at all — the app just kept the keyboard.
-    // Asking to activate is what breaks it, so we don't ask.
+    // Note-first: show() is already makeKeyAndOrderFront, so the toast is now Spool's
+    // key window — but keystrokes reach a key window only while its app is active, so
+    // capturing from another app needs the activation below. It goes AFTER show() on
+    // purpose: activate first and the main window would be the one holding key status
+    // when the foreground lands on Spool.
+    #[cfg(target_os = "macos")]
+    if take_foreground && !ax_set_frontmost(std::process::id() as i32) {
+        // Focus stays with the source app: the toast is still fully usable by clicking
+        // into the note box, which is a legitimate activation the OS always honours.
+        eprintln!("[capture] AXFrontmost refused — note box needs a click to type into");
+    }
     Ok(())
 }
 
@@ -884,6 +1027,16 @@ pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String>
     // chose, and yanking them to the stashed one would fight them.
     #[cfg(target_os = "macos")]
     {
+        // Accessibility route: hand the foreground back by pid. Synchronous, so the
+        // source app is active again *before* the toast is ordered out — ordering it out
+        // while Spool still holds the foreground is what hands key status to the main
+        // window (§3.5 cause two).
+        if let Some(pid) = RESTORE_FOCUS_PID.lock().unwrap().take() {
+            ax_set_frontmost(pid);
+            let _ = win.hide();
+            unpark_main_window(&app);
+            return Ok(());
+        }
         let stashed = RESTORE_FOCUS_APP.lock().unwrap().take();
         if let Some(name) = stashed.filter(|n| is_safe_app_name(n)) {
             // Activate the source app FIRST, hide after: while Spool still holds the
