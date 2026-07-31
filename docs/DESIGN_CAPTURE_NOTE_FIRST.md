@@ -82,15 +82,37 @@ Ocean 说「点击外部即代表无笔记」——按字面实现会把已敲�
 | 设置页手势说明、i18n 孤儿键清理 | `src/lib/i18n/index.ts` 等 |
 | README 手势表 + 官网捕捉段补「留一句想法」 | `README.md`、`site/index.html` |
 
-## 3. 待实机验证(隔离流程,memory `isolated-verify-workflow`)
+## 3. 实机验证结论(2026-07-31,隔离 identifier `com.oceanjin.spool.nf`,已拆干净)
 
-1. 双击 ⌥ → toast 出现且**光标已在批注框**(核心:`set_focus` 对
-   `focus:false` 窗口是否可靠拿到键盘焦点)。
-2. 打字 → Enter → 块带批注落库,焦点回到来源 app(下一个 ⌘C 走原 app)。
-3. 点外部:空框无批注、有字保存;两种情况焦点都归还。
-4. Esc、8 秒空框自动关、连续捕捉(上一条草稿不丢)。
-5. 中文输入法:组合中 Esc/Enter 不误触发(沿用 isImeComposing,需真 IME 验证)。
-6. 从 Spool 自己里捕捉(来源=Spool):不做 activate(防二实例开库,5/29 红线)。
+隔离构建无任何 TCC 授权 → tap 落在 `session/listen-only`,合成事件可见,
+故可脚本驱动。真库全程未被触碰(前后 sha256 逐字节一致)。
+
+| 场景 | 结果 |
+|---|---|
+| 双击 ⌥ → 浮窗出现,**光标已在批注框** | ✅ 截图与打字均证实(`set_focus` 对 `focus:false` 窗口可靠) |
+| 打字 → Enter | ✅ 块 + 批注「this is the thought I had」同时落库,浮窗关闭 |
+| 打字 → Esc | ✅ 块落库,`annotation` 为 NULL(草稿按设计丢弃) |
+| 打字 → 点浮窗外部 | ✅ 批注「kept on click away」保留(修正一生效) |
+| 不打字、放着不管 | ✅ 8 秒自动消失,无批注 |
+| 干净安装英文种子 | ✅ 12 块,含新的「Leave a note」教程行 |
+| MCP 二进制(删 collect.rs 后回归) | ✅ initialize + 10 工具 |
+
+**没验到的三项,必须 Ocean 真手指测**:
+
+1. **焦点归还来源 app**。隔离构建没有输入监听权限,tap 只看得见 Spool 自己的事件,
+   所以合成触发时 Spool 必须在前台 → `prev_source_app` 恒为 "Spool" → 按设计不做
+   activate,这条分支跑不到。
+2. **中文输入法**里 Enter/Esc 不误触发(`isImeComposing` 需真 IME)。
+3. **正式版(HID/active)路径**下的整套行为 —— 见下面这条新发现。
+
+### ⚠️ 新发现:装了正式版之后,合成事件再也测不了手势
+
+两个授权齐全时 tap 装在 **HID 层**,而 `CGEventPost` 注入的事件进的是 session 层,
+**HID tap 完全看不见**(实测:连 `1st-of-pair` 都不打)。§5.2 当初能合成触发,
+是因为那个隔离构建没授权、tap 退到了 session/listen-only。
+
+**结论**:凡要验证正式版上的手势,只能真手指按;脚本验证一律走无授权的隔离
+identifier。已记进 memory `double-tap-exclusivity`。
 
 ## 4. 截图数据环境(Ocean 重拍用)
 
