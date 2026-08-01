@@ -1,27 +1,32 @@
 # 交接文档 — 2026-08-01(给下一个窗口)
 
-> 先读 CLAUDE.md 与 memory(`capture-note-first`、`double-tap-exclusivity`、
-> `isolated-verify-workflow`、`next-stage-goals-website-portfolio`、`mcp-first-pivot`、
-> `spool-db-wipe-incident`、`ui-language-follows-system`)。完成后删除本文件。
+> 先读 CLAUDE.md 与 memory(`capture-note-first`、`spool-db-wipe-incident`、
+> `double-tap-exclusivity`、`isolated-verify-workflow`、`write-plainly-for-ocean`、
+> `next-stage-goals-website-portfolio`、`mcp-first-pivot`、`ui-language-follows-system`)。
+> 完成后删除本文件。
+>
+> **本窗只有一件事:§1.3 把捕捉浮窗挪进独立进程。方案已全批,直接动手。**
 
 ---
 
 ## 0. 一句话状态
 
-**23 个提交在本地 main 未推送**。基线全绿:`npx tsc -b` / `npx vitest run`(152)/
-`cargo test`(16)。Ocean 本机 `/Applications/Spool.app` **已换成 `a3cfba2` 这批**
+**25 个提交在本地 main 未推送**。基线全绿:`npx tsc -b` / `npx vitest run`(152)/
+`cargo test`(16)。Ocean 本机 `/Applications/Spool.app` **就是 `a3cfba2` 这批**
 (2026-08-01 11:08,见 §4.7),两个授权都在,tap 在 `HID/active`。
-真库 `integrity_check ok`,v8 / 12 块,换装前后未变。
+真库 `integrity_check ok`,v8 / 12 块。
 
-**note-first 主线基本收官:** 从别的 app 双击 ⌥ 之后**不点鼠标直接打字已经能进批注框**,
-主窗四条路径一次都没跳前,关掉后前台四条都归还 —— Ocean 真手指验过(§1.2)。
-**只剩一个未决**:浮窗在时主窗会沉到最底下。Ocean 已选「上独立辅助进程」,
-方案写在 `docs/DESIGN_CAPTURE_HELPER_PROCESS.md`,**按硬规则 6 等 Ocean 批复后才动手**(§1.3)。
-剩下的长线是 §2 的 MCP 生态宣传。
+**note-first 已收官**:从别的 app 双击 ⌥ 之后不点鼠标直接打字能进批注框,
+主窗四条路径一次没跳前,关掉后前台四条都归还 —— Ocean 真手指验过(§1.2)。
+
+**👉 你这个窗口要做的就一件事:§1.3 —— 把捕捉浮窗挪进独立进程。**
+设计稿 `docs/DESIGN_CAPTURE_HELPER_PROCESS.md` **Ocean 已全批**(含形态、内存代价、节奏),
+可以直接动手,不用再出方案。**一把梭做完**,但四个关卡要逐关验。
+做完之后的长线才是 §2 的 MCP 生态宣传。
 
 ---
 
-## 1. ⚠️ 主线:note-first 收尾
+## 1. 主线
 
 ### 1.1 定案:不走 AppKit,走辅助功能(`a3cfba2`,已实机验过)
 
@@ -60,29 +65,52 @@ stderr 零条 `AXFrontmost refused`。
 **所以官网与 README 那句「光标已经在批注框里 / cursor already in the note box」
 现在是准确的,不用改。** §3 的推送警告可以撤了。
 
-### 1.3 ❗唯一未决:浮窗在时主窗沉到最底下
+### 1.3 👉 本窗任务:把捕捉浮窗挪进独立进程(**方案已全批,直接动手**)
 
-Ocean 的窗口栈(后→前)`vscode - spool - texteditor`,双击 ⌥ 之后变成
-`spool - vscode - texteditor`,关掉又变回来。
+**要解决的现象**:浮窗弹出时主窗沉到最底下。Ocean 的窗口栈(后→前)
+`vscode - spool - texteditor` 变成 `spool - vscode - texteditor`,关掉才回原位。
 
-**这是 `a696d4a` 的 `park_main_window` 干的,不是 `a3cfba2` 引入的。** 上一轮没看见,
-是因为栈里只有 TextEdit 和 Spool,主窗本来就在最底下;夹一个 VS Code 就现形了。
+**这是 `a696d4a` 的 `park_main_window` 干的,不是 `a3cfba2` 引入的。**
+上一轮没看见是因为栈里只有 TextEdit 和 Spool,主窗本来就在最底下。
 
-**去不掉,除非放弃「主窗永不跳前」。** macOS 按 app 整体分层,Spool 一活跃,它所有可见
-窗口就整体抬起来;唯一能拦住的公开手段就是压到低于普通层,而低于普通层 = 沉到所有普通
-窗口下面。**「不让它升」和「沉到最底」在 macOS 上是同一件事,没有「留在原位」这个档位。**
+**为什么当前架构下去不掉**:macOS 按 app 整体分层,Spool 一活跃它所有可见窗口一起抬起来;
+唯一能拦住的公开手段是压到低于普通层,而低于普通层 = 沉到所有普通窗口下面。
+**「不让它升」和「沉到最底」是同一个动作,没有「留在原位」这一档。**
+而且砍掉直接打字也消不掉它 —— 压低是为**点击**准备的(点 ✕/图钉/批注框一样激活 Spool)。
 
-⚠️ **砍掉「直接打字」并不能消掉沉底** —— 压低是为**点击**准备的:点浮窗的 ✕ / 图钉 /
-批注框同样会激活 Spool、同样会抬主窗(那正是最早报的「点 ✕ 会闪」)。
-只要浮窗还能点,压低就还得在。**反过来说,压低既然无论如何都要留,「直接打字」就是零额外代价。**
+**解法:让浮窗住在另一个进程里**,被激活的就不是 Spool,主窗不会被连坐。
 
-**要真做到原位不动,只有把浮窗挪进一个独立的辅助 app**(让被激活的是那个没有其他窗口的
-进程)—— 另起一个 bundle 的工程量,**需 Ocean 单独拍板**,推导见设计稿 §3.7。
+📄 **设计稿:`docs/DESIGN_CAPTURE_HELPER_PROCESS.md` —— Ocean 2026-08-01 全批,
+不用再出方案,照着做。** 里面有承重假设的实测、实现顺序、风险表、内存查证。
 
-**Ocean 2026-08-01 选了③(独立辅助 app)。方案已出:`docs/DESIGN_CAPTURE_HELPER_PROCESS.md`,
-按硬规则 6 等 Ocean 批复后才动手。** 承重假设已实测成立:**macOS 按进程算激活,不按 bundle 算**
-(三个 TextEdit 进程夹着 VS Code 的对照实验,探针留在 `scripts/zorder.c`)。
-方案里三个待拍板点:同二进制子进程 vs 独立 bundle、常驻多一个 webview 进程的内存代价、分期与否。
+**Ocean 拍的三件事**:
+
+| | 结论 |
+|---|---|
+| 形态 | **同一个二进制的第二个进程 `spool --overlay`**,不做独立 bundle |
+| 内存 | **认**(净增约 +40~80MB;低配机影响已查证,见设计稿 §4.1) |
+| 节奏 | **一把梭做完**,不分期交付;但设计稿 §5 那四关要逐关验 |
+
+**开工前必读的三条**(细节都在设计稿,这里只列最容易翻车的):
+
+1. 🚨 **辅助进程绝不开 SQLite。** `client.ts` 的 `getDb()` 会跑 `migrateSchema` +
+   `seedDefaults`,两个进程各自开库就是把 5/29 抹库事故的前提原样重建
+   (memory `spool-db-wipe-incident`)。浮窗现有 5 处 DB 调用全部改走 IPC 回主进程。
+   **验收必查:`lsof` 确认只有主进程持有 `spool.db`。**
+2. **辅助进程自己不需要任何 TCC 授权** —— 由主进程用已有的 `ax_set_frontmost(helper_pid)`
+   激活它。别去给辅助进程申请授权。
+3. **辅助进程要常驻**,启动时就拉起。等捕捉时才 fork 会在热路径上付一次 webview
+   冷启动,`<200ms keypress → toast` 的 SLO 直接破。
+
+**做完能顺手删掉**:`park_main_window` / `unpark_main_window` / `MAIN_WINDOW_PARKED`
+整套压低机制、`tauri.conf.json` 的 `overlay` 窗口声明、主进程所有
+`emit_to(OVERLAY_LABEL, …)`。
+
+**验收怎么做**:用 `scripts/zorder.c`(`clang -o zorder scripts/zorder.c -framework
+ApplicationServices`)读 z-order —— **主窗必须一格没动**。
+⚠️ 最后的行为回归**只能真手指按**(HID tap 看不见合成事件),
+给 Ocean 的测试步骤要大白话,见 memory `write-plainly-for-ocean`。
+⚠️ 换装 `/Applications/Spool.app` 走 §4.7 的步骤,**需 Ocean 明示**。
 
 ### 1.4 上一版欠的三条验证 —— 全结了(Ocean 2026-08-01 手测)
 
@@ -169,7 +197,7 @@ ChatGPT · Codex**,最好带各自 logo,一眼看懂。
 - **`AGENTS.md` 已按 Ocean 2026-08-01 明示删除**(那是 Codex 版的同一份行为规则,
   `CLAUDE.md` 已经覆盖)。它从来没进过 git,所以这里没有提交。
   ⚠️ 仍然别用 `git add -A` 一把梭,提交前先 `git status --short` 看一眼。
-- **推送需 Ocean 明示**(硬规则 7)。`git rev-list --count origin/main..main` = **23**
+- **推送需 Ocean 明示**(硬规则 7)。`git rev-list --count origin/main..main` = **25**
   (跨好几个窗口攒下来的)。
   ⚠️ 推 main 会触发 `pages.yml` 自动部署官网。**官网文案里「光标已经在批注框里」那句
   现在是准确的了**(§1.2 验收已过),这条拦路警告撤销。
