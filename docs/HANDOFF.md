@@ -8,14 +8,15 @@
 
 ## 0. 一句话状态
 
-**22 个提交在本地 main 未推送**。基线全绿:`npx tsc -b` / `npx vitest run`(152)/
+**23 个提交在本地 main 未推送**。基线全绿:`npx tsc -b` / `npx vitest run`(152)/
 `cargo test`(16)。Ocean 本机 `/Applications/Spool.app` **已换成 `a3cfba2` 这批**
 (2026-08-01 11:08,见 §4.7),两个授权都在,tap 在 `HID/active`。
 真库 `integrity_check ok`,v8 / 12 块,换装前后未变。
 
 **note-first 主线基本收官:** 从别的 app 双击 ⌥ 之后**不点鼠标直接打字已经能进批注框**,
 主窗四条路径一次都没跳前,关掉后前台四条都归还 —— Ocean 真手指验过(§1.2)。
-**只剩一个未决**:浮窗在时主窗会沉到最底下(§1.3,等 Ocean 三选一)。
+**只剩一个未决**:浮窗在时主窗会沉到最底下。Ocean 已选「上独立辅助进程」,
+方案写在 `docs/DESIGN_CAPTURE_HELPER_PROCESS.md`,**按硬规则 6 等 Ocean 批复后才动手**(§1.3)。
 剩下的长线是 §2 的 MCP 生态宣传。
 
 ---
@@ -78,8 +79,10 @@ Ocean 的窗口栈(后→前)`vscode - spool - texteditor`,双击 ⌥ 之后变�
 **要真做到原位不动,只有把浮窗挪进一个独立的辅助 app**(让被激活的是那个没有其他窗口的
 进程)—— 另起一个 bundle 的工程量,**需 Ocean 单独拍板**,推导见设计稿 §3.7。
 
-**等 Ocean 在三个里选一个**:① 维持现状(沉底,绝不跳前)② 砍掉压低(不沉底,
-但点浮窗会窜前)③ 上辅助 app(都要,但要花工程量)。
+**Ocean 2026-08-01 选了③(独立辅助 app)。方案已出:`docs/DESIGN_CAPTURE_HELPER_PROCESS.md`,
+按硬规则 6 等 Ocean 批复后才动手。** 承重假设已实测成立:**macOS 按进程算激活,不按 bundle 算**
+(三个 TextEdit 进程夹着 VS Code 的对照实验,探针留在 `scripts/zorder.c`)。
+方案里三个待拍板点:同二进制子进程 vs 独立 bundle、常驻多一个 webview 进程的内存代价、分期与否。
 
 ### 1.4 上一版欠的三条验证 —— 全结了(Ocean 2026-08-01 手测)
 
@@ -166,7 +169,7 @@ ChatGPT · Codex**,最好带各自 logo,一眼看懂。
 - **`AGENTS.md` 已按 Ocean 2026-08-01 明示删除**(那是 Codex 版的同一份行为规则,
   `CLAUDE.md` 已经覆盖)。它从来没进过 git,所以这里没有提交。
   ⚠️ 仍然别用 `git add -A` 一把梭,提交前先 `git status --short` 看一眼。
-- **推送需 Ocean 明示**(硬规则 7)。`git rev-list --count origin/main..main` = **21**
+- **推送需 Ocean 明示**(硬规则 7)。`git rev-list --count origin/main..main` = **23**
   (跨好几个窗口攒下来的)。
   ⚠️ 推 main 会触发 `pages.yml` 自动部署官网。**官网文案里「光标已经在批注框里」那句
   现在是准确的了**(§1.2 验收已过),这条拦路警告撤销。
