@@ -9,9 +9,7 @@ use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::time::Instant;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, Runtime,
-};
+use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, Runtime};
 
 // Short-lived cache for the frontmost-app query. Each rapid double-tap capture would
 // otherwise spawn its own osascript subprocess — across 5+ captures/sec the kernel
@@ -619,11 +617,17 @@ fn open_with_default_app(target: &str) -> std::io::Result<()> {
 // Capture Overlay (Phase 5)
 // =============================================================================
 //
-// A borderless, transparent, always-on-top, non-activating second window that hosts
-// the CaptureToast over the user's *source* screen (PLAN_EN.md §Phase 5 / §9.4). The
-// window is declared in tauri.conf.json (label "overlay") and lives invisibly for the
-// life of the app — we only show/hide/reposition it on capture, so the user never
-// pays the cost of webview creation on the hot path (§16: <200ms keypress → toast).
+// A borderless, transparent, always-on-top window that hosts the CaptureToast over the
+// user's *source* screen (PLAN_EN.md §Phase 5 / §9.4). Since 2026-08-01 that window
+// lives in a SECOND PROCESS (`spool --overlay`, see overlay.rs) rather than being a
+// window of this app — activation is per process, so the toast can take the foreground
+// without dragging the main window up the stack with it. It is started at launch and
+// stays resident, so the user never pays webview creation on the hot path (§16: <200ms
+// keypress → toast).
+//
+// What stays here: geometry (this process arms the click-outside watch against the same
+// frame), the focus stash, and the toast-scoped undo shortcut. This file talks to the
+// overlay process through overlay::send / the on_overlay_* handlers below.
 //
 // macOS focus note: since note-first (2026-07-31) the capture toast deliberately DOES
 // take the foreground, and gives it back on every dismiss path — see the "Note-first
@@ -631,9 +635,8 @@ fn open_with_default_app(target: &str) -> std::io::Result<()> {
 // overlays are untouched by that: they have nothing to type into, so they still appear
 // without disturbing the user's foreground app.
 
-const OVERLAY_LABEL: &str = "overlay";
-const OVERLAY_WIDTH: u32 = 340;
-const OVERLAY_HEIGHT_COLLAPSED: u32 = 100;
+pub(crate) const OVERLAY_WIDTH: u32 = 340;
+pub(crate) const OVERLAY_HEIGHT_COLLAPSED: u32 = 100;
 // Margin from screen edges, in logical pixels. Matches the visual padding the
 // user expects from a system notification.
 const OVERLAY_SCREEN_MARGIN: i32 = 20;
@@ -675,11 +678,9 @@ fn is_safe_app_name(name: &str) -> bool {
 // pub(crate) so the collect-panel window (collect.rs, §20.9) can anchor itself to the
 // same "active screen" the capture overlay uses.
 pub(crate) fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> {
-    // We need *some* window to query cursor_position; the overlay itself works fine
-    // even if hidden. Prefer overlay, then main.
-    let probe = app
-        .get_webview_window(OVERLAY_LABEL)
-        .or_else(|| app.get_webview_window("main"))?;
+    // We need *some* window of this process to query cursor_position through; the main
+    // window works even while hidden, which is the common capture case.
+    let probe = app.get_webview_window("main")?;
     let cursor = probe.cursor_position().ok();
     let monitors = app.available_monitors().ok()?;
     if let Some(c) = cursor {
@@ -704,12 +705,11 @@ pub(crate) fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> 
 // hidden by the macOS dock, top-right matches the system notification convention.
 // Since we anchor the *top* edge, window height doesn't enter the math (resizing
 // for the picker grows the window downward instead of upward).
-// Returns the chosen top-left origin in global logical points, so the caller can arm the
-// click-outside dismiss watch (§9.13) against the overlay's exact on-screen frame.
-fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f64), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
+//
+// Computed here rather than in the overlay process because this process is the one that
+// arms the click-outside dismiss watch (§9.13), and both must describe the same frame.
+// The origin is in global logical points.
+fn overlay_origin<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f64), String> {
     let monitor = active_monitor(app).ok_or_else(|| "no monitor available".to_string())?;
     let scale = monitor.scale_factor();
     let mpos = monitor.position();
@@ -719,9 +719,31 @@ fn position_overlay_top_right<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f6
     let m_width = msize.width as f64 / scale;
     let target_x = m_left + m_width - OVERLAY_WIDTH as f64 - OVERLAY_SCREEN_MARGIN as f64;
     let target_y = m_top + OVERLAY_SCREEN_MARGIN as f64;
-    win.set_position(LogicalPosition::new(target_x, target_y))
-        .map_err(|e| e.to_string())?;
     Ok((target_x, target_y))
+}
+
+// Ask the overlay process to show `content` at the freshly-computed top-right anchor.
+// Err means the overlay process is down — the caller decides what that costs; for a
+// capture it costs the toast, never the block (already committed by the time we get here).
+fn send_overlay_show<R: Runtime>(
+    app: &AppHandle<R>,
+    kind: &str,
+    payload: serde_json::Value,
+) -> Result<(f64, f64), String> {
+    let (x, y) = overlay_origin(app)?;
+    let sent = crate::overlay::send(&serde_json::json!({
+        "t": kind,
+        "x": x,
+        "y": y,
+        "w": OVERLAY_WIDTH,
+        "h": OVERLAY_HEIGHT_COLLAPSED,
+        "payload": payload,
+    }));
+    if sent {
+        Ok((x, y))
+    } else {
+        Err("capture overlay process is not running".to_string())
+    }
 }
 
 // Note-first (2026-07-31, DESIGN_CAPTURE_NOTE_FIRST): the toast now opens with its
@@ -762,50 +784,10 @@ pub(crate) fn forget_restore_focus() {
     *RESTORE_FOCUS_PID.lock().unwrap() = None;
 }
 
-// Set while the main window is parked below normal window level for a toast's lifetime.
+// True between sending a capture toast and hearing it is on screen, when that toast is
+// one we mean to hand the foreground to. Notices and undo cards never set it.
 #[cfg(target_os = "macos")]
-static MAIN_WINDOW_PARKED: AtomicBool = AtomicBool::new(false);
-
-// Second half of the 2026-07-31 "main window flashes to the front" bug — the half that
-// survives after the deferred activation above is gone. Clicking the toast (the ✕, the
-// pin, the note box) activates Spool, because it is an ordinary window of a background
-// app, and macOS layers windows per application: the moment Spool becomes active, every
-// visible window it owns goes over every window of the app the user was reading. So the
-// main window rides up on the click, and drops back only once the source app is
-// re-activated on dismiss. Measured: z-order flips in the same sample as the click.
-//
-// A window one level below normal cannot be placed over a normal-level window by any
-// app, so parking the main window there for the toast's lifetime removes every path
-// that could lift it — activation and key-window promotion alike.
-//
-// Caller gates this on having a source app to go back to, which is the same thing as
-// "the user is working somewhere else": when they are in Spool itself the stash is
-// empty, and parking then would shove the window they are reading behind everything.
-#[cfg(target_os = "macos")]
-fn park_main_window<R: Runtime>(app: &AppHandle<R>) {
-    let Some(main) = app.get_webview_window("main") else {
-        return;
-    };
-    if !main.is_visible().unwrap_or(false) {
-        return;
-    }
-    if main.set_always_on_bottom(true).is_ok() {
-        MAIN_WINDOW_PARKED.store(true, Ordering::SeqCst);
-    }
-}
-
-// Put the main window back at normal level. Call this only once the source app is
-// active again: setLevel reorders the window within its new level, which is harmless
-// under another app but would raise it if Spool still held the foreground.
-#[cfg(target_os = "macos")]
-fn unpark_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if !MAIN_WINDOW_PARKED.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.set_always_on_bottom(false);
-    }
-}
+static ACTIVATE_ON_SHOWN: AtomicBool = AtomicBool::new(false);
 
 // =============================================================================
 // Note-first activation (2026-08-01, DESIGN_CAPTURE_NOTE_FIRST §3.6)
@@ -917,13 +899,15 @@ fn ax_set_frontmost(pid: i32) -> bool {
 // The app to take the foreground from and hand it back to, or None when there is
 // nothing to do: Accessibility isn't granted (fall back to the name route), or Spool is
 // already the active app (Ocean's 2026-08-01 test: that case already works untouched).
+// The overlay process counts as Spool for this — a re-capture while a toast is still up
+// finds IT frontmost, and "restoring" focus to the toast would strand the user there.
 #[cfg(target_os = "macos")]
 fn ax_source_app_pid() -> Option<i32> {
     if !crate::double_tap::accessibility_granted() {
         return None;
     }
     let pid = ax_focused_app_pid()?;
-    if pid == std::process::id() as i32 {
+    if pid == std::process::id() as i32 || Some(pid) == crate::overlay::helper_pid() {
         None
     } else {
         Some(pid)
@@ -931,7 +915,7 @@ fn ax_source_app_pid() -> Option<i32> {
 }
 
 // Show the overlay over the user's active screen with a fresh capture payload.
-// Sequencing: reset size → reposition → emit data → show. The window's React
+// Sequencing in the overlay process: size → position → push data → show. Its React
 // listener swaps the toast state in <16ms, so by the time show() repaints the user
 // sees the new content with no flash of the prior capture.
 #[tauri::command]
@@ -939,16 +923,34 @@ pub fn show_capture_overlay<R: Runtime>(
     app: AppHandle<R>,
     payload: OverlayCapturePayload,
 ) -> Result<(), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
-    // Reset to collapsed size in case the previous capture left the picker expanded.
-    win.set_size(LogicalSize::new(
-        OVERLAY_WIDTH as f64,
-        OVERLAY_HEIGHT_COLLAPSED as f64,
-    ))
-    .map_err(|e| e.to_string())?;
-    let (origin_x, origin_y) = position_overlay_top_right(&app)?;
+    // Stash the source app *before* the toast appears: once it has the foreground, the
+    // query would only ever answer "Spool". Never stash "Spool" itself — activating it
+    // by name makes LaunchServices launch a SECOND instance against the same SQLite file
+    // (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
+    #[cfg(target_os = "macos")]
+    {
+        let source_pid = ax_source_app_pid();
+        // Name route (no Accessibility grant): restore-only, no activation. Skipped
+        // entirely when we have a pid, so the two stashes never both hold a value.
+        let stash = if source_pid.is_some() {
+            None
+        } else {
+            payload
+                .prev_source_app
+                .clone()
+                .or_else(frontmost_from_cache)
+                .filter(|name| !name.eq_ignore_ascii_case("spool"))
+        };
+        *RESTORE_FOCUS_PID.lock().unwrap() = source_pid;
+        *RESTORE_FOCUS_APP.lock().unwrap() = stash;
+        // Note-first: keystrokes reach a window only while its app is active, so
+        // capturing from another app means activating the overlay process. That waits
+        // for its "shown" reply — activating an app whose window isn't up yet would
+        // leave the note box unfocused (see on_overlay_shown).
+        ACTIVATE_ON_SHOWN.store(source_pid.is_some(), Ordering::SeqCst);
+    }
+    let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
+    let (origin_x, origin_y) = send_overlay_show(&app, "show", payload)?;
     // §9.13: arm the click-outside dismiss watch over the toast's frame, and grab the
     // global undo shortcut for the toast's lifetime. The ResizeObserver in the overlay
     // refines the height moments later via resize_capture_overlay.
@@ -962,103 +964,86 @@ pub fn show_capture_overlay<R: Runtime>(
     #[cfg(not(target_os = "macos"))]
     let _ = (origin_x, origin_y); // click-outside dismiss is macOS-only (CGEventTap)
     register_undo_shortcut(&app);
-    // Stash the source app *before* show — show() activates Spool as a side effect, so
-    // querying after would always return "Spool". Never stash "Spool" itself: activating
-    // it by name makes LaunchServices launch a SECOND instance against the same SQLite
-    // file (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
-    // Whether to take the foreground for the toast — true only when the accessibility
-    // route is available AND the user is working in some other app.
-    #[cfg(target_os = "macos")]
-    let take_foreground = {
-        let source_pid = ax_source_app_pid();
-        // Name route (no Accessibility grant): restore-only, no activation. Skipped
-        // entirely when we have a pid, so the two stashes never both hold a value.
-        let stash = if source_pid.is_some() {
-            None
-        } else {
-            payload
-                .prev_source_app
-                .clone()
-                .or_else(frontmost_from_cache)
-                .filter(|name| !name.eq_ignore_ascii_case("spool"))
-        };
-        // Park before show(): activating Spool — whether we do it below or the user does
-        // it by clicking the toast — raises every visible window it owns, so the main
-        // window would ride up over what the user is reading (see park_main_window).
-        if source_pid.is_some() || stash.is_some() {
-            park_main_window(&app);
-        }
-        *RESTORE_FOCUS_PID.lock().unwrap() = source_pid;
-        *RESTORE_FOCUS_APP.lock().unwrap() = stash;
-        source_pid.is_some()
-    };
-    app.emit_to(OVERLAY_LABEL, "overlay:show", payload)
-        .map_err(|e| e.to_string())?;
-    win.show().map_err(|e| e.to_string())?;
-    // Note-first: show() is already makeKeyAndOrderFront, so the toast is now Spool's
-    // key window — but keystrokes reach a key window only while its app is active, so
-    // capturing from another app needs the activation below. It goes AFTER show() on
-    // purpose: activate first and the main window would be the one holding key status
-    // when the foreground lands on Spool.
-    #[cfg(target_os = "macos")]
-    if take_foreground && !ax_set_frontmost(std::process::id() as i32) {
-        // Focus stays with the source app: the toast is still fully usable by clicking
-        // into the note box, which is a legitimate activation the OS always honours.
-        eprintln!("[capture] AXFrontmost refused — note box needs a click to type into");
-    }
     Ok(())
 }
 
-#[tauri::command]
-pub fn hide_capture_overlay<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    // §9.13: tear down the toast-scoped undo machinery before hiding, so ⌘Z returns to
-    // the foreground app and a stray click no longer dismisses a now-hidden toast.
+// The overlay process reports its window is on screen. Hand it the foreground if this
+// was a capture toast raised from another app — see the "Note-first activation" section.
+// Activating the OVERLAY's pid (not ours) is what leaves the main window untouched.
+pub fn on_overlay_shown() {
+    #[cfg(target_os = "macos")]
+    {
+        if !ACTIVATE_ON_SHOWN.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        let Some(pid) = crate::overlay::helper_pid() else {
+            return;
+        };
+        if !ax_set_frontmost(pid) {
+            // Focus stays with the source app: the toast is still fully usable by
+            // clicking into the note box, which is a legitimate activation the OS
+            // always honours.
+            eprintln!("[capture] AXFrontmost refused — note box needs a click to type into");
+        }
+    }
+}
+
+// Every dismiss path in the overlay (Enter / Esc / ✕ / click-outside / the 8s dwell)
+// ends up here. Focus goes back BEFORE the toast is ordered out: hiding the frontmost
+// app's only window first would let macOS pick the next app itself.
+pub fn on_overlay_hide<R: Runtime>(app: &AppHandle<R>) {
+    // §9.13: tear down the toast-scoped undo machinery, so ⌘Z returns to the foreground
+    // app and a stray click no longer dismisses a now-hidden toast.
     #[cfg(target_os = "macos")]
     crate::double_tap::disarm_overlay_dismiss();
-    unregister_undo_shortcut(&app);
-    let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
-        #[cfg(target_os = "macos")]
-        unpark_main_window(&app);
-        return Ok(());
-    };
+    unregister_undo_shortcut(app);
     // Note-first: give the keyboard back to where the user was working. The stash is
     // empty when the user was already in Spool (nothing to restore) and when a
     // click-outside dismissal cleared it — that click moved focus to an app the USER
     // chose, and yanking them to the stashed one would fight them.
     #[cfg(target_os = "macos")]
     {
+        // A toast dismissed before it was ever shown must not activate anything.
+        ACTIVATE_ON_SHOWN.store(false, Ordering::SeqCst);
         // Accessibility route: hand the foreground back by pid. Synchronous, so the
-        // source app is active again *before* the toast is ordered out — ordering it out
-        // while Spool still holds the foreground is what hands key status to the main
-        // window (§3.5 cause two).
+        // source app is active again before we ask for the hide.
         if let Some(pid) = RESTORE_FOCUS_PID.lock().unwrap().take() {
             ax_set_frontmost(pid);
-            let _ = win.hide();
-            unpark_main_window(&app);
-            return Ok(());
+            hide_overlay_now(false);
+            return;
         }
         let stashed = RESTORE_FOCUS_APP.lock().unwrap().take();
         if let Some(name) = stashed.filter(|n| is_safe_app_name(n)) {
-            // Activate the source app FIRST, hide after: while Spool still holds the
-            // foreground, hiding the toast hands key status to the main window. Off-thread
-            // so the command returns at once; React has already unmounted the toast and
-            // the window is transparent, so the ~100ms it stays up is invisible.
+            // Off-thread so this returns at once; React has already unmounted the toast
+            // and the window is transparent, so the ~100ms it stays up is invisible.
             // .status() (not .spawn()) so the osascript child is reaped.
-            let handle = app.clone();
             std::thread::spawn(move || {
                 let script = format!("tell application \"{}\" to activate", name);
                 let _ = std::process::Command::new("osascript")
                     .args(["-e", &script])
                     .status();
-                let _ = win.hide();
-                unpark_main_window(&handle);
+                hide_overlay_now(false);
             });
-            return Ok(());
+            return;
         }
-        unpark_main_window(&app);
+        // Neither route knows where the user came from (both grants refused). If they
+        // clicked the toast, the overlay process is the ACTIVE app — and hiding its only
+        // window would leave the foreground held by an app with nothing to type into,
+        // measured 2026-08-01. Ask it to step down so macOS hands the foreground to the
+        // next app in order, which is the one they clicked away from.
+        hide_overlay_now(true);
     }
-    win.hide().map_err(|e| e.to_string())?;
-    Ok(())
+    #[cfg(not(target_os = "macos"))]
+    hide_overlay_now(false);
+}
+
+// `release_foreground` asks the overlay process to stop being the active app, not just
+// to order its window out — see the last branch of on_overlay_hide.
+fn hide_overlay_now(release_foreground: bool) {
+    crate::overlay::send(&serde_json::json!({
+        "t": "hide-now",
+        "release": release_foreground,
+    }));
 }
 
 // §9.13: show the undo/redo confirmation in the overlay so it floats over the user's
@@ -1071,15 +1056,7 @@ pub fn show_undo_overlay<R: Runtime>(
     app: AppHandle<R>,
     payload: serde_json::Value,
 ) -> Result<(), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
-    win.set_size(LogicalSize::new(
-        OVERLAY_WIDTH as f64,
-        OVERLAY_HEIGHT_COLLAPSED as f64,
-    ))
-    .map_err(|e| e.to_string())?;
-    let (origin_x, origin_y) = position_overlay_top_right(&app)?;
+    let (origin_x, origin_y) = send_overlay_show(&app, "undo", payload)?;
     #[cfg(target_os = "macos")]
     crate::double_tap::arm_overlay_dismiss(
         origin_x,
@@ -1090,54 +1067,36 @@ pub fn show_undo_overlay<R: Runtime>(
     #[cfg(not(target_os = "macos"))]
     let _ = (origin_x, origin_y);
     register_undo_shortcut(&app);
-    app.emit_to(OVERLAY_LABEL, "overlay:undo", payload)
-        .map_err(|e| e.to_string())?;
-    win.show().map_err(|e| e.to_string())?;
     Ok(())
 }
 
-// Disarm the §9.13 click-outside dismiss watch from the frontend. Called when the user
-// starts dragging the capture toast: the toast's on-screen frame is about to change, so
-// the armed frame would go stale and a click on the relocated toast would read as
-// "outside" and wrongly dismiss it. A deliberately-repositioned toast keeps itself up —
-// ✕ / Esc / the auto-dismiss timer still close it. No-op when nothing is armed.
-#[tauri::command]
-pub fn disarm_capture_dismiss() {
+// The user started dragging the capture toast: its on-screen frame is about to change,
+// so the §9.13 armed frame would go stale and a click on the relocated toast would read
+// as "outside" and wrongly dismiss it. A deliberately-repositioned toast keeps itself up
+// — ✕ / Esc / the auto-dismiss timer still close it. No-op when nothing is armed.
+pub fn on_overlay_disarm() {
     #[cfg(target_os = "macos")]
     crate::double_tap::disarm_overlay_dismiss();
 }
 
-// Resize the overlay window's height (e.g. expand for the Redirect dropdown). Since
-// the window is top-anchored, growing the height just extends downward — the
-// position stays put. Width is fixed; the toast layout assumes OVERLAY_WIDTH.
-#[tauri::command]
-pub fn resize_capture_overlay<R: Runtime>(app: AppHandle<R>, height: u32) -> Result<(), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
-    win.set_size(LogicalSize::new(OVERLAY_WIDTH as f64, height as f64))
-        .map_err(|e| e.to_string())?;
-    // §9.13: keep the click-outside dismiss frame in sync with the real toast height
-    // (e.g. when the Redirect dropdown grows the window). No-op when not armed.
+// The overlay resized itself to its real rendered height (e.g. the Redirect dropdown
+// opened). Since the window is top-anchored, growing the height extends downward and the
+// origin stays put — only the dismiss frame's height needs to follow. No-op when not armed.
+pub fn on_overlay_resize(height: f64) {
     #[cfg(target_os = "macos")]
-    crate::double_tap::update_overlay_dismiss_height(height as f64);
-    Ok(())
+    crate::double_tap::update_overlay_dismiss_height(height);
+    #[cfg(not(target_os = "macos"))]
+    let _ = height;
 }
 
 // Relay a freshly-resolved source label (from the main window's osascript backfill)
 // into the overlay so the toast can update its attribution line in real time.
 #[tauri::command]
-pub fn update_overlay_source<R: Runtime>(
-    app: AppHandle<R>,
-    block_id: String,
-    source: String,
-) -> Result<(), String> {
-    app.emit_to(
-        OVERLAY_LABEL,
-        "overlay:source-update",
-        serde_json::json!({ "blockId": block_id, "source": source }),
-    )
-    .map_err(|e| e.to_string())?;
+pub fn update_overlay_source(block_id: String, source: String) -> Result<(), String> {
+    crate::overlay::send(&serde_json::json!({
+        "t": "source-update",
+        "payload": { "blockId": block_id, "source": source },
+    }));
     Ok(())
 }
 
@@ -1157,17 +1116,7 @@ pub fn show_capture_notice<R: Runtime>(
     app: AppHandle<R>,
     payload: OverlayNoticePayload,
 ) -> Result<(), String> {
-    let win = app
-        .get_webview_window(OVERLAY_LABEL)
-        .ok_or_else(|| "overlay window not found".to_string())?;
-    win.set_size(LogicalSize::new(
-        OVERLAY_WIDTH as f64,
-        OVERLAY_HEIGHT_COLLAPSED as f64,
-    ))
-    .map_err(|e| e.to_string())?;
-    position_overlay_top_right(&app)?;
-    app.emit_to(OVERLAY_LABEL, "overlay:notice", payload)
-        .map_err(|e| e.to_string())?;
-    win.show().map_err(|e| e.to_string())?;
+    let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
+    send_overlay_show(&app, "notice", payload)?;
     Ok(())
 }

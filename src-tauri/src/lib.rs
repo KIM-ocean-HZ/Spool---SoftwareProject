@@ -2,6 +2,7 @@ mod capture;
 #[cfg(target_os = "macos")]
 mod double_tap;
 pub mod mcp;
+pub mod overlay;
 
 use tauri::Manager;
 
@@ -114,6 +115,17 @@ fn open_input_monitoring_settings() -> Result<(), String> {
     }
 }
 
+// Single call site for `generate_context!`, which embeds the whole frontend bundle —
+// invoking the macro once per entry point would embed it twice.
+fn context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
+// `spool --overlay`: the capture toast's own process (overlay.rs).
+pub fn run_overlay() {
+    overlay::run_helper(context());
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -144,14 +156,12 @@ pub fn run() {
             capture::path_is_dir,
             capture::cursor_in_main_webview,
             capture::show_capture_overlay,
-            capture::hide_capture_overlay,
             capture::show_undo_overlay,
-            capture::resize_capture_overlay,
             capture::update_overlay_source,
             capture::show_capture_notice,
-            capture::disarm_capture_dismiss,
             capture::set_shortcuts,
             capture::probe_browser_automation,
+            overlay::overlay_db_reply,
             mcp_exe_path,
             mcp_client_status,
             configure_mcp_client,
@@ -326,8 +336,14 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             double_tap::install(app.handle().clone());
 
+            // The capture toast's own process (overlay.rs). Started here, not on the
+            // first capture: a webview cold start on the hot path would blow the
+            // <200ms keypress → toast budget.
+            #[cfg(desktop)]
+            overlay::spawn_helper(app.handle().clone());
+
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running tauri application");
 }

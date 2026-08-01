@@ -1,14 +1,19 @@
 // Cross-window contract for the Phase 5 capture overlay.
 //
-// Two Tauri webview windows can't share JavaScript state, so they coordinate via
-// Tauri events. This file is the single source of truth for those event names and
-// payload shapes — main produces SHOW + SOURCE_UPDATE; overlay produces ACTION.
+// Since 2026-08-01 the overlay is not just another window — it is another PROCESS
+// (`spool --overlay`, DESIGN_CAPTURE_HELPER_PROCESS), so the two sides share neither
+// JavaScript state nor an event bus. Rust relays between them over the helper's
+// stdin/stdout; the event names below are what each side sees locally, unchanged.
+// This file stays the single source of truth for those names and payload shapes —
+// main produces SHOW + SOURCE_UPDATE; overlay produces ACTION.
 //
 // The Rust command names + the OverlayCapturePayload field shape must stay in sync
 // with src-tauri/src/capture.rs (where serde renames to camelCase).
 
 import type { UndoOpKind } from '@/lib/undo/undoLog';
-import type { Block } from '@/lib/db/blocks';
+import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
+import type { Thread } from '@/lib/db/threads';
+import type { Workspace } from '@/lib/db/workspaces';
 
 export const OVERLAY_SHOW_EVENT = 'overlay:show';
 export const OVERLAY_ACTION_EVENT = 'overlay:action';
@@ -20,6 +25,10 @@ export const OVERLAY_DISMISS_EVENT = 'overlay:dismiss';
 // v2.9 §9.13: undo/redo confirmation shown in the overlay (floats over the user's current
 // window, not just the main app) — carries OverlayUndoPayload.
 export const OVERLAY_UNDO_EVENT = 'overlay:undo';
+// The overlay process keeps no settings store of its own (a second writer to
+// settings.json is the same hazard as a second writer to the database), so Rust reads the
+// user's language out of settings.json and pushes it in with every show.
+export const OVERLAY_LANGUAGE_EVENT = 'overlay:language';
 
 export const SHOW_OVERLAY_COMMAND = 'show_capture_overlay';
 export const HIDE_OVERLAY_COMMAND = 'hide_capture_overlay';
@@ -30,6 +39,47 @@ export const SHOW_UNDO_OVERLAY_COMMAND = 'show_undo_overlay';
 // Disarms the click-outside dismiss watch when the user starts dragging the toast (so the
 // relocated toast isn't dismissed by a click on its new position).
 export const DISARM_DISMISS_COMMAND = 'disarm_capture_dismiss';
+
+// -- Database proxy (2026-08-01, DESIGN_CAPTURE_HELPER_PROCESS §3.3) -----------------
+//
+// 🚨 The overlay process must never open SQLite: getDb() runs migrateSchema +
+// seedDefaults, and two processes doing that is the precondition of the 2026-05-29 data
+// wipe rebuilt. So the toast's DB work is sent to the MAIN window, which owns the only
+// connection, and the answer comes back. The overlay's call sites keep their ordinary
+// signatures — see src/overlay/db.ts (client) and src/hooks/useOverlayDbHost.ts (server).
+
+// Overlay → main window, carrying { id, op, args }; main → overlay carries the reply.
+export const OVERLAY_DB_REQUEST_EVENT = 'overlay:db-request';
+export const OVERLAY_DB_REPLY_EVENT = 'overlay:db-reply';
+export const OVERLAY_DB_REQUEST_COMMAND = 'overlay_db_request';
+export const OVERLAY_DB_REPLY_COMMAND = 'overlay_db_reply';
+
+// One entry per DB call the toast makes: the argument object it sends and what it gets
+// back. Keeping both halves in one map is what lets the client and the server share a
+// single type and stay honest with each other.
+export interface OverlayDbOps {
+  updateBlockAnnotation: { args: { blockId: string; annotation: string | null }; result: null };
+  deleteBlock: { args: { blockId: string }; result: null };
+  togglePin: { args: { blockId: string }; result: boolean };
+  createBlock: { args: CreateBlockArgs; result: Block };
+  listWorkspaces: { args: Record<string, never>; result: Workspace[] };
+  listAllThreads: { args: Record<string, never>; result: Thread[] };
+}
+
+export type OverlayDbOp = keyof OverlayDbOps;
+
+export interface OverlayDbRequest {
+  id: number;
+  op: OverlayDbOp;
+  args: unknown;
+}
+
+export interface OverlayDbReply {
+  id: number;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
 
 // v2.9 §9.13: the undo/redo confirmation card rendered in the overlay window. `op = 'empty'`
 // is the "没有可撤销的操作" state; `mode` distinguishes 已撤销 from 已重做; `canRedo` gates

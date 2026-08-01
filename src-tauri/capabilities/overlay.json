@@ -1,14 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "overlay",
-  "description": "Capability for the capture overlay window. Needs SQL for the Redirect picker (its own connection per PLAN_EN.md §Phase 5) and core:default for Tauri events + custom invoke commands.",
+  "description": "Capability for the capture overlay window, which since 2026-08-01 lives in its own process (`spool --overlay`, see src/overlay.rs). NO sql: permission on purpose (DESIGN_CAPTURE_HELPER_PROCESS §3.3): a second process running getDb() would rebuild the precondition of the 2026-05-29 data wipe, so its DB calls are proxied to the main window and a stray Database.load() must fail loudly here. core:default covers Tauri events + custom invoke commands.",
   "windows": ["overlay"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-start-dragging",
-    "sql:default",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select"
-  ]
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

@@ -79,8 +79,6 @@ use tauri::{AppHandle, Emitter, Runtime};
 // keep working. A click inside (the toast's own buttons / picker) is left alone. The
 // watch is disarmed the moment the toast hides, so normal clicks are never intercepted.
 
-const OVERLAY_LABEL: &str = "overlay";
-
 // (x, y, w, h) of the toast in global logical points; None when no toast is up.
 static OVERLAY_FRAME: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
 
@@ -266,8 +264,7 @@ fn request_accessibility_with_prompt() -> bool {
 pub fn install<R: Runtime>(app: AppHandle<R>) {
     // Emitters for the extern "C" callback and its timer threads. install() runs once.
     let a1 = app.clone();
-    let a2 = app.clone();
-    let a3 = app.clone();
+    let a2 = app;
     let _ = EMITTERS.set(Emitters {
         capture_trigger: Box::new(move || {
             let _ = a1.emit("capture-trigger", ());
@@ -277,7 +274,7 @@ pub fn install<R: Runtime>(app: AppHandle<R>) {
         }),
         overlay_dismiss: Box::new(move || {
             crate::capture::forget_restore_focus();
-            let _ = a3.emit_to(OVERLAY_LABEL, "overlay:dismiss", ());
+            crate::overlay::send(&serde_json::json!({ "t": "dismiss" }));
         }),
     });
     thread::spawn(run_tap);

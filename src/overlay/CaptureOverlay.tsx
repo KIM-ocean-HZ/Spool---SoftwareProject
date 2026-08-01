@@ -4,17 +4,22 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Forward, Pin, RotateCcw, RotateCw, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Block } from '@/lib/db/blocks';
+// 🚨 Not @/lib/db — this process never opens SQLite (DESIGN_CAPTURE_HELPER_PROCESS §3.3).
+// These proxy to the main window's one connection; see src/overlay/db.ts.
 import {
   createBlock,
   deleteBlock,
+  listAllThreads,
+  listWorkspaces,
   togglePin as togglePinDb,
   updateBlockAnnotation,
-} from '@/lib/db/blocks';
+} from './db';
 import {
   DISARM_DISMISS_COMMAND,
   HIDE_OVERLAY_COMMAND,
   OVERLAY_ACTION_EVENT,
   OVERLAY_DISMISS_EVENT,
+  OVERLAY_LANGUAGE_EVENT,
   OVERLAY_NOTICE_EVENT,
   OVERLAY_SHOW_EVENT,
   OVERLAY_SOURCE_UPDATE_EVENT,
@@ -27,9 +32,7 @@ import {
   type OverlayUndoPayload,
 } from '@/lib/capture/overlayProtocol';
 import type { Thread } from '@/lib/db/threads';
-import { listAllThreads } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
-import { listWorkspaces } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { t, useT } from '@/lib/i18n';
@@ -151,10 +154,25 @@ export default function CaptureOverlay() {
   // is always visible regardless of attribution-line wrap or expansion state.
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // The overlay window has its own JS context, so it must load settings itself
-  // (language, …).
+  // The overlay runs in its own process and deliberately keeps no settings store of its
+  // own: a second writer to settings.json is the same class of hazard as a second writer
+  // to the database (DESIGN_CAPTURE_HELPER_PROCESS §3.3). Rust reads the user's language
+  // out of settings.json and pushes it with every show, so a switch in the main window
+  // reaches the next toast.
   useEffect(() => {
-    void useSettingsStore.getState().load();
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen<'zh' | 'en'>(OVERLAY_LANGUAGE_EVENT, (e) => {
+        useSettingsStore.setState({ language: e.payload });
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
   }, []);
 
   const refresh = async (): Promise<void> => {
