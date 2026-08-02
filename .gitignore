@@ -25,6 +25,8 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+# Signing/notarisation credentials — never committed, never pushed
+docs/ID.txt
 
 # Local-only files
 CLAUDE.md
