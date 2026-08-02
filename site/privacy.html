@@ -36,7 +36,7 @@ the Chinese original (switch language with the 中文 button above) is authorita
 
 <h2>The one-sentence version</h2>
 <p><strong>Your data stays on your computer — no exceptions.</strong> Spool is purely local
-software: capture, threading, packing, and search all happen on your machine. No account, no
+software: capture, filing, packing, and search all happen on your machine. No account, no
 upload, no telemetry. Spool ships with <strong>no built-in cloud AI</strong> and never contacts
 any server; the app's content-security policy (CSP) structurally forbids all external network
 connections from the webview.</p>
@@ -48,7 +48,7 @@ your content.</p>
 
 <h2>Where your data lives</h2>
 <ul>
-  <li>All content (workspaces, threads, blocks, annotations, attachment index) lives in a local
+  <li>All content (workspaces, projects, blocks, annotations, attachment index) lives in a local
       SQLite database: <code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
   <li>Interface settings live in <code>settings.json</code> in the same directory (it contains
       no secrets — Spool needs none).</li>
@@ -69,7 +69,7 @@ yourself</strong>:</p>
   <tr>
     <td>MCP service (Settings → General, off by default)</td>
     <td>The AI client you installed and configured yourself (Claude Desktop, Cursor, …)</td>
-    <td>Your AI client reads thread content over local inter-process communication; Spool
+    <td>Your AI client reads project content over local inter-process communication; Spool
         listens on no network port. Where those clients send content is governed by that
         client and your agreement with its provider.</td>
   </tr>
@@ -120,7 +120,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 
 <h2>数据存放在哪里</h2>
 <ul>
-  <li>所有内容（工作区、脉络、信息块、批注、附件索引）存放在本机的 SQLite 数据库：<code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
+  <li>所有内容（工作区、项目、信息块、批注、附件索引）存放在本机的 SQLite 数据库：<code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
   <li>界面设置存放在同目录的 <code>settings.json</code>（不含任何密钥——Spool 不需要）。</li>
   <li>附件本身不复制、不上传——Spool 只保存指向原文件的路径，以及（可选的）本地提取的文字内容。PDF/Word 的文字提取也完全在本机进行。</li>
   <li>数据库结构升级前会在同目录自动留存一份快照备份。</li>
@@ -134,7 +134,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
   <tr>
     <td>MCP 服务（设置 → 通用，默认关闭）</td>
     <td>你自己安装、自己配置的 AI 客户端（Claude Desktop、Cursor 等）</td>
-    <td>你的 AI 客户端通过本机进程间通信读取脉络内容；Spool 不监听任何网络端口。这些客户端把内容发给谁、如何使用，由该客户端及你与其服务商的协议决定。</td>
+    <td>你的 AI 客户端通过本机进程间通信读取项目内容；Spool 不监听任何网络端口。这些客户端把内容发给谁、如何使用，由该客户端及你与其服务商的协议决定。</td>
   </tr>
 </table>
 <p>换句话说：Spool 从不主动外发数据。当你把 AI 客户端接到 Spool 上时，是<strong>那个客户端</strong>在你的授权下读取内容——「允许 AI 写入」还需要单独开启第二个开关。</p>

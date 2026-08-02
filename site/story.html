@@ -62,11 +62,11 @@ and used to reject features ever since:</p>
 <ol>
   <li><strong>Capture must be zero-friction</strong> — one keypress, no decisions.</li>
   <li><strong>Local-first, private by default</strong> — the app makes no network requests at all.</li>
-  <li><strong>A thread is a log, not a chat</strong> — append-only, time-ordered, quiet.</li>
+  <li><strong>A project is a log, not a chat</strong> — append-only, time-ordered, quiet.</li>
   <li><strong>Retrieval is deterministic</strong> — packing and search never call AI or the network.</li>
   <li><strong>AI is a librarian, not an author</strong> — anything an AI files is attributed,
       append-only, and can never overwrite what the user wrote by hand.</li>
-  <li><strong>Exactly two tiers of structure</strong> — Workspace → Thread, no infinite nesting.</li>
+  <li><strong>Exactly two tiers of structure</strong> — Workspace → Project, no infinite nesting.</li>
 </ol>
 <p>The most consequential of these is №5. It later became an enforced write policy, a
 data-hygiene audit tool, and the reason the product could remove its built-in AI entirely.</p>
@@ -126,14 +126,14 @@ byte-identical output by golden tests.</p>
   <li><strong>Capture pipeline</strong> — a global double-tap ⌥ gesture (CGEventTap), a
       non-activating always-on-top overlay for confirmation, and automatic source detection
       down to the browser tab title.</li>
-  <li><strong>The packer</strong> — the crown feature — is a pure function from thread state to
-      Markdown. No AI, no network: the same thread packs to the same bytes on the same day.</li>
+  <li><strong>The packer</strong> — the crown feature — is a pure function from project state to
+      Markdown. No AI, no network: the same project packs to the same bytes on the same day.</li>
   <li><strong>MCP server</strong> — Spool exposes its library to AI clients over the Model
       Context Protocol via stdio: ten tools for reading, searching, filing, and auditing. Every
       AI write carries a source label; user-authored content is read-only to machines.</li>
 </ul>
 
-<img class="shot" src="assets/shots/mcp-filed-detail.png" alt="Detail of a Spool thread: the user's own note at 00:30, and directly below it an AI-written block at 14:56 badged Claude · MCP, carrying its own annotation and a citation line pointing back at the user's note" width="2000" loading="lazy">
+<img class="shot" src="assets/shots/mcp-filed-detail.png" alt="Detail of a Spool project: the user's own note at 00:30, and directly below it an AI-written block at 14:56 badged Claude · MCP, carrying its own annotation and a citation line pointing back at the user's note" width="2000" loading="lazy">
 <p class="shot-caption">Principle №5, enforced in the data model: an AI client filed the lower block over
 MCP. It is badged with its author, appended <em>below</em> the user's note rather than over it, and
 its citation line names the exact block it answers.</p>
@@ -176,12 +176,12 @@ the build, not by promises.</p>
 
 <h2 id="status">Where it stands</h2>
 <p>v0.3.0 is feature-complete and packaged for macOS: twelve implementation phases landed,
-from the data layer through capture hardening, full-text search, thread digests,
-cross-thread references, and the MCP surface. The logo — a spool seen from above, its thread
+from the data layer through capture hardening, full-text search, project digests,
+cross-project references, and the MCP surface. The logo — a spool seen from above, its thread
 pulling free — was designed in-house, down to the tray icon's alpha-channel template rendering.</p>
 
-<img class="shot" src="assets/shots/app-thread-after.png" alt="A Spool thread holding six blocks — a pinned goal, a captured job posting, an answer from an AI chat, the user's own note, a conclusion filed by an AI client and badged Claude · MCP, and an email" width="2420" loading="lazy">
-<p class="shot-caption">The current build: one thread holding five human-captured fragments and one
+<img class="shot" src="assets/shots/app-thread-after.png" alt="A Spool project holding six blocks — a pinned goal, a captured job posting, an answer from an AI chat, the user's own note, a conclusion filed by an AI client and badged Claude · MCP, and an email" width="2420" loading="lazy">
+<p class="shot-caption">The current build: one project holding five human-captured fragments and one
 conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</p>
 
 <p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.3.0 release and

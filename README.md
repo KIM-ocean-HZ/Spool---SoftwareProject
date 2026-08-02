@@ -15,7 +15,7 @@
   The download is a signed, notarized <code>.dmg</code>. Free, offline, no account.</sub>
 </p>
 
-At the moment you naturally produce a fragment of information — a good answer from an AI, a decision buried in an email, a link to a document, a half-formed thought — Spool lets you capture that fragment effortlessly, threads fragments together under a two-tier **Workspace → Thread** structure, and packs any thread into a paste-ready briefing on demand — so you can re-enter a project, or re-brief an AI, instantly.
+At the moment you naturally produce a fragment of information — a good answer from an AI, a decision buried in an email, a link to a document, a half-formed thought — Spool lets you capture that fragment effortlessly, files fragments under a two-tier **Workspace → Project** structure, and packs any project into a paste-ready briefing on demand — so you can re-enter a project, or re-brief an AI, instantly.
 
 ## Why it exists
 
@@ -26,14 +26,14 @@ Spool compresses "re-explaining" into "a single paste."
 ## The core loop
 
 ```
-   Capture  ──▶  Thread  ──▶  Pack  ──▶  (paste, re-enter)
+   Capture  ──▶  Project ──▶  Pack  ──▶  (paste, re-enter)
       ▲                                       │
       └───────────── days later ──────────────┘
 ```
 
-- **Capture** — a global shortcut grabs whatever is on your clipboard and writes it into the current thread. Rides existing Cmd+C muscle memory. No decisions at capture time. The confirmation overlay opens with the cursor already in a note box — type the thought that made you save this and press Enter, or click anywhere to skip. Your own note outlives the excerpt, and connected AIs treat it as the highest-signal line. The main window never has to come forward.
-- **Thread** — an append-only timeline of fragments under one project. Two tiers only: Workspace (big topic) → Thread (small project). No infinite nesting. On open the feed lands at the newest blocks — they ARE "where you left off," no manual status note to maintain.
-- **Pack** — one click assembles a paste-ready Markdown briefing of the thread. Pure string assembly, no AI in the hot path, fully deterministic.
+- **Capture** — a global shortcut grabs whatever is on your clipboard and writes it into the current project. Rides existing Cmd+C muscle memory. No decisions at capture time. The confirmation overlay opens with the cursor already in a note box — type the thought that made you save this and press Enter, or click anywhere to skip. Your own note outlives the excerpt, and connected AIs treat it as the highest-signal line. The main window never has to come forward.
+- **Project** — an append-only timeline of fragments. Two tiers only: Workspace (big topic) → Project (one piece of work). No infinite nesting. On open the feed lands at the newest blocks — they ARE "where you left off," no manual status note to maintain.
+- **Pack** — one click assembles a paste-ready Markdown briefing of the project. Pure string assembly, no AI in the hot path, fully deterministic.
 
 ## Status
 
@@ -47,24 +47,24 @@ All twelve phases of the implementation roadmap are landed:
 
 | Phase | Surface |
 |---|---|
-| 1 | Data layer (SQLite + workspaces / threads / blocks / attachments + FTS5) |
-| 2 | UI skeleton + thread view |
+| 1 | Data layer (SQLite + workspaces / projects / blocks / attachments + FTS5) |
+| 2 | UI skeleton + project view |
 | 3 | Global shortcut capture |
 | 4 | Context packer (the crown feature) — pure function, paste-ready Markdown |
 | 5 | Capture hardening: always-on-top overlay window, double-tap ⌥ trigger, editable source badge, browser tab-title auto-detection |
 | 6 | Block workbench: file / folder / URL attachments, inline edit, annotations, smart truncation, drag-to-attach |
 | 7 | Full-text search: FTS5 trigram tokenizer (Chinese-correct) + short-query LIKE fallback, contextual three-line snippets |
 | 8 | Deadlines, active / parked / done status, three-section sidebar (summary + cross-workspace focus + workspace tree), drag-between-workspaces, shortcut configuration UI |
-| 9 | Thread completion + digest view (conclusion · pinned blocks · files & links) |
-| 10 | @-mention references between threads in the same workspace |
+| 9 | Project completion + digest view (conclusion · pinned blocks · files & links) |
+| 10 | @-mention references between projects in the same workspace |
 | 11 | ~~Optional AI layer~~ — removed 2026-07-09: Spool itself ships zero AI; cowork happens through the MCP server (below) |
-| 12 | Settings panel (shortcuts, language, MCP hookup, autostart, clear data), unified toast surface, tail-window for long threads, packaging |
+| 12 | Settings panel (shortcuts, language, MCP hookup, autostart, clear data), unified toast surface, tail-window for long projects, packaging |
 
 ## Design principles (non-negotiable)
 
 1. Capture must be zero-friction — one keypress, no decisions.
 2. Local-first, private by default — Spool makes no network requests at all; the only way data leaves is your own MCP client reading it, behind two opt-in switches.
-3. A thread is a log, not a chat — append-only, time-ordered, quiet.
+3. A project is a log, not a chat — append-only, time-ordered, quiet.
 4. Retrieval is deterministic — pack and search never call AI or the network.
 5. AI is a librarian, not an author — anything an AI files through MCP is attributed, append-only, and can never overwrite what you wrote by hand.
 6. Exactly two tiers of structure — no infinite nesting.
@@ -95,20 +95,20 @@ The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Acc
 
 ## AI via MCP (optional, no keys, no accounts)
 
-Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your threads directly.
+Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly.
 
 - **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). A 「复制使用提示」 button gives you a paste-ready briefing that teaches the AI how to use Spool well.
-- **Read tools**: list threads (with one-line summaries and read-budget hints), a cross-thread digest of recent activity, full-text search, near-duplicate detection, block paging, the same deterministic pack the GUI produces, and a read-only library hygiene checkup.
-- **Write tools** (a second, separate consent): create a thread, append a block (optionally citing the block it builds on), refresh a thread's one-line summary. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand.
+- **Read tools**: list projects (with one-line summaries and read-budget hints), a cross-project digest of recent activity, full-text search, near-duplicate detection, block paging, the same deterministic pack the GUI produces, and a read-only library hygiene checkup.
+- **Write tools** (a second, separate consent): create a project, append a block (optionally citing the block it builds on), refresh a project's one-line summary. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand.
 
 ### What to say once connected
 
-Each phrase maps to one tool — a fresh install seeds a tutorial thread with the same list, and Settings → MCP keeps it under 「示例用法」:
+Each phrase maps to one tool — a fresh install seeds a tutorial project with the same list, and Settings → MCP keeps it under 「示例用法」:
 
-- *"Help me review the ⟨…⟩ thread, then quiz me on it"* — reads the whole thread (`get_pack`)
-- *"What have I been working on this week?"* — cross-thread digest (`get_digest`)
+- *"Help me review the ⟨…⟩ project, then quiz me on it"* — reads the whole project (`get_pack`)
+- *"What have I been working on this week?"* — cross-project digest (`get_digest`)
 - *"File this conclusion into ⟨…⟩, with a note on why it matters"* — archives it (`add_block`; needs AI writes on)
-- *"Which thread did I file this topic under?"* — library-wide search (`search_blocks`)
+- *"Which project did I file this topic under?"* — library-wide search (`search_blocks`)
 - *"Check whether I captured anything twice"* — duplicate report (`find_similar_blocks`)
 - *"Give my library a checkup"* — hygiene report (`check_library`)
 
@@ -118,10 +118,10 @@ Each phrase maps to one tool — a fresh install seeds a tutorial thread with th
 |---|---|
 | Double-tap ⌥ | Capture clipboard, then just type to leave a note (macOS only, system-global) |
 | ⌘⇧F | Global search |
-| ⌘⇧P | Pack the active thread |
-| ⌘N | New thread in the current workspace |
+| ⌘⇧P | Pack the active project |
+| ⌘N | New project in the current workspace |
 | ⌘, | Settings |
-| @ | Mention another thread inside the composer |
+| @ | Mention another project inside the composer |
 | Enter / Shift+Enter | Send / newline in the composer |
 | Esc | Dismiss any overlay, modal, or inline edit |
 
@@ -150,23 +150,23 @@ Taken with a library built purely for demonstration — the projects and notes i
 
 **One project, five fragments.** A goal you set, a job posting you read, an answer from an AI chat, a decision of your own, an email from a recruiter — each keeping its time and its source.
 
-![The Spool main window: workspaces and projects in the sidebar, and a thread of five fragments with their times, sources and annotations](docs/screenshots/app-project.png)
+![The Spool main window: workspaces and projects in the sidebar, and a project of five fragments with their times, sources and annotations](docs/screenshots/app-project.png)
 
-**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the thread it went to, a note box ready for the thought you had, and undo. The main window never comes forward.
+**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the project it went to, a note box ready for the thought you had, and undo. The main window never comes forward.
 
-![Spool's corner overlay: the first words of the saved fragment, the thread Work / Job search it was filed under, and an undo button](docs/screenshots/capture-toast.png)
+![Spool's corner overlay: the first words of the saved fragment, the project Work / Job search it was filed under, and an undo button](docs/screenshots/capture-toast.png)
 
-**Pack** turns the thread into paste-ready Markdown: your own words first, sources kept as sources, anything an AI wrote marked so you can check it.
+**Pack** turns the project into paste-ready Markdown: your own words first, sources kept as sources, anything an AI wrote marked so you can check it.
 
-![The pack dialog over a thread: the assembled briefing as plain text, with scope choices and a copy button](docs/screenshots/app-pack.png)
+![The pack dialog over a project: the assembled briefing as plain text, with scope choices and a copy button](docs/screenshots/app-pack.png)
 
 **A finished project**, condensed to its conclusion and the fragments that mattered.
 
-![A completed thread's digest: the conclusion in a box, and the two highlighted fragments below](docs/screenshots/app-digest.png)
+![A completed project's digest: the conclusion in a box, and the two highlighted fragments below](docs/screenshots/app-digest.png)
 
-**Through MCP, your own AI reads the library directly** — here it answers from workspaces and threads on the Mac, without a pack or a paste.
+**Through MCP, your own AI reads the library directly** — here it answers from workspaces and projects on the Mac, without a pack or a paste.
 
-![An AI client listing the Spool library: workspaces for work, study and life, each with its threads and note counts](docs/screenshots/mcp-library.png)
+![An AI client listing the Spool library: workspaces for work, study and life, each with its projects and note counts](docs/screenshots/mcp-library.png)
 
 **And when it files something back, it signs its name.** The AI's block is appended *below* the user's note — never over it — labelled `Claude · MCP`, with a `↩` line pointing at the exact fragment it answers.
 
