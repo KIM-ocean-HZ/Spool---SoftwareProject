@@ -309,7 +309,11 @@ const EN: Record<string, string> = {
   '复制使用提示': 'Copy usage briefing',
   '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨脉络问题先用 get_digest；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。':
     'I manage my project context in Spool. You can read and write it through its MCP tools: list_threads to survey my projects; for cross-thread questions like "what have I been working on" start with get_digest; search_blocks to locate which thread a topic lives in; get_pack for the full briefing (check approx_pack_chars first; prefer range=pinned for big threads). When I ask you to remember/archive a conclusion, file it with add_block; start new topics with create_thread; refresh a thread’s one-line summary with set_thread_summary after new material lands; find_similar_blocks helps spot duplicate captures; when I ask for a checkup, run check_library for a read-only report. Always refer to threads by their titles when talking to me — never output internal ids. Everything you write is automatically labeled with your source.',
-  '示例用法：接入后可以对 AI 说什么': 'Examples: what to say to the AI once connected',
+  '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
+  '在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
+    'Where to ask: in the chat box for Claude Desktop / ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
+  '不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。':
+    'Nothing to do back in Spool — once connected, Spool just hands the notes over.',
   '「帮我复习〈某条脉络〉，再考我两个问题」': '"Help me review the ⟨…⟩ thread, then quiz me on it"',
   '——读整条脉络（get_pack）': ' — reads the whole thread (get_pack)',
   '「我最近一周在忙什么？」': '"What have I been working on this week?"',

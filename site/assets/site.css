@@ -437,6 +437,38 @@ p { margin: 0 0 1rem; }
   padding: 0.1rem 0.45rem;
 }
 
+/* ---------- the compounding pair (illustration, not a screenshot) ---------- */
+.growth-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; align-items: start; }
+@media (max-width: 700px) { .growth-pair { grid-template-columns: 1fr; } }
+.mock-head {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.g-row { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.32rem 0; color: var(--ink-2); }
+.g-when { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); flex: none; min-width: 2.4rem; }
+.g-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.g-more { font-size: 0.8rem; color: var(--muted); padding-top: 0.5rem; }
+
+/* ---------- MCP client line-up (names only — see docs/DESIGN_MCP_ECOSYSTEM.md §2) ---------- */
+.client-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; }
+@media (max-width: 700px) { .client-groups { grid-template-columns: 1fr; } }
+.client-groups h3 { display: flex; align-items: center; gap: 0.55rem; font-size: 1.15rem; }
+.cg-icon { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.client-groups .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.9rem 0; }
+.client-chip {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  padding: 0.24rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.6);
+}
+.lineup-note { font-size: 0.9rem; margin-top: 1.4rem; }
+
 /* ---------- screenshots ---------- */
 .shot {
   border-radius: var(--r-lg);
@@ -465,7 +497,7 @@ p { margin: 0 0 1rem; }
 .capture-chip { position: absolute; left: 0.8rem; bottom: 0.8rem; box-shadow: var(--shadow-card); }
 .capture-scene + .shot-caption { text-align: left; }
 /* 03 · PASTE — the real Pack dialog, portrait, kept at readable width */
-.pack-shot { max-width: 23rem; }
+.pack-shot { max-width: min(23rem, 100%); }
 .pack-shot + .shot-caption { max-width: 23rem; margin-left: auto; margin-right: auto; }
 
 .shot-group { margin-top: 2rem; }
@@ -486,7 +518,9 @@ p { margin: 0 0 1rem; }
 .shot-tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .shot-panel[hidden] { display: none; }
 /* MCP screenshots read fine narrower than the full wrap — don't fill the screen */
-#mcp .shot { max-width: 52rem; }
+/* min() keeps the narrow-screen cap: a bare 52rem here beat the generic
+   `.shot { max-width: 100% }` and scrolled the page sideways on phones. */
+#mcp .shot { max-width: min(52rem, 100%); }
 
 /* prev/next arrows on tabbed screenshot groups that ask for them */
 .shot-group[data-arrows] { position: relative; }

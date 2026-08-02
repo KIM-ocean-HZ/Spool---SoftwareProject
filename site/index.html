@@ -37,12 +37,13 @@
   </div>
   <h1><span data-i18n="hero-h1">Never explain your<br>project twice.</span><span class="zh">思簿</span></h1>
   <p class="tagline" data-i18n="hero-tag">Spool remembers the details of everything you are working on.</p>
-  <p class="sub" data-i18n="hero-sub">Copy anything worth keeping — a good answer from an AI, a line in an email,
-  a thought before it slips away. One key saves it under the right project, together with where it
-  came from. Later, one click turns the whole project into text you can paste into any AI.</p>
+  <p class="sub" data-i18n="hero-sub">Copy anything worth keeping and tap <span class="kbd">⌥</span> twice — it lands
+  in the right project, with its source. Next time you open an AI chat, one click hands over the
+  whole project instead of you typing the background again.
+  <strong>It works the same on your first afternoon as on your hundredth day.</strong></p>
   <div class="cta-row">
-    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
-    <a class="btn btn-ghost" href="#demo" data-i18n="try-btn">Try it right here ↓</a>
+    <a class="btn btn-primary" href="#demo" data-i18n="try-btn">See it work — no download needed</a>
+    <a class="btn btn-ghost" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
   </div>
   <p class="fineprint" data-i18n="fineprint">Free · macOS (Apple Silicon) · Works offline · No account · Nothing is tracked</p>
 </section>
@@ -50,6 +51,17 @@
 <svg class="hero-thread" viewBox="0 0 64 88" aria-hidden="true">
   <path d="M32 2 C 32 26, 16 30, 16 46 C 16 64, 32 64, 32 86"/>
 </svg>
+
+<section class="alt" id="problem">
+  <div class="wrap center reveal">
+    <div class="kicker" data-i18n="moment-k">The two minutes you lose, over and over</div>
+    <p class="problem" data-i18n="moment-p">Monday, you open a new chat and type it all out: what the project
+    is, who it is for, what you already decided, what you tried and dropped. Wednesday, another chat —
+    you type it again, shorter this time, leaving out the part that mattered.
+    <em>With Spool it was all saved while you worked. One click, one paste, and the AI starts from
+    where you actually are.</em></p>
+  </div>
+</section>
 
 <section id="demo">
   <div class="wrap">
@@ -68,12 +80,51 @@
   </div>
 </section>
 
-<section class="alt" id="problem">
-  <div class="wrap center reveal">
-    <div class="kicker" data-i18n="prob-k">Why it exists</div>
-    <p class="problem" data-i18n="prob-p">An AI forgets your project the moment you close the tab, so you explain it
-    again. And again. Meanwhile the details sit scattered across chats, emails and tabs you closed
-    weeks ago. <em>Spool keeps them in one place, so one paste brings any AI up to speed.</em></p>
+<section class="alt" id="who-for">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="kicker" data-i18n="who-k">Who it is for</div>
+      <h2 data-i18n="who-h">Is this you?</h2>
+    </div>
+    <div class="grid-3 reveal-stagger">
+      <div class="card">
+        <h3 data-i18n="w1-h">Job hunting</h3>
+        <p data-i18n="w1-p">The posting, what you decided about your résumé, the recruiter's email. One paste,
+        and the AI writes a cover letter that knows your actual history.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="w2-h">Taking a course</h3>
+        <p data-i18n="w2-p">The line in the lecture you did not get, and the explanation that finally made it
+        click. One paste, and the AI quizzes you on your own material.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="w3-h">Paperwork that drags on</h3>
+        <p data-i18n="w3-p">A visa, a move, an insurance claim: the rule you looked up, the number someone gave
+        you on the phone, the deadline. One paste, and nothing slips.</p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="w4-h">Building something on the side</h3>
+        <p data-i18n="w4-p">The bug you already ruled out, the reason you picked this library. One paste, and a
+        new chat does not walk you in circles.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="nothing-to-learn">
+  <div class="wrap reveal">
+    <div class="kicker" data-i18n="learn-k">Before you worry about the learning curve</div>
+    <h2 data-i18n="learn-h">There is nothing to learn.</h2>
+    <ul class="privacy-points">
+      <li data-i18n="lp1"><strong>One key you already press.</strong> You copy things all day. Add ⌥⌥ and it is
+      kept — same hands, same second, no window to switch to.</li>
+      <li data-i18n="lp2"><strong>Nothing to file.</strong> No folders, no tags, no tidying up. Two levels, and
+      they are already there.</li>
+      <li data-i18n="lp3"><strong>Nothing to move.</strong> Keep your notes app, your docs, your inbox. Spool sits
+      beside them and catches the bits that would otherwise be gone.</li>
+      <li data-i18n="lp4"><strong>Nothing to undo.</strong> It all lives in one file on your Mac. Change your mind,
+      delete it, and nothing else in your life changes.</li>
+    </ul>
   </div>
 </section>
 
@@ -195,16 +246,76 @@
   </div>
 </section>
 
+<section class="alt" id="compounding">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="kicker" data-i18n="grow-k">And then it compounds</div>
+      <h2 data-i18n="grow-h">Week one saves you typing.<br>Week six saves you the thing you forgot.</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="grow-p">Day one it already works:
+      three notes, one paste, and you skip retyping the background. Six weeks later the same project
+      holds the decision you no longer remember making, the link you would never find again, and the
+      reason you ruled something out — and all of it goes across in that same single click. Nothing
+      about how you use it changed. The pile just got deeper.</p>
+    </div>
+    <div class="growth-pair reveal">
+      <div class="mock">
+        <div class="mock-head" data-i18n="g1-h">Day one · 3 notes</div>
+        <div class="g-row"><span class="g-when">Mon</span> <span data-i18n="g1a">What this project has to end up as</span></div>
+        <div class="g-row"><span class="g-when">Mon</span> <span data-i18n="g1b">A page you read, kept with its link</span></div>
+        <div class="g-row"><span class="g-when">Tue</span> <span data-i18n="g1c">The first thing you decided</span></div>
+      </div>
+      <div class="mock">
+        <div class="mock-head" data-i18n="g2-h">Six weeks in · 21 notes</div>
+        <div class="g-row"><span class="g-when">wk 2</span> <span data-i18n="g2a">The option you ruled out — and why</span> <i class="g-mark" aria-hidden="true"></i></div>
+        <div class="g-row"><span class="g-when">wk 3</span> <span data-i18n="g2b">A number someone gave you on the phone</span> <i class="g-mark" aria-hidden="true"></i></div>
+        <div class="g-row"><span class="g-when">wk 4</span> <span data-i18n="g2c">The answer that finally worked</span></div>
+        <div class="g-row"><span class="g-when">wk 5</span> <span data-i18n="g2d">A deadline buried in an email</span> <i class="g-mark" aria-hidden="true"></i></div>
+        <div class="g-row"><span class="g-when">wk 6</span> <span data-i18n="g2e">What you told yourself to do next</span></div>
+        <div class="g-more" data-i18n="g2more">…and 16 more</div>
+      </div>
+    </div>
+    <p class="shot-caption" data-i18n="grow-cap">An illustration, not a screenshot. The marked lines are the ones
+    you would never have remembered on your own — and they go into the paste with everything else.</p>
+  </div>
+</section>
+
 <section id="mcp">
   <div class="wrap">
     <div class="center reveal">
       <div class="kicker" data-i18n="mcp-k">MCP — beyond pasting</div>
       <h2 data-i18n="mcp-h">Let your AI read your notes directly</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">A pack is one paste. With the
-      Model Context Protocol, the AI apps you already use can open your notes whenever they need
-      them: read weeks of context, search every project, and put what they find back in the right
-      place. Ten tools, two switches you turn on yourself, and no server anywhere.</p>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">Pasting works everywhere.
+      The AI apps you already use can do one better: with your permission they open Spool themselves
+      — read weeks of context, search every project, and file what they find back in the right place.
+      <em>You stop copying, and start asking.</em> Two switches you turn on yourself, and no server
+      anywhere.</p>
     </div>
+
+    <div class="client-groups reveal">
+      <div class="card">
+        <h3>
+          <svg class="cg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+          <span data-i18n="cg1-h">Apps you chat with</span>
+        </h3>
+        <div class="chips">
+          <span class="client-chip">Claude Desktop</span><span class="client-chip">ChatGPT (desktop)</span>
+        </div>
+        <p data-i18n="cg1-p">You ask in the chat box, the same as always.</p>
+      </div>
+      <div class="card">
+        <h3>
+          <svg class="cg-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7l4 4-4 4"/><path d="M12 16h7"/></svg>
+          <span data-i18n="cg2-h">Tools you code in</span>
+        </h3>
+        <div class="chips">
+          <span class="client-chip">Claude Code</span><span class="client-chip">Cursor</span><span class="client-chip">Visual Studio Code</span><span class="client-chip">Windsurf</span>
+        </div>
+        <p data-i18n="cg2-p">You ask in the editor's AI panel, or in the terminal.</p>
+      </div>
+    </div>
+    <p class="center muted lineup-note" data-i18n="cg-note">Either way you stay where you are — Spool just hands the
+    notes over. Connect it once in Spool's settings, restart that app, and it can read your projects
+    from then on. Not on the list? Copy one short setting out of Spool and paste it into your app.</p>
 
     <div class="reveal shot-group" data-arrows>
       <div class="shot-tabs" role="tablist">
@@ -252,6 +363,16 @@
       <li data-i18n="pp4">Notes only leave when your own AI app reads them, and only after you switch that on</li>
     </ul>
     <p><a href="privacy.html" data-i18n="priv-link">Read the full privacy policy →</a></p>
+  </div>
+</section>
+
+<section id="maker">
+  <div class="wrap reveal">
+    <div class="kicker" data-i18n="maker-k">Who made this</div>
+    <p class="measure" data-i18n="maker-p">Spool is made by one person, in the open. The whole build is written
+    up — including the day I wiped my own database, and what I changed so it cannot happen again.
+    No company behind it, no account to create, nothing to cancel.</p>
+    <p><a href="story.html" data-i18n="maker-link">Read how it was built →</a></p>
   </div>
 </section>
 

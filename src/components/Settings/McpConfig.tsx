@@ -21,7 +21,9 @@ const MCP_CLIENTS: { key: McpClient; label: string }[] = [
   { key: 'claude', label: 'Claude Desktop' },
   { key: 'claude-code', label: 'Claude Code' },
   { key: 'cursor', label: 'Cursor' },
-  { key: 'vscode', label: 'VS Code' },
+  // Microsoft's brand rules forbid the "VS Code" / "vscode" short forms; the full
+  // product name is the only permitted spelling (docs/DESIGN_MCP_ECOSYSTEM.md §3.4).
+  { key: 'vscode', label: 'Visual Studio Code' },
   { key: 'windsurf', label: 'Windsurf' },
   { key: 'codex', label: 'ChatGPT / Codex' },
 ];
@@ -237,10 +239,18 @@ export default function McpConfig() {
             className="text-xs text-muted transition-colors hover:text-accent"
           >
             {examplesOpen ? '▾ ' : '▸ '}
-            {t('示例用法：接入后可以对 AI 说什么')}
+            {t('示例用法：接好后在哪儿说、说什么')}
           </button>
           {examplesOpen && (
             <ul className="mt-1.5 space-y-1.5 pl-4 text-xs leading-relaxed text-ink-2">
+              {/* 2026-08-02 (Ocean): the confusion this answers is "I connected VS Code,
+                  now what do I do inside Spool?" — nothing; you go back to the editor.
+                  The seeded MCP tutorial can never reach an existing library (5/29 red
+                  line), so this line is the only place veterans meet it. */}
+              <li className="-ml-4 list-none pb-0.5 text-muted">
+                {t('在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。')}
+                <span className="text-ink-2">{t('不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。')}</span>
+              </li>
               <li>
                 {t('「帮我复习〈某条脉络〉，再考我两个问题」')}
                 <span className="text-muted">{t('——读整条脉络（get_pack）')}</span>
