@@ -20,8 +20,8 @@
 骨架/父死自退 ✅、z-order 主窗一格没动 ✅、`lsof` 只有主进程持有库 ✅、
 删压低机制 ✅ 但**行为回归只能真手指按**。
 
-⚠️ **Ocean 本机 `/Applications/Spool.app` 还是 `a3cfba2` 那批(旧架构,主窗会沉底)。**
-本窗的改动**还没装机**。换装需 Ocean 明示,步骤见 §4。
+**已换装**:`/Applications/Spool.app` 现在就是 `74b87f1` 这批(2026-08-02 11:16,Ocean 明示),
+两个授权都活着,辅助进程正常拉起 —— 见 §4。**正在等 Ocean 真手指测(§1)。**
 
 ---
 
@@ -139,9 +139,33 @@ ChatGPT · Codex**,最好带各自 logo,一眼看懂。
 
 ---
 
-## 4. 换装 `/Applications/Spool.app`(需 Ocean 明示)
+## 4. 换装记录(2026-08-02 11:16,Ocean 明示)—— 已完成
 
-步骤和上两次一字不差(旧 HANDOFF §4.6/§4.7 已验过两遍),**关键是签名身份必须一模一样**
+`/Applications/Spool.app` 现在是 `74b87f1`。签名身份一字未改
+(`com.oceanjin.spool` / `Developer ID Application: Hanze JIN (Q5Y5JRXZ58)`),
+`codesign --verify --strict` 通过且 **satisfies its Designated Requirement** ——
+所以两个 TCC 授权都活着,启动日志两行齐了:
+
+```
+[overlay] helper started (pid 26904)
+[double-tap] installed at HID/active (consumed double-taps are deleted from the stream …)
+```
+
+- 换装前真库快照:`~/Desktop/spool-snapshot-20260802-111557-pre-helperproc-install.db`
+  (`integrity_check ok`,v8,15 块 / 3 脉络 / 1 工作区)。**换装后真库复查一模一样**,
+  没有新的 `pre-migration` 文件,任何迁移分支都没触发。
+- 旧版进废纸篓 `Spool-0.3.0-pre-helperproc-20260802-111658.app`。
+- `mdfind` 认领者两个(`/Applications/Spool.app` + 构建产物),**没留下「Spool 2.app」**。
+- 进程树对了:主进程 26893,辅助进程 26904 是它的子进程;
+  `lsappinfo` 报辅助进程 `ApplicationType=UIElement`(= Accessory,**Dock 里不会多一个图标**),
+  主进程是 `Foreground`。
+- Claude Desktop 那三个 `--mcp` 子进程没动(持有旧 inode,继续工作到自己退出为止)。
+- ⚠️ **未公证**(公证要 App 专用密码,硬规则 8 不落盘);本地 `ditto` 进去的拷贝没有
+  quarantine 标记,启动不受影响;**对外发版必须补 RELEASE.md §2 第 5 步。**
+
+### 4.1 下次换装照抄这套
+
+**关键是签名身份必须一模一样**
 (TCC 的 csreq 绑代码签名,换签名 = 两个授权当场失效,memory `isolated-verify-workflow` §6):
 
 ```bash
