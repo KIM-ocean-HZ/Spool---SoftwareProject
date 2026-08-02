@@ -57,9 +57,15 @@ const EN: Record<string, string> = {
   '界面出错了': 'Something went wrong',
   '重新加载': 'Reload',
 
-  // Input Monitoring onboarding banner (2026-07-07; stale-grant recovery 2026-07-08)
-  '双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开':
-    'Double-tap ⌥ capture needs the Input Monitoring permission — after granting, fully quit Spool (tray icon → Quit) and reopen',
+  // Input Monitoring onboarding banner (2026-07-07; stale-grant recovery 2026-07-08;
+  // rewritten 2026-08-02 for DESIGN_FIRST_RUN 拍板点 3/4 — the resting line names what
+  // still works, and the quit-and-reopen instruction waits until the user has gone for
+  // the grant)
+  '想在别的 app 里复制就存，需要开一个权限。在那之前 Spool 照样能用——在下面写笔记，或者在 Spool 里复制后双击 ⌥。':
+    'Capturing from other apps needs one permission. Until then Spool still works — write notes below, or copy inside Spool and double-tap ⌥.',
+  '打开捕捉': 'Turn on capture',
+  '在系统设置里勾选 Spool，然后完全退出 Spool（托盘图标 → 退出）再重新打开。没看到系统弹窗？点右边打开设置。':
+    'Tick Spool in System Settings, then fully quit Spool (tray icon → Quit) and reopen. No system dialog? Open Settings on the right.',
   '已授权 — 重启 Spool 后生效': 'Granted — takes effect after Spool restarts',
   '立即重启 Spool': 'Restart Spool now',
   '已授权却仍看到本条？旧授权可能已失效：在系统设置的列表中选中 Spool 按 − 删除，完全退出并重新打开 Spool，允许新弹窗后再退出重启一次。':
@@ -260,6 +266,15 @@ const EN: Record<string, string> = {
   '捕捉第一条信息': 'to capture your first piece',
   '捕捉后可以顺手留一句想法；或在下方直接写。':
     'Each capture invites a quick note; or write below.',
+  // Empty state without the Input Monitoring grant (DESIGN_FIRST_RUN 拍板点 2) — the
+  // draft box is the one path that works with no permission at all.
+  '先在下面写一条试试——打字、按 Enter 就存下来了，不需要任何权限。':
+    "Try one below — type, press Enter, it's saved. No permission needed.",
+  '想在别的 app 里复制就能存？那一步需要打开输入监听权限。':
+    'Want copying in any app to save here? That step needs the Input Monitoring permission.',
+  // One-time line under the first block a new user ever captured (拍板点 5)
+  '这就是全部操作了。攒够几条，按 ⌘⇧P 打包粘给 AI。':
+    "That's the whole gesture. Once you have a few, press ⌘⇧P to pack them for your AI.",
   '设置截止日期': 'Set deadline',
   '截止日期': 'Deadline',
   '排序：按时间 — 点击改为按来源': 'Sorted by time — click for by source',

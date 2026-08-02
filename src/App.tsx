@@ -6,7 +6,7 @@ import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import ToastRack from '@/components/ui/Toast';
-import { setSeedLanguage } from '@/lib/db/client';
+import { getFirstRunThreadId, setSeedLanguage } from '@/lib/db/client';
 import { t } from '@/lib/i18n';
 import { useCapture } from '@/hooks/useCapture';
 import { useOverlayDbHost } from '@/hooks/useOverlayDbHost';
@@ -16,7 +16,7 @@ import { useUndo } from '@/hooks/useUndo';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
+import { selectAllThreadsFlat, selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
 export default function App() {
@@ -54,13 +54,26 @@ export default function App() {
       setSeedLanguage(useSettingsStore.getState().language);
       await loadWorkspaces();
       await loadThreads();
+      // 拍板点 5: only a launch that created the database arms the one-time closing
+      // line, so an existing library never sees it (DESIGN_FIRST_RUN §4).
+      if (getFirstRunThreadId()) {
+        await useSettingsStore.getState().update({ firstCaptureHintPending: true });
+      }
     })();
   }, [loadSettings, loadWorkspaces, loadThreads]);
 
+  // 拍板点 1: a first launch opens on the tutorial thread — the 6 blocks written for
+  // exactly this moment — instead of the empty Unsorted thread that used to be the
+  // first thing a stranger saw. Every later launch (and this one, once the user has
+  // deleted the tutorial) falls back to the capture target as before.
   useEffect(() => {
-    if (!activeId && captureTargetId) {
-      select(captureTargetId);
-    }
+    if (activeId) return;
+    const firstRun = getFirstRunThreadId();
+    const stillThere =
+      firstRun !== null &&
+      selectAllThreadsFlat(useThreadsStore.getState()).some((th) => th.id === firstRun);
+    const next = stillThere ? firstRun : captureTargetId;
+    if (next) select(next);
   }, [activeId, captureTargetId, select]);
 
   useEffect(() => {

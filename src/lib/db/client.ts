@@ -356,7 +356,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。首次使用会请求「输入监听」权限。',
+            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
         },
         {
           content:
@@ -428,7 +428,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target thread. The first capture asks for the Input Monitoring permission.',
+            'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target thread. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
         },
         {
           content:
@@ -499,7 +499,7 @@ const insertSeedThread = async (
   thread: SeedThread,
   source: string,
   at: number,
-): Promise<void> => {
+): Promise<string> => {
   const threadId = nanoid();
   await db.execute(
     `INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
@@ -515,7 +515,15 @@ const insertSeedThread = async (
       [nanoid(), threadId, b.content, b.annotation ?? null, source, b.pinned ? 1 : 0, at + i],
     );
   }
+  return threadId;
 };
+
+// DESIGN_FIRST_RUN 拍板点 1: the tutorial thread this launch just seeded. Non-null
+// only in the process that created the database — that is exactly "this is a first
+// launch", with no extra state to persist and no way for it to leak into a later
+// session. App reads it to open there instead of the empty Unsorted thread.
+let firstRunThreadId: string | null = null;
+export const getFirstRunThreadId = (): string | null => firstRunThreadId;
 
 const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<void> => {
   const ws = await db.select<{ id: string }[]>(
@@ -525,7 +533,7 @@ const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<voi
   if (!wsId) return;
   const copy = TUTORIAL[lang];
   const now = Date.now();
-  await insertSeedThread(db, wsId, copy.gesture, copy.source, now);
+  firstRunThreadId = await insertSeedThread(db, wsId, copy.gesture, copy.source, now);
   // The MCP thread is timestamped 10s earlier so the gesture tutorial stays on top of
   // the sidebar.
   await insertSeedThread(db, wsId, copy.mcp, copy.source, now - 10_000);

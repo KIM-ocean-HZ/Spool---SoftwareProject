@@ -12,7 +12,8 @@ type PersistableKey =
   | 'autoExtractAttachments'
   | 'mcpEnabled'
   | 'mcpWriteEnabled'
-  | 'language';
+  | 'language'
+  | 'firstCaptureHintPending';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -35,6 +36,11 @@ interface SettingsState {
   // switches every surface via the lib/i18n dictionary. Persisted only once the user
   // picks one by hand; other windows re-read on change.
   language: 'zh' | 'en';
+  // DESIGN_FIRST_RUN 拍板点 5: armed by the launch that creates the database, spent by
+  // the first successful capture (captureStore.noteCapture) — that pairing is what
+  // keeps the one-time closing line away from existing libraries, which never had the
+  // key written. Default false, so "no key" means "don't show it".
+  firstCaptureHintPending: boolean;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // Reflects the OS launch-agent registration; the OS is the source of truth, so
@@ -80,6 +86,7 @@ const KEYS: PersistableKey[] = [
   'mcpEnabled',
   'mcpWriteEnabled',
   'language',
+  'firstCaptureHintPending',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -100,6 +107,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   mcpEnabled: false,
   mcpWriteEnabled: false,
   language: detectSystemLanguage(),
+  firstCaptureHintPending: false,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

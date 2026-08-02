@@ -220,6 +220,10 @@ export function useCapture(): void {
             .workspaces.find((w) => w.id === result.workspaceId);
 
           useCaptureStore.getState().setFlash(result.threadId, result.block.id);
+          // 拍板点 5: first capture ever on a fresh install → arm the one-time closing
+          // line under that block. No-op on every later capture and on every library
+          // that predates the flag.
+          useCaptureStore.getState().noteCapture(result.block.id);
 
           // Wait briefly for the frontmost query so Rust can re-activate that app
           // after show(). If it hasn't answered yet, ship the show without — better

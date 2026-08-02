@@ -36,15 +36,20 @@
 //! events once the user grants Spool **Input Monitoring** (TCC). Without the grant,
 //! tap creation still SUCCEEDS — macOS just silently delivers only this process's own
 //! events, which is exactly "double-tap works inside Spool, dead everywhere else".
-//! macOS does NOT prompt on tap creation for a listen-only tap, so install() now
-//! preflights via CGPreflightListenEventAccess and fires the one-shot system prompt
-//! via CGRequestListenEventAccess when missing. The frontend asks
+//! macOS does NOT prompt on tap creation for a listen-only tap, so install()
+//! preflights via CGPreflightListenEventAccess. The ACTIVE tap additionally needs
+//! **Accessibility** (AXIsProcessTrusted), preflighted the same way. The frontend asks
 //! `input_monitoring_granted` (lib.rs) and shows a quiet banner pointing at System
 //! Settings — a fresh grant only takes effect on the next launch, the already-created
-//! tap stays deaf until restart. The ACTIVE tap additionally needs **Accessibility**
-//! (AXIsProcessTrusted); install() preflights and prompts for it the same way. Dev
-//! note: every ad-hoc re-sign (each rebuild) invalidates a previous grant; only a
-//! stable Developer ID / Spool Dev signature keeps it.
+//! tap stays deaf until restart. Dev note: every ad-hoc re-sign (each rebuild)
+//! invalidates a previous grant; only a stable Developer ID / Spool Dev signature
+//! keeps it.
+//!
+//! Prompting (2026-08-02, DESIGN_FIRST_RUN 拍板点 3): startup only preflights — it
+//! never fires the two system prompts. A brand-new user used to meet "may we watch
+//! your keyboard?" before seeing what the app is for; now the prompts fire from
+//! `request_capture_access` below, which the banner's "turn on capture" button calls.
+//! Value first, permission second.
 //!
 //! Self-heal (PLAN_EN.md §19.4): when macOS delivers `TapDisabledByTimeout` or
 //! `TapDisabledByUserInput`, we re-enable the tap in place via `CGEventTapEnable`.
@@ -251,6 +256,21 @@ pub fn input_monitoring_granted() -> bool {
 // Current Accessibility grant — the suppression tap (active mode) needs it.
 pub fn accessibility_granted() -> bool {
     unsafe { AXIsProcessTrusted() }
+}
+
+// User-initiated permission request (DESIGN_FIRST_RUN 拍板点 3). Fires both one-shot
+// system prompts — Input Monitoring first (it is what capture actually needs), then
+// Accessibility (it is what keeps the gesture exclusive to Spool). Returns the Input
+// Monitoring result: on a machine that has never been asked, macOS answers false and
+// shows its dialog, so the caller keeps pointing at System Settings either way. Once
+// TCC has a recorded answer no dialog appears at all — hence the banner also keeps an
+// "open System Settings" route after this returns false.
+pub fn request_capture_access() -> bool {
+    let granted = unsafe { CGRequestListenEventAccess() };
+    eprintln!("[double-tap] user-requested Input Monitoring prompt returned granted={granted}");
+    let ax = request_accessibility_with_prompt();
+    eprintln!("[double-tap] user-requested Accessibility prompt returned trusted={ax}");
+    granted
 }
 
 fn request_accessibility_with_prompt() -> bool {
@@ -461,24 +481,20 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
 
 fn run_tap() {
     // Without the Input Monitoring grant the tap below only ever sees Spool's own
-    // events (see module doc). Preflight and fire the one-shot system prompt when
-    // missing; install the tap either way so double-tap keeps working inside Spool
-    // immediately, and a fresh grant takes effect on the next launch.
-    let mut granted = unsafe { CGPreflightListenEventAccess() };
+    // events (see module doc). Preflight ONLY — the prompt moved to the user-initiated
+    // `request_capture_access` (拍板点 3). The tap is installed either way, so
+    // double-tap keeps working inside Spool immediately, and a fresh grant takes
+    // effect on the next launch.
+    let granted = unsafe { CGPreflightListenEventAccess() };
     if !granted {
-        eprintln!("[double-tap] Input Monitoring NOT granted — showing system prompt");
-        granted = unsafe { CGRequestListenEventAccess() };
-        eprintln!("[double-tap] Input Monitoring request returned granted={granted}");
+        eprintln!("[double-tap] Input Monitoring NOT granted — staying quiet (prompt is user-initiated)");
     }
     COPY_GATE_ACTIVE.store(granted, Ordering::Relaxed);
 
-    // Accessibility gates the ACTIVE (suppressing) tap. Preflight; prompt once when
-    // missing. Like Input Monitoring, a fresh grant takes effect on the next launch.
-    let mut ax = unsafe { AXIsProcessTrusted() };
+    // Accessibility gates the ACTIVE (suppressing) tap. Preflight only, same reason.
+    let ax = unsafe { AXIsProcessTrusted() };
     if !ax {
-        eprintln!("[double-tap] Accessibility NOT granted — showing system prompt (needed to keep the double-tap exclusive to Spool)");
-        ax = request_accessibility_with_prompt();
-        eprintln!("[double-tap] Accessibility request returned trusted={ax}");
+        eprintln!("[double-tap] Accessibility NOT granted — suppression off until granted");
     }
 
     // FlagsChanged (⌥ double-tap) + LeftMouseDown (§9.13 click-outside

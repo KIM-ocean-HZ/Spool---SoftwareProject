@@ -3,7 +3,9 @@ import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from '
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useCaptureStore } from '@/stores/captureStore';
 import { useDropStore } from '@/stores/dropStore';
+import { usePermissionStore } from '@/stores/permissionStore';
 import { useSearchStore } from '@/stores/searchStore';
 import BlockItem from './BlockItem';
 import { dateLocale, useT } from '@/lib/i18n';
@@ -93,6 +95,10 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
   const overEmpty = useDropStore((s) => s.overEmpty);
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
+  // 拍板点 2/5: the empty state forks on the capture grant, and the first successful
+  // capture gets a one-time closing line under it.
+  const inputMonitoring = usePermissionStore((s) => s.inputMonitoring);
+  const firstCaptureHintBlockId = useCaptureStore((s) => s.firstCaptureHintBlockId);
   // v2.8 §20.1 selection state. Anchor id drives shift-click range selection.
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const toggleSelect = useBlocksStore((s) => s.toggleSelect);
@@ -357,17 +363,34 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
         ) : (
           <div className="text-center">
             {/* 任务三 #6: layered empty state — one primary gesture, the alternatives
-                one size down so the blank thread reads calm, not instructional. */}
-            <p className="text-sm italic text-muted">
-              {t('⌘C 复制后双击')}{' '}
-              <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
-                ⌥
-              </kbd>{' '}
-              {t('捕捉第一条信息')}
-            </p>
-            <p className="mt-2 text-xs italic text-muted/70">
-              {t('捕捉后可以顺手留一句想法；或在下方直接写。')}
-            </p>
+                one size down so the blank thread reads calm, not instructional.
+                2026-08-02 (DESIGN_FIRST_RUN 拍板点 2): without the Input Monitoring
+                grant, double-tapping ⌥ in another app does nothing at all — so that
+                state gets the draft box, the one path that needs no permission.
+                Never send the user after a gesture that cannot work yet. */}
+            {inputMonitoring === false ? (
+              <>
+                <p className="text-sm italic text-muted">
+                  {t('先在下面写一条试试——打字、按 Enter 就存下来了，不需要任何权限。')}
+                </p>
+                <p className="mt-2 text-xs italic text-muted/70">
+                  {t('想在别的 app 里复制就能存？那一步需要打开输入监听权限。')}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm italic text-muted">
+                  {t('⌘C 复制后双击')}{' '}
+                  <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
+                    ⌥
+                  </kbd>{' '}
+                  {t('捕捉第一条信息')}
+                </p>
+                <p className="mt-2 text-xs italic text-muted/70">
+                  {t('捕捉后可以顺手留一句想法；或在下方直接写。')}
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -440,6 +463,13 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
                 onCopy={() => handleCopy(b.content)}
                 onDelete={() => void remove(b.id)}
               />
+              {/* 拍板点 5: one line, once, right under the first block the user ever
+                  captured — the gesture is over, here is what it was for. */}
+              {b.id === firstCaptureHintBlockId && (
+                <p className="px-3 pb-1 pt-0.5 text-xs italic text-muted">
+                  {t('这就是全部操作了。攒够几条，按 ⌘⇧P 打包粘给 AI。')}
+                </p>
+              )}
             </Fragment>
           );
         })}

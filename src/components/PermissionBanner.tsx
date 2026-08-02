@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { usePermissionStore } from '@/stores/permissionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Quiet onboarding bar (2026-07-07): without the macOS Input Monitoring grant the
@@ -22,13 +23,22 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // more. The denied phase carries that recovery line, since the UI cannot tell a
 // never-granted state from a stale-grant state.
 
-type Phase = 'hidden' | 'denied' | 'granted-later';
+// 2026-08-02 (DESIGN_FIRST_RUN 拍板点 4): the resting line no longer reads as a chore
+// the user owes the system. It names what is still missing, and — more importantly —
+// what works right now without it, so a first-launch user has somewhere to go. The
+// "fully quit and reopen" instruction moved into the `asked` phase: it only means
+// anything after the user has actually gone for the grant.
+type Phase = 'hidden' | 'denied' | 'asked' | 'granted-later';
 
 export default function PermissionBanner() {
   const t = useT();
   const language = useSettingsStore((s) => s.language);
   const update = useSettingsStore((s) => s.update);
-  const [phase, setPhase] = useState<Phase>('hidden');
+  const granted = usePermissionStore((s) => s.inputMonitoring);
+  const everDenied = usePermissionStore((s) => s.everDenied);
+  const requested = usePermissionStore((s) => s.requested);
+  const check = usePermissionStore((s) => s.check);
+  const request = usePermissionStore((s) => s.request);
   const [dismissed, setDismissed] = useState(false);
   // 任务三 #1 (2026-07-12): the stale-grant recovery walkthrough is details-on-demand
   // — the resting banner is one line, and the first screenful stays content, not
@@ -36,29 +46,24 @@ export default function PermissionBanner() {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    const check = async (): Promise<void> => {
-      try {
-        const granted = await invoke<boolean>('input_monitoring_granted');
-        if (cancelled) return;
-        setPhase((prev) => {
-          if (!granted) return 'denied';
-          // Granted from the start → nothing to say; granted after we showed the
-          // banner → the tap is still deaf until relaunch, say so.
-          return prev === 'hidden' ? 'hidden' : 'granted-later';
-        });
-      } catch {
-        // Non-Tauri context (tests / plain vite) — stay hidden.
-      }
-    };
     void check();
     const onFocus = (): void => void check();
     window.addEventListener('focus', onFocus);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('focus', onFocus);
-    };
-  }, []);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [check]);
+
+  // Granted all along → nothing to say. Granted after we had shown the banner → the
+  // tap stays deaf until relaunch, so offer the restart.
+  const phase: Phase =
+    granted === null
+      ? 'hidden'
+      : granted
+        ? everDenied
+          ? 'granted-later'
+          : 'hidden'
+        : requested
+          ? 'asked'
+          : 'denied';
 
   if (dismissed || phase === 'hidden') return null;
 
@@ -66,9 +71,11 @@ export default function PermissionBanner() {
     <div className="flex-none border-b border-line bg-paper-2 px-4 py-1.5 text-xs text-ink-2">
       <div className="flex items-center gap-3">
         <span className="min-w-0 flex-1 truncate">
-          {phase === 'denied'
-            ? t('双击 ⌥ 捕捉需要「输入监听」权限 — 授权后完全退出 Spool（托盘图标 → 退出）再重新打开')
-            : t('已授权 — 重启 Spool 后生效')}
+          {phase === 'denied' &&
+            t('想在别的 app 里复制就存，需要开一个权限。在那之前 Spool 照样能用——在下面写笔记，或者在 Spool 里复制后双击 ⌥。')}
+          {phase === 'asked' &&
+            t('在系统设置里勾选 Spool，然后完全退出 Spool（托盘图标 → 退出）再重新打开。没看到系统弹窗？点右边打开设置。')}
+          {phase === 'granted-later' && t('已授权 — 重启 Spool 后生效')}
         </span>
         {/* Language escape hatch (2026-07-31, Ocean). The UI now starts in the system
             locale, so a first-launch user whose language guessed wrong needs a way back
@@ -91,7 +98,17 @@ export default function PermissionBanner() {
             </button>
           ))}
         </div>
+        {/* 拍板点 3: the two system prompts fire from here, not from app startup. */}
         {phase === 'denied' && (
+          <button
+            type="button"
+            onClick={() => void request()}
+            className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+          >
+            {t('打开捕捉')}
+          </button>
+        )}
+        {phase === 'asked' && (
           <button
             type="button"
             onClick={() => {
@@ -117,7 +134,7 @@ export default function PermissionBanner() {
             {t('立即重启 Spool')}
           </button>
         )}
-        {phase === 'denied' && (
+        {(phase === 'denied' || phase === 'asked') && (
           <button
             type="button"
             onClick={() => setDetailsOpen((v) => !v)}
@@ -135,7 +152,7 @@ export default function PermissionBanner() {
           <X size={13} />
         </button>
       </div>
-      {phase === 'denied' && detailsOpen && (
+      {(phase === 'denied' || phase === 'asked') && detailsOpen && (
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
           {t(
             '已授权却仍看到本条？旧授权可能已失效：在系统设置的列表中选中 Spool 按 − 删除，完全退出并重新打开 Spool，允许新弹窗后再退出重启一次。',

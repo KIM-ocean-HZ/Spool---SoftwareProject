@@ -58,6 +58,22 @@ fn accessibility_granted() -> bool {
     }
 }
 
+// DESIGN_FIRST_RUN 拍板点 3 (2026-08-02): startup no longer fires the two TCC prompts,
+// so this is the moment they happen — the user pressed "turn on capture". Returns the
+// Input Monitoring grant; false is the normal answer (macOS shows its dialog and the
+// user finishes in System Settings), which is why the banner keeps a settings route.
+#[tauri::command]
+fn request_capture_access() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        double_tap::request_capture_access()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 // Decision ③ (2026-07-31): clients that are not installed stay listed in gray, with a
 // pointer to where to get them. Fixed key→URL table — no user input reaches `open`.
 // URLs checked alive 2026-07-31; they are external facts, re-verify before editing.
@@ -168,6 +184,7 @@ pub fn run() {
             open_mcp_client_page,
             input_monitoring_granted,
             accessibility_granted,
+            request_capture_access,
             open_input_monitoring_settings,
             restart_app,
         ]);
