@@ -437,21 +437,18 @@ p { margin: 0 0 1rem; }
   padding: 0.1rem 0.45rem;
 }
 
-/* ---------- the compounding pair (illustration, not a screenshot) ---------- */
-.growth-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; align-items: start; }
+/* ---------- the compounding pair: same project, six weeks apart ---------- */
+.growth-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 2rem; align-items: start; }
 @media (max-width: 700px) { .growth-pair { grid-template-columns: 1fr; } }
-.mock-head {
+.growth-shot { margin: 0; }
+.growth-shot img { width: 100%; display: block; }
+.growth-shot figcaption {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--muted);
-  padding-bottom: 0.6rem;
-  margin-bottom: 0.6rem;
-  border-bottom: 1px solid var(--line);
+  text-align: center;
+  margin-top: 0.8rem;
 }
-.g-row { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.32rem 0; color: var(--ink-2); }
-.g-when { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); flex: none; min-width: 2.4rem; }
-.g-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.g-more { font-size: 0.8rem; color: var(--muted); padding-top: 0.5rem; }
 
 /* ---------- MCP client line-up (names only — see docs/DESIGN_MCP_ECOSYSTEM.md §2) ---------- */
 .client-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; }
