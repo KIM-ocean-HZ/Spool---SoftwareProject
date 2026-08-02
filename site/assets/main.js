@@ -6,6 +6,16 @@
 
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  /* the logo film is decoration — honour the same preference the CSS animations do */
+  if (reduceMotion) {
+    document.querySelectorAll('video[autoplay]').forEach(function (v) {
+      v.removeAttribute('autoplay');
+      v.removeAttribute('loop');
+      v.setAttribute('controls', '');
+      v.pause();
+    });
+  }
+
   var nav = document.querySelector('.nav-shell');
   if (nav) {
     var onNav = function () { nav.classList.toggle('scrolled', window.scrollY > 8); };

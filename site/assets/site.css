@@ -330,7 +330,35 @@ html[lang="zh-CN"] .ab-line.muted-line { font-style: normal; }
 .btn-primary { background: var(--accent); color: var(--paper); box-shadow: var(--shadow-card); }
 .btn-primary:hover { background: var(--accent-2); color: var(--paper); box-shadow: var(--shadow-pop); }
 .btn-ghost { color: var(--accent); border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.4); }
-.hero .fineprint { font-size: 0.85rem; color: var(--muted); }
+.fineprint { font-size: 0.85rem; color: var(--muted); }
+.fineprint a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.fineprint a:hover { color: var(--accent); }
+
+/* hero trust chips — the four constraints a visitor needs before deciding */
+.trust-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.trust-chips li {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 0.3rem 0.7rem;
+}
+
+/* mid-page download band — hero to footer was ten screens without a CTA */
+.cta-inline { padding: 3rem 0; text-align: center; }
+.cta-inline p { margin: 0 0 1.1rem; color: var(--ink-2); }
+.cta-inline .fineprint { margin: 1rem 0 0; }
 
 /* ---------- sections ---------- */
 section { padding: 4rem 0; }
@@ -548,6 +576,67 @@ p { margin: 0 0 1rem; }
 .privacy-points { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem 2rem; margin: 1.75rem 0; padding: 0; list-style: none; }
 .privacy-points li { padding-left: 1.4rem; position: relative; color: var(--ink-2); font-size: 0.97rem; }
 .privacy-points li::before { content: '●'; position: absolute; left: 0; top: 0.1em; color: var(--accent); font-size: 0.7em; }
+
+/* ---------- trust block (permissions, signing, storage, maker) ---------- */
+.perm-note {
+  max-width: 44rem;
+  margin: 2rem auto 0;
+  padding: 1.5rem 1.6rem;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-lg);
+}
+.perm-note h3 { margin-top: 0; }
+.perm-note p { color: var(--ink-2); font-size: 0.97rem; }
+.perm-note p:last-child { margin-bottom: 0; }
+.trust-links { margin-top: 2rem; font-size: 0.95rem; }
+.card code, .faq-list code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0.05em 0.35em;
+}
+
+/* ---------- faq ---------- */
+.faq-list { max-width: 44rem; margin: 2rem auto 0; }
+.faq-list details {
+  border-bottom: 1px solid var(--line);
+  padding: 0.15rem 0;
+}
+.faq-list summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.95rem 2rem 0.95rem 0;
+  position: relative;
+  font-family: var(--font-serif);
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.faq-list summary::-webkit-details-marker { display: none; }
+.faq-list summary::after {
+  content: '+';
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 1.35rem;
+  color: var(--accent);
+  line-height: 1;
+}
+.faq-list details[open] summary::after { content: '–'; }
+.faq-list summary:hover { color: var(--accent); }
+.faq-list details p {
+  margin: 0 0 1.1rem;
+  padding-right: 2rem;
+  color: var(--ink-2);
+  font-size: 0.97rem;
+}
 
 /* ---------- brand moment / cta band ---------- */
 .brand-moment { text-align: center; }
