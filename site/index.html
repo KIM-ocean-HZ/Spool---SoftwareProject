@@ -6,6 +6,13 @@
 <title>Spool — local context capture for macOS, one paste into any AI</title>
 <meta name="description" content="Spool keeps the background of every long-running project on your Mac. Copy anything, double-tap ⌥, and it is filed under the right project with its source — then one click hands the whole project to any AI. Free, offline, no account, signed and notarised.">
 
+<!-- Each language is its own address, so a search engine can index the Chinese
+     page and a shared link opens in the language it was shared in. -->
+<link rel="canonical" href="https://spoolapp.org/">
+<link rel="alternate" hreflang="en" href="https://spoolapp.org/">
+<link rel="alternate" hreflang="zh-Hans" href="https://spoolapp.org/zh/">
+<link rel="alternate" hreflang="x-default" href="https://spoolapp.org/">
+
 <!-- Open Graph / Twitter — without these the link is a blank card in Slack, WeChat and X -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://spoolapp.org/">
@@ -44,7 +51,7 @@
       <a href="#faq" data-i18n="nav-faq">FAQ</a>
       <a href="story.html" data-i18n="nav-story">Story</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-      <button class="lang-toggle" type="button">中文</button>
+      <a class="lang-toggle" href="zh/" hreflang="zh-Hans" lang="zh">中文</a>
       <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
@@ -157,8 +164,14 @@
       </div>
       <div class="loop-visual">
         <figure class="capture-scene">
-          <img class="shot capture-page" src="assets/shots/capture-page.png" alt="A page in the browser, with the paragraph that matters selected in blue" width="2030" height="950" loading="lazy" decoding="async">
-          <img class="capture-toast" src="assets/shots/capture-toast.png" alt="Spool's confirmation note floating over the page: the first words of what was saved, the project it went to, and an undo button" width="656" height="191" loading="lazy" decoding="async">
+          <picture>
+            <source type="image/webp" srcset="assets/shots/capture-page.webp">
+            <img class="shot capture-page" src="assets/shots/capture-page.png" alt="A page in the browser, with the paragraph that matters selected in blue" width="2030" height="950" loading="lazy" decoding="async">
+          </picture>
+          <picture>
+            <source type="image/webp" srcset="assets/shots/capture-toast.webp">
+            <img class="capture-toast" src="assets/shots/capture-toast.png" alt="Spool's confirmation note floating over the page: the first words of what was saved, the project it went to, and an undo button" width="656" height="191" loading="lazy" decoding="async">
+          </picture>
           <span class="mock-chip capture-chip">⌘C, then ⌥⌥</span>
         </figure>
         <p class="shot-caption" data-i18n="cap-toast">The real thing: the lines you selected on the page, and Spool's note floating over the corner — what got saved, where it went, and a box for the thought you had.</p>
@@ -174,7 +187,12 @@
         newest notes show you exactly where you stopped.</p>
       </div>
       <div class="loop-visual">
-        <img class="shot" src="assets/shots/app-thread-before.png" alt="The Spool window: a list of workspaces and projects on the left, and on the right a project holding notes with their times, sources and the user's own comments" width="2200" height="953" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp"
+                  srcset="assets/shots/app-thread-before-760.webp 760w, assets/shots/app-thread-before-1520.webp 1520w, assets/shots/app-thread-before.webp 2200w"
+                  sizes="(max-width: 800px) calc(100vw - 3rem), 565px">
+          <img class="shot" src="assets/shots/app-thread-before.png" alt="The Spool window: a list of workspaces and projects on the left, and on the right a project holding notes with their times, sources and the user's own comments" width="2200" height="953" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="cap-main">One project, five notes: your goal, something you read, an answer from an AI chat, your own decision, an email. Each one keeps its time and its source.</p>
       </div>
     </div>
@@ -188,7 +206,10 @@
         or just read it yourself to get back into the work.</p>
       </div>
       <div class="loop-visual">
-        <img class="shot pack-shot" src="assets/shots/pack-dialog.png" alt="The real Pack window over a project: the whole project as plain text, with two rows of choices at the top and one Copy to clipboard button at the bottom" width="1360" height="1895" loading="lazy" decoding="async">
+        <picture class="pack-pic">
+          <source type="image/webp" srcset="assets/shots/pack-dialog.webp">
+          <img class="shot pack-shot" src="assets/shots/pack-dialog.png" alt="The real Pack window over a project: the whole project as plain text, with two rows of choices at the top and one Copy to clipboard button at the bottom" width="1360" height="1895" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="cap-pack-loop">The real Pack window: five notes become 3,899 characters of ready-to-paste text. Two choices, one button.</p>
       </div>
     </div>
@@ -216,11 +237,17 @@
     </div>
     <div class="growth-pair reveal">
       <figure class="growth-shot">
-        <img class="shot" src="assets/shots/growth-day1.png" alt="The same project on its first day: three notes — the goal, something read and kept with its link, and the first decision — and 266 characters of packable text" width="1452" height="1310" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/growth-day1.webp">
+          <img class="shot" src="assets/shots/growth-day1.png" alt="The same project on its first day: three notes — the goal, something read and kept with its link, and the first decision — and 266 characters of packable text" width="1452" height="1310" loading="lazy" decoding="async">
+        </picture>
         <figcaption data-i18n="g1-h">Day one · 3 notes · 266 characters</figcaption>
       </figure>
       <figure class="growth-shot">
-        <img class="shot" src="assets/shots/growth-week6.png" alt="The same project six weeks later: notes from four different weeks fill the window, including a pinned note reading 'applications for this batch close Friday 18:00', and 2,143 characters of packable text" width="1452" height="1310" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/growth-week6.webp">
+          <img class="shot" src="assets/shots/growth-week6.png" alt="The same project six weeks later: notes from four different weeks fill the window, including a pinned note reading 'applications for this batch close Friday 18:00', and 2,143 characters of packable text" width="1452" height="1310" loading="lazy" decoding="async">
+        </picture>
         <figcaption data-i18n="g2-h">Six weeks in · 21 notes · 2,143 characters</figcaption>
       </figure>
     </div>
@@ -277,24 +304,39 @@
       </div>
 
       <div class="shot-panel" role="tabpanel" id="mpanel-lib" aria-labelledby="mtab-lib" data-panel="lib">
-        <img class="shot" src="assets/shots/mcp-library.png" alt="An AI app listing the Spool library: workspaces for work, study and life, each with its projects and how many notes they hold" width="1520" height="1336" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/mcp-library.webp">
+          <img class="shot" src="assets/shots/mcp-library.png" alt="An AI app listing the Spool library: workspaces for work, study and life, each with its projects and how many notes they hold" width="1520" height="1336" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="mcap-lib">One plain question, and the AI reads your workspaces, projects and note counts straight off your Mac.</p>
       </div>
 
       <div class="shot-panel" role="tabpanel" id="mpanel-mdigest" aria-labelledby="mtab-digest" data-panel="mdigest" hidden>
-        <img class="shot" src="assets/shots/mcp-digest.png" alt="An AI app summarising where a project stands, drawing on notes saved on different days from different places" width="1520" height="1211" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/mcp-digest.webp">
+          <img class="shot" src="assets/shots/mcp-digest.png" alt="An AI app summarising where a project stands, drawing on notes saved on different days from different places" width="1520" height="1211" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="mcap-digest">One paragraph built from notes you saved over three weeks, from four different places. This is the part a single paste cannot do.</p>
       </div>
 
       <div class="shot-panel" role="tabpanel" id="mpanel-search" aria-labelledby="mtab-search" data-panel="search" hidden>
-        <img class="shot" src="assets/shots/mcp-search.png" alt="Search results from the Spool library, each result labelled with its date, its source, and whether the user wrote it themselves" width="1520" height="796" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/mcp-search.webp">
+          <img class="shot" src="assets/shots/mcp-search.png" alt="Search results from the Spool library, each result labelled with its date, its source, and whether the user wrote it themselves" width="1520" height="796" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="mcap-search">Every result keeps its source: what you read somewhere, what an AI suggested, and what you decided yourself.</p>
       </div>
 
       <div class="shot-panel" role="tabpanel" id="mpanel-file" aria-labelledby="mtab-file" data-panel="file" hidden>
-        <img class="shot" src="assets/shots/mcp-write.png" alt="An AI app confirming that it saved a conclusion into the project, with a short reason and a link to the note it builds on" width="1520" height="496" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/mcp-write.webp">
+          <img class="shot" src="assets/shots/mcp-write.png" alt="An AI app confirming that it saved a conclusion into the project, with a short reason and a link to the note it builds on" width="1520" height="496" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="mcap-file1">Ask it to file a conclusion and it writes one note — with a short reason, and a link to the note it builds on.</p>
-        <img class="shot shot-strip" src="assets/shots/mcp-filed-detail.png" alt="A close-up of the Spool project: the user's own note, and directly below it the note written by an AI, marked Claude · MCP, with a line pointing back at the user's note" width="2070" height="430" loading="lazy" decoding="async">
+        <picture>
+          <source type="image/webp" srcset="assets/shots/mcp-filed-detail.webp">
+          <img class="shot shot-strip" src="assets/shots/mcp-filed-detail.png" alt="A close-up of the Spool project: the user's own note, and directly below it the note written by an AI, marked Claude · MCP, with a line pointing back at the user's note" width="2070" height="430" loading="lazy" decoding="async">
+        </picture>
         <p class="shot-caption" data-i18n="mcap-file2">…and here it is inside Spool. Signed <strong>Claude · MCP</strong>, added <strong>below</strong> your note instead of over it, with the <strong>↩</strong> line pointing at the exact note it answers.</p>
       </div>
     </div>
@@ -440,7 +482,7 @@
   </div>
 </footer>
 
-<script src="assets/i18n.js" defer></script>
+<script src="assets/lang.js" defer></script>
 <script src="assets/main.js" defer></script>
 <script src="assets/demo.js" defer></script>
 </body>

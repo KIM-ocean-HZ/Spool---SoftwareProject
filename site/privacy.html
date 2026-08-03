@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spool — Privacy Policy</title>
 <meta name="description" content="Spool's privacy policy: your data stays on your machine — no account, no server, no telemetry.">
+<link rel="canonical" href="https://spoolapp.org/privacy.html">
+<link rel="alternate" hreflang="en" href="https://spoolapp.org/privacy.html">
+<link rel="alternate" hreflang="zh-Hans" href="https://spoolapp.org/zh/privacy.html">
+<link rel="alternate" hreflang="x-default" href="https://spoolapp.org/privacy.html">
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -20,19 +24,17 @@
       <a href="./#demo" data-i18n="nav-try">Try it</a>
       <a href="story.html" data-i18n="nav-story">Story</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-      <button class="lang-toggle" type="button">中文</button>
+      <a class="lang-toggle" href="zh/privacy.html" hreflang="zh-Hans" lang="zh">中文</a>
       <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
 </div>
 
-<main class="wrap article measure" style="margin: 0 auto;">
-
-<div data-lang-section="en">
+<main class="wrap article measure" style="margin: 0 auto;" data-zh-body="privacy">
 
 <h1>Privacy Policy</h1>
 <p class="lede">Last updated: 2026-07-29. This English translation is provided for convenience;
-the Chinese original (switch language with the 中文 button above) is authoritative.</p>
+the <a href="zh/privacy.html" hreflang="zh-Hans" lang="zh">Chinese original</a> is authoritative.</p>
 
 <h2>The one-sentence version</h2>
 <p><strong>Your data stays on your computer — no exceptions.</strong> Spool is purely local
@@ -105,55 +107,6 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 <a href="https://github.com/KIM-ocean-HZ/spool/issues">GitHub</a>, or write to
 <a href="mailto:jinhz0531@gmail.com">jinhz0531@gmail.com</a>.</p>
 
-</div>
-
-<div class="zh-block" id="zh" lang="zh" data-lang-section="zh">
-
-<h1>Spool（思簿）隐私政策</h1>
-<p class="lede">最后更新：2026-07-29</p>
-
-<h2>一句话版本</h2>
-<p><strong>你的数据留在你的电脑上——没有例外。</strong> Spool 是纯本地软件：捕捉、整理、打包、搜索全部在本机完成，不注册账号、不上传数据、不做遥测。Spool 自身<strong>不内置任何云端 AI</strong>，也不会向任何服务器发起请求；应用的内容安全策略（CSP）在结构上禁止了 webview 的一切外部网络连接。</p>
-
-<h2>我们收集什么</h2>
-<p><strong>什么都不收集。</strong> Spool 没有服务器。没有账号系统、没有使用统计、没有崩溃上报、没有广告标识符。开发者无法看到你的任何内容。</p>
-
-<h2>数据存放在哪里</h2>
-<ul>
-  <li>所有内容（工作区、项目、信息块、批注、附件索引）存放在本机的 SQLite 数据库：<code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
-  <li>界面设置存放在同目录的 <code>settings.json</code>（不含任何密钥——Spool 不需要）。</li>
-  <li>附件本身不复制、不上传——Spool 只保存指向原文件的路径，以及（可选的）本地提取的文字内容。PDF/Word 的文字提取也完全在本机进行。</li>
-  <li>数据库结构升级前会在同目录自动留存一份快照备份。</li>
-</ul>
-<p>删除以上目录即可彻底清除 Spool 的全部数据；应用内「设置 → 清除所有数据」亦可。</p>
-
-<h2>什么时候会有数据离开你的电脑</h2>
-<p>只有一种情况，且<strong>默认关闭、需要你亲手开启</strong>：</p>
-<table>
-  <tr><th>功能</th><th>数据去向</th><th>说明</th></tr>
-  <tr>
-    <td>MCP 服务（设置 → 通用，默认关闭）</td>
-    <td>你自己安装、自己配置的 AI 客户端（Claude Desktop、Cursor 等）</td>
-    <td>你的 AI 客户端通过本机进程间通信读取项目内容；Spool 不监听任何网络端口。这些客户端把内容发给谁、如何使用，由该客户端及你与其服务商的协议决定。</td>
-  </tr>
-</table>
-<p>换句话说：Spool 从不主动外发数据。当你把 AI 客户端接到 Spool 上时，是<strong>那个客户端</strong>在你的授权下读取内容——「允许 AI 写入」还需要单独开启第二个开关。</p>
-
-<h2>系统权限说明</h2>
-<table>
-  <tr><th>权限</th><th>用途</th><th>拒绝的后果</th></tr>
-  <tr><td>输入监听（双击 ⌥ 捕捉）</td><td>识别 Option 键的双击手势</td><td>双击 ⌥ 不可用；可在设置里自定义捕捉快捷键</td></tr>
-  <tr><td>辅助功能（可选）</td><td>让捕捉手势只属于 Spool：捕捉发生时从事件流中移除第二次 ⌥ 按键，避免使用相同手势的其他应用（如 Claude Desktop）同时弹出</td><td>捕捉一切照常；但相同手势的其他应用会与 Spool 同时被触发</td></tr>
-  <tr><td>自动化（浏览器）</td><td>读取当前标签页标题作为来源标注</td><td>来源退化为应用名</td></tr>
-  <tr><td>剪贴板</td><td>捕捉时读取剪贴板文本</td><td>无法捕捉</td></tr>
-</table>
-<p>所有权限只在对应功能触发时使用，不做后台监控；剪贴板只在你按下捕捉快捷键的那一刻读取一次。</p>
-
-<h2>联系方式</h2>
-<p>问题或疑虑请在 <a href="https://github.com/KIM-ocean-HZ/spool/issues">GitHub 仓库</a>提 Issue，或联系 <a href="mailto:jinhz0531@gmail.com">jinhz0531@gmail.com</a>。</p>
-
-</div>
-
 </main>
 
 <footer>
@@ -167,7 +120,7 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
   </div>
 </footer>
 
-<script src="assets/i18n.js" defer></script>
+<script src="assets/lang.js" defer></script>
 <script src="assets/main.js" defer></script>
 </body>
 </html>

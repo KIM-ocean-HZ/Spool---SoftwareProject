@@ -504,6 +504,9 @@ p { margin: 0 0 1rem; }
   display: block;
   margin: 0 auto;
 }
+/* every .shot is wrapped in <picture> so the WebP copy is offered first; the
+   wrapper must not become an inline box between the image and its caption */
+picture { display: block; }
 .shot-caption { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 0.9rem; }
 /* 01 · SAVE — the real page (selection and all), with the real toast floating
    over its corner so it still reads as the popup it is */
@@ -523,10 +526,10 @@ p { margin: 0 0 1rem; }
 .capture-scene + .shot-caption { text-align: left; }
 /* 03 · PASTE — the real Pack dialog, portrait, kept at readable width */
 .pack-shot { max-width: min(23rem, 100%); }
-.pack-shot + .shot-caption { max-width: 23rem; margin-left: auto; margin-right: auto; }
+.pack-pic + .shot-caption { max-width: 23rem; margin-left: auto; margin-right: auto; }
 
 .shot-group { margin-top: 2rem; }
-.shot-group .shot-caption + .shot { margin-top: 1.6rem; }
+.shot-group .shot-caption + picture { margin-top: 1.6rem; }
 .shot-strip { max-width: 60rem; }
 .shot-note { font-size: 0.82rem; margin-top: 1.6rem; }
 .shot-tabs { display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1.4rem; flex-wrap: wrap; }
@@ -816,16 +819,6 @@ footer a { color: var(--ink-2); }
 .tool-chip .tool { color: var(--accent-2); }
 .tool-chip .ret { color: var(--muted); }
 .tool-chip .ok { color: var(--ok); }
-
-/* story-page zh banner */
-.zh-note {
-  background: var(--accent-soft);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--r-md);
-  padding: 0.6rem 1rem;
-  font-size: 0.9rem;
-  margin: 1.5rem 0 0;
-}
 
 /* structured AI reply: each point tagged with the fragment it came from */
 .ai-brief { display: flex; flex-direction: column; gap: 0.45rem; }
@@ -1129,7 +1122,6 @@ footer a { color: var(--ink-2); }
 .article th { font-weight: 600; color: var(--ink-2); border-bottom: 1px solid var(--line-strong); }
 .article .shot { margin: 1.75rem auto; }
 .article hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
-.zh-block { border-top: 1px solid var(--line-strong); margin-top: 3rem; padding-top: 2rem; }
 
 /* story layout: sticky TOC on wide screens */
 .story-grid { display: grid; grid-template-columns: 13rem minmax(0, 44rem); gap: 3.5rem; justify-content: center; }

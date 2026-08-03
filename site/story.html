@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The making of Spool — engineering story</title>
 <meta name="description" content="How Spool was designed and built: a local-first context hub with deterministic packing, cross-language golden tests, and an MCP-first AI architecture.">
+<link rel="canonical" href="https://spoolapp.org/story.html">
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
@@ -17,17 +18,15 @@
       Spool <span class="zh">思簿</span>
     </a>
     <nav class="nav-links">
-      <a href="./#demo" data-i18n="nav-try">Try it</a>
-      <a href="privacy.html" data-i18n="nav-privacy">Privacy</a>
+      <a href="./#demo">Try it</a>
+      <a href="privacy.html">Privacy</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-      <button class="lang-toggle" type="button">中文</button>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
+      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg">Download</a>
     </nav>
   </header>
 </div>
 
 <div class="wrap" style="padding-top:2.5rem">
-<div class="zh-note" data-lang-section="zh" hidden>工程叙事页暂以英文呈现（作为 portfolio / 申请材料）。主页与交互演示支持中文——<a href="./">回到主页</a>切换体验。</div>
 <div class="story-grid">
 
 <aside class="story-toc" aria-label="Contents">
@@ -133,7 +132,10 @@ byte-identical output by golden tests.</p>
       AI write carries a source label; user-authored content is read-only to machines.</li>
 </ul>
 
-<img class="shot" src="assets/shots/mcp-filed-detail.png" alt="Detail of a Spool project: the user's own note at 00:30, and directly below it an AI-written block at 14:56 badged Claude · MCP, carrying its own annotation and a citation line pointing back at the user's note" width="2000" loading="lazy">
+<picture>
+  <source type="image/webp" srcset="assets/shots/mcp-filed-detail.webp">
+  <img class="shot" src="assets/shots/mcp-filed-detail.png" alt="Detail of a Spool project: the user's own note at 00:30, and directly below it an AI-written block at 14:56 badged Claude · MCP, carrying its own annotation and a citation line pointing back at the user's note" width="2070" height="430" loading="lazy">
+</picture>
 <p class="shot-caption">Principle №5, enforced in the data model: an AI client filed the lower block over
 MCP. It is badged with its author, appended <em>below</em> the user's note rather than over it, and
 its citation line names the exact block it answers.</p>
@@ -180,7 +182,12 @@ from the data layer through capture hardening, full-text search, project digests
 cross-project references, and the MCP surface. The logo — a spool seen from above, its thread
 pulling free — was designed in-house, down to the tray icon's alpha-channel template rendering.</p>
 
-<img class="shot" src="assets/shots/app-thread-after.png" alt="A Spool project holding six blocks — a pinned goal, a captured job posting, an answer from an AI chat, the user's own note, a conclusion filed by an AI client and badged Claude · MCP, and an email" width="2420" loading="lazy">
+<picture>
+  <source type="image/webp"
+          srcset="assets/shots/app-thread-after-860.webp 860w, assets/shots/app-thread-after.webp 2420w"
+          sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
+  <img class="shot" src="assets/shots/app-thread-after.png" alt="A Spool project holding six blocks — a pinned goal, a captured job posting, an answer from an AI chat, the user's own note, a conclusion filed by an AI client and badged Claude · MCP, and an email" width="2420" height="1750" loading="lazy">
+</picture>
 <p class="shot-caption">The current build: one project holding five human-captured fragments and one
 conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</p>
 
@@ -208,7 +215,6 @@ Source, roadmap, and the full product constitution are on
   </div>
 </footer>
 
-<script src="assets/i18n.js" defer></script>
 <script src="assets/main.js" defer></script>
 </body>
 </html>

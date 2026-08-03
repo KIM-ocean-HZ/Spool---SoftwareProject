@@ -574,7 +574,5 @@
     cue(packbtn);
   });
 
-  window.addEventListener('spool-lang', build);
-
   build();
 })();
