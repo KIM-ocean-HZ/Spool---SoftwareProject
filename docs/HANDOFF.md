@@ -143,10 +143,11 @@ AI 的原话:「如果今天你换个措辞说'测试环境叫 spool',我就会�
   **这一步不读任何数据**,所以 AI 可以在碰库之前先验身份(评审 AI 拒绝调 `spool` 的
   `list_threads` 是对的 —— 原来的第 0 步要求它读数据才能验环境,是个死结)。
 - `check_library` 头部也带同一行,给一条「调个只读工具就能核对」的路。
-- 自定义目录只报最后两级路径(`…/Spool-MCP-Lab/data`),不漏 home 路径。
+- 自定义目录只报最后两级路径(`…/com.oceanjin.spool.lab/data`),不漏 home 路径。
 
 **实机自测的东西已经备好,等 Ocean 的报告**:
-- `scripts/seed-mcp-lab.sh` —— 一键建隔离实验室(桌面 `Spool-MCP-Lab/`),
+- `scripts/seed-mcp-lab.sh` —— 一键建隔离实验室
+  (`~/Library/Application Support/com.oceanjin.spool.lab/`),
   **靠 `SPOOL_DATA_DIR` 隔离,不需要改 identifier 重建**(env 写在启动脚本里,
   客户端就算不支持 per-server env 也指不到真库);`--connect` / `--disconnect` 会把
   `spool_lab` 这条写进/删出**三个客户端**:Claude Desktop、**Claude Code
@@ -230,7 +231,10 @@ OCR 截图捕捉、应用内自动更新。
   下次要做隔离验证,得改 identifier 重建 —— 改完**立刻**建、建完**立刻**改回来。
 - **演示库脚本**:`scripts/seed-demo-library.sh`(8 个项目,默认播 `language:"en"`)、
   `scripts/seed-growth-demo.sh day1|week6`。两个都**只写 verify 数据目录**,真库不碰。
-- **MCP 实验室**:`scripts/seed-mcp-lab.sh`(桌面 `Spool-MCP-Lab/`,见 §2.5)。
+- **MCP 实验室**:`scripts/seed-mcp-lab.sh`
+  (`~/Library/Application Support/com.oceanjin.spool.lab/`,见 §2.5)。
+  ⚠️ **别把它挪进桌面/文稿/下载** —— 那三个是 TCC 保护目录,Claude Desktop 没被授权时
+  连启动脚本都 exec 不了(`Operation not permitted` + 一连上就断,2026-08-03 实测踩过)。
   ⚠️ 它走的是**另一条隔离路线** —— `SPOOL_DATA_DIR` + 二进制副本,**不改 identifier、
   不装 app、不碰 GUI**。只验 MCP 面时用它,比重建 verify 构建轻得多;
   要验窗口/权限/首启仍然只能走下面那套 identifier 流程。

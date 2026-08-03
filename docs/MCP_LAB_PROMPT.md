@@ -14,10 +14,15 @@ cd ~/Desktop/Knote/src-tauri && cargo build --release
 cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --connect
 ```
 
-它做三件事:在桌面建 `Spool-MCP-Lab` 文件夹(一份假资料库 + 一份自己的程序副本)、
+它做三件事:建 `~/Library/Application Support/com.oceanjin.spool.lab/`
+(一份假资料库 + 一份自己的程序副本)、
 把服务器 `spool_lab` 写进**三个客户端**的配置(Claude Desktop、Claude Code `~/.claude.json`、
 ChatGPT 桌面版 `~/.codex/config.toml`;原文件都先备份)、告诉你库里有什么。
 **它不碰你的真库,也不碰正式版那条 `spool` 配置。**
+
+> **为什么不放桌面**:桌面/文稿/下载是 macOS 的受保护目录。Claude Desktop 没被授权访问桌面,
+> 连启动脚本都读不到,日志里报 `Operation not permitted` + `Server disconnected`(2026-08-03 实测)。
+> `Application Support` 没有这道门。**别把实验室挪回桌面。**
 
 **2. 完全退出客户端再打开**(Claude Desktop 要从菜单栏退出,不是关窗口)。
 
@@ -39,13 +44,13 @@ ChatGPT 桌面版用第三节。
 
 ```
 cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --disconnect
-rm -rf ~/Desktop/Spool-MCP-Lab
+rm -rf "~/Library/Application Support/com.oceanjin.spool.lab"
 ```
 
 **中途想看 AI 到底往库里写了什么**:
 
 ```
-sqlite3 ~/Desktop/Spool-MCP-Lab/data/spool.db \
+sqlite3 "~/Library/Application Support/com.oceanjin.spool.lab/data/spool.db" \
   "SELECT datetime(created_at/1000,'unixepoch','localtime'), source, content FROM blocks WHERE source LIKE '%MCP%' ORDER BY created_at DESC LIMIT 20;"
 ```
 
@@ -53,9 +58,9 @@ sqlite3 ~/Desktop/Spool-MCP-Lab/data/spool.db \
 
 ```
 # 关
-sed -i '' 's/"mcpWriteEnabled":true/"mcpWriteEnabled":false/' ~/Desktop/Spool-MCP-Lab/data/settings.json
+sed -i '' 's/"mcpWriteEnabled":true/"mcpWriteEnabled":false/' "~/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
 # 开回来
-sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' ~/Desktop/Spool-MCP-Lab/data/settings.json
+sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' "~/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
 ```
 
 ---
@@ -78,7 +83,7 @@ sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' ~/Desktop/Spool-MC
 2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
 3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
-   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/Spool-MCP-Lab/data)`。
+   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/com.oceanjin.spool.lab/data)`。
    如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
    (这一步不用读任何数据,所以先做它。)
 4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
@@ -215,7 +220,7 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
 3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
-   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/Spool-MCP-Lab/data)`。
+   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/com.oceanjin.spool.lab/data)`。
    如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
    (这一步不用读任何数据,所以先做它。)
 4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。

@@ -19,8 +19,13 @@
 # Re-runnable: wipes and rebuilds the lab library and re-copies the binary each time.
 set -euo pipefail
 
-LAB="$HOME/Desktop/Spool-MCP-Lab"
+# NOT on the Desktop: ~/Desktop, ~/Documents and ~/Downloads are TCC-protected, and a
+# client without that grant (Claude Desktop, 2026-08-03) cannot even exec the launcher —
+# "/bin/sh: …/spool-lab-server: Operation not permitted", server disconnects on start.
+# Application Support is not TCC-gated, and the `.lab` suffix mirrors the `.verify` one.
+LAB="$HOME/Library/Application Support/com.oceanjin.spool.lab"
 DATA="$LAB/data"
+LEGACY_LAB="$HOME/Desktop/Spool-MCP-Lab"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BIN_SRC="$REPO/src-tauri/target/release/spool"
 MARKER="SPOOL-MCP-LAB-2026-08-03"
@@ -102,7 +107,8 @@ if [ "${1:-}" = "--disconnect" ]; then
   connect_claude_code remove
   connect_codex remove
   echo
-  echo "断开完成。客户端要重启一次才会生效。lab 文件夹还在:$LAB(不要了就整个删掉)"
+  echo "断开完成。客户端要重启一次才会生效。"
+  echo "实验室文件夹还在,不要了就删:rm -rf \"$LAB\""
   exit 0
 fi
 
@@ -117,6 +123,11 @@ fi
 
 rm -rf "$LAB"
 mkdir -p "$DATA" "$LAB/bin"
+# The 2026-08-03 first cut lived on the Desktop; clear it so no client keeps a stale path.
+if [ -d "$LEGACY_LAB" ]; then
+  rm -rf "$LEGACY_LAB"
+  echo "(顺手删掉了桌面上那份旧的:$LEGACY_LAB)"
+fi
 
 # The lab runs its OWN copy of the binary: a later `cargo clean` / rebuild in the repo
 # can't silently change what the client is talking to. Changed the code? Re-run this.
@@ -477,7 +488,7 @@ else
     args = ["--mcp"]
 
   懒得手改:重跑一次 scripts/seed-mcp-lab.sh --connect(会先备份原文件)。
-  测完拆掉:scripts/seed-mcp-lab.sh --disconnect,再把 $LAB 整个删掉。
+  测完拆掉:scripts/seed-mcp-lab.sh --disconnect,再 rm -rf "$LAB"。
 TXT
 fi
 
