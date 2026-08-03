@@ -328,7 +328,7 @@ const EN: Record<string, string> = {
   '在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
     'Where to ask: in the chat box for Claude Desktop / ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
   '不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。':
-    'Nothing to do back in Spool — once connected, Spool just hands the notes over.',
+    ' Nothing to do back in Spool — once connected, Spool just hands the notes over.',
   '「帮我复习〈某个项目〉，再考我两个问题」': '"Help me review the ⟨…⟩ project, then quiz me on it"',
   '——读整个项目（get_pack）': ' — reads the whole project (get_pack)',
   '「我最近一周在忙什么？」': '"What have I been working on this week?"',
