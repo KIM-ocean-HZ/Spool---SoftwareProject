@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useThreadDropTarget } from '@/hooks/useThreadDropTarget';
+import { isTutorialSource } from '@/lib/db/client';
 import { buildHitOffsets } from '@/lib/search/query';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useSearchStore } from '@/stores/searchStore';
@@ -24,15 +25,24 @@ export default function LogView({ threadId }: Props) {
   // the count first goes non-zero; `scrolledThread` keeps it once-per-thread, not on
   // every later append. No cross-session scroll memory — that is the §17 architectural
   // hook, deliberately not built in v2.6.
-  const blockCount = useBlocksStore((s) => s.byThread[threadId]?.length ?? 0);
+  //
+  // Exception (Ocean 2026-08-03): a thread that is still nothing but seeded tutorial
+  // blocks opens at the TOP instead — a guide is read from its first line, and landing
+  // mid-thread skipped the block that explains what Spool even is. As soon as the user
+  // captures or writes anything of their own into it, the thread has a "where you left
+  // off" again and goes back to the normal bottom landing.
+  const threadBlocks = useBlocksStore((s) => s.byThread[threadId]);
+  const blockCount = threadBlocks?.length ?? 0;
+  const isUntouchedTutorial =
+    blockCount > 0 && (threadBlocks ?? []).every((b) => isTutorialSource(b.source));
   const scrolledThread = useRef<string | null>(null);
   useLayoutEffect(() => {
     if (scrolledThread.current === threadId || blockCount === 0) return;
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = isUntouchedTutorial ? 0 : el.scrollHeight;
     scrolledThread.current = threadId;
-  }, [threadId, blockCount]);
+  }, [threadId, blockCount, isUntouchedTutorial]);
 
   // v2.9 §9.10 / §19.17: the in-block find bar lives at the top of this thread
   // whenever a search result has landed on one of its blocks. Mounting it here
@@ -43,7 +53,6 @@ export default function LogView({ threadId }: Props) {
   const navHitIndex = useSearchStore((s) => s.activeHitIndex);
   const navQuery = useSearchStore((s) => s.activeQuery);
   const navResults = useSearchStore((s) => s.navResults);
-  const threadBlocks = useBlocksStore((s) => s.byThread[threadId]);
   const showNavBar =
     navBlockId !== null && (threadBlocks?.some((b) => b.id === navBlockId) ?? false);
 

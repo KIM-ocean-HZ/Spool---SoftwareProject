@@ -546,6 +546,17 @@ const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<voi
 // Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
 export const __seedTutorialThreadForTest = seedTutorialThread;
 
+// The provenance label every seeded tutorial block carries, in both languages. A thread
+// made up entirely of these is still the tutorial as we wrote it — LogView opens those at
+// the top so the guide is read from block 1, while every other thread opens at the newest
+// block (Ocean 2026-08-03). The moment the user captures something of their own into the
+// thread, it stops being "the tutorial" and behaves like any other project.
+const TUTORIAL_SOURCES: ReadonlySet<string> = new Set(
+  Object.values(TUTORIAL).map((copy) => copy.source),
+);
+export const isTutorialSource = (source: string | null): boolean =>
+  source !== null && TUTORIAL_SOURCES.has(source);
+
 // Switching the UI language re-translates the tutorial threads in place (Ocean,
 // 2026-08-03: "教程的语言…需要随切换语言变化"). These are database rows, not UI strings,
 // so the rule that keeps this from eating anyone's work is: **only rewrite what is still
