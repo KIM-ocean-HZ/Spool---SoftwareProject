@@ -83,7 +83,7 @@ export default function SearchOverlay() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={t('搜索所有工作区与脉络的内容…')}
+            placeholder={t('搜索所有工作区与项目的内容…')}
             className="flex-1 bg-transparent font-ui text-[14px] text-ink outline-none placeholder:text-muted"
             spellCheck={false}
           />
@@ -96,7 +96,7 @@ export default function SearchOverlay() {
             </p>
           ) : !trimmed ? (
             <p className="px-3 py-8 text-center text-xs italic text-muted">
-              {t('输入关键词，搜索任意脉络里的内容与批注')}
+              {t('输入关键词，搜索任意项目里的内容与批注')}
             </p>
           ) : results.length === 0 && !loading ? (
             <p className="px-3 py-8 text-center text-xs italic text-muted">

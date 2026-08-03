@@ -36,7 +36,7 @@ export default function AdvancedConfig() {
       <div className="flex items-center justify-between gap-4 py-2.5">
         <div className="min-w-0">
           <div className="text-sm text-ink">{t('清除所有数据')}</div>
-          <div className="mt-0.5 text-xs text-muted">{t('删除全部工作区、脉络与信息块,不可恢复')}</div>
+          <div className="mt-0.5 text-xs text-muted">{t('删除全部工作区、项目与信息块,不可恢复')}</div>
         </div>
         {confirming ? (
           <div className="flex flex-none items-center gap-1.5">

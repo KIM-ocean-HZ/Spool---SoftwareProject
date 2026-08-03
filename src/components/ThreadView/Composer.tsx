@@ -135,7 +135,7 @@ export default function Composer({ threadId }: Props) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={t('写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用脉络）')}
+        placeholder={t('写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用项目）')}
         rows={2}
         className="w-full resize-none rounded-md border border-line bg-paper px-3 py-2 text-[15px] leading-[1.6] text-ink outline-none focus:border-line-strong"
         spellCheck={false}

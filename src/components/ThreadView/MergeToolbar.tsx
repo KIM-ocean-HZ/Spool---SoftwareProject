@@ -158,7 +158,7 @@ export default function MergeToolbar({ threadId }: Props) {
           className={`flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors ${
             pickerOpen ? 'bg-accent/10 text-accent' : 'text-ink hover:bg-paper-2'
           }`}
-          title={t('复制所选 block 到另一个脉络')}
+          title={t('复制所选 block 到另一个项目')}
         >
           <Copy size={12} />
           {t('复制到…')}

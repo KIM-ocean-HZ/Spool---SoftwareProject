@@ -40,9 +40,9 @@ export function useTrayMenu(): void {
       current_none: t('当前目标：（无）'),
       current_prefix: t('当前目标:  '),
       switch_target: t('切换捕捉目标'),
-      no_threads: t('（暂无脉络）'),
+      no_threads: t('（暂无项目）'),
       open: t('打开 Spool'),
-      new_thread: t('新建脉络'),
+      new_thread: t('新建项目'),
       settings: t('设置'),
       quit: t('退出 Spool'),
     };

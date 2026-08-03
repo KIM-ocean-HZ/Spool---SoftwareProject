@@ -355,12 +355,12 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
       blocks: [
         {
           content:
-            'Spool 是一张上下文工作台：把散落的资料捕进「脉络」，需要 AI 时一键打包成完整上下文。它自己不带 AI——你的数据永远只在本机。',
+            'Spool 是一张上下文工作台：把散落的资料捕进「项目」，需要 AI 时一键打包成完整上下文。它自己不带 AI——你的数据永远只在本机。',
           annotation: '这条灰字就是「批注」——你自己的话，打包时会原样保留给 AI。',
         },
         {
           content:
-            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」脉络。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
+            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」项目。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
         },
         {
           content:
@@ -373,11 +373,11 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '⌘⇧P 把整条脉络变成结构化上下文，直接粘贴给任何 AI；可选范围（仅置顶/近 7 天）与任务模板。',
+            '⌘⇧P 把整个项目变成结构化上下文，直接粘贴给任何 AI；可选范围（仅置顶/近 7 天）与任务模板。',
         },
         {
           content:
-            '设置 → MCP → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎脉络」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
+            '设置 → MCP → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎项目」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
         },
       ],
     },
@@ -393,21 +393,21 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '复习与接续：「帮我复习〈让 AI 用上你的 Spool〉这条脉络，再考我两个问题」——把标题换成你自己的脉络，就是你的复习卡。',
-          annotation: '背后是 get_pack：AI 拿到整条脉络的结构化简报，置顶块和你的批注都在里面。',
+            '复习与接续：「帮我复习〈让 AI 用上你的 Spool〉这个项目，再考我两个问题」——把标题换成你自己的项目，就是你的复习卡。',
+          annotation: '背后是 get_pack：AI 拿到整个项目的结构化简报，置顶块和你的批注都在里面。',
         },
         {
           content: '回顾一周：「我最近一周在忙什么？」',
-          annotation: '背后是 get_digest：跨脉络简报，近 7 天各脉络的新块加常驻置顶锚点。',
+          annotation: '背后是 get_digest：跨项目简报，近 7 天各项目的新块加常驻置顶锚点。',
         },
         {
           content:
-            '随手归档：「把刚才这段结论存进〈XX〉脉络，批注一句为什么重要」（需打开「允许 AI 写入」）。',
+            '随手归档：「把刚才这段结论存进〈XX〉项目，批注一句为什么重要」（需打开「允许 AI 写入」）。',
           annotation:
             '背后是 add_block：AI 写入的块带「Claude · MCP」来源标签，永远和你手写的分得清；它还会用引用标注结论依据的旧块。',
         },
         {
-          content: '找与查重：「XX 这个主题我记在哪条脉络？」「帮我看看有没有重复收藏的内容」',
+          content: '找与查重：「XX 这个主题我记在哪个项目？」「帮我看看有没有重复收藏的内容」',
           annotation:
             '背后是 search_blocks / find_similar_blocks：查重只出报告，合并始终由你在 Spool 里动手。',
         },
@@ -426,13 +426,13 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
       blocks: [
         {
           content:
-            'Spool is a workbench for context: capture scattered material into a thread, then pack the whole thread into one ready-made context whenever you need an AI. Spool ships no AI of its own — your data never leaves this machine.',
+            'Spool is a workbench for context: capture scattered material into a project, then pack the whole project into one ready-made context whenever you need an AI. Spool ships no AI of its own — your data never leaves this machine.',
           annotation:
             'This grey line is an annotation — your own words. Packing passes them to the AI exactly as written.',
         },
         {
           content:
-            'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target thread. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
+            'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target project. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
         },
         {
           content:
@@ -445,11 +445,11 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '⌘⇧P turns the whole thread into structured context you can paste into any AI. Pick a range (pinned only / last 7 days) and a task template.',
+            '⌘⇧P turns the whole project into structured context you can paste into any AI. Pick a range (pinned only / last 7 days) and a task template.',
         },
         {
           content:
-            'Settings → MCP → connect Claude Desktop or Cursor in one click. Then tell your AI "read my welcome thread" — it can look things up, search, and file conclusions back for you. Blocks written by an AI carry a source tag, so they never blur with your own notes.',
+            'Settings → MCP → connect Claude Desktop or Cursor in one click. Then tell your AI "read my welcome project" — it can look things up, search, and file conclusions back for you. Blocks written by an AI carry a source tag, so they never blur with your own notes.',
         },
       ],
     },
@@ -466,24 +466,24 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            'Review and pick up where you left off: "Walk me through my \'Put your AI to work on Spool\' thread, then quiz me on two things." Swap in one of your own threads and it becomes your revision card.',
+            'Review and pick up where you left off: "Walk me through my \'Put your AI to work on Spool\' project, then quiz me on two things." Swap in one of your own projects and it becomes your revision card.',
           annotation:
-            'That runs get_pack: the AI gets the whole thread as a structured brief, pinned blocks and your annotations included.',
+            'That runs get_pack: the AI gets the whole project as a structured brief, pinned blocks and your annotations included.',
         },
         {
           content: 'Look back on a week: "What have I been working on lately?"',
           annotation:
-            'That runs get_digest: a brief across threads — the last 7 days of new blocks, plus the standing pinned anchors.',
+            'That runs get_digest: a brief across projects — the last 7 days of new blocks, plus the standing pinned anchors.',
         },
         {
           content:
-            'File something on the spot: "Save that conclusion into my \'XX\' thread and note why it matters." (Needs "Allow AI to write".)',
+            'File something on the spot: "Save that conclusion into my \'XX\' project and note why it matters." (Needs "Allow AI to write".)',
           annotation:
             'That runs add_block: blocks written by an AI carry a "Claude · MCP" source tag and never blur with your own; it also cites the older blocks a conclusion rests on.',
         },
         {
           content:
-            'Find things, spot repeats: "Which thread did I write about XX in?" "Check whether I saved the same thing twice."',
+            'Find things, spot repeats: "Which project did I write about XX in?" "Check whether I saved the same thing twice."',
           annotation:
             'That runs search_blocks / find_similar_blocks: the duplicate check only reports — merging is always yours to do, inside Spool.',
         },

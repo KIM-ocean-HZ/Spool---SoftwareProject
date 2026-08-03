@@ -183,9 +183,9 @@ impl Default for TrayLabels {
             current_none: "当前目标：（无）".into(),
             current_prefix: "当前目标:  ".into(),
             switch_target: "切换捕捉目标".into(),
-            no_threads: "（暂无脉络）".into(),
+            no_threads: "（暂无项目）".into(),
             open: "打开 Spool".into(),
-            new_thread: "新建脉络".into(),
+            new_thread: "新建项目".into(),
             settings: "设置".into(),
             quit: "退出 Spool".into(),
         }

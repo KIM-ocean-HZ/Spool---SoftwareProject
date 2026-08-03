@@ -106,7 +106,7 @@ type OverlayContent =
 
 const noticeText = (n: OverlayNotice): string => {
   if (n.kind === 'empty') return t('剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥');
-  if (n.kind === 'no-target') return t('没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点「捕捉到此」');
+  if (n.kind === 'no-target') return t('没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」');
   return n.msg ?? t('捕捉失败');
 };
 
@@ -656,7 +656,7 @@ export default function CaptureOverlay() {
           <button
             onClick={() => setPickerOpen((v) => !v)}
             className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
-            title={tr('改投到其它脉络')}
+            title={tr('改投到其它项目')}
             aria-label={tr('改投')}
           >
             <Forward size={13} />

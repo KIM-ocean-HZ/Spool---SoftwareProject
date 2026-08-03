@@ -105,13 +105,13 @@ export default function ThreadPicker({ excludeThreadId, onPick, onCancel }: Prop
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={t('复制到… 搜索脉络')}
+        placeholder={t('复制到… 搜索项目')}
         spellCheck={false}
         className="w-full border-b border-line bg-paper-2/40 px-2.5 py-1.5 text-ink outline-none placeholder:text-muted/70"
       />
       <div className="max-h-64 overflow-y-auto py-1">
         {flat.length === 0 ? (
-          <div className="px-2.5 py-2 text-muted">{t('没有匹配的脉络')}</div>
+          <div className="px-2.5 py-2 text-muted">{t('没有匹配的项目')}</div>
         ) : (
           groups.map((g) => (
             <div key={g.wsId} className="py-0.5">

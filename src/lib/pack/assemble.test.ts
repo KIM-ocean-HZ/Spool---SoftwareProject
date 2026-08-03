@@ -271,7 +271,7 @@ describe('assemble', () => {
     ];
     const refTitles = new Map([['t2', '相关脉络的最新标题']]);
     const out = assemble({ thread, blocks, refTitles, now: NOW });
-    expect(out).toContain('→ Referenced thread: 相关脉络的最新标题');
+    expect(out).toContain('→ Referenced project: 相关脉络的最新标题');
     expect(out).not.toContain('old snapshot title');
   });
 
@@ -280,7 +280,7 @@ describe('assemble', () => {
       { ...textBlock('b1', '脉络快照标题'), kind: 'ref', refThreadId: 't2' },
     ];
     const out = assemble({ thread, blocks, now: NOW });
-    expect(out).toContain('→ Referenced thread: 脉络快照标题');
+    expect(out).toContain('→ Referenced project: 脉络快照标题');
   });
 
   // v2.4 (§20.13 D2): block-level citations.

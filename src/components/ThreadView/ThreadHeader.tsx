@@ -229,7 +229,7 @@ export default function ThreadHeader({
           ) : (
             <button
               onClick={() => void setCaptureTarget(thread.id)}
-              title={t('之后的 ⌘C+双击 ⌥ 捕捉都会落进这条脉络')}
+              title={t('之后的 ⌘C+双击 ⌥ 捕捉都会落进这个项目')}
               className="flex flex-none items-center rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
             >
               {t('捕捉到此')}

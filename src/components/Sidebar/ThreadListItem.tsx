@@ -182,7 +182,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           )}
           <DeleteButton
             onConfirm={onDelete}
-            title={t('删除脉络')}
+            title={t('删除项目')}
             size={11}
             className="invisible group-hover:visible"
           />

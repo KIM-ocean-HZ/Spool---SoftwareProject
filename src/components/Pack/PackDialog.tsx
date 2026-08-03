@@ -26,7 +26,7 @@ const RANGE_LABELS: Record<PackRange, string> = {
 };
 
 const RANGE_HINTS: Record<PackRange, string> = {
-  all: '打包整条脉络',
+  all: '打包整个项目',
   pinned: '只打包标了置顶的信息块',
   last7: '只打包最近 7 天捕捉的内容',
   last30: '只打包最近 30 天捕捉的内容',

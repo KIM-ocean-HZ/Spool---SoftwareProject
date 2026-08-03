@@ -161,8 +161,8 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         <button
           onClick={() => void onAddThread()}
           className="invisible flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink group-hover:visible"
-          aria-label={t('新建脉络')}
-          title={t('新建脉络')}
+          aria-label={t('新建项目')}
+          title={t('新建项目')}
         >
           <Plus size={12} />
         </button>
@@ -181,7 +181,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
               onClick={() => void onAddThread()}
               className="cursor-pointer rounded px-3 py-1.5 text-xs italic text-muted hover:bg-paper-2/50"
             >
-              {t('+ 创建第一条脉络')}
+              {t('+ 创建第一个项目')}
             </li>
           )}
           {fresh.map((th) => (

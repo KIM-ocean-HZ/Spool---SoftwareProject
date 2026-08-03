@@ -17,7 +17,7 @@ export const NOTE_MARKER = 'note: ';
 export const FILE_MARKER = '↳ attached file: ';
 export const FOLDER_MARKER = '↳ attached folder: ';
 export const URL_MARKER = '↳ attached URL: ';
-export const REF_MARKER = '→ Referenced thread: ';
+export const REF_MARKER = '→ Referenced project: ';
 // v2.4 (§20.13 D2): block-level citation sub-line — "this block builds on that one".
 // English like every other pack marker (§19.13). The preview keeps the receiving AI
 // from needing another lookup; a deleted citee renders the MISSING text instead.
@@ -32,7 +32,7 @@ export const SECTION_FILES = '## Related Files & Links';
 
 export const EMPTY_PINNED_LINE = '(no pinned blocks)';
 export const EMPTY_LOG_LINE = '(no blocks yet)';
-export const UNKNOWN_THREAD = '(unknown thread)';
+export const UNKNOWN_THREAD = '(unknown project)';
 // 2026-07-09: pinned blocks render in full ONLY in the Pinned Blocks section; their
 // Full Record slot is this one-line placeholder (they were duplicated verbatim before,
 // inflating large packs by the size of every pinned block).

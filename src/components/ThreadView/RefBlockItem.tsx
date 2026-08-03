@@ -47,7 +47,7 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
     >
       <div className="flex items-center gap-2 text-[10px] text-muted">
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>
-        <span className="text-muted">{t('引用脉络')}</span>
+        <span className="text-muted">{t('引用项目')}</span>
         {!readOnly && onDelete && (
           <div
             className={`ml-auto transition-opacity ${
@@ -69,7 +69,7 @@ export default function RefBlockItem({ block, readOnly, onDelete }: Props) {
         type="button"
         onClick={navigate}
         disabled={missing}
-        title={missing ? t('原脉络已删除') : t('跳转到这条脉络')}
+        title={missing ? t('原项目已删除') : t('跳转到这个项目')}
         className="mt-0.5 flex items-center gap-1.5 text-left text-[15px] text-accent transition-colors hover:underline disabled:cursor-default disabled:text-muted disabled:no-underline"
       >
         <AtSign size={14} className="flex-none" />

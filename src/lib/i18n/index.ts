@@ -85,12 +85,12 @@ const EN: Record<string, string> = {
   '（无标题）': '(untitled)',
   '工作区': 'Workspace',
   '新建工作区': 'New workspace',
-  '新建脉络': 'New thread',
+  '新建项目': 'New project',
   '删除工作区': 'Delete workspace',
-  '删除脉络': 'Delete thread',
+  '删除项目': 'Delete project',
   '展开': 'Expand',
   '收起': 'Collapse',
-  '+ 创建第一条脉络': '+ Create the first thread',
+  '+ 创建第一个项目': '+ Create the first project',
   '双击重命名': 'Double-click to rename',
   '当前捕捉目标': 'Current capture target',
   '设为捕捉目标': 'Set as capture target',
@@ -98,7 +98,7 @@ const EN: Record<string, string> = {
   '捕捉中': 'Capturing',
   '设为捕捉': 'Set capture',
   '捕捉到此': 'Capture here',
-  '之后的 ⌘C+双击 ⌥ 捕捉都会落进这条脉络': 'Future ⌘C + double-tap ⌥ captures land in this thread',
+  '之后的 ⌘C+双击 ⌥ 捕捉都会落进这个项目': 'Future ⌘C + double-tap ⌥ captures land in this project',
   '移动到工作区': 'Move to workspace',
   '没有其他工作区': 'No other workspaces',
   '搜索全部内容 (⌘⇧F)': 'Search everything (⌘⇧F)',
@@ -121,8 +121,8 @@ const EN: Record<string, string> = {
   '点击编辑摘要': 'Click to edit summary',
 
   // Composer / mention
-  '写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用脉络）':
-    'Write a draft… (Enter to send, Shift+Enter for newline, @ to reference a thread)',
+  '写一条草稿…（Enter 发送，Shift+Enter 换行，@ 引用项目）':
+    'Write a draft… (Enter to send, Shift+Enter for newline, @ to reference a project)',
 
   // Block item / actions
   '展开全部': 'Show all',
@@ -152,16 +152,16 @@ const EN: Record<string, string> = {
   '先选中要标重点的文字': 'Select text to highlight first',
   '取消重点（移除 ==…==）': 'Remove highlight (strip ==…==)',
   '标为重点（包裹 ==选区==）': 'Highlight (wrap ==selection==)',
-  '引用脉络': 'Referenced thread',
-  '原脉络已删除': 'Original thread was deleted',
+  '引用项目': 'Referenced project',
+  '原项目已删除': 'Original project was deleted',
   '引用的块已删除': 'Cited block no longer exists',
-  '跳转到这条脉络': 'Jump to this thread',
+  '跳转到这个项目': 'Jump to this project',
   '点击编辑来源': 'Click to edit source',
   '添加来源标签': 'Add source label',
   '标注来源': 'Label source',
   '+ 来源': '+ source',
-  '打开引用的脉络': 'Open referenced thread',
-  '引用的脉络已删除': 'Referenced thread was deleted',
+  '打开引用的项目': 'Open referenced project',
+  '引用的项目已删除': 'Referenced project was deleted',
   '加入 Pack': 'Include in pack',
   '无法打开附件': 'Could not open attachment',
   '（文本已加入 Pack）': '(text included in pack)',
@@ -189,14 +189,14 @@ const EN: Record<string, string> = {
   '合并所选 block': 'Merge selected blocks',
   '至少选择两个 block 才能合并': 'Select at least two blocks to merge',
   '复制到…': 'Copy to…',
-  '复制所选 block 到另一个脉络': 'Copy selected blocks to another thread',
+  '复制所选 block 到另一个项目': 'Copy selected blocks to another project',
   '删除 {n} 个块？⌘Z 可逐个撤回': 'Delete {n} blocks? ⌘Z restores them one at a time',
   '删除所选 block': 'Delete selected blocks',
   '删除中…': 'Deleting…',
   '已删除 {n} 个块': 'Deleted {n} blocks',
   '已选 {n} 个': '{n} selected',
-  '复制到… 搜索脉络': 'Copy to… search threads',
-  '没有匹配的脉络': 'No matching threads',
+  '复制到… 搜索项目': 'Copy to… search projects',
+  '没有匹配的项目': 'No matching projects',
 
   // Pack dialog
   '打包上下文': 'Pack context',
@@ -207,7 +207,7 @@ const EN: Record<string, string> = {
   '仅置顶': 'Pinned only',
   '近 7 天': 'Last 7 days',
   '近 30 天': 'Last 30 days',
-  '打包整条脉络': 'Pack the whole thread',
+  '打包整个项目': 'Pack the whole project',
   '只打包标了置顶的信息块': 'Pack only pinned blocks',
   '只打包最近 7 天捕捉的内容': 'Pack only the last 7 days',
   '只打包最近 30 天捕捉的内容': 'Pack only the last 30 days',
@@ -224,8 +224,8 @@ const EN: Record<string, string> = {
   '{packed} / {total} 块 · {chars} 字符': '{packed} / {total} blocks · {chars} chars',
 
   // Search
-  '搜索所有工作区与脉络的内容…': 'Search all workspaces and threads…',
-  '输入关键词，搜索任意脉络里的内容与批注': 'Type keywords to search content and notes in any thread',
+  '搜索所有工作区与项目的内容…': 'Search all workspaces and projects…',
+  '输入关键词，搜索任意项目里的内容与批注': 'Type keywords to search content and notes in any project',
   '没有找到 —— 换个关键词试试？': 'Nothing found — try other keywords?',
   '搜索出错：{msg}': 'Search failed: {msg}',
   '{n} 条结果': '{n} results',
@@ -281,7 +281,7 @@ const EN: Record<string, string> = {
   '排序：按来源 — 点击改为按时间': 'Sorted by source — click for by time',
   '查看更早的 {n} 条': 'Show {n} earlier blocks',
   'Spool 渲染崩了': 'Spool hit a rendering error',
-  '从左侧选一条脉络，或按 ⌘N 新建': 'Pick a thread on the left, or press ⌘N to create one',
+  '从左侧选一个项目，或按 ⌘N 新建': 'Pick a project on the left, or press ⌘N to create one',
   '{n}天后': 'in {n}d',
   // Thread content size footnote (2026-07-07)
   '{n} 字': '{n} chars',
@@ -299,7 +299,7 @@ const EN: Record<string, string> = {
 
   // Empty states
   '双击 ⌥ 捕捉第一条信息，或在下方直接写。': 'Double-tap ⌥ to capture your first piece, or write below.',
-  '选择或新建一条脉络': 'Select or create a thread',
+  '选择或新建一个项目': 'Select or create a project',
 
   // Settings
   '设置': 'Settings',
@@ -313,8 +313,8 @@ const EN: Record<string, string> = {
   'PDF / Word / 纯文本文件被附加时自动读取内容,用于 Pack 输出。完全本地操作,不上传任何数据。':
     'Reads PDF / Word / plain-text attachments for pack output. Fully local, nothing uploaded.',
   'MCP 服务（实验）': 'MCP server (experimental)',
-  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取脉络打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
-    'Lets MCP-capable AI tools (Claude, Cursor, …) pull thread packs directly — from paste to zero-paste. Read-only by default, local only.',
+  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
+    'Lets MCP-capable AI tools (Claude, Cursor, …) pull project packs directly — from paste to zero-paste. Read-only by default, local only.',
   '你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页':
     'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
   '去下载': 'Get it',
@@ -322,29 +322,29 @@ const EN: Record<string, string> = {
   '接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺':
     'Once connected, paste the AI a short "how to use Spool for me" briefing for a smoother start',
   '复制使用提示': 'Copy usage briefing',
-  '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨脉络问题先用 get_digest；search_blocks 定位主题在哪条脉络；get_pack 读完整上下文（大脉络先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应脉络；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用脉络标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。':
-    'I manage my project context in Spool. You can read and write it through its MCP tools: list_threads to survey my projects; for cross-thread questions like "what have I been working on" start with get_digest; search_blocks to locate which thread a topic lives in; get_pack for the full briefing (check approx_pack_chars first; prefer range=pinned for big threads). When I ask you to remember/archive a conclusion, file it with add_block; start new topics with create_thread; refresh a thread’s one-line summary with set_thread_summary after new material lands; find_similar_blocks helps spot duplicate captures; when I ask for a checkup, run check_library for a read-only report. Always refer to threads by their titles when talking to me — never output internal ids. Everything you write is automatically labeled with your source.',
+  '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨项目问题先用 get_digest；search_blocks 定位主题在哪个项目；get_pack 读完整上下文（大项目先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应项目；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用项目标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。':
+    'I manage my project context in Spool. You can read and write it through its MCP tools: list_threads to survey my projects; for cross-project questions like "what have I been working on" start with get_digest; search_blocks to locate which project a topic lives in; get_pack for the full briefing (check approx_pack_chars first; prefer range=pinned for big projects). When I ask you to remember/archive a conclusion, file it with add_block; start new topics with create_thread; refresh a project’s one-line summary with set_thread_summary after new material lands; find_similar_blocks helps spot duplicate captures; when I ask for a checkup, run check_library for a read-only report. Always refer to projects by their titles when talking to me — never output internal ids. Everything you write is automatically labeled with your source.',
   '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
   '在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
     'Where to ask: in the chat box for Claude Desktop / ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
   '不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。':
     'Nothing to do back in Spool — once connected, Spool just hands the notes over.',
-  '「帮我复习〈某条脉络〉，再考我两个问题」': '"Help me review the ⟨…⟩ thread, then quiz me on it"',
-  '——读整条脉络（get_pack）': ' — reads the whole thread (get_pack)',
+  '「帮我复习〈某个项目〉，再考我两个问题」': '"Help me review the ⟨…⟩ project, then quiz me on it"',
+  '——读整个项目（get_pack）': ' — reads the whole project (get_pack)',
   '「我最近一周在忙什么？」': '"What have I been working on this week?"',
-  '——跨脉络简报（get_digest）': ' — cross-thread digest (get_digest)',
-  '「把刚才这段结论存进〈某条脉络〉，批注一句为什么重要」':
+  '——跨项目简报（get_digest）': ' — cross-project digest (get_digest)',
+  '「把刚才这段结论存进〈某个项目〉，批注一句为什么重要」':
     '"File this conclusion into ⟨…⟩, with a note on why it matters"',
   '——归档（add_block，需允许 AI 写入）': ' — archives it (add_block; needs AI writes on)',
-  '「这个主题我记在哪条脉络？」': '"Which thread did I file this topic under?"',
+  '「这个主题我记在哪个项目？」': '"Which project did I file this topic under?"',
   '——全库检索（search_blocks）': ' — library-wide search (search_blocks)',
   '「帮我看看有没有重复收藏的内容」': '"Check whether I captured anything twice"',
   '——查重报告（find_similar_blocks）': ' — duplicate report (find_similar_blocks)',
   '「给我的思簿做个体检」': '"Give my library a checkup"',
   '——数据卫生报告（check_library）': ' — hygiene report (check_library)',
   '允许 AI 写入（实验）': 'Allow AI writes (experimental)',
-  'AI 可新建脉络、向脉络追加信息块。写入的块始终带来源标注（如 Claude · MCP），不会伪装成你写的。':
-    'AI can create threads and append blocks. Written blocks always carry a source label (e.g. Claude · MCP) — never disguised as your own writing.',
+  'AI 可新建项目、向项目追加信息块。写入的块始终带来源标注（如 Claude · MCP），不会伪装成你写的。':
+    'AI can create projects and append blocks. Written blocks always carry a source label (e.g. Claude · MCP) — never disguised as your own writing.',
   '解析可执行路径…': 'Resolving executable path…',
   '✓ 已接入': '✓ Connected',
   '已写入 — 重启后生效': 'Written — restart the client',
@@ -355,7 +355,7 @@ const EN: Record<string, string> = {
   '一键接入': 'Connect',
   '当前是开发构建 — 安装正式版后需重新接入': 'This is a dev build — reconnect after installing the release app',
   '清除所有数据': 'Clear all data',
-  '删除全部工作区、脉络与信息块,不可恢复': 'Deletes every workspace, thread and block. Irreversible.',
+  '删除全部工作区、项目与信息块,不可恢复': 'Deletes every workspace, project and block. Irreversible.',
   '确认清除': 'Confirm clear',
   '清除中…': 'Clearing…',
   '清除': 'Clear',
@@ -364,7 +364,7 @@ const EN: Record<string, string> = {
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
-  '没有捕捉目标脉络 — 打开 Spool 在脉络顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a thread header',
+  '没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a project header',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',
   '已重做': 'Redone',
@@ -373,25 +373,25 @@ const EN: Record<string, string> = {
   '重做': 'Redo',
   '捕获': 'capture',
   '高亮': 'highlight',
-  '删除项目': 'thread delete',
+  // 删除项目 / 删除工作区 的撤销标签与侧栏按钮共用同一个键（见上）。
   '关闭 (Esc)': 'Close (Esc)',
   '留一句想法…（Enter 保存，Esc 跳过）': 'Leave a thought… (Enter saves, Esc skips)',
   '撤销刚才的捕捉': 'Undo this capture',
   '撤销': 'Undo',
-  '改投到其它脉络': 'Redirect to another thread',
+  '改投到其它项目': 'Redirect to another project',
   '改投': 'Redirect',
 
   // Tray
   '当前目标：（无）': 'Current target: (none)',
   '当前目标:  ': 'Current target:  ',
   '切换捕捉目标': 'Switch capture target',
-  '（暂无脉络）': '(no threads yet)',
+  '（暂无项目）': '(no projects yet)',
   '打开 Spool': 'Open Spool',
   '退出 Spool': 'Quit Spool',
 
   // Store / hook toasts
   '文件文字提取失败：{msg}': 'Text extraction failed: {msg}',
-  '合并失败：所选 block 跨脉络': 'Merge failed: selection spans threads',
+  '合并失败：所选 block 跨项目': 'Merge failed: selection spans projects',
   '合并失败：{msg}': 'Merge failed: {msg}',
   '复制失败：{msg}': 'Copy failed: {msg}',
   '附加失败：{msg}': 'Attach failed: {msg}',

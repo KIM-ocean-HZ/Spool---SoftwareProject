@@ -365,7 +365,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const threadIds = new Set(found.map((x) => x.threadId));
       if (threadIds.size > 1) {
         console.warn('[merge] refusing cross-thread merge', { threadIds: [...threadIds] });
-        toast.error(t('合并失败：所选 block 跨脉络'));
+        toast.error(t('合并失败：所选 block 跨项目'));
         return;
       }
       const threadId = found[0]!.threadId;
