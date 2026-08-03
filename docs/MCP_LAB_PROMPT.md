@@ -1,6 +1,6 @@
 # MCP 实验室 — 自测提示词(2026-08-03)
 
-给 Ocean 在 **Claude Desktop / ChatGPT 桌面版**里自测 Spool 的 MCP 接口用。
+给 Ocean 在 **Claude Desktop / Claude Code / ChatGPT 桌面版**里自测 Spool 的 MCP 接口用。
 提示词不是"正常用一遍",是**让 AI 主动找茬**:挖问题、提改进、说它还想要什么权限。
 
 ---
@@ -15,7 +15,8 @@ cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --connect
 ```
 
 它做三件事:在桌面建 `Spool-MCP-Lab` 文件夹(一份假资料库 + 一份自己的程序副本)、
-把服务器 `spool_lab` 写进两个客户端的配置(原文件先备份)、告诉你库里有什么。
+把服务器 `spool_lab` 写进**三个客户端**的配置(Claude Desktop、Claude Code `~/.claude.json`、
+ChatGPT 桌面版 `~/.codex/config.toml`;原文件都先备份)、告诉你库里有什么。
 **它不碰你的真库,也不碰正式版那条 `spool` 配置。**
 
 **2. 完全退出客户端再打开**(Claude Desktop 要从菜单栏退出,不是关窗口)。
@@ -26,7 +27,13 @@ cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --connect
 > `enabled = false`,测完删掉这行。
 > 不做也行——提示词第 0 步已经要求 AI 只用 `spool_lab`,并且要先报出实验室的标记才准往下走。
 
-**3. 复制下面对应的提示词,贴进新对话。** Claude Desktop 用第二节,ChatGPT 用第三节。
+**3. 复制下面对应的提示词,贴进新对话。** Claude Desktop 和 Claude Code 用第二节,
+ChatGPT 桌面版用第三节。
+
+> ⚠️ **贴之前先确认这个客户端里真有 `spool_lab`。** 三个客户端各读各的配置文件,
+> 脚本只写它们三个 —— 贴到别的地方(网页版、别的 AI)一定看不到实验室。
+> Claude Code 里可以直接 `/mcp` 看一眼有没有 `spool_lab`;
+> Claude Desktop 看设置 → 连接器。**没有就是没重启,退出客户端再打开。**
 
 **4. 测完拆掉**
 
@@ -66,11 +73,17 @@ sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' ~/Desktop/Spool-MC
 测试环境的服务器叫 spool_lab,里面全是为测试造的假数据。
 
 你必须:
-1. 全程只用 spool_lab 这台服务器的工具。工具列表里如果同时有 spool 和 spool_lab,
+1. 工具列表里**根本没有 spool_lab** → 直接停,回我「环境没接上」。这不是你的错,
+   是我这边没接好,别去碰 spool 顶替。
+2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
-2. 先调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
-3. 再读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
-4. 上面任何一条对不上,立刻停,一个字都不许写,直接告诉我「环境不对」。
+3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
+   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/Spool-MCP-Lab/data)`。
+   如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
+   (这一步不用读任何数据,所以先做它。)
+4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
+5. 最后读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
+6. 上面任何一条对不上,立刻停,一个字都不许写,直接告诉我「环境不对」。
 
 确认通过就回我一句「环境已确认:LAB」,然后继续。
 
@@ -126,7 +139,7 @@ A. 读
    has_annotation=true;source_contains="MCP";三个筛选一起用;context=99
 6. find_similar_blocks:全库;限定一个项目;限定一个工作区;thread_id 和 workspace_title
    同时传(应该报错)
-7. check_library
+7. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
 
 B. 四个 prompt(能从斜杠菜单走就从菜单走,并告诉我菜单里那几行字看不看得懂)
 - weekly_review:默认;since_days=30
@@ -197,11 +210,17 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 测试环境的服务器叫 spool_lab,里面全是为测试造的假数据。
 
 你必须:
-1. 全程只用 spool_lab 这台服务器的工具。工具列表里如果同时有 spool 和 spool_lab,
+1. 工具列表里**根本没有 spool_lab** → 直接停,回我「环境没接上」。这不是你的错,
+   是我这边没接好,别去碰 spool 顶替。
+2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
-2. 先调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
-3. 再读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
-4. 上面任何一条对不上,立刻停,一个字都不许写,直接告诉我「环境不对」。
+3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
+   `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/Spool-MCP-Lab/data)`。
+   如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
+   (这一步不用读任何数据,所以先做它。)
+4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
+5. 最后读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
+6. 上面任何一条对不上,立刻停,一个字都不许写,直接告诉我「环境不对」。
 
 确认通过就回我一句「环境已确认:LAB」,然后继续。
 
@@ -258,7 +277,7 @@ A. 读
    has_annotation=true;source_contains="MCP";三个筛选一起用;context=99
 6. find_similar_blocks:全库;限定一个项目;限定一个工作区;thread_id 和 workspace_title
    同时传(应该报错)
-7. check_library
+7. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
 
 B. 四个 prompt。能调就每个都走一遍:
 - weekly_review:默认;since_days=30
@@ -340,5 +359,5 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 
 ## 五、测完把什么给我
 
-AI 的那份报告整段贴回来就行(两个客户端各一份)。我会按这个顺序处理:
+AI 的那份报告整段贴回来就行(每个客户端各一份)。我会按这个顺序处理:
 先修问题清单里的真 bug,再看第 4 节它要的权限——那一节决定 MCP 接口下一步往哪长。

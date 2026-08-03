@@ -490,6 +490,36 @@ fn assemble_pack_omitting(
 // under the Tauri app-config dir derived from it. SPOOL_DATA_DIR overrides for tests.
 const APP_IDENTIFIER: &str = "com.oceanjin.spool";
 
+// Field finding (2026-08-03, MCP lab round): two Spool servers can be connected at once
+// — the real library plus a throwaway one on SPOOL_DATA_DIR — and NOTHING in the surface
+// told them apart. The server name is chosen by the client's config, not by Spool, and
+// both servers ship identical tool descriptions; an AI asked to verify which library it
+// holds could only take the user's word for it. So the server now says who it is, up
+// front in `initialize` (costs no data read, so it is safe to check before touching a
+// library) and again in check_library's header. Custom dirs report the last two path
+// components only — enough to tell libraries apart, without leaking the home path.
+fn library_identity() -> String {
+    let Ok(dir) = std::env::var("SPOOL_DATA_DIR") else {
+        return format!(
+            "LIBRARY: the user's DEFAULT Spool library ({APP_IDENTIFIER}). \
+             Any other Spool server connected beside this one reads a different library."
+        );
+    };
+    let p = PathBuf::from(&dir);
+    let tail: Vec<String> = p
+        .components()
+        .rev()
+        .take(2)
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let tail = tail.into_iter().rev().collect::<Vec<_>>().join("/");
+    format!(
+        "LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/{tail}) — NOT the user's \
+         default library. Treat it as a test or secondary library unless the user says \
+         otherwise, and say so before writing anything."
+    )
+}
+
 fn app_data_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SPOOL_DATA_DIR") {
         return Some(PathBuf::from(dir));
@@ -2557,6 +2587,9 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
 
     let mut lines: Vec<String> = vec![
         format!("# Spool 库体检 — {}", format_pack_date(now_ms)),
+        // Which library this is — the audit's own subject, and the one read call an AI
+        // can make to confirm it is not holding the wrong one (see library_identity).
+        library_identity(),
         format!(
             "Scanned {} blocks / {} projects / {} workspaces. Findings: source 标签卫生 {} · 正文/批注裸 id {} · 引用完整性 {}。",
             rows.len(),
@@ -3446,7 +3479,9 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "protocolVersion": proto,
                 "capabilities": { "tools": {}, "prompts": {}, "resources": { "listChanged": true } },
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are truncated pointers — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement."
+                // The identity leads: a client that truncates instructions keeps the one
+                // line that says which library this is.
+                "instructions": format!("{}\n\n{}", library_identity(), "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are truncated pointers — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
             }))
         }
         "ping" => Ok(json!({})),
@@ -4684,6 +4719,9 @@ mod tests {
         let report = check_library_json(&conn, 1_750_000_000_000).unwrap();
         assert!(report.contains("体检通过:未发现内部管线泄漏或悬空引用。"), "{report}");
         assert!(report.contains("(无发现)"), "{report}");
+        // The audit names the library it audited — the lab round's finding: nothing in
+        // the surface told a real library apart from a throwaway one on SPOOL_DATA_DIR.
+        assert!(report.contains("LIBRARY:"), "{report}");
     }
 
     // §20.13 v2.5 prompts: a project is named by TITLE (ids never reach the user), and

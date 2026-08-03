@@ -11,8 +11,10 @@
 #
 # Usage:
 #   scripts/seed-mcp-lab.sh              seed the lab, print the connect instructions
-#   scripts/seed-mcp-lab.sh --connect    also write the lab entry into both clients
-#   scripts/seed-mcp-lab.sh --disconnect remove the lab entry from both clients
+#   scripts/seed-mcp-lab.sh --connect    also write the lab entry into every client
+#   scripts/seed-mcp-lab.sh --disconnect remove the lab entry from every client
+#
+# Clients covered: Claude Desktop, Claude Code (~/.claude.json), ChatGPT desktop / Codex.
 #
 # Re-runnable: wipes and rebuilds the lab library and re-copies the binary each time.
 set -euo pipefail
@@ -25,6 +27,7 @@ MARKER="SPOOL-MCP-LAB-2026-08-03"
 
 CLAUDE_CFG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 CODEX_CFG="$HOME/.codex/config.toml"
+CC_CFG="$HOME/.claude.json"
 
 # ---------------------------------------------------------------------------------------
 # --connect / --disconnect: the lab entry is named spool_lab, NEVER spool — the real
@@ -47,6 +50,30 @@ json.dump(cfg, open(path, "w"), ensure_ascii=False, indent=2)
 PY
   [ "$action" = add ] && echo "· Claude Desktop: 已写入 spool_lab(旧文件备份成 .bak)" \
                       || echo "· Claude Desktop: 已删除 spool_lab(旧文件备份成 .bak)"
+}
+
+# Claude Code (CLI) keeps user-scope servers in ~/.claude.json's top-level mcpServers,
+# alongside a pile of its own state (onboarding, per-project settings) — merge one key
+# only. The entry carries an explicit "type", matching what `claude mcp add` writes.
+connect_claude_code() {
+  local action="$1"
+  [ -f "$CC_CFG" ] || { echo "· Claude Code 没装(或没配过),跳过"; return; }
+  cp "$CC_CFG" "$CC_CFG.bak"
+  ACTION="$action" LAUNCHER="$LAB/spool-lab-server" python3 - "$CC_CFG" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+cfg = json.load(open(path))
+servers = cfg.setdefault("mcpServers", {})
+if os.environ["ACTION"] == "add":
+    servers["spool_lab"] = {
+        "type": "stdio", "command": os.environ["LAUNCHER"], "args": ["--mcp"], "env": {}
+    }
+else:
+    servers.pop("spool_lab", None)
+json.dump(cfg, open(path, "w"), ensure_ascii=False, indent=2)
+PY
+  [ "$action" = add ] && echo "· Claude Code: 已写入 spool_lab(旧文件备份成 .bak)" \
+                      || echo "· Claude Code: 已删除 spool_lab(旧文件备份成 .bak)"
 }
 
 connect_codex() {
@@ -72,6 +99,7 @@ PY
 
 if [ "${1:-}" = "--disconnect" ]; then
   connect_claude remove
+  connect_claude_code remove
   connect_codex remove
   echo
   echo "断开完成。客户端要重启一次才会生效。lab 文件夹还在:$LAB(不要了就整个删掉)"
@@ -422,18 +450,24 @@ sqlite3 "$DATA/spool.db" "SELECT '  工作区 ' || (SELECT COUNT(*) FROM workspa
 if [ "${1:-}" = "--connect" ]; then
   echo
   connect_claude add
+  connect_claude_code add
   connect_codex add
   echo
   echo "客户端要完全退出再打开一次才会加载新服务器。"
 else
   cat <<TXT
 
-接上去(两个客户端二选一或都接,服务器名字必须是 spool_lab,别叫 spool):
+接上去(哪个客户端要测就接哪个,服务器名字必须是 spool_lab,别叫 spool):
 
   Claude Desktop → 编辑
   $CLAUDE_CFG
   在 "mcpServers" 里加一条:
     "spool_lab": { "command": "$LAB/spool-lab-server", "args": ["--mcp"] }
+
+  Claude Code → 编辑
+  $CC_CFG
+  在顶层 "mcpServers" 里加一条:
+    "spool_lab": { "type": "stdio", "command": "$LAB/spool-lab-server", "args": ["--mcp"], "env": {} }
 
   ChatGPT 桌面版 → 编辑
   $CODEX_CFG

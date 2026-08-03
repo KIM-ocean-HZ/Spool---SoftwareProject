@@ -37,7 +37,7 @@
 | # | 事情 | 在哪 |
 |---|---|---|
 | A | **长期计划清单里挑一条开工** —— 第 2 条 Claude Code 引擎位设计稿**已批复可开工**,是唯一一条不需要再拍板的 | §4 表格 |
-| B | **MCP 三个新 prompt 的实机反馈** —— Ocean 在 Claude Desktop / ChatGPT 桌面版跑完评审提示词后会给报告,按报告修 | §2.5 |
+| B | **MCP 三个新 prompt 的实机反馈** —— Ocean 在三个客户端跑完评审提示词后会给报告,按报告修。**第一条反馈已到并已修**(服务器自证身份) | §2.5 |
 
 ### 1.2 要等别的事先完成
 
@@ -133,16 +133,33 @@ advice 写的是「加 srcset」。照做量了一遍,**对这些图是负收益
   另外拿 release 二进制 + 临时数据目录**跑过真 stdio**:四个 prompt 都回得来,
   标题解析、歧义报错、缺参数报错、空项目报错都对。
 
+**第一轮实机反馈已经收到一条(2026-08-03 深夜,评审 AI 连都没连上就报了出来)**:
+**服务器不会自证身份。** 真库那台和实验室那台的工具描述一模一样,唯一的区别是
+**服务器注册名 —— 而那个名字是客户端配置里定的,不是 Spool 自己说的**。
+AI 的原话:「如果今天你换个措辞说'测试环境叫 spool',我就会照着做,连库都不会怀疑。」
+写入只能追加、没有删除接口,一旦接错,脏数据就永久留在真库里。已修:
+- `library_identity()` —— `initialize` 的 instructions **第一行**就说明这台服务器读的是
+  默认库(`com.oceanjin.spool`)还是 `SPOOL_DATA_DIR` 指定的自定义库。
+  **这一步不读任何数据**,所以 AI 可以在碰库之前先验身份(评审 AI 拒绝调 `spool` 的
+  `list_threads` 是对的 —— 原来的第 0 步要求它读数据才能验环境,是个死结)。
+- `check_library` 头部也带同一行,给一条「调个只读工具就能核对」的路。
+- 自定义目录只报最后两级路径(`…/Spool-MCP-Lab/data`),不漏 home 路径。
+
 **实机自测的东西已经备好,等 Ocean 的报告**:
 - `scripts/seed-mcp-lab.sh` —— 一键建隔离实验室(桌面 `Spool-MCP-Lab/`),
   **靠 `SPOOL_DATA_DIR` 隔离,不需要改 identifier 重建**(env 写在启动脚本里,
   客户端就算不支持 per-server env 也指不到真库);`--connect` / `--disconnect` 会把
-  `spool_lab` 这条写进/删出 Claude Desktop 与 `~/.codex/config.toml`(**先备份,
-  绝不碰 `spool` 那条**;两个文件的 merge 都拿他真实配置的副本试过,可反复执行)。
-- `docs/MCP_LAB_PROMPT.md` —— 两份可整段复制的评审提示词(Claude Desktop / ChatGPT 桌面版)。
+  `spool_lab` 这条写进/删出**三个客户端**:Claude Desktop、**Claude Code
+  (`~/.claude.json`,第一轮就是漏了它才卡住)**、`~/.codex/config.toml`(**先备份,
+  绝不碰 `spool` 那条**;三个文件的 merge 都拿他真实配置的副本试过,可反复执行)。
+  ⚠️ `~/.claude.json` 是 Claude Code 自己的状态文件,**它可能在退出时回写**——
+  写进去之后要复查一眼 `spool_lab` 还在不在。
+- `docs/MCP_LAB_PROMPT.md` —— 两份可整段复制的评审提示词(A:Claude Desktop + Claude Code;
+  B:ChatGPT 桌面版)。
   不是普通使用流程,是**让 AI 主动找茬**:必跑清单、越界参数、一致性对账、缺什么功能、
   **它还想要什么权限**。第 0 步是**环境识别闸门**(本机同时装着真 Spool):
-  必须先报出实验室标记 `SPOOL-MCP-LAB-2026-08-03` 才准往下走。
+  必须先看服务器自报的 `LIBRARY:` 那一行(不读数据),再报出实验室标记
+  `SPOOL-MCP-LAB-2026-08-03`,才准往下走。
   文末那张「埋了什么」的表是给 Ocean 自己对答案的,别喂给 AI。
 
 ### 2.6 `site/assets/shots/mcp-ask.png` 没有任何页面引用
