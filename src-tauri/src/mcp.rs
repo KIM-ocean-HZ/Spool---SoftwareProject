@@ -9,7 +9,8 @@
 //!
 //! Tool surface (§20.13 v2.2, 2026-07-10) — reads, gated by mcpEnabled:
 //!   list_threads / search_blocks / find_similar_blocks / get_blocks / get_pack,
-//!   plus spool://thread/<id> resources and the compress_pack prompt.
+//!   plus spool://thread/<id> resources and four prompts (compress_pack / weekly_review
+//!   / thread_health / distill — §20.13 v2.5).
 //! Writes, additionally gated by mcpWriteEnabled (separate consent):
 //!   create_thread / add_block (append-only, attributed) / set_thread_summary
 //!   (provenance-guarded — never overwrites a user-written summary).
@@ -2362,27 +2363,34 @@ fn resolve_fragment(conn: &Connection, fragment: &str) -> String {
     " → 未指向现存对象".to_string()
 }
 
+// 署名家族 (mechanical): the enforced `· MCP` marker is the only proof of AI authorship;
+// a sourceless block is user-typed — report, never suggest edits. Shared with the
+// thread_health prompt so the two audits label a row the same way.
+fn source_family(source: Option<&str>) -> &'static str {
+    match source {
+        Some(s) if s.contains("· MCP") => "AI(MCP 署名)",
+        Some(_) => "捕捉来源",
+        None => "用户手写",
+    }
+}
+
 fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> {
-    // 署名家族 (mechanical): the enforced `· MCP` marker is the only proof of AI
-    // authorship; a sourceless block is user-typed — report, never suggest edits.
     let family = |source: Option<&str>| -> (&'static str, &'static str, &'static str) {
-        match source {
+        let (fix_source, fix_text) = match source {
             Some(s) if s.contains("· MCP") => (
-                "AI(MCP 署名)",
                 "在 Spool 中点击该块的来源标签即可编辑(Spool 不代改)。",
                 "在 Spool 中双击该块即可编辑正文/批注(Spool 不代改)。",
             ),
             Some(_) => (
-                "捕捉来源",
                 "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
                 "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
             ),
             None => (
-                "用户手写",
                 "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
                 "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
             ),
-        }
+        };
+        (source_family(source), fix_source, fix_text)
     };
 
     // Sections 1 + 2 sources: every block in a live thread/workspace, deterministic
@@ -3120,6 +3128,307 @@ fn compress_prompt_text(pack_text: &str) -> String {
     )
 }
 
+// ---------------------------------------------------------------------------------------
+// §20.13 v2.5 prompts (2026-08-03, DESIGN_NEXT_STAGE §4.2): weekly_review / thread_health
+// / distill, beside compress_pack. Same contract as compress_pack — Spool assembles
+// deterministic material (digest / health report / pack), the CLIENT's model does the
+// thinking, and nothing is written without both consent toggles AND the user's explicit
+// OK in the chat. Constitution 5 holds: every instruction below says propose, never edit.
+// ---------------------------------------------------------------------------------------
+
+// A prompt's arguments are typed by a HUMAN into the client's slash-command dialog, and
+// the naming hard rule says ids never reach the user — so a project is named by title
+// here (an id still resolves, for a model that already holds one from list_threads).
+fn resolve_thread(conn: &Connection, key: &str) -> Result<(String, String), String> {
+    use rusqlite::OptionalExtension;
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("项目参数不能为空 — 填项目标题(写一部分即可)。".to_string());
+    }
+    let live_title = conn
+        .query_row(
+            "SELECT t.title FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.id = ?1 AND t.deleted_at IS NULL AND w.deleted_at IS NULL",
+            [key],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some(title) = live_title {
+        return Ok((key.to_string(), title));
+    }
+    // Same substring idiom as list_threads' title_contains.
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.title FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+               AND instr(lower(t.title), lower(?1)) > 0
+             ORDER BY t.updated_at DESC, t.id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let hits: Vec<(String, String)> = stmt
+        .query_map([key], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    // An exact title wins over the projects that merely contain it ("论文" vs "论文 v2").
+    if let Some(hit) = hits.iter().find(|(_, t)| t.trim() == key) {
+        return Ok(hit.clone());
+    }
+    match hits.len() {
+        0 => Err(format!("没有标题含「{key}」的项目 — 用 list_threads 看现有项目。")),
+        1 => Ok(hits.into_iter().next().unwrap()),
+        n => Err(format!(
+            "「{key}」匹配到 {n} 个项目:{} — 写得更具体一点。",
+            hits.iter().take(10).map(|(_, t)| format!("〈{t}〉")).collect::<Vec<_>>().join("、")
+        )),
+    }
+}
+
+// Every prompt shares the same preamble: locate the data dir, refuse while the 「MCP 服务」
+// toggle is off, open the DB read-only. Failures surface as JSON-RPC -32603.
+fn prompt_body(
+    build: impl FnOnce(&std::path::Path, &Connection) -> Result<String, String>,
+) -> Result<String, (i64, String)> {
+    (|| -> Result<String, String> {
+        let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+        if !mcp_enabled(&dir) {
+            return Err("Spool 的 MCP 服务未开启。".to_string());
+        }
+        let conn = open_db(&dir)?;
+        build(&dir, &conn)
+    })()
+    .map_err(|e| (-32603, e))
+}
+
+// The write toggle is read once per prompt so the model is told up front whether it may
+// offer to store anything — a proposal the user accepts and the tool then refuses is a
+// worse experience than saying so in the first place.
+fn write_gate_line(dir: &std::path::Path) -> &'static str {
+    if mcp_write_enabled(dir) {
+        "写入已开启:用户点头之后才调用写入工具,一次只写一块。"
+    } else {
+        "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary 一定会被拒绝——别去调用。\
+         把结论完整讲给用户,并告诉他:Spool → 设置 → 通用 →「MCP 服务」→ 打开「允许 AI 写入」,\
+         你才能替他存回。"
+    }
+}
+
+fn weekly_review_prompt_text(digest: &str, gate: &str) -> String {
+    format!(
+        "你在帮用户做一次回顾。下面是 Spool 生成的跨项目摘要(digest),它是这次回顾唯一的事实来源。\n\n# Digest\n{digest}\n\n# 你要做的\n1. 先读 digest 顶部的选取规则:它只包含窗口内每个项目最新几块加全部置顶,不是全部记录。要展开某个项目,先用 get_pack / get_blocks 补读,再下判断。\n2. 写一份回顾,四段,用大白话,别用项目管理黑话:\n   - 这段时间真正推进了什么(按项目讲,点名项目标题)\n   - 用户自己写下的东西说明他在纠结什么(💭 无来源的块和 note: 行是最高信号,==高亮== 是他自己划的重点)\n   - 哪些项目停住了(digest 末尾的置顶锚点和\"无活动\"计数)\n   - 接下来可以先做的一件事——每个项目最多一条,用建议的语气,不要命令\n3. digest 里看不出来的就说看不出来,绝不编。\n4. 先把回顾讲给用户看。他点头之后,才用 add_block 存成一块——存到哪个项目由他定(也可以让他新建一个专门放回顾的项目);批注里写清这是哪段时间的回顾。\n5. 全程用项目标题称呼项目,绝不把 id 说出来或写进内容。\n{gate}"
+    )
+}
+
+fn thread_health_prompt_text(report: &str, gate: &str) -> String {
+    format!(
+        "你在帮用户体检一个 Spool 项目。下面是 Spool 机械扫描出的报告——检测器与 check_library 同一套,只是范围缩到这一个项目。\n\n# 体检报告\n{report}\n\n# 你要做的\n1. 用大白话把发现讲给用户:疑似重复的块、悬空的引用、正文/批注/来源里露出的内部 id。用块的预览和项目标题指代,绝不说 id。\n2. 摘要是否过期,报告里没有结论——Spool 不记录摘要的写作时间。你根据\"当前摘要 + 最新的块\"自己判断,并说明依据。\n3. 处置权在用户:Spool 不合并、不改写、不删除任何东西。重复块由用户自己在应用里处置;用户手写的内容(无来源署名)只报不改,连改写建议都不要提。\n4. 唯一能由你代劳的是摘要:如果你判断它过期了,先把你想写的新摘要念给用户听,他同意再调 set_thread_summary。若那条摘要是用户手写的,工具会拒绝——那就只把建议讲出来。\n5. 报告是只读的,别把它整段贴回给用户,讲重点。\n{gate}"
+    )
+}
+
+fn distill_prompt_text(title: &str, pack: &str, gate: &str) -> String {
+    format!(
+        "你在把 Spool 项目〈{title}〉提炼成一块结论。下面是这个项目的完整简报(pack),先读它开头的授权规则再动手。\n\n# Pack\n{pack}\n\n# 你要做的\n1. 按 pack 开头的四类授权规则读:📖 Reference 是事实底座,🧩 Synthesis 只是别人的框架、不能当事实,🔄 Process 读的是用户反复在问什么,💭 用户自己写的和 ==高亮== 是最高信号。\n2. 提炼成一块——不是摘要,是结论:到今天为止这个项目定下来的是什么、还没定的是什么、下一步卡在哪。控制在 300 字以内,一块只讲一件事。\n3. 只写 pack 里有的东西。pack 里得不出的判断就说得不出,绝不补脑。\n4. 先把这块念给用户听。他同意之后,用 add_block 存回同一个项目:content 是结论本体,annotation 写一句\"为什么这条值得留\",ref_block_id 填这条结论最直接依据的那个块——id 从 pack 末尾的 Block IDs 表取,那张表只是工具参数,别显示给用户,更别写进正文。\n5. 你只是追加一块,绝不改写或替换用户已有的任何块。\n{gate}"
+    )
+}
+
+// One project's health report: the same three detectors as check_library (near-duplicate
+// groups via find_similar_blocks, dangling citations, raw-id / spool:// leaks) scoped to
+// one thread, plus the material for a staleness call on the summary. Deterministic and
+// read-only — the judgement is the model's, the disposal is the user's.
+const HEALTH_RECENT_BLOCKS: usize = 5;
+
+fn thread_health_report(
+    conn: &Connection,
+    thread_id: &str,
+    title: &str,
+    now_ms: i64,
+) -> Result<String, String> {
+    let (workspace, status, summary, summary_source): (String, String, Option<String>, Option<String>) =
+        conn.query_row(
+            "SELECT w.title, t.status, t.summary, t.summary_source
+             FROM threads t JOIN workspaces w ON w.id = t.workspace_id WHERE t.id = ?1",
+            [thread_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|e| e.to_string())?;
+
+    struct HealthRow {
+        content: String,
+        annotation: Option<String>,
+        source: Option<String>,
+        pinned: bool,
+        created_at: i64,
+        ref_block_id: Option<String>,
+        citee_exists: bool,
+        citee_live: bool,
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT b.content, b.annotation, b.source, b.pinned, b.created_at, b.ref_block_id,
+                    EXISTS(SELECT 1 FROM blocks c WHERE c.id = b.ref_block_id),
+                    EXISTS(SELECT 1 FROM blocks c JOIN threads ct ON ct.id = c.thread_id
+                           WHERE c.id = b.ref_block_id AND ct.deleted_at IS NULL)
+             FROM blocks b WHERE b.thread_id = ?1
+             ORDER BY b.created_at ASC, b.rowid ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<HealthRow> = stmt
+        .query_map([thread_id], |r| {
+            Ok(HealthRow {
+                content: r.get(0)?,
+                annotation: r.get(1)?,
+                source: r.get(2)?,
+                pinned: r.get::<_, i64>(3)? == 1,
+                created_at: r.get(4)?,
+                ref_block_id: r.get(5)?,
+                citee_exists: r.get(6)?,
+                citee_live: r.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // 1. Near-duplicates — the find_similar_blocks detector, scoped, rendered as lines.
+    let dup: Value = serde_json::from_str(&find_similar_blocks_json(
+        conn,
+        Some(thread_id),
+        None,
+        None,
+    )?)
+    .map_err(|e| e.to_string())?;
+    let mut sec_dup: Vec<String> = Vec::new();
+    for g in dup["groups"].as_array().into_iter().flatten() {
+        let members = g["blocks"].as_array().map_or(0, Vec::len);
+        let mut lines = vec![format!("- 相似度 {} · {members} 块:", g["similarity"])];
+        for b in g["blocks"].as_array().into_iter().flatten() {
+            lines.push(format!(
+                "  · [{}] 「{}」({} 字{}{})",
+                b["created_at"].as_str().unwrap_or(""),
+                b["preview"].as_str().unwrap_or(""),
+                b["length"],
+                if b["pinned"] == json!(true) { " · 置顶" } else { "" },
+                if b["has_annotation"] == json!(true) { " · 有批注" } else { "" },
+            ));
+        }
+        sec_dup.push(lines.join("\n"));
+    }
+
+    // 2. Dangling citations + 3. pipeline leaks — check_library's口径, one thread.
+    let mut sec_refs: Vec<String> = Vec::new();
+    let mut sec_leak: Vec<String> = Vec::new();
+    for r in &rows {
+        if r.ref_block_id.is_some() && !r.citee_live {
+            let detail = if r.citee_exists {
+                "被引块所在项目已删除;其预览仍会经引用出现在 pack 中"
+            } else {
+                "被引块已不存在;pack 已降级为 \"(cited block no longer exists)\""
+            };
+            sec_refs.push(format!(
+                "- [{}] 引用方:「{}」\n  {detail}。",
+                format_pack_time(r.created_at),
+                head_anchor(&r.content),
+            ));
+        }
+        let fields = [
+            ("content", hygiene_fragment(&r.content)),
+            ("annotation", r.annotation.as_deref().and_then(hygiene_fragment)),
+            ("source", r.source.as_deref().and_then(hygiene_fragment)),
+        ];
+        for (field, frag) in fields.into_iter() {
+            let Some(frag) = frag else { continue };
+            sec_leak.push(format!(
+                "- [{}] 字段 {field} · 署名:{}\n  片段:「{frag}」{}\n  预览:{}",
+                format_pack_time(r.created_at),
+                source_family(r.source.as_deref()),
+                resolve_fragment(conn, &frag),
+                head_anchor(&r.content),
+            ));
+        }
+    }
+
+    let pinned = rows.iter().filter(|r| r.pinned).count();
+    let annotated = rows.iter().filter(|r| r.annotation.is_some()).count();
+    let handwritten = rows.iter().filter(|r| r.source.is_none()).count();
+    let last_activity = rows.last().map(|r| format_pack_time(r.created_at));
+
+    let mut out: Vec<String> = vec![
+        format!("# 项目体检 —〈{title}〉 · {}", format_pack_date(now_ms)),
+        format!(
+            "工作区「{workspace}」· 状态 {status} · {} 块(置顶 {pinned} · 有批注 {annotated} · 用户手写 {handwritten})· 最后一块 {}",
+            rows.len(),
+            last_activity.as_deref().unwrap_or("（还没有块）"),
+        ),
+        format!(
+            "当前摘要:{}",
+            match summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(s) => format!(
+                    "「{s}」(署名:{})",
+                    match summary_source.as_deref() {
+                        Some("mcp") => "AI(MCP)——可由 set_thread_summary 改写",
+                        Some("user") => "用户手写——set_thread_summary 会拒绝改写",
+                        _ => "未标注——按用户手写对待,set_thread_summary 会拒绝改写",
+                    }
+                ),
+                None => "(无摘要——set_thread_summary 可以写第一条)".to_string(),
+            }
+        ),
+        "检测口径:重复=字符三元组 Jaccard ≥ 0.6(find_similar_blocks 同一套);裸 id=21 位混合大小写 nanoid 形串与 spool:// 子串(add_block 写入警告同一检测器);悬空=ref_block_id 指向已消失的块。只读报告,Spool 不改任何内容。摘要是否过期需要你判断——Spool 不记录摘要的写作时间。".to_string(),
+        String::new(),
+    ];
+    let mut render_section = |no: usize, name: &str, entries: &[String]| {
+        out.push(format!("## {no}. {name}({})", entries.len()));
+        if entries.is_empty() {
+            out.push("(无发现)".to_string());
+        }
+        for e in entries.iter().take(HYGIENE_SECTION_CAP) {
+            out.push(e.clone());
+        }
+        if entries.len() > HYGIENE_SECTION_CAP {
+            out.push(format!("(+{} more)", entries.len() - HYGIENE_SECTION_CAP));
+        }
+        out.push(String::new());
+    };
+    render_section(1, "疑似重复", &sec_dup);
+    render_section(2, "悬空引用", &sec_refs);
+    render_section(3, "正文/批注/来源里的裸 id", &sec_leak);
+
+    // 4. Staleness material: what the summary claims vs. what the project actually holds.
+    out.push("## 4. 判断摘要是否过期的材料".to_string());
+    let mut material: Vec<&HealthRow> = rows.iter().filter(|r| r.pinned).collect();
+    let recent: Vec<&HealthRow> = rows
+        .iter()
+        .rev()
+        .filter(|r| !r.pinned)
+        .take(HEALTH_RECENT_BLOCKS)
+        .collect();
+    material.extend(recent.into_iter().rev());
+    if material.is_empty() {
+        out.push("(还没有块)".to_string());
+    }
+    for r in material {
+        out.push(format!(
+            "- [{}]{}{} · 署名:{}",
+            format_pack_time(r.created_at),
+            if r.pinned { format!(" {PINNED_PREFIX}") } else { " ".to_string() },
+            head_anchor(&r.content),
+            source_family(r.source.as_deref()),
+        ));
+        if let Some(a) = r.annotation.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+            out.push(format!("  {NOTE_MARKER}{}", one_line(a)));
+        }
+    }
+    out.push(String::new());
+    let total = sec_dup.len() + sec_refs.len() + sec_leak.len();
+    out.push(if total == 0 {
+        "机械检查通过:没有重复组、悬空引用或管线泄漏。摘要是否过期仍需你判断。".to_string()
+    } else {
+        format!("机械检查共 {total} 处发现。处置留给用户。")
+    });
+    Ok(out.join("\n"))
+}
+
 fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> {
     match method {
         "initialize" => {
@@ -3175,45 +3484,128 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "contents": [{ "uri": uri, "mimeType": "text/plain", "text": text }]
             }))
         }
-        // §20.13: the compress prompt runs on the CLIENT's model — Spool provides the
-        // §17 instruction + the pack, the connected AI does the compression.
+        // §20.13: prompts run on the CLIENT's model — Spool provides the deterministic
+        // material (pack / digest / health report) plus the instruction, the connected AI
+        // does the thinking. v2.5 adds weekly_review / thread_health / distill.
         "prompts/list" => Ok(json!({
-            "prompts": [{
-                "name": "compress_pack",
-                "description": "Compress one Spool project's context pack using this AI (keeps the skeleton and all user notes/highlights verbatim; deduplicates the Full Record).",
-                "arguments": [
-                    { "name": "thread_id", "description": "Project id from list_threads.", "required": true },
-                    { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
-                ]
-            }]
+            "prompts": [
+                {
+                    "name": "compress_pack",
+                    "description": "Compress one Spool project's context pack using this AI (keeps the skeleton and all user notes/highlights verbatim; deduplicates the Full Record).",
+                    "arguments": [
+                        { "name": "thread_id", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true },
+                        { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
+                    ]
+                },
+                {
+                    "name": "weekly_review",
+                    "description": "Write a review of the last N days across every Spool project (a digest is embedded), then offer to save it back as one block.",
+                    "arguments": [
+                        { "name": "workspace_title", "description": "Optional: limit to one workspace (by name). Omit for all.", "required": false },
+                        { "name": "since_days", "description": "Window in calendar days, default 7, max 90.", "required": false }
+                    ]
+                },
+                {
+                    "name": "thread_health",
+                    "description": "Health check on one Spool project: near-duplicate blocks, dangling citations, leaked internal ids (same detectors as check_library), plus the material to judge whether its summary went stale.",
+                    "arguments": [
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true }
+                    ]
+                },
+                {
+                    "name": "distill",
+                    "description": "Distill one Spool project into a single conclusion block — what is settled, what is open, what is blocked — then offer to save it back with a citation.",
+                    "arguments": [
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true },
+                        { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
+                    ]
+                }
+            ]
         })),
         "prompts/get" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            if name != "compress_pack" {
-                return Err((-32602, format!("unknown prompt: {name}")));
-            }
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            let thread_id = args
-                .get("thread_id")
-                .and_then(Value::as_str)
-                .ok_or((-32602, "缺少 thread_id 参数。".to_string()))?;
+            // Optional args arrive as strings from a client's argument dialog.
+            let arg_i64 = |k: &str| -> Option<i64> {
+                args.get(k).and_then(|v| v.as_i64().or_else(|| v.as_str()?.trim().parse().ok()))
+            };
             let range = args.get("range").and_then(Value::as_str).unwrap_or("all");
             if !RANGE_VALUES.contains(&range) {
                 return Err((-32602, format!("range 必须是 {RANGE_VALUES:?} 之一。")));
             }
-            let text = (|| -> Result<String, String> {
-                let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
-                if !mcp_enabled(&dir) {
-                    return Err("Spool 的 MCP 服务未开启。".to_string());
+            let project = |key: &str| -> Result<&str, (i64, String)> {
+                args.get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or((-32602, format!("缺少 {key} 参数 — 填项目标题(写一部分即可)。")))
+            };
+            let (description, text) = match name {
+                "compress_pack" => {
+                    let key = project("thread_id")?;
+                    (
+                        "Compress this Spool pack per the embedded rules.",
+                        prompt_body(|_, conn| {
+                            let (id, _) = resolve_thread(conn, key)?;
+                            Ok(compress_prompt_text(&get_pack_text(conn, &id, range)?))
+                        })?,
+                    )
                 }
-                get_pack_text(&open_db(&dir)?, thread_id, range)
-            })()
-            .map_err(|e| (-32603, e))?;
+                "weekly_review" => (
+                    "Review the recent window across projects, then offer to file it.",
+                    prompt_body(|dir, conn| {
+                        let digest = get_digest_json(
+                            conn,
+                            args.get("workspace_title").and_then(Value::as_str),
+                            arg_i64("since_days"),
+                            None,
+                            now_ms(),
+                        )?;
+                        Ok(weekly_review_prompt_text(&digest, write_gate_line(dir)))
+                    })?,
+                ),
+                "thread_health" => {
+                    let key = project("project")?;
+                    (
+                        "Health-check one Spool project; disposal stays with the user.",
+                        prompt_body(|dir, conn| {
+                            let (id, title) = resolve_thread(conn, key)?;
+                            let report = thread_health_report(conn, &id, &title, now_ms())?;
+                            Ok(thread_health_prompt_text(&report, write_gate_line(dir)))
+                        })?,
+                    )
+                }
+                "distill" => {
+                    let key = project("project")?;
+                    (
+                        "Distill one Spool project into a single conclusion block.",
+                        prompt_body(|dir, conn| {
+                            let (id, title) = resolve_thread(conn, key)?;
+                            let built = build_pack(conn, &id, range)?;
+                            if let Some(msg) = pack_guard_message(&built, range, 0) {
+                                return Err(msg); // empty project / empty window
+                            }
+                            // Same budget as get_pack, and the id side-table rides along
+                            // so the model can cite what it built on (ref_block_id).
+                            let over = built.text.chars().count() as i64 > PACK_DEFAULT_MAX_CHARS;
+                            let (text, omit) = if over {
+                                budgeted_pack(&built, PACK_DEFAULT_MAX_CHARS)
+                                    .unwrap_or_else(|| (built.text.clone(), 0))
+                            } else {
+                                (built.text.clone(), 0)
+                            };
+                            let pack = format!("{text}{}", pack_id_table(&built.blocks, omit));
+                            Ok(distill_prompt_text(&title, &pack, write_gate_line(dir)))
+                        })?,
+                    )
+                }
+                _ => return Err((-32602, format!("unknown prompt: {name}"))),
+            };
             Ok(json!({
-                "description": "Compress this Spool pack per the embedded rules.",
+                "description": description,
                 "messages": [{
                     "role": "user",
-                    "content": { "type": "text", "text": compress_prompt_text(&text) }
+                    "content": { "type": "text", "text": text }
                 }]
             }))
         }
@@ -4292,6 +4684,89 @@ mod tests {
         let report = check_library_json(&conn, 1_750_000_000_000).unwrap();
         assert!(report.contains("体检通过:未发现内部管线泄漏或悬空引用。"), "{report}");
         assert!(report.contains("(无发现)"), "{report}");
+    }
+
+    // §20.13 v2.5 prompts: a project is named by TITLE (ids never reach the user), and
+    // thread_health runs check_library's detectors scoped to one project.
+    #[test]
+    fn prompts_resolve_by_title_and_report_thread_health() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-prompts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '学习', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, summary, summary_source,
+                                  created_at, updated_at)
+               VALUES ('t1', 'ws1', '机器学习课', '还在看第一讲', 'user', 1, 9),
+                      ('t2', 'ws1', '机器学习课作业', NULL, NULL, 1, 8),
+                      ('t3', 'ws1', '论文', 'AI 写的摘要', 'mcp', 1, 7),
+                      ('td', 'ws1', '已删除的项目', NULL, NULL, 1, 6);
+             UPDATE threads SET deleted_at = 2 WHERE id = 'td';
+             INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned,
+                                 ref_block_id, created_at) VALUES
+               ('b1', 't1', 'text', '梯度下降每一步都沿着损失函数下降最快的方向走', NULL,
+                NULL, 1, NULL, 10),
+               ('b2', 't1', 'text', '梯度下降每一步都沿着损失函数下降最快的方向走', NULL,
+                'Claude · MCP', 0, NULL, 20),
+               ('b3', 't1', 'text', '见 sbC2zgToKq9XmNp3Vr7Yz 那一块', NULL,
+                'Claude · MCP', 0, NULL, 30),
+               ('b4', 't1', 'text', '站在前一块上的结论', '值得留', 'Claude · MCP', 0,
+                'gone', 40),
+               ('b5', 't3', 'text', '论文里只有一块', NULL, NULL, 0, NULL, 50);",
+        )
+        .unwrap();
+
+        // Titles resolve; an exact title beats the projects that merely contain it.
+        assert_eq!(resolve_thread(&conn, "t1").unwrap(), ("t1".into(), "机器学习课".into()));
+        assert_eq!(resolve_thread(&conn, "机器学习课").unwrap().0, "t1");
+        assert_eq!(resolve_thread(&conn, "作业").unwrap().0, "t2");
+        assert_eq!(resolve_thread(&conn, "论").unwrap().0, "t3");
+        let err = resolve_thread(&conn, "机器学习").unwrap_err();
+        assert!(err.contains("〈机器学习课〉") && err.contains("〈机器学习课作业〉"), "{err}");
+        assert!(resolve_thread(&conn, "不存在的").unwrap_err().contains("list_threads"));
+        assert!(resolve_thread(&conn, "  ").unwrap_err().contains("不能为空"));
+        // A soft-deleted project is neither an id hit nor a title hit.
+        assert!(resolve_thread(&conn, "td").unwrap_err().contains("没有标题含"));
+
+        let report = thread_health_report(&conn, "t1", "机器学习课", 1_750_000_000_000).unwrap();
+        // Header + summary provenance (a user-written summary is never rewritten).
+        assert!(report.contains("# 项目体检 —〈机器学习课〉"), "{report}");
+        assert!(report.contains("工作区「学习」"), "{report}");
+        assert!(report.contains("用户手写——set_thread_summary 会拒绝改写"), "{report}");
+        // 1. duplicates — find_similar_blocks' grouping, scoped to this project.
+        assert!(report.contains("## 1. 疑似重复(1)"), "{report}");
+        assert!(report.contains("相似度 1.0 · 2 块"), "{report}");
+        // 2. dangling citation, 3. leaked raw id (check_library's口径).
+        assert!(report.contains("## 2. 悬空引用(1)"), "{report}");
+        assert!(report.contains("被引块已不存在"), "{report}");
+        assert!(report.contains("## 3. 正文/批注/来源里的裸 id(1)"), "{report}");
+        assert!(report.contains("「sbC2zgToKq9XmNp3Vr7Yz」"), "{report}");
+        assert!(report.contains("署名:AI(MCP 署名)"), "{report}");
+        // 4. staleness material: pinned first, then the newest blocks + their notes.
+        assert!(report.contains("## 4. 判断摘要是否过期的材料"), "{report}");
+        assert!(report.contains(PINNED_PREFIX), "{report}");
+        assert!(report.contains("note: 值得留"), "{report}");
+        assert!(report.contains("机械检查共 3 处发现"), "{report}");
+        // A clean project reports nothing but still asks for the staleness judgement.
+        let clean = thread_health_report(&conn, "t3", "论文", 1_750_000_000_000).unwrap();
+        assert!(clean.contains("机械检查通过"), "{clean}");
+        assert!(clean.contains("AI(MCP)——可由 set_thread_summary 改写"), "{clean}");
+
+        // The three prompt bodies carry their material + the write-gate line verbatim.
+        let gate = "写入已开启:用户点头之后才调用写入工具,一次只写一块。";
+        assert!(thread_health_prompt_text(&report, gate).contains("# 项目体检"));
+        assert!(thread_health_prompt_text(&report, gate).ends_with(gate));
+        let digest = get_digest_json(&conn, None, Some(7), None, 1_750_000_000_000).unwrap();
+        assert!(weekly_review_prompt_text(&digest, gate).contains("# Spool Digest"));
+        let built = build_pack(&conn, "t1", "all").unwrap();
+        let pack = format!("{}{}", built.text, pack_id_table(&built.blocks, 0));
+        let distill = distill_prompt_text("机器学习课", &pack, gate);
+        assert!(distill.contains("〈机器学习课〉") && distill.contains(SECTION_IDS), "{distill}");
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,

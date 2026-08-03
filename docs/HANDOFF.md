@@ -1,4 +1,4 @@
-# 交接文档 — 2026-08-03 晚(给下一个窗口)
+# 交接文档 — 2026-08-03 深夜(给下一个窗口)
 
 > 先读 CLAUDE.md 与 memory(`isolated-verify-workflow`、`next-stage-goals-website-portfolio`、
 > `write-plainly-for-ocean`、`no-license-file`、`spool-db-wipe-incident`、
@@ -12,17 +12,21 @@
 
 ## 0. 一句话状态
 
-**本窗一个提交已按 Ocean 明示推上 main**(2026-08-03 晚)。工作区干净。
-基线全绿:`npx tsc -b` / `npx vitest run`(**160**,比上窗 +3)/ `cargo test`(**16**)。
-真库动过一次(换装前备份),备份在 §5.1。
+**MCP 三个新 prompt 已实现并提交**(2026-08-03 深夜)。工作区干净,**没推 main**
+(没碰 `site/**`,推不推等 Ocean 说)。
+基线全绿:`npx tsc -b` / `npx vitest run`(**160**)/ `cargo test`(**17**,+1)。
+真库这一窗**一个字都没动**(MCP 实验室走 `SPOOL_DATA_DIR`,和真库物理隔离)。
 
-本窗做完的两件事:
+这一窗做完的两件事:
 
-1. **网页工程债 B 三件事全做完**(`7fa8fe7`)—— 中文独立 URL、story 页语言切换、
-   截图瘦身。**已部署上线**(碰了 `site/**`)。详见 §2。
-2. **把 `/Applications/Spool.app` 换成当前 main 的构建** —— Ocean 明示要装。详见 §3。
+1. **`weekly_review` / `thread_health` / `distill` 三个 MCP prompt**(§4 第 1 条)+
+   实机自测的隔离实验室与评审提示词。详见 §2.5。
+2. **中文页 alt / `<noscript>` 这条按 Ocean 的话销案**,不写了。详见 §2.3。
 
-**👉 下一窗从 §1 挑。**
+上一窗的两件事(网页工程债 B `7fa8fe7` 已上线、`/Applications/Spool.app` 换成 main 构建)
+仍然有效,细节在 §2.1–2.2 与 §3。
+
+**👉 下一窗:先看 Ocean 的 MCP 评审报告(§1.1 B),没有报告就从 §1 挑别的。**
 
 ---
 
@@ -33,7 +37,7 @@
 | # | 事情 | 在哪 |
 |---|---|---|
 | A | **长期计划清单里挑一条开工** —— 第 2 条 Claude Code 引擎位设计稿**已批复可开工**,是唯一一条不需要再拍板的 | §4 表格 |
-| B | **中文页的 alt 文本 + `<noscript>` 那句** —— 13 条,`/zh/` 上还是英文。Ocean 2026-08-03 说**先不写**,但没说永远不写 | §2.3 |
+| B | **MCP 三个新 prompt 的实机反馈** —— Ocean 在 Claude Desktop / ChatGPT 桌面版跑完评审提示词后会给报告,按报告修 | §2.5 |
 
 ### 1.2 要等别的事先完成
 
@@ -85,11 +89,9 @@ advice 写的是「加 srcset」。照做量了一遍,**对这些图是负收益
 (`.pack-shot + .shot-caption` → `.pack-pic + …`;`.shot-group .shot-caption + .shot`
 → `… + picture`)—— 包一层 `<picture>` 会打断兄弟选择器,动这块 CSS 前先看一眼。
 
-### 2.3 已知没做的一笔(Ocean 说先不写)
+### 2.3 中文页的 alt 文本 / `<noscript>`:Ocean 2026-08-03 决定**不写**,这条销案
 
-**中文页 `/zh/` 上,12 条图片 alt 文本 + 1 句 `<noscript>` 仍是英文。**
-这是 JS 切换时代就有的老问题,不是这次引入的。补它等于写 13 条新中文文案,
-按「中文是重写不是翻译」应当单独一轮给 Ocean 过目。
+`/zh/` 上那 12 条图片 alt + 1 句 `<noscript>` 保持英文。不是欠账,是决定。别再提。
 
 ### 2.4 🚩 截图现在是旧术语了(上窗欠账,仍未还)
 
@@ -107,7 +109,43 @@ advice 写的是「加 srcset」。照做量了一遍,**对这些图是负收益
   现在写死的是找工作的内容,要改。
 - ⚠️ **换完截图记得重跑 `scripts/build-site-shots.sh`**,再把它打印的 srcset 贴回 HTML。
 
-### 2.5 `site/assets/shots/mcp-ask.png` 没有任何页面引用
+### 2.5 MCP 新增三个 prompt(本窗做的,§4 第 1 条已开工)
+
+`src-tauri/src/mcp.rs` 的 `prompts/list` 从 1 个变 4 个:`compress_pack` +
+**`weekly_review` / `thread_health` / `distill`**(`DESIGN_NEXT_STAGE.md` §4.2 的原计划)。
+契约和 compress_pack 一样:**Spool 只负责把确定性的材料装配好,想事情的是客户端那个模型**;
+写入仍然要两个开关 + 用户在对话里点头。
+
+- **参数用项目标题,不用 id。** prompt 的参数是**人**在客户端弹窗里手敲的,而硬规则是
+  「id 不许出现在用户面前」。新加的 `resolve_thread()` 先按 id 试,再按标题包含匹配,
+  完全同名优先,匹配到多个就报歧义并列出候选。`compress_pack` 的 `thread_id` 也走了同一个
+  解析器(**参数名没改**,只是现在也认标题)。
+- `thread_health` 是 `check_library` 的三个检测器缩到单个项目(查重用 find_similar_blocks
+  的口径),外加「判断摘要过没过期」的材料 —— **过期与否不由 Spool 判定**,库里没有摘要
+  写作时间这个字段,报告里写明了让模型自己判断。
+- `distill` embed 的是 pack + Block IDs 表(所以模型能用 `ref_block_id` 引用它依据的块),
+  预算沿用 get_pack 的 50000。
+- 三个 prompt 都会先读一次「允许 AI 写入」开关:**关着就直接告诉模型别调写入工具**,
+  免得用户点了头才被工具拒绝。
+- 顺手抽了一个 `source_family()`(署名家族标签),让 check_library 和 thread_health
+  不会各写一份字面量。
+- 测试:`prompts_resolve_by_title_and_report_thread_health`(cargo 17 个,+1)。
+  另外拿 release 二进制 + 临时数据目录**跑过真 stdio**:四个 prompt 都回得来,
+  标题解析、歧义报错、缺参数报错、空项目报错都对。
+
+**实机自测的东西已经备好,等 Ocean 的报告**:
+- `scripts/seed-mcp-lab.sh` —— 一键建隔离实验室(桌面 `Spool-MCP-Lab/`),
+  **靠 `SPOOL_DATA_DIR` 隔离,不需要改 identifier 重建**(env 写在启动脚本里,
+  客户端就算不支持 per-server env 也指不到真库);`--connect` / `--disconnect` 会把
+  `spool_lab` 这条写进/删出 Claude Desktop 与 `~/.codex/config.toml`(**先备份,
+  绝不碰 `spool` 那条**;两个文件的 merge 都拿他真实配置的副本试过,可反复执行)。
+- `docs/MCP_LAB_PROMPT.md` —— 两份可整段复制的评审提示词(Claude Desktop / ChatGPT 桌面版)。
+  不是普通使用流程,是**让 AI 主动找茬**:必跑清单、越界参数、一致性对账、缺什么功能、
+  **它还想要什么权限**。第 0 步是**环境识别闸门**(本机同时装着真 Spool):
+  必须先报出实验室标记 `SPOOL-MCP-LAB-2026-08-03` 才准往下走。
+  文末那张「埋了什么」的表是给 Ocean 自己对答案的,别喂给 AI。
+
+### 2.6 `site/assets/shots/mcp-ask.png` 没有任何页面引用
 
 本来就是死文件,本窗没动(CLAUDE.md §3:不擅自删预先存在的死代码)。要删得 Ocean 点头。
 
@@ -145,7 +183,7 @@ Ocean 2026-08-03 指出:**MCP 新增接口和 Windows 版这两条,在 08-02 那
 
 | # | 计划 | 状态 | 细节在哪 |
 |---|---|---|---|
-| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **未开工**。现在只有 `compress_pack` 一个(`src-tauri/src/mcp.rs` 的 `prompts/list`) | `docs/DESIGN_NEXT_STAGE.md` §4.2 |
+| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **已实现**(2026-08-03,`prompts/list` 现在 4 个)。**等 Ocean 实机评审报告后再改** | 实现与自测环境见 §2.5;原设计 `docs/DESIGN_NEXT_STAGE.md` §4.2 |
 | 2 | **Claude Code 引擎位**(`claude -p` headless + 挂自己的 MCP server) | 设计稿**已批复可开工**,目标 v0.4.0,未动手 | `docs/DESIGN_AI_ENGINE.md`(§4.1 的细化稿) |
 | 3 | **AI 活动面**(脉络级折叠区,纯读,从 source + 时间聚合) | 未开工 | `DESIGN_NEXT_STAGE.md` §4.3 |
 | 4 | **「我的思考」凸显**(只看我写的过滤;摘要区分我的批注 vs AI 结论) | 未开工 | `DESIGN_NEXT_STAGE.md` §4.4 |
@@ -175,6 +213,10 @@ OCR 截图捕捉、应用内自动更新。
   下次要做隔离验证,得改 identifier 重建 —— 改完**立刻**建、建完**立刻**改回来。
 - **演示库脚本**:`scripts/seed-demo-library.sh`(8 个项目,默认播 `language:"en"`)、
   `scripts/seed-growth-demo.sh day1|week6`。两个都**只写 verify 数据目录**,真库不碰。
+- **MCP 实验室**:`scripts/seed-mcp-lab.sh`(桌面 `Spool-MCP-Lab/`,见 §2.5)。
+  ⚠️ 它走的是**另一条隔离路线** —— `SPOOL_DATA_DIR` + 二进制副本,**不改 identifier、
+  不装 app、不碰 GUI**。只验 MCP 面时用它,比重建 verify 构建轻得多;
+  要验窗口/权限/首启仍然只能走下面那套 identifier 流程。
 - ⚠️ **首启验证专用 id `.fr1` / `.fr2` / `.fr3` 全都用掉了**。`.fr3` 就是桌面上那个
   `~/Desktop/Spool-首启试装/Spool.app`。再验「启动不弹框」**必须换 `.fr4`**。
 - ⚠️ **窗口重叠**:`.fr3` 的窗口和新建 verify 构建**默认同坐标**(350,119 · 1100x720),
@@ -200,8 +242,8 @@ FAQ 八条 → 标志 → 下载。
 ### 5.4 网页工程债(还剩什么)
 
 上一版这一节的三条**已全部做完**(中文独立 URL、srcset、story 页提示)。剩下:
-- 中文页的 alt / `<noscript>`(见 §2.3)。
 - 没有 sitemap.xml、没有 robots.txt。没人提过,不确定要不要。
+(中文页 alt / `<noscript>` 已由 Ocean 拍板不写,见 §2.3。)
 
 ### 5.5 对外动作(全部需 Ocean 单独明示,一件都没做)
 
