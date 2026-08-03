@@ -6,7 +6,7 @@ import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
 import ToastRack from '@/components/ui/Toast';
-import { getFirstRunThreadId, setSeedLanguage } from '@/lib/db/client';
+import { getFirstRunThreadId, retranslateTutorial, setSeedLanguage } from '@/lib/db/client';
 import { t } from '@/lib/i18n';
 import { useCapture } from '@/hooks/useCapture';
 import { useOverlayDbHost } from '@/hooks/useOverlayDbHost';
@@ -35,6 +35,7 @@ export default function App() {
   const createThread = useThreadsStore((s) => s.create);
   const loadSettings = useSettingsStore((s) => s.load);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
+  const language = useSettingsStore((s) => s.language);
   const openSettings = useSettingsStore((s) => s.openPanel);
 
   useCapture();
@@ -75,6 +76,29 @@ export default function App() {
     const next = stillThere ? firstRun : captureTargetId;
     if (next) select(next);
   }, [activeId, captureTargetId, select]);
+
+  // Ocean 2026-08-03: the tutorial threads follow the language switch. They are database
+  // rows, so retranslateTutorial only rewrites what is still exactly as seeded (see its
+  // comment) — and only the main window runs it, the same single-writer rule the seed
+  // itself follows. Skips the first pass: `prev === null` is this window opening, not a
+  // switch.
+  const prevLanguage = useRef<'zh' | 'en' | null>(null);
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    const prev = prevLanguage.current;
+    prevLanguage.current = language;
+    if (prev === null || prev === language) return;
+    void (async () => {
+      try {
+        if (!(await retranslateTutorial(prev, language))) return;
+        await loadThreads();
+        const active = useThreadsStore.getState().activeId;
+        if (active) await useBlocksStore.getState().load(active);
+      } catch (e) {
+        console.warn('[tutorial] re-translation failed', e);
+      }
+    })();
+  }, [language, settingsLoaded, loadThreads]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -1,7 +1,12 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { __migrateSchemaForTest, __seedTutorialThreadForTest, __setTestDb } from './client';
+import {
+  __migrateSchemaForTest,
+  __seedTutorialThreadForTest,
+  __setTestDb,
+  retranslateTutorial,
+} from './client';
 import schemaSql from './schema.sql?raw';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -312,5 +317,88 @@ describe('migrateSchema registry (§19.3)', () => {
       expect(cjk.test(String(b.annotation ?? ''))).toBe(false);
     }
     for (const t of threads) expect(cjk.test(String(t.title))).toBe(false);
+  });
+});
+
+// Ocean 2026-08-03: switching the UI language re-translates the tutorial threads. They
+// are database rows, so the whole feature hangs on one rule — only rewrite what is still
+// exactly as seeded. These three cover the rule from both sides.
+describe('retranslateTutorial', () => {
+  let handle: Sqlite;
+  let db: Database;
+
+  beforeEach(() => {
+    handle = new DatabaseSync(':memory:');
+    db = makeAdapter(handle);
+    __setTestDb(db);
+    applySchema(handle);
+    handle.exec('PRAGMA user_version = 8');
+    handle.exec(`
+      INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+        VALUES ('w1', 'Inbox', 0, 1, 1);
+    `);
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    handle.close();
+  });
+
+  const titles = (): unknown[] =>
+    (handle.prepare('SELECT title FROM threads ORDER BY updated_at DESC').all() as {
+      title: string;
+    }[]).map((t) => t.title);
+
+  it('rewrites an untouched English tutorial into Chinese, in place', async () => {
+    await __seedTutorialThreadForTest(db, 'en');
+    const before = handle.prepare('SELECT id, pinned, created_at FROM blocks ORDER BY id').all();
+
+    expect(await retranslateTutorial('en', 'zh')).toBe(true);
+
+    expect(titles()).toEqual(['欢迎使用 Spool', '让 AI 用上你的 Spool']);
+    const blocks = handle
+      .prepare('SELECT content, source FROM blocks ORDER BY created_at ASC')
+      .all() as { content: string; source: string }[];
+    expect(blocks).toHaveLength(12);
+    expect(blocks.every((b) => b.source === 'Spool 指南')).toBe(true);
+    expect(blocks.some((b) => b.content.includes('捕捉目标'))).toBe(true);
+    // Same rows, same pins, same timestamps — this is a rewrite, not a re-seed.
+    expect(handle.prepare('SELECT id, pinned, created_at FROM blocks ORDER BY id').all()).toEqual(
+      before,
+    );
+    // Search stays consistent: the FTS mirror followed the update.
+    expect(
+      handle.prepare("SELECT COUNT(*) AS c FROM blocks_fts WHERE blocks_fts MATCH '\"批注框\"'").get(),
+    ).toEqual({ c: 1 });
+  });
+
+  it('leaves a thread alone once the user has edited one of its blocks', async () => {
+    await __seedTutorialThreadForTest(db, 'en');
+    handle
+      .prepare("UPDATE blocks SET content = 'my own words' WHERE content LIKE 'Capture:%'")
+      .run();
+
+    expect(await retranslateTutorial('en', 'zh')).toBe(true); // the other thread still swaps
+
+    // The edited thread keeps its English title and every one of its blocks.
+    expect(titles()).toContain('Welcome to Spool');
+    const kept = handle
+      .prepare("SELECT COUNT(*) AS c FROM blocks WHERE source = 'Spool Guide'")
+      .get() as { c: number };
+    expect(kept.c).toBe(6);
+    expect(
+      handle.prepare("SELECT COUNT(*) AS c FROM blocks WHERE content = 'my own words'").get(),
+    ).toEqual({ c: 1 });
+  });
+
+  it('never re-creates a tutorial the user deleted', async () => {
+    await __seedTutorialThreadForTest(db, 'en');
+    handle.prepare('DELETE FROM blocks').run();
+    handle.prepare('DELETE FROM threads').run();
+
+    expect(await retranslateTutorial('en', 'zh')).toBe(false);
+
+    expect(handle.prepare('SELECT COUNT(*) AS c FROM threads').get()).toEqual({ c: 0 });
+    expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 0 });
   });
 });

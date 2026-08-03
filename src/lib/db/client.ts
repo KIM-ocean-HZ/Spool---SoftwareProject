@@ -8,8 +8,12 @@ export const UNSORTED_THREAD_TITLE = '未分类';
 
 // Seeded rows are per-language (2026-07-31, HANDOFF §2.2). Unlike UI strings — Chinese
 // literal as the key, translated at render (lib/i18n) — these land in the database as
-// ordinary user data: editable, deletable, and never re-translated by a later language
-// switch. So a fresh install is seeded once, in the language the user starts in.
+// ordinary user data: editable and deletable. So a fresh install is seeded once, in the
+// language the user starts in.
+//
+// 2026-08-03 (Ocean): a later language switch DOES re-translate the tutorial threads —
+// see retranslateTutorial below — but only the rows still character-for-character as
+// seeded. Anything the user touched, renamed or deleted stays exactly as they left it.
 export type SeedLanguage = 'zh' | 'en';
 
 const INBOX_TITLE: Record<SeedLanguage, string> = { zh: INBOX_WORKSPACE_TITLE, en: 'Inbox' };
@@ -541,6 +545,87 @@ const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<voi
 
 // Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
 export const __seedTutorialThreadForTest = seedTutorialThread;
+
+// Switching the UI language re-translates the tutorial threads in place (Ocean,
+// 2026-08-03: "教程的语言…需要随切换语言变化"). These are database rows, not UI strings,
+// so the rule that keeps this from eating anyone's work is: **only rewrite what is still
+// exactly as seeded.**
+//
+// - A thread is found by its seeded title; renamed or deleted → skipped, and nothing is
+//   ever re-created (deleting the tutorial stays final, same as before).
+// - Every seeded block must still match its seeded text, annotation and source label. One
+//   edited block skips the whole thread — half-translated would be worse than untouched.
+// - Blocks the user captured into the thread are left alone; so are pin state, ids,
+//   timestamps and `updated_at` (a language switch is not activity, it must not reorder
+//   the sidebar).
+//
+// Returns true when anything changed, so the caller can refresh the stores.
+export const retranslateTutorial = async (
+  from: SeedLanguage,
+  to: SeedLanguage,
+): Promise<boolean> => {
+  if (from === to) return false;
+  const db = await getDb();
+  const fromCopy = TUTORIAL[from];
+  const toCopy = TUTORIAL[to];
+  let changed = false;
+
+  for (const key of ['gesture', 'mcp'] as const) {
+    const before = fromCopy[key];
+    const after = toCopy[key];
+    // The two languages are parallel translations; if that ever stops being true, do
+    // nothing rather than pair blocks up by the wrong index.
+    if (before.blocks.length !== after.blocks.length) continue;
+
+    const threads = await db.select<{ id: string; summary: string | null }[]>(
+      'SELECT id, summary FROM threads WHERE title = $1 AND deleted_at IS NULL',
+      [before.title],
+    );
+    const thread = threads[0];
+    if (!thread) continue;
+
+    const rows = await db.select<{ id: string; content: string; annotation: string | null }[]>(
+      'SELECT id, content, annotation FROM blocks WHERE thread_id = $1 AND source = $2',
+      [thread.id, fromCopy.source],
+    );
+    const matched: string[] = [];
+    for (const seedBlock of before.blocks) {
+      const hit = rows.find(
+        (r) =>
+          !matched.includes(r.id) &&
+          r.content === seedBlock.content &&
+          (r.annotation ?? null) === (seedBlock.annotation ?? null),
+      );
+      if (!hit) break;
+      matched.push(hit.id);
+    }
+    if (matched.length !== before.blocks.length) continue;
+
+    for (let i = 0; i < matched.length; i++) {
+      const target = after.blocks[i]!;
+      await db.execute('UPDATE blocks SET content = $1, annotation = $2, source = $3 WHERE id = $4', [
+        target.content,
+        target.annotation ?? null,
+        toCopy.source,
+        matched[i]!,
+      ]);
+    }
+    // The summary is a separate editable field — swap it only if it is still the seeded
+    // one, so a user-written card keeps their words.
+    if (thread.summary === before.summary) {
+      await db.execute('UPDATE threads SET title = $1, summary = $2 WHERE id = $3', [
+        after.title,
+        after.summary,
+        thread.id,
+      ]);
+    } else {
+      await db.execute('UPDATE threads SET title = $1 WHERE id = $2', [after.title, thread.id]);
+    }
+    changed = true;
+  }
+
+  return changed;
+};
 
 // Only the main window initializes the database (migrations + base-data seeding). The
 // overlay and collect windows run their own JS contexts and also open the DB at startup
