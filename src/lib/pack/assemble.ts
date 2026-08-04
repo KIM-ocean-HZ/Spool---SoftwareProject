@@ -106,8 +106,22 @@ export const formatPackDate = (ts: number): string => {
 
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
+// §3.1-5 (MCP review round 2, 2026-08-04 — Ocean approved): a pack is BY DEFINITION the
+// thing the user pastes into somebody else's AI, and every pack with a file attachment
+// used to carry "/Users/hzjin/Library/Application Support/…/lecture-03.pdf" — the
+// account name and the machine's directory layout, out the door. "Never leaves your
+// machine" is about Spool; the pack is the one artifact designed to leave it. A URL is
+// already public and travels whole; a local path shrinks to its file name.
+const baseName = (target: string): string => {
+  const trimmed = target.replace(/\/+$/, '');
+  return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed;
+};
+
+const packTarget = (a: Attachment): string =>
+  a.kind === 'url' ? a.target : baseName(a.target);
+
 // An attachment's display text falls back to its target when the label is empty.
-const attachmentLabel = (a: Attachment): string => a.label.trim() || a.target;
+const attachmentLabel = (a: Attachment): string => a.label.trim() || packTarget(a);
 
 // Extracted file text, indented under its block and capped so one large PDF can't dominate
 // the pack. Every line — including the truncation marker — carries the 6-space indent.
@@ -132,7 +146,7 @@ const renderExtractedText = (text: string): string => {
 const renderAttachment = (a: Attachment): string[] => {
   const label = attachmentLabel(a);
   if (a.kind === 'url') {
-    return [`${NOTE_INDENT}${URL_MARKER}${label} — ${a.target}`];
+    return [`${NOTE_INDENT}${URL_MARKER}${label} — ${packTarget(a)}`];
   }
   if (a.kind === 'folder') {
     return [`${NOTE_INDENT}${FOLDER_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
@@ -296,7 +310,12 @@ export function assemble({
         a.kind === 'file' && a.extractedText != null && !a.includeInPack
           ? '  [extracted: yes, not inlined]'
           : '';
-      out.push(`- ${attachmentLabel(a)} — ${a.target}${notInlined}`);
+      // §3.1-5: file name, not path. The " — target" half is dropped when it would only
+      // repeat the label (the common case, since the label defaults to the file name).
+      const target = packTarget(a);
+      const label = attachmentLabel(a);
+      const shown = target === label ? '' : ` — ${target}`;
+      out.push(`- ${label}${shown}${notInlined}`);
     }
   }
 

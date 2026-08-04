@@ -147,10 +147,12 @@ describe('assemble', () => {
       '    ↳ attached file: paper.pdf — see Related Files & Links section below',
     );
     expect(out).toContain('## Related Files & Links');
-    expect(out).toContain('- paper.pdf — /Users/x/Desktop/paper.pdf');
+    // §3.1-5: the file name, never the machine path it sits at.
+    expect(out).toContain('- paper.pdf');
+    expect(out).not.toContain('/Users/x/Desktop/paper.pdf');
   });
 
-  it('falls back to the target when an attachment label is empty', () => {
+  it('falls back to the pack target when an attachment label is empty', () => {
     const blocks = [textBlock('b1', 'kickoff note')];
     const attachments = [
       attachment('a1', 'b1', { kind: 'url', target: 'https://example.com/spec', label: '' }),
@@ -159,7 +161,26 @@ describe('assemble', () => {
     expect(out).toContain(
       '    ↳ attached URL: https://example.com/spec — https://example.com/spec',
     );
-    expect(out).toContain('- https://example.com/spec — https://example.com/spec');
+    // …and the Related Files row then holds it once, not twice.
+    expect(out).toContain('- https://example.com/spec\n');
+  });
+
+  // §3.1-5 (MCP review round 2): a pack is the artifact the user pastes elsewhere, so no
+  // line of it may carry the machine's directory layout. The property, not one example.
+  it('never prints a local path — files show their name, URLs travel whole', () => {
+    const blocks = [textBlock('b1', 'kickoff note')];
+    const attachments = [
+      attachment('a1', 'b1', { label: '', target: '/Users/hzjin/Library/files/lecture-03.pdf' }),
+      attachment('a2', 'b1', { kind: 'folder', label: '', target: '/Users/hzjin/repos/baseline/' }),
+      attachment('a3', 'b1', { kind: 'url', label: 'course', target: 'https://e.edu/final' }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).not.toContain('/Users/hzjin');
+    expect(out).toContain('    ↳ attached file: lecture-03.pdf — see Related Files');
+    expect(out).toContain('    ↳ attached folder: baseline — see Related Files');
+    expect(out).toContain('- lecture-03.pdf');
+    expect(out).toContain('- baseline');
+    expect(out).toContain('- course — https://e.edu/final');
   });
 
   it("inlines an attachment's extracted text only when include_in_pack === true (§20.2)", () => {
@@ -194,9 +215,7 @@ describe('assemble', () => {
     expect(out).not.toContain('should not appear in body');
     // And Related Files & Links tags the row with the not-inlined marker so the AI
     // knows content exists but was withheld.
-    expect(out).toContain(
-      '- paper.pdf — /Users/x/Desktop/paper.pdf  [extracted: yes, not inlined]',
-    );
+    expect(out).toContain('- paper.pdf  [extracted: yes, not inlined]');
   });
 
   it('omits the not-inlined marker for files without extracted text', () => {
@@ -205,7 +224,7 @@ describe('assemble', () => {
       attachment('a1', 'b1', { label: 'photo.jpg', target: '/x/photo.jpg' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain('- photo.jpg — /x/photo.jpg');
+    expect(out).toContain('- photo.jpg');
     expect(out).not.toContain('[extracted: yes, not inlined]');
   });
 
@@ -260,9 +279,7 @@ describe('assemble', () => {
       '    ↳ attached file: photo.jpg — see Related Files & Links section below',
     );
     expect(out).toContain('    ↳ attached URL: spec — https://e.com/s');
-    expect(out).toContain(
-      '- reference.pdf — /x/reference.pdf  [extracted: yes, not inlined]',
-    );
+    expect(out).toContain('- reference.pdf  [extracted: yes, not inlined]');
   });
 
   it('renders ref blocks using the refTitles map', () => {

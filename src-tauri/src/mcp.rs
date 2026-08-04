@@ -324,10 +324,30 @@ fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+// §3.1-5 — mirrors assemble.ts baseName/packTarget. A pack is the artifact designed to
+// leave the machine, so a local path shrinks to its file name; a URL is already public
+// and travels whole. get_blocks' JSON keeps the full path — that one is for the caller,
+// not for pasting.
+fn base_name(target: &str) -> &str {
+    let trimmed = target.trim_end_matches('/');
+    match trimmed.rfind('/') {
+        Some(i) if i + 1 < trimmed.len() => &trimmed[i + 1..],
+        _ => trimmed,
+    }
+}
+
+fn pack_target(a: &AttachmentRow) -> &str {
+    if a.kind == "url" {
+        &a.target
+    } else {
+        base_name(&a.target)
+    }
+}
+
 fn attachment_label(a: &AttachmentRow) -> &str {
     let trimmed = a.label.trim();
     if trimmed.is_empty() {
-        &a.target
+        pack_target(a)
     } else {
         trimmed
     }
@@ -357,7 +377,7 @@ fn render_extracted_text(text: &str, cap: usize) -> String {
 fn render_attachment(a: &AttachmentRow, extract_cap: usize) -> Vec<String> {
     let label = attachment_label(a);
     if a.kind == "url" {
-        return vec![format!("{NOTE_INDENT}{URL_MARKER}{label} — {}", a.target)];
+        return vec![format!("{NOTE_INDENT}{URL_MARKER}{label} — {}", pack_target(a))];
     }
     if a.kind == "folder" {
         return vec![format!("{NOTE_INDENT}{FOLDER_MARKER}{label}{ATTACHMENT_SEE_BELOW}")];
@@ -664,7 +684,12 @@ fn assemble_pack_with(
             } else {
                 ""
             };
-            out.push(format!("- {} — {}{not_inlined}", attachment_label(a), a.target));
+            // §3.1-5: file name, not path; the " — target" half is dropped when it
+            // would only repeat the label.
+            let target = pack_target(a);
+            let label = attachment_label(a);
+            let shown = if target == label { String::new() } else { format!(" — {target}") };
+            out.push(format!("- {label}{shown}{not_inlined}"));
         }
     }
 
