@@ -61,17 +61,22 @@ pub enum Lang {
 // at the bottom of this file are Tauri commands running inside the GUI process, which
 // never goes through handle_request — so lang() reads settings itself the first time
 // rather than silently defaulting to one language.
-static LANG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+//
+// Thread-local, not a process global. The stdio server is one thread, so refresh_lang at
+// the top of a request covers everything that request renders; the GUI's Tauri commands
+// each resolve on their own thread. And it keeps the unit tests honest — they run in
+// parallel, and a shared global meant whichever test happened to touch it first decided
+// what language every other test rendered in.
+thread_local! {
+    static LANG: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
 
 fn store_lang(l: Lang) {
-    LANG.store(
-        if l == Lang::Zh { 1 } else { 2 },
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    LANG.with(|c| c.set(if l == Lang::Zh { 1 } else { 2 }));
 }
 
 fn lang() -> Lang {
-    match LANG.load(std::sync::atomic::Ordering::Relaxed) {
+    match LANG.with(std::cell::Cell::get) {
         1 => Lang::Zh,
         2 => Lang::En,
         _ => {
@@ -762,8 +767,37 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
     if !path.exists() {
         return Err(t!("Spool 数据库不存在 — 请先启动一次 Spool 应用。", "No Spool database found — launch the Spool app once first."));
     }
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| t!("打开数据库失败: {e}", "Could not open the database: {e}"))
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| t!("打开数据库失败: {e}", "Could not open the database: {e}"))?;
+    // Reads are version-checked too, since v9. The MCP server ships INSIDE Spool.app, so
+    // a fresh install hands the client a new server while the database on disk is still
+    // whatever the previous launch left — migrations run in the GUI, not here (this
+    // process only ever opens the file read-only). Before this check that mismatch
+    // surfaced as a raw "no such column: b.seq" from whichever query happened to run
+    // first, which tells the user nothing about what to do.
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if version < EXPECTED_SCHEMA_VERSION {
+        return Err(t!(
+            "Spool 的数据库还是旧版本(v{version}),这个 MCP 服务是 v{EXPECTED_SCHEMA_VERSION} 的。\
+             数据库升级发生在应用里 —— 请先把 Spool 应用启动一次,再重试。数据没有任何风险。",
+            "Spool's database is still the older v{version}; this MCP server is \
+             v{EXPECTED_SCHEMA_VERSION}. The upgrade happens inside the app — launch Spool \
+             once and try again. Nothing is at risk."
+        ));
+    }
+    if version > EXPECTED_SCHEMA_VERSION {
+        return Err(t!(
+            "Spool 的数据库是 v{version},比这个 MCP 服务(v{EXPECTED_SCHEMA_VERSION})还新 — \
+             客户端连的是旧版程序。请把客户端配置指向新版 Spool.app 里的执行文件,并重启客户端。",
+            "Spool's database is v{version}, newer than this MCP server \
+             (v{EXPECTED_SCHEMA_VERSION}) — the client is running an older binary. Point \
+             the client's config at the executable inside the current Spool.app and \
+             restart it."
+        ));
+    }
+    Ok(conn)
 }
 
 // R6 B-4: `approx_pack_chars` used to count block text only, with the tool description
@@ -3635,8 +3669,137 @@ fn handle_tool_call(params: &Value) -> Value {
     };
 
     match run() {
-        Ok(text) => tool_result_text(text, false),
+        Ok(text) => {
+            let text = match human_headline(name, &args, &text) {
+                Some(line) => format!("{line}\n{text}"),
+                None => text,
+            };
+            tool_result_text(text, false)
+        }
         Err(msg) => tool_result_text(msg, true),
+    }
+}
+
+// DESIGN_MCP_ZERO_FRICTION decision 1 (Ocean approved 2026-08-04, option a).
+//
+// In a client the user sees a tool name and a slab of JSON — `get_blocks` and
+// `{"blocks":[{"block_id":…` is not something a person can read, so they cannot tell what
+// the AI just did on their behalf. One plain-language line on top fixes that, and it
+// costs the model nothing: it is the same facts it is about to read anyway.
+//
+// get_pack is deliberately exempt. Its output is the thing the user COPIES and pastes to
+// another AI; a line in front of it would travel along as text that is not part of the
+// pack. It also needs the exemption least — it already opens with
+// "# Project Context: <title>", which says in plain words what was read.
+fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
+    // Every headline is derived from the payload that is already being returned, so the
+    // two can never disagree.
+    let v: Value = serde_json::from_str(result).unwrap_or(Value::Null);
+    let n = |key: &str| -> i64 { v.get(key).and_then(Value::as_i64).unwrap_or(0) };
+    let arr = |key: &str| -> usize { v.get(key).and_then(Value::as_array).map_or(0, Vec::len) };
+    let project = || -> String {
+        args.get("project")
+            .or_else(|| args.get("thread_id"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    match name {
+        // list_threads answers with a bare array of project rows, not an object.
+        "list_threads" => {
+            let rows = v.as_array()?;
+            let workspaces: HashSet<&str> = rows
+                .iter()
+                .filter_map(|r| r.get("workspace").and_then(Value::as_str))
+                .collect();
+            Some(t!(
+                "看了一眼库里有哪些项目:{} 个项目,分布在 {} 个工作区。",
+                "Looked over the library: {} projects across {} workspaces.",
+                rows.len(),
+                workspaces.len()
+            ))
+        }
+        "search_blocks" => {
+            let att = n("attachment_total");
+            let extra = if att > 0 {
+                t!(
+                    "另有 {att} 处命中在附件正文里。",
+                    "Plus {att} matches inside attachment text."
+                )
+            } else {
+                String::new()
+            };
+            Some(t!(
+                "在全库搜「{}」,{} 条命中,这里给你 {} 条。{extra}",
+                "Searched the library for \u{201c}{}\u{201d}: {} matches, showing {}. {extra}",
+                args.get("query").and_then(Value::as_str).unwrap_or_default(),
+                n("total"),
+                n("returned")
+            ))
+        }
+        "get_blocks" => {
+            let title = v.get("thread_title").and_then(Value::as_str).unwrap_or_default();
+            Some(t!(
+                "读了〈{title}〉里的 {} 块(这个项目共 {} 块)。",
+                "Read {} blocks from \u{2039}{title}\u{203a} ({} blocks in the project).",
+                arr("blocks"),
+                n("total")
+            ))
+        }
+        "find_similar_blocks" => Some(t!(
+            "查了一遍重复:{} 组内容高度相似(扫了 {} 块)。合并要你自己在 Spool 里做。",
+            "Checked for duplicates: {} groups of near-identical blocks (scanned {}). Merging is yours to do in Spool.",
+            arr("groups"),
+            n("scanned_blocks")
+        )),
+        "get_digest" => Some(t!(
+            "拉了一份跨项目的近况简报。",
+            "Pulled a cross-project briefing of what is recent."
+        )),
+        "check_library" => Some(t!(
+            "给整个库做了一次体检(只读,什么都没改)。",
+            "Ran a checkup over the whole library (read-only — nothing was changed)."
+        )),
+        // These two answer with the project chooser when no project was named — that
+        // text is already plain prose asking the user a question, so it needs no headline.
+        "thread_health" => {
+            let p = project();
+            (!p.is_empty()).then(|| {
+                t!(
+                    "体检了〈{p}〉(只读,什么都没改)。",
+                    "Checked \u{2039}{p}\u{203a} over (read-only — nothing was changed)."
+                )
+            })
+        }
+        "distill" => {
+            let p = project();
+            (!p.is_empty()).then(|| {
+                t!(
+                    "取了〈{p}〉的完整简报,准备提炼成一块结论。",
+                    "Pulled the full briefing for \u{2039}{p}\u{203a}, ready to distil one conclusion."
+                )
+            })
+        }
+        "weekly_review" => Some(t!(
+            "取了这段时间的跨项目简报,准备写回顾。",
+            "Pulled the cross-project briefing for this stretch, ready to write the review."
+        )),
+        "create_thread" => Some(t!(
+            "在 Spool 里新建了项目〈{}〉。",
+            "Created the project \u{2039}{}\u{203a} in Spool.",
+            args.get("title").and_then(Value::as_str).unwrap_or_default()
+        )),
+        "add_block" => Some(match v.get("seq").and_then(Value::as_i64) {
+            // The number is the point: it is what the user can find in the app.
+            Some(seq) => t!("存进 Spool 了,是这个项目的 #{seq} 块。", "Stored in Spool as block #{seq} of that project."),
+            None => t!("存进 Spool 了。", "Stored in Spool."),
+        }),
+        "set_thread_summary" => Some(t!(
+            "更新了这个项目在目录里的一句话摘要。",
+            "Updated this project's one-line summary in the catalogue."
+        )),
+        // get_pack: see above.
+        _ => None,
     }
 }
 
@@ -4078,7 +4241,11 @@ fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
     match name {
         "compress_pack" => prompt_body(|_, conn| {
             let Some(key) = project else {
-                return project_chooser_text(conn, "compress_pack", "thread_id");
+                return project_chooser_text(
+                    conn,
+                    ts!("compress_pack(压缩简报)", "compress_pack (shrink a briefing)"),
+                    "thread_id",
+                );
             };
             let (id, _) = resolve_thread(conn, key)?;
             Ok(compress_prompt_text(&get_pack_text(conn, &id, range)?))
@@ -4095,7 +4262,11 @@ fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
         }),
         "thread_health" => prompt_body(|dir, conn| {
             let Some(key) = project else {
-                return project_chooser_text(conn, "thread_health(项目体检)", "project");
+                return project_chooser_text(
+                    conn,
+                    ts!("thread_health(项目体检)", "thread_health (check a project over)"),
+                    "project",
+                );
             };
             let (id, title) = resolve_thread(conn, key)?;
             let report = thread_health_report(conn, &id, &title, now_ms())?;
@@ -4103,7 +4274,11 @@ fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
         }),
         "distill" => prompt_body(|dir, conn| {
             let Some(key) = project else {
-                return project_chooser_text(conn, "distill(提炼成一块结论)", "project");
+                return project_chooser_text(
+                    conn,
+                    ts!("distill(提炼成一块结论)", "distill (boil it down to one conclusion)"),
+                    "project",
+                );
             };
             let (id, title) = resolve_thread(conn, key)?;
             let built = build_pack(conn, &id, range)?;
@@ -4378,6 +4553,29 @@ fn thread_health_report(
     Ok(out.join("\n"))
 }
 
+// DESIGN_MCP_ZERO_FRICTION decision 2 (Ocean approved 2026-08-04).
+//
+// `initialize` instructions are the ONE place every client reads — Claude Desktop, Claude
+// Code, Cursor, VS Code, Windsurf and ChatGPT all take them, while MCP *prompts* are
+// surfaced by Claude Code alone. What was missing here was any hint of how the user
+// actually talks: the rules below tell the model how to handle Spool's data, but never
+// what a request for it sounds like. So a freshly connected user faced an empty box and
+// had to open with "can you read my Spool?" — Ocean's requirement ② ("don't make the
+// user ask the AI what Spool can do").
+//
+// The last paragraph is what closes it: on the first turn the model volunteers what it
+// can now do, using the user's OWN project titles rather than an abstract feature list.
+// English on purpose (§19.13) — this is addressed to the model, not to the user.
+const OPENERS: &str = "The user speaks plain language, not tool names. Typical openers, \
+and what to call:\n\
+  \"what have I been up to\" / \"sum up my week\"          \u{2192} get_digest, then weekly_review\n\
+  \"where am I stuck on X\" / \"what have I settled\"      \u{2192} search_blocks \u{2192} get_pack, or distill\n\
+  \"save this back\" / \"remember this for me\"            \u{2192} add_block (ask which project first)\n\
+  \"is X getting messy\" / \"any duplicates in X\"         \u{2192} thread_health\n\
+If this is your first turn with Spool connected and the user has not asked for anything \
+specific, say in ONE sentence what you can now do for them, naming their real projects \
+\u{2014} call list_threads first so the examples are theirs, not invented.";
+
 fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> {
     // Pick up the app's current UI language before rendering anything. Per request, not
     // per process: a client stays connected across a language switch in Settings, and the
@@ -4403,7 +4601,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
                 // The identity leads: a client that truncates instructions keeps the one
                 // line that says which library this is.
-                "instructions": format!("{}\n\n{}", library_identity(), "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
+                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
             }))
         }
         "ping" => Ok(json!({})),
@@ -4668,6 +4866,7 @@ mod tests {
 
     #[test]
     fn golden_pack_matches_fixture() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let (title, blocks, attachments, ref_titles, ref_blocks, now) = fixture_rows();
         let out = assemble_pack(&title, &blocks, &attachments, &ref_titles, &ref_blocks, now);
         assert_eq!(normalize_dates(&out), normalize_dates(EXPECTED));
@@ -4709,6 +4908,7 @@ mod tests {
     // from the real schema (compile-time include, so schema drift breaks the test).
     #[test]
     fn write_tools_create_and_append() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-write-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -4858,6 +5058,7 @@ mod tests {
     // find_similar_blocks: trigram Jaccard grouping is read-only and skips ref blocks.
     #[test]
     fn find_similar_blocks_groups_duplicates() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-similar-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -4948,6 +5149,7 @@ mod tests {
     // own, but never overwrite a user-written (or legacy provenance-less) summary.
     #[test]
     fn set_thread_summary_respects_provenance() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-summary-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -5016,6 +5218,7 @@ mod tests {
     // scratch DB seeded through the write tools (so the FTS triggers are exercised).
     #[test]
     fn search_blocks_and_thread_resources() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-search-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -5176,6 +5379,7 @@ mod tests {
     // zero rows for empty threads, soft-deleted threads/workspaces excluded.
     #[test]
     fn list_threads_aggregates_match_row_semantics() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-list-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -5241,6 +5445,7 @@ mod tests {
     // out of here: it degrades to a partial pack now (see budgeted_pack_squeezes_extracts).
     #[test]
     fn pack_guard_paths() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let mk = |total: usize, range: usize, pinned: usize, title: &str| PackBuilt {
             text: String::new(),
             total_blocks: total,
@@ -5267,6 +5472,7 @@ mod tests {
     // degradation, workspace filter, empty state.
     #[test]
     fn get_digest_deterministic_briefing() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-digest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -5371,6 +5577,7 @@ mod tests {
     // v2.4 (D1/5b): the raw-id write warning — advisory, never blocks the write.
     #[test]
     fn add_block_warns_on_suspect_raw_id() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         // Shape checks on the detector itself.
         assert_eq!(
             suspect_raw_id("依据是 sbC2zgTo9dWyq_x1XPLNM 那条"),
@@ -5474,6 +5681,7 @@ mod tests {
     // stays with the user; user-written text is FYI-only.
     #[test]
     fn check_library_reports_all_three_sections() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         // D-URI fragment extraction: scheme + contiguous id/path run, nothing more.
         assert_eq!(
             uri_fragment("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM 那条"),
@@ -5572,6 +5780,7 @@ mod tests {
 
     #[test]
     fn check_library_clean_library_passes() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp =
             std::env::temp_dir().join(format!("spool-mcp-hygiene-clean-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -5597,10 +5806,60 @@ mod tests {
         assert!(report.contains("LIBRARY:"), "{report}");
     }
 
+    // 2026-08-04 (Ocean): everything the user reads follows Spool's UI language, while
+    // the model-facing contract stays English in both. This pins the split — the bug it
+    // guards is a pack that told the receiving AI to answer in Chinese no matter what
+    // language the app was in.
+    #[test]
+    fn user_facing_text_follows_the_language_setting() {
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-lang-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};"))
+            .unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', 'Inbox', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('t1', 'ws1', 'Machine learning', 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, seq, created_at)
+               VALUES ('b1', 't1', 'text', 'a plain note', 0, 1, 1);",
+        )
+        .unwrap();
+
+        store_lang(Lang::En);
+        let report = check_library_json(&conn, 1_750_000_000_000).unwrap();
+        assert!(report.contains("Spool library checkup"), "{report}");
+        assert!(report.contains("Checkup passed"), "{report}");
+        let no_filters = BlockFilters { pinned: None, has_annotation: None, source_contains: None };
+        let err =
+            get_blocks_json(&conn, "nope", None, None, None, None, &no_filters, false).unwrap_err();
+        assert!(err.starts_with("No project with id"), "{err}");
+        let pack = get_pack_text(&conn, "t1", "all").unwrap();
+        assert!(pack.contains("Respond in English"), "{pack}");
+        // The model-facing half of the pack does NOT translate (§19.13).
+        assert!(pack.contains("## How to Read This Context"), "{pack}");
+        assert!(pack.contains("### 📖 Reference (authoritative)"), "{pack}");
+
+        store_lang(Lang::Zh);
+        let report = check_library_json(&conn, 1_750_000_000_000).unwrap();
+        assert!(report.contains("Spool 库体检"), "{report}");
+        let no_filters = BlockFilters { pinned: None, has_annotation: None, source_contains: None };
+        let err =
+            get_blocks_json(&conn, "nope", None, None, None, None, &no_filters, false).unwrap_err();
+        assert!(err.starts_with("没有 id 为"), "{err}");
+        let pack = get_pack_text(&conn, "t1", "all").unwrap();
+        assert!(pack.contains("Respond in Simplified Chinese"), "{pack}");
+        assert!(pack.contains("## How to Read This Context"), "{pack}");
+    }
+
     // §20.13 v2.5 prompts: a project is named by TITLE (ids never reach the user), and
     // thread_health runs check_library's detectors scoped to one project.
     #[test]
     fn prompts_resolve_by_title_and_report_thread_health() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-prompts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
@@ -5877,6 +6136,7 @@ mod tests {
     // process-global across the parallel test harness. No other test reads HOME.
     #[test]
     fn one_click_client_config_status_merge_backup() {
+        store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-cfg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();

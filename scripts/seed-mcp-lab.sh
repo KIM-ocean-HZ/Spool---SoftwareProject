@@ -144,13 +144,13 @@ chmod +x "$LAB/spool-lab-server"
 
 # Both consent toggles ON: the lab exists to exercise the write path too.
 cat > "$DATA/settings.json" <<'JSON'
-{"mcpEnabled":true,"mcpWriteEnabled":true,"language":"zh","autoExtractAttachments":true}
+{"mcpEnabled":true,"mcpWriteEnabled":true,"language":"zh","resolvedLanguage":"zh","autoExtractAttachments":true}
 JSON
 
 sqlite3 "$DATA/spool.db" < "$REPO/src/lib/db/schema.sql"
 
 sqlite3 "$DATA/spool.db" <<SQL
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;
 
 -- Dates are relative to the run day, so the library always looks current.
 -- ms-epoch of a local wall-clock time: strftime('%s', date('now','localtime','-N days') || ' HH:MM:00','utc')*1000
@@ -448,6 +448,16 @@ INSERT INTO attachments (id, block_id, kind, target, label, extracted_text, extr
   '$LAB/files/scan.png','scan.png',NULL,
   CAST(strftime('%s','now')*1000 AS INTEGER),'failed',0,
   CAST(strftime('%s', date('now','localtime','-18 days') || ' 14:06:00','utc')*1000 AS INTEGER));
+
+-- v9: hand out the visible block numbers exactly the way the migration's backfill does
+-- (per project, oldest first) — the lab has to render #12 like a real library.
+WITH numbered AS (
+  SELECT rowid AS rid,
+         ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at ASC, rowid ASC) AS n
+    FROM blocks
+)
+UPDATE blocks SET seq = (SELECT n FROM numbered WHERE numbered.rid = blocks.rowid)
+ WHERE seq IS NULL;
 SQL
 
 echo
