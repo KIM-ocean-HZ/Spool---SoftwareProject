@@ -1,7 +1,11 @@
-# MCP 实验室 — 自测提示词(2026-08-03)
+# MCP 实验室 — 第二轮自测提示词(2026-08-04)
 
-给 Ocean 在 **Claude Desktop / Claude Code / ChatGPT 桌面版**里自测 Spool 的 MCP 接口用。
-提示词不是"正常用一遍",是**让 AI 主动找茬**:挖问题、提改进、说它还想要什么权限。
+给 Ocean 在 **Claude Desktop / ChatGPT 桌面版**里自测 Spool 的 MCP 接口用。
+(Claude Code 那一份由开发窗自己跑,见 §5。)
+
+**这是第二轮。第一轮的十一条真 bug 已经修完了**,所以这两份提示词是**全新的**,不是上一版
+换个日期:它们把重点放在「修完之后有没有修对」「还有什么是上一轮没人看见的」,并且
+**明确列出了哪些问题已经决定了、不用再报** —— 上一轮两份报告有一半篇幅撞在同样的几条上。
 
 ---
 
@@ -15,9 +19,9 @@ cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --connect
 ```
 
 它做三件事:建 `~/Library/Application Support/com.oceanjin.spool.lab/`
-(一份假资料库 + 一份自己的程序副本)、
-把服务器 `spool_lab` 写进**三个客户端**的配置(Claude Desktop、Claude Code `~/.claude.json`、
-ChatGPT 桌面版 `~/.codex/config.toml`;原文件都先备份)、告诉你库里有什么。
+(一份假资料库 + 一份自己的程序副本)、把服务器 `spool_lab` 写进**三个客户端**的配置
+(Claude Desktop、Claude Code `~/.claude.json`、ChatGPT 桌面版 `~/.codex/config.toml`;
+原文件都先备份)、告诉你库里有什么。
 **它不碰你的真库,也不碰正式版那条 `spool` 配置。**
 
 > **为什么不放桌面**:桌面/文稿/下载是 macOS 的受保护目录。Claude Desktop 没被授权访问桌面,
@@ -26,41 +30,39 @@ ChatGPT 桌面版 `~/.codex/config.toml`;原文件都先备份)、告诉你库�
 
 **2. 完全退出客户端再打开**(Claude Desktop 要从菜单栏退出,不是关窗口)。
 
-> **想更保险**(可选):测试期间把真库那条连接关掉,AI 就算想碰也碰不到。
+> **想更保险**(可选):测试期间把真库那条连接关掉。
 > Claude Desktop:设置 → 连接器里把 `spool` 关掉,测完打开。
 > ChatGPT 桌面版:在 `~/.codex/config.toml` 的 `[mcp_servers.spool]` 下面加一行
 > `enabled = false`,测完删掉这行。
 > 不做也行——提示词第 0 步已经要求 AI 只用 `spool_lab`,并且要先报出实验室的标记才准往下走。
 
-**3. 复制下面对应的提示词,贴进新对话。** Claude Desktop 和 Claude Code 用第二节,
-ChatGPT 桌面版用第三节。
+**3. 复制下面对应的提示词,贴进新对话。** Claude Desktop 用第二节,ChatGPT 桌面版用第三节。
 
 > ⚠️ **贴之前先确认这个客户端里真有 `spool_lab`。** 三个客户端各读各的配置文件,
 > 脚本只写它们三个 —— 贴到别的地方(网页版、别的 AI)一定看不到实验室。
-> Claude Code 里可以直接 `/mcp` 看一眼有没有 `spool_lab`;
-> Claude Desktop 看设置 → 连接器。**没有就是没重启,退出客户端再打开。**
+> **没有就是没重启,退出客户端再打开。**
 
 **4. 测完拆掉**
 
 ```
 cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh --disconnect
-rm -rf "~/Library/Application Support/com.oceanjin.spool.lab"
+rm -rf "$HOME/Library/Application Support/com.oceanjin.spool.lab"
 ```
 
 **中途想看 AI 到底往库里写了什么**:
 
 ```
-sqlite3 "~/Library/Application Support/com.oceanjin.spool.lab/data/spool.db" \
+sqlite3 "$HOME/Library/Application Support/com.oceanjin.spool.lab/data/spool.db" \
   "SELECT datetime(created_at/1000,'unixepoch','localtime'), source, content FROM blocks WHERE source LIKE '%MCP%' ORDER BY created_at DESC LIMIT 20;"
 ```
 
-**想试"写入开关关掉会怎样"**(改完不用重启客户端,下一次调用就生效):
+**想试「写入开关关掉会怎样」**(改完不用重启客户端,下一次调用就生效):
 
 ```
 # 关
-sed -i '' 's/"mcpWriteEnabled":true/"mcpWriteEnabled":false/' "~/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
+sed -i '' 's/"mcpWriteEnabled":true/"mcpWriteEnabled":false/' "$HOME/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
 # 开回来
-sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' "~/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
+sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' "$HOME/Library/Application Support/com.oceanjin.spool.lab/data/settings.json"
 ```
 
 ---
@@ -68,8 +70,9 @@ sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' "~/Library/Applica
 ## 二、提示词 A · Claude Desktop(整段复制)
 
 ```text
-你现在不是我的日常助手,而是一个 MCP 接口评审员。
-目标不是把活干漂亮,是把这套接口的毛病挖出来,并告诉我该怎么改。
+你现在不是我的日常助手,而是一个 MCP 接口评审员,而且这是第二轮。
+上一轮已经报出并修完了十一条问题,所以这一轮的价值不在于重新发现它们,
+而在于两件事:①修完之后有没有修对、有没有修出新问题;②还有什么是上一轮没人看见的。
 干得顺利不算成功,发现问题才算。
 
 ═══ 第 0 步:确认你连的是测试环境(没做完不许往下走)═══
@@ -78,13 +81,13 @@ sed -i '' 's/"mcpWriteEnabled":false/"mcpWriteEnabled":true/' "~/Library/Applica
 测试环境的服务器叫 spool_lab,里面全是为测试造的假数据。
 
 你必须:
-1. 工具列表里**根本没有 spool_lab** → 直接停,回我「环境没接上」。这不是你的错,
+1. 工具列表里根本没有 spool_lab → 直接停,回我「环境没接上」。这不是你的错,
    是我这边没接好,别去碰 spool 顶替。
 2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
 3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
    `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/com.oceanjin.spool.lab/data)`。
-   如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
+   如果它说的是 DEFAULT,那就是真库挂错名字了 —— 停,别读别写。
    (这一步不用读任何数据,所以先做它。)
 4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
 5. 最后读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
@@ -103,14 +106,15 @@ Spool(思簿)是一个只在本机跑的"上下文库"。用户在浏览器/邮�
 - 项目:一句话摘要(summary)+ 摘要署名(user 或 mcp)+ 状态(active/parked/done)+ 可选截止日。
 - 块里 ==这样包起来的== 是用户自己划的重点。批注在 pack 里渲染成 note: 开头的行。
 
-你手上的接口:
+你手上的接口(13 个工具):
 - 读:list_threads、get_digest、get_pack、search_blocks、get_blocks、
   find_similar_blocks、check_library
+- 装配(只读,返回的是"材料 + 给你的指令"):weekly_review、thread_health、distill
 - 写:create_thread、add_block、set_thread_summary
 - 资源:spool://thread/<id>
-- prompts(斜杠菜单):compress_pack、weekly_review、thread_health、distill
+- prompts(斜杠菜单,如果你的客户端有的话):compress_pack、weekly_review、thread_health、distill
 
-下面这些是**故意的设计,不是 bug**,别把它们当问题报(但可以质疑它们合不合理):
+下面这些是故意的设计,不是 bug,别把它们当问题报(但可以质疑它们合不合理):
 - 两个开关都默认关:「MCP 服务」(读)、「允许 AI 写入」(写)。实验室里两个都开着。
 - 写只能追加。没有删除接口,没有修改接口。AI 永远不能改用户写下的字。
 - set_thread_summary 只能写空摘要、或覆盖上次 AI 自己写的摘要;用户手写的摘要一定被拒。
@@ -119,73 +123,119 @@ Spool(思簿)是一个只在本机跑的"上下文库"。用户在浏览器/邮�
 - pack 开头带一段"怎么读"的授权规则:📖 Reference(机构来源)当事实底座;
   🧩 Synthesis(AI 写的长文)只当框架、不当事实;🔄 Process(聊天记录)读的是用户反复在问什么;
   💭 Personal(没有来源的块 + note: 行)是用户自己的想法,信号最强。
-- 预算:get_pack 默认 50000 字符封顶,超了给部分内容并说明省略了多少;get_digest 默认近 7 天、
-  20000 字符;search_blocks 默认 20 条(上限 50);find_similar_blocks 只扫最新 1000 块、
-  相似度阈值 0.6、只报告绝不合并。
 
-═══ 你在为谁改进(目标用户)═══
+═══ 已经知道并且已经决定了的,别再报(报了也不算发现)═══
 
-一个普通人,长期做一件事:上一门课、申请学校、转行找工作、学一门外语、租房、备赛半马。
-时间跨度以月计,资料散在网页、邮件、PDF、和各种 AI 的聊天里。
-他不写代码、不看日志、不想学新术语。他真正会问的是:
-「我最近在忙什么」「机器学习课我卡在哪了」「把这段结论帮我存回去」。
-他最怕三件事:AI 改了或弄丢他自己写的东西;AI 编出他没说过的话;为了用这个东西还得学一套黑话。
+这几条上一轮已经被提过、验证过、拍板过了。你可以在报告里一句话提及"我也撞到了",
+但不要展开写建议,把篇幅留给新东西:
 
-═══ 必跑清单(每一项都要在最后的报告里有结论)═══
+1. 附件(PDF)里的字搜不到 —— 已确认,已批准要做,要动数据库,排在下一轮。
+2. 没有语义检索 —— 已决定不做(本地 embedding 太重,云端 embedding 撞"零出网")。
+3. 没有删除/撤回/编辑接口 —— 宪法级承诺,不会开。
+4. 你的客户端如果看不到那四个 prompt —— 已知,正因如此它们同时做成了工具。
+5. 块没有用户能看见的编号 —— 已知,设计稿在评审中。
+6. 工具返回是"文本里塞 JSON",没用 MCP 的 structuredContent —— 已知,排队中。
 
-A. 读
-1. list_threads:不带参数;title_contains="机器学习";title_contains="不存在的东西"
-2. get_digest:默认;since_days=1;since_days=90;since_days=999;max_chars=500;
-   max_chars=0;workspace_title="学业";workspace_title="不存在的工作区"
-3. get_pack(项目「机器学习课」):默认;range=pinned;range=last7;max_chars=8000;
-   max_chars=0;include_ids=true。再对空项目「菜谱」跑一次。再随便编一个 id 跑一次。
-4. search_blocks:"验证曲线";"learning rate";"的"(单字);一个两百字的长句子
-5. get_blocks:翻页;用一个搜索命中的块做 around_block_id;pinned=true;
-   has_annotation=true;source_contains="MCP";三个筛选一起用;context=99
-6. find_similar_blocks:全库;限定一个项目;限定一个工作区;thread_id 和 workspace_title
-   同时传(应该报错)
-7. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
+═══ 必跑清单第一部分:上一轮修完的十一条,验它们修对没有 ═══
 
-B. 四个 prompt(能从斜杠菜单走就从菜单走,并告诉我菜单里那几行字看不看得懂)
-- weekly_review:默认;since_days=30
-- thread_health:"机器学习课";只写"机器学习"(应该报歧义);"菜谱"
-- distill:"机器学习课";range=pinned;"菜谱"
-- compress_pack:"机器学习课"
+每一条都要在报告里给出「修对了 / 没修对 / 修出新问题」的结论。
 
-C. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕)
-1. create_thread 新建项目「MCP 评审记录」
-2. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
-3. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
-4. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
-5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),看它怎么警告你,
-   警告完你打算怎么办
+R1. get_pack(「机器学习课」)分别传 max_chars=8000、2000、0、不传。
+    期望:8000 应该拿到一份**真的部分 pack**(不是一句"超了"),并且里面写明了
+    附件正文被压到多少字、丢了多少块;2000 应该拿到一句拒绝,而那句拒绝**不能**
+    再推荐一条同样走不通的路。你照它给的建议再试一次,能不能真的拿到东西?
+R2. get_pack(「机器学习课」, range=last7)。期望:置顶块一个都没少,而且表头
+    不再写"N blocks total",而是说清这是全项目里的几块。读完这份 pack,
+    你会误以为这个项目总共只有这么多块吗?
+R3. list_threads。看 approx_pack_chars。挑一个项目,拿这个数当 max_chars 去调 get_pack,
+    能不能一次拿到完整 pack?差多少?(这个字段唯一的用途就是估预算,估不准就是没用)
+R4. list_threads 的 summary_source。对「找工作」和「机器学习课作业」分别
+    调 set_thread_summary,结果和 summary_source 说的一致吗?你还需要"先写→被拒"才知道吗?
+R5. get_blocks(「机器学习课」, pinned=true)。看得到附件吗?看得到附件正文有多少字吗?
+    再传 include_extracted_text=true。现在如果 get_pack 因为预算给不全,
+    你能不能靠 get_blocks 把丢掉的东西补齐?试一次,说结论。
+R6. search_blocks("学习率")。命中里有 source 吗?够不够你判断这是四类里的哪一类?
+R7. search_blocks("的", limit=2) 然后 offset=2、offset=4……能翻到底吗?
+    total 和你实际能拿到的条数对得上吗?
+R8. 数值参数乱传:since_days=999、limit=-5、limit=3.7、context=99、max_groups=99。
+    返回里看得出"我实际用的是多少"吗?有没有哪个参数还是被悄悄改掉、你却不知道?
+R9. create_thread 建一个和现有项目同名的项目(比如「机器学习课」,工作区「学业」)。
+    它拒绝你了吗?拒绝的话说清了该怎么办吗?它有没有把内部 id 甩到你脸上、
+    让你有可能念给用户听?
+R10. get_pack 传一个空项目(「菜谱」)。那句提示里有项目名字吗?
+R11. get_digest。表头那句"库里共 N 个项目"读起来会不会被误解成 N 条块?
 
-D. 资源:如果你的客户端能 @ 引用 MCP 资源,把「机器学习课」引用一次,说说和 get_pack 比差在哪
+═══ 必跑清单第二部分:这次新加的东西 ═══
 
-E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几处要你猜:
-   「我最近在忙什么」→「机器学习课我卡在哪」→「把刚才那个结论存回去」
+N1. 三个新工具,每个至少调一次:
+    - weekly_review(不传参数;since_days=30)
+    - thread_health("机器学习课";"机器学习"——应该报歧义;"菜谱")
+    - distill("机器学习课";range=pinned)
+    **重点看**:返回的是"材料 + 给你的指令"。你**分得清**哪部分是数据、哪部分是指令吗?
+    有没有可能你把指令当成用户要看的内容整段贴出去?工具描述有没有把这件事说清楚?
+N2. **不传项目参数**调 thread_health 和 distill。期望:不报错,而是回一份项目清单
+    加一句"问用户要哪一个"。这时候你会怎么做?对话接得下去吗?
+N3. 如果你的客户端有斜杠菜单:四个 prompt 现在一个必填参数都没有了。
+    每个都点一下、什么都不填,看会发生什么。菜单里那几行字看不看得懂?
+
+═══ 必跑清单第三部分:常规读写(和上一轮一样,快速过)═══
+
+C1. list_threads(不带参数;title_contains="机器学习";title_contains="不存在的东西")
+C2. get_digest(默认;workspace_title="学业";workspace_title="不存在的工作区")
+C3. find_similar_blocks(全库;限一个项目;thread_id 和 workspace_title 同传——应该报错)
+C4. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
+C5. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕):
+    a. create_thread 新建项目「MCP 评审记录 08-04」
+    b. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
+    c. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
+    d. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
+    e. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),
+       看它怎么警告你,警告完你打算怎么办
+
+═══ 必跑清单第四部分:这一节最重要,请认真答 ═══
+
+我正在决定「怎么让用户零摩擦地用上 MCP」。三条要求:
+① 不能让用户自己在网页和 app 里零散地拼凑用法;
+② 不能让用户自己去问 AI「spool 能干什么」;
+③ 不能让用户用了之后自己都不清楚 AI 在调什么工具。
+
+请回答:
+
+Z1. 假装你是刚接上 Spool 的助手,用户还什么都没说。你的第一句话会说什么?
+    你是怎么知道该说这些的?(是 instructions 教你的,还是你自己猜的?)
+Z2. 你调完一个工具之后,用户在你这个客户端界面里**实际看得到什么**?
+    描述清楚:工具名?参数?返回的原文?还是折叠起来?
+    一个不懂技术的人看到那些,能明白你刚才做了什么吗?
+Z3. 如果要在每个工具返回的**第一行**加一句大白话("读了〈机器学习课〉的完整简报,
+    共 17 块,置顶 3 块"),对你有没有坏处?会不会干扰你解析返回值?
+    特别是 get_pack —— 它的返回是用户要原样粘给别的 AI 的东西,在它前面加一行合适吗?
+Z4. 装成一个普通用户,连着说三句大白话,全程不提任何工具名:
+    「我最近在忙什么」→「机器学习课我卡在哪」→「把刚才那个结论存回去」。
+    中间有几处你必须猜?有几处你要反问用户?哪一步最别扭?
 
 ═══ 主动找茬的角度 ═══
 
-- 参数:空串、超大数、负数、小数、中文、把别的工具的 id 传进来、必填项不填
-- 一致性:同一件事不同工具给的数字对不对得上(list_threads 的块数 vs get_pack 里的总数;
-  check_library 的发现 vs thread_health 的发现)
+- 参数:空串、超大数、负数、小数、中文、把别的工具的 id 传进来
+- 一致性:同一件事不同工具给的数字对不对得上(list_threads 的块数 vs get_pack 的表头;
+  check_library 的发现 vs thread_health 的发现;search_blocks 的 total vs 你能翻到的条数)
 - 文案:工具描述里有没有看不懂、有歧义、自相矛盾的句子?中英文混排别扭吗?
   报错信息能不能让一个不懂技术的人自己解决?
 - 你的体感:哪一步你不得不猜?哪个返回值你必须再调一次工具才能用?哪个字段你根本没用上?
 - 危险面:有没有哪条路能让你在用户不知情的情况下改掉/盖掉他的东西?
   有没有哪条路会把 id 漏到用户眼前?你能不能被库里的内容"骗"着去做不该做的事?
 
-═══ 最后一次性给我一份报告,五节 ═══
+═══ 最后一次性给我一份报告,六节 ═══
 
-1. 问题清单:按严重程度排。每条写清:现象 / 怎么复现(哪个工具、什么参数)/ 你期望什么 /
-   实际是什么 / 建议怎么改
-2. 体验摩擦:不算 bug,但让你别扭的地方
-3. 缺什么功能:站在上面那个目标用户的角度提,每条必须说清「这解决他的哪一个真实场景」,
-   不要列技术特性
-4. 你还想要什么权限或接口:直说。每条要说明为什么需要,以及它和这两条底线冲不冲突——
+1. 回归结论表:R1–R11 每条一行,只写「修对 / 没修对 / 修出新问题」+ 一句证据
+2. 新问题清单:按严重程度排。每条写清:现象 / 怎么复现(哪个工具、什么参数)/
+   你期望什么 / 实际是什么 / 建议怎么改
+3. 零摩擦四问(Z1–Z4)的回答
+4. 缺什么功能:站在目标用户角度提(一个普通人,长期做一件事:上一门课、申请学校、
+   转行、学外语、租房、备赛半马;不写代码、不看日志、不想学新术语)。
+   每条必须说清「这解决他的哪一个真实场景」,不要列技术特性
+5. 你还想要什么权限或接口:直说。每条说明为什么需要,以及它和这两条底线冲不冲突——
    ①AI 绝不改用户写下的东西 ②数据不出网。冲突的也可以提,标明冲突即可
-5. 一句话总评 + 打分(10 分制)
+6. 一句话总评 + 打分(10 分制),并说明和上一轮比是升是降、为什么
 
 ═══ 纪律 ═══
 
@@ -201,12 +251,13 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 
 ## 三、提示词 B · ChatGPT 桌面版(整段复制)
 
-和 A 只差一处:ChatGPT / Codex 那边**可能根本看不到那四个 prompt**——它的 MCP 支持以工具为主。
-看不到就照实说,那本身就是一条要记下来的发现。
+和 A 只差三处:①它大概率看不到那四个 prompt(所以 N3 换成一个明确的问题);
+②多问一句跨客户端的差异;③Z2 那一问对它更关键——它的工具调用界面和 Claude 完全不同。
 
 ```text
-你现在不是我的日常助手,而是一个 MCP 接口评审员。
-目标不是把活干漂亮,是把这套接口的毛病挖出来,并告诉我该怎么改。
+你现在不是我的日常助手,而是一个 MCP 接口评审员,而且这是第二轮。
+上一轮已经报出并修完了十一条问题,所以这一轮的价值不在于重新发现它们,
+而在于两件事:①修完之后有没有修对、有没有修出新问题;②还有什么是上一轮没人看见的。
 干得顺利不算成功,发现问题才算。
 
 ═══ 第 0 步:确认你连的是测试环境(没做完不许往下走)═══
@@ -215,13 +266,13 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 测试环境的服务器叫 spool_lab,里面全是为测试造的假数据。
 
 你必须:
-1. 工具列表里**根本没有 spool_lab** → 直接停,回我「环境没接上」。这不是你的错,
+1. 工具列表里根本没有 spool_lab → 直接停,回我「环境没接上」。这不是你的错,
    是我这边没接好,别去碰 spool 顶替。
 2. 全程只用 spool_lab 这台服务器的工具。同时有 spool 和 spool_lab 时,
    spool 的一次都不许碰(读也不行)。
 3. 服务器自己会说明它读的是哪个库:spool_lab 的 instructions 第一行应该是
    `LIBRARY: a CUSTOM data directory (SPOOL_DATA_DIR, …/com.oceanjin.spool.lab/data)`。
-   如果它说的是 `DEFAULT`,那就是真库挂错名字了 —— 停,别读别写。
+   如果它说的是 DEFAULT,那就是真库挂错名字了 —— 停,别读别写。
    (这一步不用读任何数据,所以先做它。)
 4. 再调 spool_lab 的 list_threads,确认看得到工作区「LAB 自检」和项目「🧪 LAB 环境自检」。
 5. 最后读那个项目,确认里面有这一行标记:SPOOL-MCP-LAB-2026-08-03
@@ -240,15 +291,17 @@ Spool(思簿)是一个只在本机跑的"上下文库"。用户在浏览器/邮�
 - 项目:一句话摘要(summary)+ 摘要署名(user 或 mcp)+ 状态(active/parked/done)+ 可选截止日。
 - 块里 ==这样包起来的== 是用户自己划的重点。批注在 pack 里渲染成 note: 开头的行。
 
-你手上的接口:
+你手上的接口(13 个工具):
 - 读:list_threads、get_digest、get_pack、search_blocks、get_blocks、
   find_similar_blocks、check_library
+- 装配(只读,返回的是"材料 + 给你的指令"):weekly_review、thread_health、distill
 - 写:create_thread、add_block、set_thread_summary
 - 资源:spool://thread/<id>
-- prompts:compress_pack、weekly_review、thread_health、distill
-  ——如果你的客户端没把这四个暴露出来(菜单里找不到、也调不了),照实说,这是一条发现。
+- 另外还有四个 MCP prompts(compress_pack / weekly_review / thread_health / distill)。
+  上一轮实测你这个客户端看不到它们——正因如此,后三个同时做成了上面那三个工具。
+  你这次能不能看到?照实说,这本身是一条要记下来的发现。
 
-下面这些是**故意的设计,不是 bug**,别把它们当问题报(但可以质疑它们合不合理):
+下面这些是故意的设计,不是 bug,别把它们当问题报(但可以质疑它们合不合理):
 - 两个开关都默认关:「MCP 服务」(读)、「允许 AI 写入」(写)。实验室里两个都开着。
 - 写只能追加。没有删除接口,没有修改接口。AI 永远不能改用户写下的字。
 - set_thread_summary 只能写空摘要、或覆盖上次 AI 自己写的摘要;用户手写的摘要一定被拒。
@@ -257,76 +310,125 @@ Spool(思簿)是一个只在本机跑的"上下文库"。用户在浏览器/邮�
 - pack 开头带一段"怎么读"的授权规则:📖 Reference(机构来源)当事实底座;
   🧩 Synthesis(AI 写的长文)只当框架、不当事实;🔄 Process(聊天记录)读的是用户反复在问什么;
   💭 Personal(没有来源的块 + note: 行)是用户自己的想法,信号最强。
-- 预算:get_pack 默认 50000 字符封顶,超了给部分内容并说明省略了多少;get_digest 默认近 7 天、
-  20000 字符;search_blocks 默认 20 条(上限 50);find_similar_blocks 只扫最新 1000 块、
-  相似度阈值 0.6、只报告绝不合并。
 
-═══ 你在为谁改进(目标用户)═══
+═══ 已经知道并且已经决定了的,别再报(报了也不算发现)═══
 
-一个普通人,长期做一件事:上一门课、申请学校、转行找工作、学一门外语、租房、备赛半马。
-时间跨度以月计,资料散在网页、邮件、PDF、和各种 AI 的聊天里。
-他不写代码、不看日志、不想学新术语。他真正会问的是:
-「我最近在忙什么」「机器学习课我卡在哪了」「把这段结论帮我存回去」。
-他最怕三件事:AI 改了或弄丢他自己写的东西;AI 编出他没说过的话;为了用这个东西还得学一套黑话。
+这几条上一轮已经被提过、验证过、拍板过了。你可以在报告里一句话提及"我也撞到了",
+但不要展开写建议,把篇幅留给新东西:
 
-═══ 必跑清单(每一项都要在最后的报告里有结论)═══
+1. 附件(PDF)里的字搜不到 —— 已确认,已批准要做,要动数据库,排在下一轮。
+2. 没有语义检索 —— 已决定不做(本地 embedding 太重,云端 embedding 撞"零出网")。
+3. 没有删除/撤回/编辑接口 —— 宪法级承诺,不会开。
+4. 你看不到那四个 prompt —— 已知,正因如此它们同时做成了工具。
+5. 块没有用户能看见的编号 —— 已知,设计稿在评审中。
+6. 工具返回是"文本里塞 JSON",没用 MCP 的 structuredContent —— 已知,排队中。
 
-A. 读
-1. list_threads:不带参数;title_contains="机器学习";title_contains="不存在的东西"
-2. get_digest:默认;since_days=1;since_days=90;since_days=999;max_chars=500;
-   max_chars=0;workspace_title="学业";workspace_title="不存在的工作区"
-3. get_pack(项目「机器学习课」):默认;range=pinned;range=last7;max_chars=8000;
-   max_chars=0;include_ids=true。再对空项目「菜谱」跑一次。再随便编一个 id 跑一次。
-4. search_blocks:"验证曲线";"learning rate";"的"(单字);一个两百字的长句子
-5. get_blocks:翻页;用一个搜索命中的块做 around_block_id;pinned=true;
-   has_annotation=true;source_contains="MCP";三个筛选一起用;context=99
-6. find_similar_blocks:全库;限定一个项目;限定一个工作区;thread_id 和 workspace_title
-   同时传(应该报错)
-7. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
+═══ 必跑清单第一部分:上一轮修完的十一条,验它们修对没有 ═══
 
-B. 四个 prompt。能调就每个都走一遍:
-- weekly_review:默认;since_days=30
-- thread_health:"机器学习课";只写"机器学习"(应该报歧义);"菜谱"
-- distill:"机器学习课";range=pinned;"菜谱"
-- compress_pack:"机器学习课"
-调不了就明确写一句:这个客户端没有暴露 MCP prompts,所以这一节没测。
+每一条都要在报告里给出「修对了 / 没修对 / 修出新问题」的结论。
 
-C. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕)
-1. create_thread 新建项目「MCP 评审记录」
-2. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
-3. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
-4. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
-5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),看它怎么警告你,
-   警告完你打算怎么办
+R1. get_pack(「机器学习课」)分别传 max_chars=8000、2000、0、不传。
+    期望:8000 应该拿到一份**真的部分 pack**(不是一句"超了"),并且里面写明了
+    附件正文被压到多少字、丢了多少块;2000 应该拿到一句拒绝,而那句拒绝**不能**
+    再推荐一条同样走不通的路。你照它给的建议再试一次,能不能真的拿到东西?
+R2. get_pack(「机器学习课」, range=last7)。期望:置顶块一个都没少,而且表头
+    不再写"N blocks total",而是说清这是全项目里的几块。读完这份 pack,
+    你会误以为这个项目总共只有这么多块吗?
+R3. list_threads。看 approx_pack_chars。挑一个项目,拿这个数当 max_chars 去调 get_pack,
+    能不能一次拿到完整 pack?差多少?(这个字段唯一的用途就是估预算,估不准就是没用)
+R4. list_threads 的 summary_source。对「找工作」和「机器学习课作业」分别
+    调 set_thread_summary,结果和 summary_source 说的一致吗?你还需要"先写→被拒"才知道吗?
+R5. get_blocks(「机器学习课」, pinned=true)。看得到附件吗?看得到附件正文有多少字吗?
+    再传 include_extracted_text=true。现在如果 get_pack 因为预算给不全,
+    你能不能靠 get_blocks 把丢掉的东西补齐?试一次,说结论。
+R6. search_blocks("学习率")。命中里有 source 吗?够不够你判断这是四类里的哪一类?
+R7. search_blocks("的", limit=2) 然后 offset=2、offset=4……能翻到底吗?
+    total 和你实际能拿到的条数对得上吗?
+R8. 数值参数乱传:since_days=999、limit=-5、limit=3.7、context=99、max_groups=99。
+    返回里看得出"我实际用的是多少"吗?有没有哪个参数还是被悄悄改掉、你却不知道?
+R9. create_thread 建一个和现有项目同名的项目(比如「机器学习课」,工作区「学业」)。
+    它拒绝你了吗?拒绝的话说清了该怎么办吗?它有没有把内部 id 甩到你脸上、
+    让你有可能念给用户听?
+R10. get_pack 传一个空项目(「菜谱」)。那句提示里有项目名字吗?
+R11. get_digest。表头那句"库里共 N 个项目"读起来会不会被误解成 N 条块?
 
-D. 资源:如果你的客户端能引用 MCP 资源,把「机器学习课」引用一次,说说和 get_pack 比差在哪;
-   不支持就照实说。
+═══ 必跑清单第二部分:这次新加的东西 ═══
 
-E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几处要你猜:
-   「我最近在忙什么」→「机器学习课我卡在哪」→「把刚才那个结论存回去」
+N1. 三个新工具,每个至少调一次:
+    - weekly_review(不传参数;since_days=30)
+    - thread_health("机器学习课";"机器学习"——应该报歧义;"菜谱")
+    - distill("机器学习课";range=pinned)
+    **重点看**:返回的是"材料 + 给你的指令"。你**分得清**哪部分是数据、哪部分是指令吗?
+    有没有可能你把指令当成用户要看的内容整段贴出去?工具描述有没有把这件事说清楚?
+N2. **不传项目参数**调 thread_health 和 distill。期望:不报错,而是回一份项目清单
+    加一句"问用户要哪一个"。这时候你会怎么做?对话接得下去吗?
+N3. 你的客户端到底有没有把那四个 MCP prompts 暴露出来?
+    - 有:每个点一下、什么都不填,看会发生什么,并告诉我菜单里那几行字看不看得懂。
+    - 没有:明确写一句"这个客户端没有暴露 MCP prompts"。然后回答:
+      对你来说,把同样的能力做成工具(N1 那三个)够不够用?有没有哪里因此变差了?
+
+═══ 必跑清单第三部分:常规读写(和上一轮一样,快速过)═══
+
+C1. list_threads(不带参数;title_contains="机器学习";title_contains="不存在的东西")
+C2. get_digest(默认;workspace_title="学业";workspace_title="不存在的工作区")
+C3. find_similar_blocks(全库;限一个项目;thread_id 和 workspace_title 同传——应该报错)
+C4. check_library(顺带看它头两行的 LIBRARY 标识,和 instructions 说的一致吗)
+C5. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕):
+    a. create_thread 新建项目「MCP 评审记录 08-04 GPT」
+    b. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
+    c. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
+    d. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
+    e. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),
+       看它怎么警告你,警告完你打算怎么办
+
+═══ 必跑清单第四部分:这一节最重要,请认真答 ═══
+
+我正在决定「怎么让用户零摩擦地用上 MCP」。三条要求:
+① 不能让用户自己在网页和 app 里零散地拼凑用法;
+② 不能让用户自己去问 AI「spool 能干什么」;
+③ 不能让用户用了之后自己都不清楚 AI 在调什么工具。
+
+请回答:
+
+Z1. 假装你是刚接上 Spool 的助手,用户还什么都没说。你的第一句话会说什么?
+    你是怎么知道该说这些的?(是 instructions 教你的,还是你自己猜的?)
+    ——特别问你:你到底**有没有读到**服务器的 initialize instructions?
+    如果没有,那说明我们把用法写在那里是白写的,这是一条很重要的发现。
+Z2. 你调完一个工具之后,用户在你这个客户端界面里**实际看得到什么**?
+    描述清楚:工具名?参数?返回的原文?还是折叠起来?
+    一个不懂技术的人看到那些,能明白你刚才做了什么吗?
+Z3. 如果要在每个工具返回的**第一行**加一句大白话("读了〈机器学习课〉的完整简报,
+    共 17 块,置顶 3 块"),对你有没有坏处?会不会干扰你解析返回值?
+    特别是 get_pack —— 它的返回是用户要原样粘给别的 AI 的东西,在它前面加一行合适吗?
+Z4. 装成一个普通用户,连着说三句大白话,全程不提任何工具名:
+    「我最近在忙什么」→「机器学习课我卡在哪」→「把刚才那个结论存回去」。
+    中间有几处你必须猜?有几处你要反问用户?哪一步最别扭?
 
 ═══ 主动找茬的角度 ═══
 
-- 参数:空串、超大数、负数、小数、中文、把别的工具的 id 传进来、必填项不填
-- 一致性:同一件事不同工具给的数字对不对得上(list_threads 的块数 vs get_pack 里的总数;
-  check_library 的发现 vs thread_health 的发现)
+- 参数:空串、超大数、负数、小数、中文、把别的工具的 id 传进来
+- 一致性:同一件事不同工具给的数字对不对得上(list_threads 的块数 vs get_pack 的表头;
+  check_library 的发现 vs thread_health 的发现;search_blocks 的 total vs 你能翻到的条数)
 - 文案:工具描述里有没有看不懂、有歧义、自相矛盾的句子?中英文混排别扭吗?
   报错信息能不能让一个不懂技术的人自己解决?
 - 你的体感:哪一步你不得不猜?哪个返回值你必须再调一次工具才能用?哪个字段你根本没用上?
 - 危险面:有没有哪条路能让你在用户不知情的情况下改掉/盖掉他的东西?
   有没有哪条路会把 id 漏到用户眼前?你能不能被库里的内容"骗"着去做不该做的事?
-- 跨客户端:你这边和别的 MCP 客户端相比,有没有哪个参数/返回格式在你这儿特别难用?
+- 跨客户端:同样这套工具,在你这儿和在 Claude 那儿哪里不一样?
+  有没有哪个参数形状、哪种返回格式在你这儿特别难用?(比如数字参数你是当字符串发的吗?)
 
-═══ 最后一次性给我一份报告,五节 ═══
+═══ 最后一次性给我一份报告,六节 ═══
 
-1. 问题清单:按严重程度排。每条写清:现象 / 怎么复现(哪个工具、什么参数)/ 你期望什么 /
-   实际是什么 / 建议怎么改
-2. 体验摩擦:不算 bug,但让你别扭的地方
-3. 缺什么功能:站在上面那个目标用户的角度提,每条必须说清「这解决他的哪一个真实场景」,
-   不要列技术特性
-4. 你还想要什么权限或接口:直说。每条要说明为什么需要,以及它和这两条底线冲不冲突——
+1. 回归结论表:R1–R11 每条一行,只写「修对 / 没修对 / 修出新问题」+ 一句证据
+2. 新问题清单:按严重程度排。每条写清:现象 / 怎么复现(哪个工具、什么参数)/
+   你期望什么 / 实际是什么 / 建议怎么改
+3. 零摩擦四问(Z1–Z4)的回答
+4. 缺什么功能:站在目标用户角度提(一个普通人,长期做一件事:上一门课、申请学校、
+   转行、学外语、租房、备赛半马;不写代码、不看日志、不想学新术语)。
+   每条必须说清「这解决他的哪一个真实场景」,不要列技术特性
+5. 你还想要什么权限或接口:直说。每条说明为什么需要,以及它和这两条底线冲不冲突——
    ①AI 绝不改用户写下的东西 ②数据不出网。冲突的也可以提,标明冲突即可
-5. 一句话总评 + 打分(10 分制)
+6. 一句话总评 + 打分(10 分制),并说明和上一轮比是升是降、为什么
 
 ═══ 纪律 ═══
 
@@ -351,18 +453,44 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 | 指向不存在的块的引用 | 机器学习课 | check_library / thread_health / pack 里降级成一行说明 |
 | 正文里露出的 `spool://` 和 21 位裸 id | 机器学习课 | check_library / thread_health。两条都指向现存对象,报告里会写「→ 指向现存块/项目」 |
 | 摘要里露出的裸 id | 租房 | check_library(项目摘要那一节)。这条**故意指向不存在的对象**,报告里写「→ 未指向现存对象」 |
-| 用户手写的摘要 | 找工作 | set_thread_summary 必须拒绝 |
-| AI 写的摘要 | 机器学习课作业、租房、简历改版 | set_thread_summary 可以覆盖 |
-| 没有摘要 | 机器学习课等 | set_thread_summary 写第一条 |
-| 空项目(0 块) | 菜谱 | get_pack / distill 的空库提示 |
+| 用户手写的摘要 | 找工作 | set_thread_summary 必须拒绝;list_threads 的 summary_source 应报 "user" |
+| AI 写的摘要 | 机器学习课作业、租房、简历改版 | set_thread_summary 可以覆盖;summary_source 应报 "mcp" |
+| 没有摘要 | 机器学习课等 | set_thread_summary 写第一条;summary_source 应为 null |
+| 空项目(0 块) | 菜谱 | get_pack / distill 的空库提示,提示里要带项目名 |
 | 软删的项目 + 软删工作区里的活项目 | 已删掉的项目 / 孤儿项目 | **任何工具都不该看见**,看见就是 bug |
-| 标题互相包含 | 机器学习课 / 机器学习课作业 | prompt 的项目名解析应该报歧义 |
+| 标题互相包含 | 机器学习课 / 机器学习课作业 | 项目名解析应该报歧义 |
 | 沉寂 40 天、只剩置顶 | 作品集官网 | get_digest 的"置顶锚点"那一段 |
-| 超长附件正文(内联进 pack) | 机器学习课的 lecture-03.pdf | get_pack 的预算与截断 |
+| 7800 字的附件正文(内联进 pack) | 机器学习课的 lecture-03.pdf | **本轮重点**:get_pack 的预算阶梯 + get_blocks 的附件暴露 |
 | 抽取失败的附件、指向不存在路径的文件夹 | 找工作 | pack 里怎么渲染 |
 | 日语、英语混排 | 日语练习、机器学习课 | 搜索与输出语言 |
 
-## 五、测完把什么给我
+**本轮的对答案速查**(开发窗实测,拿来比对报告真假):
 
-AI 的那份报告整段贴回来就行(每个客户端各一份)。我会按这个顺序处理:
-先修问题清单里的真 bug,再看第 4 节它要的权限——那一节决定 MCP 接口下一步往哪长。
+| 项 | 正确答案 |
+|---|---|
+| 「机器学习课」块数 / 置顶 | 16 / 3 |
+| 「机器学习课」pack 全文 | 13229 字符 |
+| `approx_pack_chars` | 12979(比真值低约 2%) |
+| `max_chars=8000` | 拿到 7637 字符的部分 pack,附件正文压到 2000 字 |
+| `max_chars=2000` | 拒绝,并告知下限是 4137,建议提到 4137 以上或走 get_blocks |
+| `range=last7` 表头 | 「5 of 16 blocks in this project (range: last7 …)」 |
+| `range=last7` 的置顶 | 3 块全在 |
+| search「的」total | 23(能靠 offset 翻完) |
+| find_similar 全库组数 | 1 |
+| 库里项目数 | 11(不含软删) |
+
+## 五、Claude Code 那一份
+
+Claude Code 是唯一暴露 prompts 的客户端,所以它不用来做"找茬评审",而是**开发窗自己的
+回归自测台**:`/mcp__spool_lab__<名字>` 直接跑四个 prompt,`mcp__spool_lab__<名字>`
+直接跑十三个工具。开发窗每一轮改完 Rust 都在这里先跑一遍再交给你。
+
+⚠️ **改了 Rust 代码之后,Claude Code 里的 spool_lab 还连着旧的那份程序副本。**
+必须 `cargo build --release` → `./scripts/seed-mcp-lab.sh` → **重启 Claude Code**
+(在 VS Code 里就是重开窗口),新代码才生效。
+
+## 六、测完把什么给我
+
+AI 的那份报告整段贴回来就行(每个客户端各一份)。处理顺序:
+先看第 1 节回归表(修错了要立刻回头),再看第 3 节零摩擦四问
+(那是 `DESIGN_MCP_ZERO_FRICTION.md` 待批的直接输入),最后才是第 2、4、5 节。
