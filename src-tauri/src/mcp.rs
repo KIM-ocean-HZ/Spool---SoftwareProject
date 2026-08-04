@@ -8,9 +8,12 @@
 //! the 「MCP 服务」 toggle in Spool's settings is ON (default OFF, §20.12).
 //!
 //! Tool surface (§20.13 v2.2, 2026-07-10) — reads, gated by mcpEnabled:
-//!   list_threads / search_blocks / find_similar_blocks / get_blocks / get_pack,
-//!   plus spool://thread/<id> resources and four prompts (compress_pack / weekly_review
-//!   / thread_health / distill — §20.13 v2.5).
+//!   list_threads / search_blocks / find_similar_blocks / get_blocks / get_pack /
+//!   check_library, plus spool://thread/<id> resources and four prompts (compress_pack /
+//!   weekly_review / thread_health / distill — §20.13 v2.5).
+//!   v2.6 (2026-08-04, H-2): the last three are ALSO tools, sharing one builder
+//!   (guidance_text) — the two main clients never expose MCP prompts, so a prompt-only
+//!   feature reaches nobody there.
 //! Writes, additionally gated by mcpWriteEnabled (separate consent):
 //!   create_thread / add_block (append-only, attributed) / set_thread_summary
 //!   (provenance-guarded — never overwrites a user-written summary).
@@ -2977,6 +2980,44 @@ fn tools_descriptor() -> Value {
             }
         },
         {
+            "name": "weekly_review",
+            "description": "Assemble everything needed to write the user's review of the last N days across projects — a Spool digest plus the instructions for turning it into a review. Call this when the user asks 'what have I been up to', 'sum up my week/month', or wants a periodic look back. IMPORTANT: what comes back is material AND instructions addressed to you — read the instructions and carry them out; do not paste the raw text to the user.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_title": { "type": "string", "description": "Optional: limit to one workspace (by name, case-insensitive). Omit for all." },
+                    "since_days": { "type": "integer", "description": "Window in calendar days, default 7, max 90." }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "thread_health",
+            "description": "Health-check one project: near-duplicate blocks, dangling citations, internal ids leaked into visible text (the same detectors as check_library, scoped to this project), plus the material for judging whether its one-line summary went stale. Call this when the user asks whether a project is messy, has duplicates, or needs tidying. IMPORTANT: what comes back is a report AND instructions addressed to you — follow them; Spool never merges, rewrites or deletes anything.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project title (part of it is enough) — or its id. Omit and you get the project list back, to ask the user which one." }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "distill",
+            "description": "Assemble one project's full pack plus the instructions for distilling it into a single conclusion block — what is settled, what is still open, where it is stuck. Call this when the user asks 'where do I stand on X', 'what have I concluded', or wants a takeaway saved back. IMPORTANT: what comes back is material AND instructions addressed to you — read the pack's authority rules and follow the instructions; propose the block to the user before writing anything.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project title (part of it is enough) — or its id. Omit and you get the project list back, to ask the user which one." },
+                    "range": { "type": "string", "enum": RANGE_VALUES, "description": "Which blocks to distill: all (default) / pinned / last7 / last30." }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "create_thread",
             "description": "Create a new project in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Search first — a project whose title already exists in the target workspace is refused (Spool has no delete tool, so a duplicate is permanent and makes both projects ambiguous to name). Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
@@ -3073,6 +3114,9 @@ fn handle_tool_call(params: &Value) -> Value {
                 search_blocks_json(&open_db(&dir)?, query, num("limit"), num("offset"))
             }
             "check_library" => check_library_json(&open_db(&dir)?, now_ms()),
+            // H-2: the three v2.5 prompts, reachable as tools too — the model calls them
+            // from what the user said, in the clients that never show a prompt menu.
+            "weekly_review" | "thread_health" | "distill" => guidance_text(name, &args),
             "find_similar_blocks" => find_similar_blocks_json(
                 &open_db(&dir)?,
                 args.get("thread_id").and_then(Value::as_str),
@@ -3461,19 +3505,16 @@ fn resolve_thread(conn: &Connection, key: &str) -> Result<(String, String), Stri
 }
 
 // Every prompt shares the same preamble: locate the data dir, refuse while the 「MCP 服务」
-// toggle is off, open the DB read-only. Failures surface as JSON-RPC -32603.
+// toggle is off, open the DB read-only.
 fn prompt_body(
     build: impl FnOnce(&std::path::Path, &Connection) -> Result<String, String>,
-) -> Result<String, (i64, String)> {
-    (|| -> Result<String, String> {
-        let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
-        if !mcp_enabled(&dir) {
-            return Err("Spool 的 MCP 服务未开启。".to_string());
-        }
-        let conn = open_db(&dir)?;
-        build(&dir, &conn)
-    })()
-    .map_err(|e| (-32603, e))
+) -> Result<String, String> {
+    let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+    if !mcp_enabled(&dir) {
+        return Err("Spool 的 MCP 服务未开启。".to_string());
+    }
+    let conn = open_db(&dir)?;
+    build(&dir, &conn)
 }
 
 // The write toggle is read once per prompt so the model is told up front whether it may
@@ -3505,6 +3546,137 @@ fn distill_prompt_text(title: &str, pack: &str, gate: &str) -> String {
     format!(
         "你在把 Spool 项目〈{title}〉提炼成一块结论。下面是这个项目的完整简报(pack),先读它开头的授权规则再动手。\n\n# Pack\n{pack}\n\n# 你要做的\n1. 按 pack 开头的四类授权规则读:📖 Reference 是事实底座,🧩 Synthesis 只是别人的框架、不能当事实,🔄 Process 读的是用户反复在问什么,💭 用户自己写的和 ==高亮== 是最高信号。\n2. 提炼成一块——不是摘要,是结论:到今天为止这个项目定下来的是什么、还没定的是什么、下一步卡在哪。控制在 300 字以内,一块只讲一件事。\n3. 只写 pack 里有的东西。pack 里得不出的判断就说得不出,绝不补脑。\n4. 先把这块念给用户听。他同意之后,用 add_block 存回同一个项目:content 是结论本体,annotation 写一句\"为什么这条值得留\",ref_block_id 填这条结论最直接依据的那个块——id 从 pack 末尾的 Block IDs 表取,那张表只是工具参数,别显示给用户,更别写进正文。\n5. 你只是追加一块,绝不改写或替换用户已有的任何块。\n{gate}"
     )
+}
+
+// H-6 (Ocean 2026-08-04): the project argument used to be `required: true`, so Claude
+// Code refused the click client-side ("Missing required argument: project") and the
+// request never reached this server — a dead end in the one client that DOES surface
+// prompts. Nothing is required now; a call without a project answers with the live
+// project list and an instruction to ask the user, so clicking a menu entry always
+// starts a conversation instead of an error.
+const CHOOSER_LIST_CAP: usize = 12;
+
+fn project_chooser_text(conn: &Connection, what: &str, arg: &str) -> Result<String, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.title, w.title, COALESCE(bc.cnt, 0), t.updated_at
+             FROM threads t
+             JOIN workspaces w ON w.id = t.workspace_id
+             LEFT JOIN (SELECT thread_id, COUNT(*) AS cnt FROM blocks GROUP BY thread_id) bc
+                    ON bc.thread_id = t.id
+             WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+             ORDER BY t.updated_at DESC, t.id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String, i64, i64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        return Err("库里还没有任何项目 — 让用户先在 Spool 里建一个。".to_string());
+    }
+    let listed: Vec<String> = rows
+        .iter()
+        .take(CHOOSER_LIST_CAP)
+        .map(|(title, ws, blocks, updated)| {
+            format!(
+                "- 〈{}〉· 工作区「{ws}」· {blocks} 块 · 最后活动 {}",
+                if title.is_empty() { "（无标题）" } else { title },
+                format_pack_time(*updated)
+            )
+        })
+        .collect();
+    let more = rows.len().saturating_sub(listed.len());
+    let more_line = if more > 0 {
+        format!("\n(还有 {more} 个项目 — 用 list_threads 看全部)")
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "用户要「{what}」,但没说是哪个项目。别报错,也别替他挑。\n\n\
+         # 库里现在的项目(按最近活动排)\n{}{more_line}\n\n\
+         # 你要做的\n\
+         1. 用大白话问他:想让我看哪一个?把上面的标题念给他听。\n\
+         2. 他答完,你直接把他说的标题当作 {arg} 参数再调一次「{what}」——写一部分标题就行,\
+         不用他再去点一次菜单。\n\
+         3. 全程用项目标题称呼项目,绝不把内部 id 说出来。",
+        listed.join("\n")
+    ))
+}
+
+// H-2 (Ocean 2026-08-04, 批准): the same four assemblies, reachable from BOTH surfaces.
+// prompts are a dead end in the two main clients (ChatGPT/Codex and Claude Desktop don't
+// expose them at all), so each one is also a read-only tool the model calls straight from
+// what the user said. One builder, so the two surfaces can never drift.
+fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
+    let num = |k: &str| -> Option<i64> {
+        let v = args.get(k)?;
+        v.as_i64()
+            .or_else(|| v.as_f64().map(|f| f.trunc() as i64))
+            .or_else(|| v.as_str()?.trim().parse::<f64>().ok().map(|f| f.trunc() as i64))
+    };
+    let str_arg = |k: &str| -> Option<&str> {
+        args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+    };
+    let range = str_arg("range").unwrap_or("all");
+    if !RANGE_VALUES.contains(&range) {
+        return Err(format!("range 必须是 {RANGE_VALUES:?} 之一。"));
+    }
+    // `project` is the declared name on three of the four; compress_pack's has always
+    // been `thread_id`. Both are accepted everywhere — a human typing into a client's
+    // argument dialog should not have to remember which is which.
+    let project = str_arg("project").or_else(|| str_arg("thread_id"));
+
+    match name {
+        "compress_pack" => prompt_body(|_, conn| {
+            let Some(key) = project else {
+                return project_chooser_text(conn, "compress_pack", "thread_id");
+            };
+            let (id, _) = resolve_thread(conn, key)?;
+            Ok(compress_prompt_text(&get_pack_text(conn, &id, range)?))
+        }),
+        "weekly_review" => prompt_body(|dir, conn| {
+            let digest = get_digest_json(
+                conn,
+                str_arg("workspace_title"),
+                num("since_days"),
+                None,
+                now_ms(),
+            )?;
+            Ok(weekly_review_prompt_text(&digest, write_gate_line(dir)))
+        }),
+        "thread_health" => prompt_body(|dir, conn| {
+            let Some(key) = project else {
+                return project_chooser_text(conn, "thread_health(项目体检)", "project");
+            };
+            let (id, title) = resolve_thread(conn, key)?;
+            let report = thread_health_report(conn, &id, &title, now_ms())?;
+            Ok(thread_health_prompt_text(&report, write_gate_line(dir)))
+        }),
+        "distill" => prompt_body(|dir, conn| {
+            let Some(key) = project else {
+                return project_chooser_text(conn, "distill(提炼成一块结论)", "project");
+            };
+            let (id, title) = resolve_thread(conn, key)?;
+            let built = build_pack(conn, &id, range)?;
+            if let Some(msg) = pack_guard_message(&built, range) {
+                return Err(msg); // empty project / empty window
+            }
+            // Same budget as get_pack, and the id side-table rides along so the model
+            // can cite what it built on (ref_block_id).
+            let over = built.text.chars().count() as i64 > PACK_DEFAULT_MAX_CHARS;
+            let (text, omit) = if over {
+                budgeted_pack(&built, PACK_DEFAULT_MAX_CHARS)
+                    .unwrap_or_else(|| (built.text.clone(), 0))
+            } else {
+                (built.text.clone(), 0)
+            };
+            let pack = format!("{text}{}", pack_id_table(&built.blocks, omit));
+            Ok(distill_prompt_text(&title, &pack, write_gate_line(dir)))
+        }),
+        other => Err(format!("unknown guidance: {other}")),
+    }
 }
 
 // One project's health report: the same three detectors as check_library (near-duplicate
@@ -3770,7 +3942,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                     "name": "compress_pack",
                     "description": "Compress one Spool project's context pack using this AI (keeps the skeleton and all user notes/highlights verbatim; deduplicates the Full Record).",
                     "arguments": [
-                        { "name": "thread_id", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true },
+                        { "name": "thread_id", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and Spool answers with the project list to pick from.", "required": false },
                         { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
                     ]
                 },
@@ -3786,15 +3958,15 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                     "name": "thread_health",
                     "description": "Health check on one Spool project: near-duplicate blocks, dangling citations, leaked internal ids (same detectors as check_library), plus the material to judge whether its summary went stale.",
                     "arguments": [
-                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true }
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and Spool answers with the project list to pick from.", "required": false }
                     ]
                 },
                 {
                     "name": "distill",
                     "description": "Distill one Spool project into a single conclusion block — what is settled, what is open, what is blocked — then offer to save it back with a citation.",
                     "arguments": [
-                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads.", "required": true },
-                        { "name": "range", "description": "all (default) / pinned / last7 / last30.", "required": false }
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and Spool answers with the project list to pick from.", "required": false },
+                        { "name": "range", "description": "all (default) / pinned / last7 / last30 — which blocks to distill.", "required": false }
                     ]
                 }
             ]
@@ -3802,82 +3974,14 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
         "prompts/get" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            // Optional args arrive as strings from a client's argument dialog.
-            let arg_i64 = |k: &str| -> Option<i64> {
-                args.get(k).and_then(|v| v.as_i64().or_else(|| v.as_str()?.trim().parse().ok()))
-            };
-            let range = args.get("range").and_then(Value::as_str).unwrap_or("all");
-            if !RANGE_VALUES.contains(&range) {
-                return Err((-32602, format!("range 必须是 {RANGE_VALUES:?} 之一。")));
-            }
-            let project = |key: &str| -> Result<&str, (i64, String)> {
-                args.get(key)
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .ok_or((-32602, format!("缺少 {key} 参数 — 填项目标题(写一部分即可)。")))
-            };
-            let (description, text) = match name {
-                "compress_pack" => {
-                    let key = project("thread_id")?;
-                    (
-                        "Compress this Spool pack per the embedded rules.",
-                        prompt_body(|_, conn| {
-                            let (id, _) = resolve_thread(conn, key)?;
-                            Ok(compress_prompt_text(&get_pack_text(conn, &id, range)?))
-                        })?,
-                    )
-                }
-                "weekly_review" => (
-                    "Review the recent window across projects, then offer to file it.",
-                    prompt_body(|dir, conn| {
-                        let digest = get_digest_json(
-                            conn,
-                            args.get("workspace_title").and_then(Value::as_str),
-                            arg_i64("since_days"),
-                            None,
-                            now_ms(),
-                        )?;
-                        Ok(weekly_review_prompt_text(&digest, write_gate_line(dir)))
-                    })?,
-                ),
-                "thread_health" => {
-                    let key = project("project")?;
-                    (
-                        "Health-check one Spool project; disposal stays with the user.",
-                        prompt_body(|dir, conn| {
-                            let (id, title) = resolve_thread(conn, key)?;
-                            let report = thread_health_report(conn, &id, &title, now_ms())?;
-                            Ok(thread_health_prompt_text(&report, write_gate_line(dir)))
-                        })?,
-                    )
-                }
-                "distill" => {
-                    let key = project("project")?;
-                    (
-                        "Distill one Spool project into a single conclusion block.",
-                        prompt_body(|dir, conn| {
-                            let (id, title) = resolve_thread(conn, key)?;
-                            let built = build_pack(conn, &id, range)?;
-                            if let Some(msg) = pack_guard_message(&built, range) {
-                                return Err(msg); // empty project / empty window
-                            }
-                            // Same budget as get_pack, and the id side-table rides along
-                            // so the model can cite what it built on (ref_block_id).
-                            let over = built.text.chars().count() as i64 > PACK_DEFAULT_MAX_CHARS;
-                            let (text, omit) = if over {
-                                budgeted_pack(&built, PACK_DEFAULT_MAX_CHARS)
-                                    .unwrap_or_else(|| (built.text.clone(), 0))
-                            } else {
-                                (built.text.clone(), 0)
-                            };
-                            let pack = format!("{text}{}", pack_id_table(&built.blocks, omit));
-                            Ok(distill_prompt_text(&title, &pack, write_gate_line(dir)))
-                        })?,
-                    )
-                }
+            let description = match name {
+                "compress_pack" => "Compress this Spool pack per the embedded rules.",
+                "weekly_review" => "Review the recent window across projects, then offer to file it.",
+                "thread_health" => "Health-check one Spool project; disposal stays with the user.",
+                "distill" => "Distill one Spool project into a single conclusion block.",
                 _ => return Err((-32602, format!("unknown prompt: {name}"))),
             };
+            let text = guidance_text(name, &args).map_err(|e| (-32603, e))?;
             Ok(json!({
                 "description": description,
                 "messages": [{
@@ -5063,6 +5167,16 @@ mod tests {
         let pack = format!("{}{}", built.text, pack_id_table(&built.blocks, 0));
         let distill = distill_prompt_text("机器学习课", &pack, gate);
         assert!(distill.contains("〈机器学习课〉") && distill.contains(SECTION_IDS), "{distill}");
+
+        // H-6: no project = not an error. The reply is the live project list plus the
+        // instruction to ask the user — so clicking a menu entry starts a conversation.
+        let chooser = project_chooser_text(&conn, "distill(提炼成一块结论)", "project").unwrap();
+        assert!(chooser.contains("〈机器学习课〉· 工作区「学习」"), "{chooser}");
+        assert!(chooser.contains("〈论文〉"), "{chooser}");
+        assert!(!chooser.contains("已删除的项目"), "soft-deleted must not be offered");
+        assert!(chooser.contains("绝不把内部 id 说出来"), "{chooser}");
+        // The chooser lists titles only — no ids anywhere in what the model will read out.
+        assert!(!chooser.contains("t1") && !chooser.contains("ws1"), "{chooser}");
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
