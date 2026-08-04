@@ -58,7 +58,7 @@ Substrings wrapped in `==…==` inside any block above are sentence-level key po
 
 ## Pinned Blocks
 
-📌 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==
+📌 #1 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==
     note: 一直没懂为什么要除 sqrt(d_k) 查了三篇讲解还是模糊
     ↳ attached file: attention.pdf (pdf)
       Attention Is All You Need
@@ -67,20 +67,20 @@ Substrings wrapped in `==…==` inside any block above are sentence-level key po
 
 ## Full Record (chronological)
 
-📌 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 … (pinned — full text in "Pinned Blocks" above)
-[2025-06-05 06:06 · from Safari] 课程要求:期末项目要复现一篇 2024 年后的论文
+📌 #1 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 … (pinned — full text in "Pinned Blocks" above)
+#2 [2025-06-05 06:06 · from Safari] 课程要求:期末项目要复现一篇 2024 年后的论文
 截止 4 月 30 日
 占总分 40%
     ↳ attached URL: example.edu — https://example.edu/course/final
     ↳ attached file: /Users/x/papers/rubric.docx — see Related Files & Links section below
-[2025-06-06 09:53] → Referenced project: 实验设计
-[2025-06-07 13:40] → Referenced project: 已删除脉络的标题快照
-[2025-06-15 15:06] 我的想法:先复现 baseline 再谈改进,别一上来就魔改
+#3 [2025-06-06 09:53] → Referenced project: 实验设计
+#4 [2025-06-07 13:40] → Referenced project: 已删除脉络的标题快照
+#5 [2025-06-15 15:06] 我的想法:先复现 baseline 再谈改进,别一上来就魔改
     ↳ attached folder: baseline — see Related Files & Links section below
-[2025-06-15 15:16 · from Claude · MCP] 结论:除以 sqrt(d_k) 是为了控制点积方差,防止 softmax 梯度消失
+#6 [2025-06-15 15:16 · from Claude · MCP] 结论:除以 sqrt(d_k) 是为了控制点积方差,防止 softmax 梯度消失
     note: 归档自 2026-06 的一次答疑
     ↩ cites: [2025-05-06 15:00] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 …
-[2025-06-15 15:33 · from Claude · MCP] 旧结论,它引用的块已被删除
+#7 [2025-06-15 15:33 · from Claude · MCP] 旧结论,它引用的块已被删除
     ↩ cites: (cited block no longer exists)
 
 ## Related Files & Links

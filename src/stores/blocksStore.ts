@@ -451,6 +451,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           refBlockId: src.refBlockId,
           source: src.source,
           pinned: src.pinned,
+          // A copy is a new block in a new project, so it draws a fresh number there —
+          // insertBlocks assigns it and the source's own #n is left alone.
+          seq: null,
           createdAt: base + i,
         });
         for (const a of state.attachmentsByBlock[src.id] ?? []) {

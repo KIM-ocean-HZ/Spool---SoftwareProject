@@ -114,11 +114,26 @@ Substrings wrapped in \`==…==\` inside any block above are sentence-level key 
 ---`;
 
 // --- Closing language directive (verbatim — §9.5) ---------------------------------------
-export const OUTPUT_LANGUAGE = `## Output Language
+// 2026-08-04 (Ocean): this used to hard-code Simplified Chinese in every pack, in every
+// locale — an English user with an English app pasted a pack and got answered in Chinese.
+// It now follows Spool's UI language. The rest of the pack skeleton stays English on
+// purpose (§19.13: receiving AIs follow English instructions more reliably); this one
+// directive is different, because it is the only line whose whole job is to decide what
+// language the USER is answered in.
+export const OUTPUT_LANGUAGE_BY_LANG = {
+  zh: `## Output Language
 
 Respond in Simplified Chinese unless content itself dictates otherwise
 (e.g. don't translate quoted English source material). Technical terms
-may stay in their original language.`;
+may stay in their original language.`,
+  en: `## Output Language
+
+Respond in English unless content itself dictates otherwise
+(e.g. don't translate quoted source material). Technical terms
+may stay in their original language.`,
+} as const;
+
+export const OUTPUT_LANGUAGE = OUTPUT_LANGUAGE_BY_LANG.zh;
 
 // --- Truncation marker for over-long extracted text -------------------------------------
 export const truncationMarker = (remainder: number): string =>

@@ -37,11 +37,28 @@ const userVersion = (handle: Sqlite): number =>
 const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
+// Rewind past v9: blocks lose `seq` and its uniqueness guard, and the attachment
+// full-text index disappears with its three triggers. Every test that starts below v9
+// applies this first, so the v8→v9 step is genuinely exercised rather than skipped by
+// its own idempotence guards.
+const downgradeToV8 = (handle: Sqlite): void => {
+  handle.exec(`
+    DROP TRIGGER IF EXISTS attachments_ai;
+    DROP TRIGGER IF EXISTS attachments_ad;
+    DROP TRIGGER IF EXISTS attachments_au;
+    DROP TABLE IF EXISTS attachments_fts;
+    DROP INDEX IF EXISTS idx_blocks_thread_seq;
+    ALTER TABLE blocks DROP COLUMN seq;
+    PRAGMA user_version = 8;
+  `);
+};
+
 // Rewind a current-schema database to the historical v2 shape: threads regain the
 // rolled-back progress/next_step columns and lose summary_source (v5→6); blocks lose
 // ref_block_id (v6→7); attachments lose all four extraction-era columns (v3→4 added
 // three, v4→5 added include_in_pack).
 const downgradeToV2 = (handle: Sqlite): void => {
+  downgradeToV8(handle);
   handle.exec(`
     ALTER TABLE threads ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE threads ADD COLUMN next_step TEXT;
@@ -91,7 +108,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -114,6 +131,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('resumes from a mid-chain checkpoint (v4 onward)', async () => {
     applySchema(handle);
+    downgradeToV8(handle);
     handle.exec(`
       ALTER TABLE attachments DROP COLUMN include_in_pack;
       ALTER TABLE threads DROP COLUMN summary_source;
@@ -124,7 +142,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -133,6 +151,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('v5 → v6 adds summary_source and keeps an existing summary (provenance NULL)', async () => {
     applySchema(handle);
+    downgradeToV8(handle);
     handle.exec(`
       ALTER TABLE threads DROP COLUMN summary_source;
       ALTER TABLE blocks DROP COLUMN ref_block_id;
@@ -143,7 +162,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -152,6 +171,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('v6 → v7 adds blocks.ref_block_id (NULL) and keeps user data', async () => {
     applySchema(handle);
+    downgradeToV8(handle);
     handle.exec(`
       ALTER TABLE blocks DROP COLUMN ref_block_id;
       PRAGMA user_version = 6;
@@ -160,7 +180,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -169,6 +189,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('v7 → v8 normalizes legacy agent-slug MCP source labels only', async () => {
     applySchema(handle);
+    downgradeToV8(handle);
     handle.exec('PRAGMA user_version = 7');
     seedUserData(handle);
     handle.exec(`
@@ -181,7 +202,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -193,15 +214,80 @@ describe('migrateSchema registry (§19.3)', () => {
     ]);
   });
 
+  it('v8 → v9 numbers existing blocks per thread in pack order', async () => {
+    applySchema(handle);
+    downgradeToV8(handle);
+    seedUserData(handle);
+    // Deliberately inserted out of chronological order, and split across two threads:
+    // the backfill must number by created_at (rowid breaking a tie), per thread, so the
+    // number a user sees matches the position the block has always had in the pack.
+    handle.exec(`
+      INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+        VALUES ('t2', 'w1', 'other', 1, 1);
+      INSERT INTO blocks (id, thread_id, content, created_at) VALUES
+        ('s3', 't1', 'third',  1700000000300),
+        ('s1', 't1', 'first',  1700000000100),
+        ('s2', 't1', 'second', 1700000000200),
+        ('o1', 't2', 'other thread', 1700000000900);
+    `);
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(9);
+    // b1 (from seedUserData) is the oldest in t1, so it takes #1.
+    expect(
+      handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
+    ).toEqual([
+      { id: 'b1', seq: 1 },
+      { id: 's1', seq: 2 },
+      { id: 's2', seq: 3 },
+      { id: 's3', seq: 4 },
+    ]);
+    // Numbering restarts per project — the other thread's only block is its #1.
+    expect(handle.prepare("SELECT seq FROM blocks WHERE id = 'o1'").get()).toEqual({ seq: 1 });
+  });
+
+  it('v8 → v9 indexes text already extracted out of attachments', async () => {
+    applySchema(handle);
+    downgradeToV8(handle);
+    seedUserData(handle);
+    handle.exec(`
+      UPDATE attachments SET extracted_text = '验证曲线告诉你模型是欠拟合还是过拟合'
+       WHERE id = 'a1';
+    `);
+
+    await __migrateSchemaForTest(db);
+
+    // The sentence lives only in the attachment, never in any block's own text — before
+    // v9 it was unfindable.
+    const hits = handle
+      .prepare("SELECT rowid FROM attachments_fts WHERE attachments_fts MATCH '验证曲线'")
+      .all();
+    expect(hits).toHaveLength(1);
+    // And the triggers keep it current afterwards, which is the part a one-off rebuild
+    // would not give us.
+    handle.exec("UPDATE attachments SET extracted_text = '学习率与批大小' WHERE id = 'a1'");
+    expect(
+      handle
+        .prepare("SELECT rowid FROM attachments_fts WHERE attachments_fts MATCH '验证曲线'")
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      handle
+        .prepare("SELECT rowid FROM attachments_fts WHERE attachments_fts MATCH '学习率'")
+        .all(),
+    ).toHaveLength(1);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 8');
+    handle.exec('PRAGMA user_version = 9');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -221,7 +307,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(8);
+    expect(userVersion(handle)).toBe(9);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;
@@ -234,6 +320,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('walking the registry does not report fresh (no tutorial re-seed on upgrade)', async () => {
     applySchema(handle);
+    downgradeToV8(handle);
     handle.exec(`
       ALTER TABLE threads DROP COLUMN summary_source;
       ALTER TABLE blocks DROP COLUMN ref_block_id;
@@ -246,7 +333,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('seeds the tutorial + MCP scenario threads (fresh install only)', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 8');
+    handle.exec('PRAGMA user_version = 9');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', '收件箱', 0, 1, 1);
@@ -288,7 +375,7 @@ describe('migrateSchema registry (§19.3)', () => {
   // later language switch re-translates them.
   it('seeds the tutorial in English when the install starts in en', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 8');
+    handle.exec('PRAGMA user_version = 9');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', 'Inbox', 0, 1, 1);
@@ -332,7 +419,7 @@ describe('retranslateTutorial', () => {
     db = makeAdapter(handle);
     __setTestDb(db);
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 8');
+    handle.exec('PRAGMA user_version = 9');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', 'Inbox', 0, 1, 1);

@@ -32,6 +32,113 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 // ---------------------------------------------------------------------------------------
+// Output language (2026-08-04, Ocean) — the server speaks whatever language the app does
+// ---------------------------------------------------------------------------------------
+//
+// Two audiences, and only one of them gets translated:
+//
+//   * The MODEL reads tool names, tool descriptions, the `initialize` instructions and the
+//     pack's authority header. Those stay English in every locale — §19.13: receiving AIs
+//     follow English instructions, especially negative constraints ("never say raw ids"),
+//     more reliably than Chinese ones. They are a contract, not copy.
+//   * The USER reads everything the model relays back: errors, digest headers, the library
+//     checkup, the guidance bodies, and the pack's closing "answer in this language"
+//     directive. Those follow Spool's own UI language, because an English-speaking user
+//     with an English app was being answered in Chinese.
+//
+// Where the language comes from: settings.json's `resolvedLanguage`, which the app mirrors
+// on every load (settingsStore.ts). Plain `language` is only present once the user has
+// switched by hand — its ABSENCE is what means "follow the system locale", and this
+// process has no navigator to ask. Falling back to English matches the app's own default
+// for a machine that has never chosen (settingsStore §2026-07-31).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lang {
+    Zh,
+    En,
+}
+
+// 0 = not read yet, 1 = zh, 2 = en. The unset state matters: the client-config helpers
+// at the bottom of this file are Tauri commands running inside the GUI process, which
+// never goes through handle_request — so lang() reads settings itself the first time
+// rather than silently defaulting to one language.
+static LANG: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn store_lang(l: Lang) {
+    LANG.store(
+        if l == Lang::Zh { 1 } else { 2 },
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+fn lang() -> Lang {
+    match LANG.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => Lang::Zh,
+        2 => Lang::En,
+        _ => {
+            let l = app_data_dir().map_or(Lang::En, |d| read_language(&d));
+            store_lang(l);
+            l
+        }
+    }
+}
+
+// Re-read per request, like the two consent toggles: the user may switch language with a
+// client already connected, and nothing should need a restart to follow.
+fn refresh_lang(dir: &std::path::Path) {
+    store_lang(read_language(dir));
+}
+
+fn read_language(dir: &std::path::Path) -> Lang {
+    let Ok(raw) = std::fs::read_to_string(dir.join("settings.json")) else {
+        return Lang::En;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+        return Lang::En;
+    };
+    let picked = v
+        .get("resolvedLanguage")
+        .or_else(|| v.get("language"))
+        .and_then(Value::as_str);
+    match picked {
+        Some("zh") => Lang::Zh,
+        _ => Lang::En,
+    }
+}
+
+// One user-facing string, both languages. `t!` formats (inline captures and positional
+// args both work, as long as each side names the same ones); `ts!` picks between two
+// &'static str for the places that need a borrow rather than an allocation.
+macro_rules! t {
+    ($zh:tt, $en:tt) => {
+        match lang() {
+            Lang::Zh => format!($zh),
+            Lang::En => format!($en),
+        }
+    };
+    ($zh:tt, $en:tt, $($arg:tt)*) => {
+        match lang() {
+            Lang::Zh => format!($zh, $($arg)*),
+            Lang::En => format!($en, $($arg)*),
+        }
+    };
+}
+
+macro_rules! ts {
+    ($zh:tt, $en:tt) => {
+        match lang() {
+            Lang::Zh => $zh,
+            Lang::En => $en,
+        }
+    };
+}
+
+// How a project with no title is named in output. Its own function because the digest
+// pre-charges the budget with strings it emits later — the two must not drift.
+fn untitled() -> &'static str {
+    ts!("（无标题）", "(untitled)")
+}
+
+// ---------------------------------------------------------------------------------------
 // Template constants — verbatim from src/lib/pack/templates.ts (see sync discipline above).
 // ---------------------------------------------------------------------------------------
 
@@ -116,11 +223,25 @@ Substrings wrapped in `==…==` inside any block above are sentence-level key po
 
 ---"#;
 
-const OUTPUT_LANGUAGE: &str = r#"## Output Language
+// Mirrors templates.ts OUTPUT_LANGUAGE_BY_LANG. The ONE part of the pack skeleton that
+// is not fixed English: its entire job is to decide the language the user is answered in,
+// so it follows Spool's UI language (2026-08-04, Ocean). Everything else here — the
+// authority header, the section names, the markers — stays English by §19.13.
+const OUTPUT_LANGUAGE_ZH: &str = r#"## Output Language
 
 Respond in Simplified Chinese unless content itself dictates otherwise
 (e.g. don't translate quoted English source material). Technical terms
 may stay in their original language."#;
+
+const OUTPUT_LANGUAGE_EN: &str = r#"## Output Language
+
+Respond in English unless content itself dictates otherwise
+(e.g. don't translate quoted source material). Technical terms
+may stay in their original language."#;
+
+fn output_language() -> &'static str {
+    ts!(OUTPUT_LANGUAGE_ZH, OUTPUT_LANGUAGE_EN)
+}
 
 fn truncation_marker(remainder: usize) -> String {
     format!("[... truncated, {remainder} more chars not shown ...]")
@@ -139,6 +260,9 @@ pub struct BlockRow {
     pub ref_block_id: Option<String>,
     pub source: Option<String>,
     pub pinned: bool,
+    // v9: the block's human-visible number within its thread ("#12"). None on rows
+    // written before the v9 backfill — the pack line then renders exactly as it used to.
+    pub seq: Option<i64>,
     pub created_at: i64,
 }
 
@@ -249,6 +373,12 @@ fn render_attachment(a: &AttachmentRow, extract_cap: usize) -> Vec<String> {
 // The one block-header line (📌 star, time/source bracket, ref-title fallback) shared
 // by the pack and digest renderers — the two surfaces must never drift (they promise
 // the same source labels). `content_cap` is the digest's truncation; None = verbatim.
+// v9 (DESIGN_SCHEMA_V9 H-1) — mirrors assemble.ts seqMarker. The number a human can see
+// and say back; "#12" is what lets an AI point at one block among identical-looking ones.
+fn seq_marker(b: &BlockRow) -> String {
+    b.seq.map_or_else(String::new, |n| format!("#{n} "))
+}
+
 fn block_head_line(
     b: &BlockRow,
     ref_titles: &std::collections::HashMap<String, String>,
@@ -256,6 +386,7 @@ fn block_head_line(
 ) -> String {
     let time = format_pack_time(b.created_at);
     let star = if b.pinned { PINNED_PREFIX } else { "" };
+    let n = seq_marker(b);
     if b.kind == "ref" {
         let from_map = b
             .ref_thread_id
@@ -264,7 +395,7 @@ fn block_head_line(
             .map(|s| s.as_str())
             .filter(|s| !s.is_empty());
         let title = from_map.unwrap_or(if b.content.is_empty() { UNKNOWN_THREAD } else { &b.content });
-        return format!("{star}[{time}] {REF_MARKER}{title}");
+        return format!("{star}{n}[{time}] {REF_MARKER}{title}");
     }
     let bracket = match b.source.as_deref() {
         Some(src) => format!("{time}{SOURCE_MARKER}{src}"),
@@ -278,7 +409,7 @@ fn block_head_line(
         }
         _ => content.to_string(),
     };
-    format!("{star}[{bracket}] {body}")
+    format!("{star}{n}[{bracket}] {body}")
 }
 
 // The `note:` sub-line under a block, shared by both renderers.
@@ -345,7 +476,7 @@ fn render_pinned_placeholder(b: &BlockRow) -> String {
     };
     let head = head_anchor(&b.content);
     let anchor = if head.is_empty() { String::new() } else { format!("{head} ") };
-    format!("{PINNED_PREFIX}[{bracket}] {anchor}{PINNED_SEE_ABOVE}")
+    format!("{PINNED_PREFIX}{}[{bracket}] {anchor}{PINNED_SEE_ABOVE}", seq_marker(b))
 }
 
 // §17 range filter — port of filterBlocksForRange (assemble.ts).
@@ -531,7 +662,7 @@ fn assemble_pack_with(
     out.push(String::new());
     out.push("---".to_string());
     out.push(String::new());
-    out.push(OUTPUT_LANGUAGE.to_string());
+    out.push(output_language().to_string());
 
     out.join("\n") + "\n"
 }
@@ -629,10 +760,10 @@ fn mcp_write_enabled(dir: &std::path::Path) -> bool {
 fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
     let path = dir.join("spool.db");
     if !path.exists() {
-        return Err("Spool 数据库不存在 — 请先启动一次 Spool 应用。".to_string());
+        return Err(t!("Spool 数据库不存在 — 请先启动一次 Spool 应用。", "No Spool database found — launch the Spool app once first."));
     }
     Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| format!("打开数据库失败: {e}"))
+        .map_err(|e| t!("打开数据库失败: {e}", "Could not open the database: {e}"))
 }
 
 // R6 B-4: `approx_pack_chars` used to count block text only, with the tool description
@@ -655,7 +786,7 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
     // idiom as get_blocks' source_contains (instr + ASCII case-folding).
     if let Some(t) = title_contains {
         if t.trim().is_empty() {
-            return Err("title_contains 不能为空串。".to_string());
+            return Err(t!("title_contains 不能为空串。", "title_contains must not be an empty string."));
         }
     }
     // v2.4 (6a): the per-row correlated subqueries scanned blocks once per thread —
@@ -744,7 +875,7 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
 // trigram FTS5 MATCH ranked by rank; 1–2 codepoints → LIKE scan ordered by recency
 // (trigram cannot match shorter queries). Soft-deleted threads/workspaces excluded.
 const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created_at,
-                           t.title, w.title, b.source, b.pinned";
+                           t.title, w.title, b.source, b.pinned, b.seq";
 const SEARCH_DEFAULT_LIMIT: i64 = 20;
 const SEARCH_MAX_LIMIT: i64 = 50;
 
@@ -761,7 +892,7 @@ fn search_blocks_json(
 ) -> Result<String, String> {
     let query = query.trim();
     if query.is_empty() {
-        return Err("query 不能为空。".to_string());
+        return Err(t!("query 不能为空。", "query must not be empty."));
     }
     let limit = limit.unwrap_or(SEARCH_DEFAULT_LIMIT).clamp(1, SEARCH_MAX_LIMIT) as usize;
     // R6 B-7: without offset, a library with more than `limit` matches had a hard wall —
@@ -791,6 +922,9 @@ fn search_blocks_json(
         // AI-written note.
         source: Option<String>,
         pinned: bool,
+        // v9: the block's visible number, so a hit can be named to the user as "#12"
+        // rather than by a preview that duplicate blocks share.
+        seq: Option<i64>,
         // v2.4 (6b): the boundary filter already locates the hit — carry its snippet
         // instead of recomputing at render time.
         snippet: Option<String>,
@@ -806,6 +940,7 @@ fn search_blocks_json(
             workspace: r.get(6)?,
             source: r.get(7)?,
             pinned: r.get::<_, i64>(8)? == 1,
+            seq: r.get(9)?,
             snippet: None,
         })
     };
@@ -918,9 +1053,14 @@ fn search_blocks_json(
                 // B-6: the authority category (📖/🧩/🔄/💭) is read off this label.
                 "source": c.source,
                 "pinned": c.pinned,
+                "seq": c.seq,
+                // v9: uniform with attachment_hits below — this one matched the block's
+                // own text or annotation, not the text inside an attached file.
+                "matched_in": "block",
             })
         })
         .collect();
+    let attachment_hits = search_attachments(conn, query, n_chars, boundary)?;
     serde_json::to_string_pretty(&json!({
         "query": query,
         "total": total,
@@ -930,8 +1070,128 @@ fn search_blocks_json(
         "limit": limit,
         "returned": hits.len(),
         "hits": hits,
+        // v9 (DESIGN_SCHEMA_V9 H-3): matches inside the text Spool extracted out of an
+        // attached PDF/docx. Their own list, not merged into `hits`: offset/limit page
+        // the block matches and mixing two populations under one cursor would make the
+        // paging lie. Empty whenever nothing in a file matched.
+        "attachment_total": attachment_hits.len(),
+        "attachment_hits": attachment_hits,
     }))
     .map_err(|e| e.to_string())
+}
+
+// H-3: the words inside an attached file used to be unsearchable — blocks_fts indexes a
+// block's own content and annotation, and extraction output lives on `attachments`. The
+// v9 attachments_fts index closes that; a hit says WHICH file matched, so the user is not
+// sent looking for a sentence that is not in the block's own text.
+const ATTACHMENT_HIT_CAP: usize = 20;
+
+fn search_attachments(
+    conn: &Connection,
+    query: &str,
+    n_chars: usize,
+    boundary: bool,
+) -> Result<Vec<Value>, String> {
+    struct AttHit {
+        block_id: String,
+        thread_id: String,
+        content: String,
+        created_at: i64,
+        thread_title: String,
+        workspace: String,
+        label: String,
+        target: String,
+        extraction_kind: Option<String>,
+        extracted_text: String,
+        seq: Option<i64>,
+    }
+    let cols = "b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
+                a.label, a.target, a.extraction_kind, a.extracted_text, b.seq";
+    let map = |r: &rusqlite::Row| -> rusqlite::Result<AttHit> {
+        Ok(AttHit {
+            block_id: r.get(0)?,
+            thread_id: r.get(1)?,
+            content: r.get(2)?,
+            created_at: r.get(3)?,
+            thread_title: r.get(4)?,
+            workspace: r.get(5)?,
+            label: r.get(6)?,
+            target: r.get(7)?,
+            extraction_kind: r.get(8)?,
+            extracted_text: r.get(9)?,
+            seq: r.get(10)?,
+        })
+    };
+    // Same two paths as the block search: trigram FTS at ≥3 chars, a LIKE scan below
+    // that (trigram cannot index a shorter token).
+    // Both arms prepare their own statement; binding it outside the `if` keeps it alive
+    // long enough for query_map's borrow.
+    let mut stmt;
+    let rows: Vec<AttHit> = if n_chars >= 3 {
+        let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+        stmt = conn
+            .prepare(&format!(
+                "SELECT {cols} FROM attachments_fts
+                 JOIN attachments a ON a.rowid = attachments_fts.rowid
+                 JOIN blocks b ON b.id = a.block_id
+                 JOIN threads t ON t.id = b.thread_id
+                 JOIN workspaces w ON w.id = t.workspace_id
+                 WHERE attachments_fts MATCH ?1
+                   AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+                 ORDER BY rank LIMIT ?2"
+            ))
+            .map_err(|e| e.to_string())?;
+        stmt.query_map(rusqlite::params![&phrase, SEARCH_LIKE_SCAN_CAP], map)
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    } else {
+        let escaped = query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        stmt = conn
+            .prepare(&format!(
+                "SELECT {cols} FROM attachments a
+                 JOIN blocks b ON b.id = a.block_id
+                 JOIN threads t ON t.id = b.thread_id
+                 JOIN workspaces w ON w.id = t.workspace_id
+                 WHERE a.extracted_text LIKE ?1 ESCAPE '\\'
+                   AND t.deleted_at IS NULL AND w.deleted_at IS NULL
+                 ORDER BY b.created_at DESC LIMIT ?2"
+            ))
+            .map_err(|e| e.to_string())?;
+        stmt.query_map(rusqlite::params![format!("%{escaped}%"), SEARCH_LIKE_SCAN_CAP], map)
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
+    };
+    Ok(rows
+        .into_iter()
+        // The same word-boundary rule the block path uses: trigram matches substrings at
+        // any length, so a Latin query without this hits "GRE" inside "degree".
+        .filter_map(|h| {
+            let snippet = snippet_around(&h.extracted_text, query, boundary)?;
+            Some(json!({
+                "block_id": h.block_id,
+                "thread_id": h.thread_id,
+                "thread_title": h.thread_title,
+                "workspace": h.workspace,
+                "created_at": format_pack_time(h.created_at),
+                "seq": h.seq,
+                "matched_in": "attachment",
+                // Which file the sentence is actually in — without this the user opens
+                // the block, cannot find the words, and concludes search is broken.
+                "attachment": {
+                    "label": if h.label.trim().is_empty() { &h.target } else { &h.label },
+                    "target": h.target,
+                    "extraction_kind": h.extraction_kind,
+                },
+                "snippet": snippet,
+                // The block the file hangs off, so the caller can talk about it without
+                // a second lookup.
+                "block_preview": head_anchor(&h.content),
+            }))
+        })
+        .take(ATTACHMENT_HIT_CAP)
+        .collect())
 }
 
 // ±80 chars of context around the first case-insensitive hit, the hit itself wrapped
@@ -1040,7 +1300,7 @@ fn find_similar_blocks_json(
     // R3 friction #5: the middle scope between whole-library and one thread.
     if thread_id.is_some() && workspace_title.is_some() {
         return Err(
-            "thread_id 已限定单个项目——不要同时传 workspace_title;二选一。".to_string(),
+            t!("thread_id 已限定单个项目——不要同时传 workspace_title;二选一。", "thread_id already narrows this to one project — do not also pass workspace_title; use one or the other."),
         );
     }
     let ws_id: Option<String> = match workspace_title {
@@ -1056,7 +1316,7 @@ fn find_similar_blocks_json(
             )
             .map_err(|e| e.to_string())?;
         if exists == 0 {
-            return Err(format!("没有 id 为 {tid} 的项目 — 先用 list_threads 查看有效 id。"));
+            return Err(t!("没有 id 为 {tid} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {tid} — call list_threads for the valid ids."));
         }
     }
 
@@ -1072,6 +1332,7 @@ fn find_similar_blocks_json(
         pinned: bool,
         has_annotation: bool,
         source: Option<String>,
+        seq: Option<i64>,
     }
     // ref blocks are pointers, not content — only text blocks can be duplicates.
     let scope_clause = if thread_id.is_some() {
@@ -1083,7 +1344,7 @@ fn find_similar_blocks_json(
     };
     let sql = format!(
         "SELECT b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
-                b.pinned, b.annotation IS NOT NULL, b.source
+                b.pinned, b.annotation IS NOT NULL, b.source, b.seq
          FROM blocks b
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
@@ -1101,6 +1362,7 @@ fn find_similar_blocks_json(
             pinned: r.get::<_, i64>(6)? == 1,
             has_annotation: r.get::<_, i64>(7)? == 1,
             source: r.get(8)?,
+            seq: r.get(9)?,
         })
     };
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -1198,6 +1460,9 @@ fn find_similar_blocks_json(
                         "pinned": it.pinned,
                         "has_annotation": it.has_annotation,
                         "source": it.source,
+                        // v9: duplicates preview identically — the number is the only
+                        // way to tell the user WHICH of them to look at.
+                        "seq": it.seq,
                     })
                 }).collect::<Vec<Value>>(),
             })
@@ -1216,7 +1481,10 @@ fn find_similar_blocks_json(
         // visible rather than inferred.
         "max_groups": max_groups,
         "groups": rendered,
-        "note": "Spool 不提供合并——把发现讲给用户(用 preview 与 thread_title 指代,勿输出 id;pinned/has_annotation/length 是用户挑保留块的关键信息),由用户在应用里处置。",
+        "note": t!(
+            "Spool 不提供合并——把发现讲给用户(用 preview 与 thread_title 指代,勿输出 id;pinned/has_annotation/length 是用户挑保留块的关键信息),由用户在应用里处置。",
+            "Spool does not merge — tell the user what you found (name blocks by preview and thread_title, never by id; pinned / has_annotation / length are what they need to decide which copy to keep) and let them handle it in the app."
+        ),
     }))
     .map_err(|e| e.to_string())
 }
@@ -1331,7 +1599,7 @@ fn get_digest_json(
     // Every pinned or in-window block for the in-scope threads, chronological.
     let sql = format!(
         "SELECT b.thread_id, b.id, b.kind, b.content, b.annotation, b.ref_thread_id,
-                b.ref_block_id, b.source, b.pinned, b.created_at
+                b.ref_block_id, b.source, b.pinned, b.seq, b.created_at
          FROM blocks b
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
@@ -1356,7 +1624,8 @@ fn get_digest_json(
                 ref_block_id: r.get(6)?,
                 source: r.get(7)?,
                 pinned: r.get::<_, i64>(8)? == 1,
-                created_at: r.get(9)?,
+                seq: r.get(9)?,
+                created_at: r.get(10)?,
             },
         })
     };
@@ -1415,25 +1684,34 @@ fn get_digest_json(
     // anchors keep the thread query's updated_at DESC order.
 
     let scope = match workspace_title {
-        Some(wt) => format!("工作区「{}」", wt.trim()),
-        None => "全部工作区".to_string(),
+        Some(wt) => t!("工作区「{}」", "workspace \u{201c}{}\u{201d}", wt.trim()),
+        None => t!("全部工作区", "all workspaces"),
     };
     let mut out: Vec<String> = Vec::new();
-    out.push(format!(
+    out.push(t!(
         "# Spool Digest: {scope} · 自 {}(近 {days} 天)",
+        "# Spool Digest: {scope} · since {} (last {days} days)",
         format_pack_date(cutoff)
     ));
     out.push(String::new());
-    out.push(format!(
+    out.push(t!(
         "Generated by Spool on {}. 窗口内 {} 个项目有新块(库里共 {} 个项目)。\
          预算 {}。选取规则:每个项目最新 {DIGEST_THREAD_QUOTA} 块 + 全部置顶(置顶不占配额),\
          单块截断于 {DIGEST_BLOCK_CHAR_CAP} 字符;深读用 get_pack / get_blocks。",
+        "Generated by Spool on {}. {} projects have new blocks in the window ({} projects \
+         in the library). Budget {}. Selection: the newest {DIGEST_THREAD_QUOTA} blocks per \
+         project plus every pinned block (pins do not use the quota); each block truncated \
+         at {DIGEST_BLOCK_CHAR_CAP} chars. Read deeper with get_pack / get_blocks.",
         format_pack_date(now_ms),
         active.len(),
         // B-11: "共 11 条在库" read as eleven blocks; it was always eleven PROJECTS.
         threads.len(),
         // B-9: since_days is already visible in the title line above; max_chars was not.
-        if max_chars == 0 { "不限".to_string() } else { format!("{max_chars} 字符") },
+        if max_chars == 0 {
+            t!("不限", "unlimited")
+        } else {
+            t!("{max_chars} 字符", "{max_chars} chars")
+        },
     ));
     out.push(
         "Authority categories per get_pack's reading header; source labels preserved.".to_string(),
@@ -1441,9 +1719,11 @@ fn get_digest_json(
 
     if active.is_empty() && anchors.is_empty() {
         out.push(String::new());
-        out.push(format!(
+        out.push(t!(
             "窗口内没有新块,也没有置顶锚点 — 试更大的 since_days(当前 {days}),\
-             或用 list_threads 查看全部项目。"
+             或用 list_threads 查看全部项目。",
+            "No new blocks in the window, and no pinned anchors either — try a larger \
+             since_days (currently {days}), or call list_threads to see every project."
         ));
         return Ok(out.join("\n") + "\n");
     }
@@ -1463,7 +1743,11 @@ fn get_digest_json(
 
     let quiet = threads.len() - active.len() - anchors.len();
     let tail_line = (quiet > 0).then(|| {
-        format!("——另有 {quiet} 个项目无置顶且窗口内无活动(list_threads 查看全部)。")
+        t!(
+            "——另有 {quiet} 个项目无置顶且窗口内无活动(list_threads 查看全部)。",
+            "— plus {quiet} more projects with no pins and no activity in the window \
+             (list_threads shows them all)."
+        )
     });
     // Fixed parts are charged into `used` up front — the tail, and (when the anchors
     // section will exist) its header plus a worst-case omitted-count note — so the
@@ -1472,23 +1756,34 @@ fn get_digest_json(
     if let Some(l) = tail_line.as_deref() {
         used += line_cost(l) + 1; // + the blank line before it
     }
+    let anchors_header = t!(
+        "## 其余项目的置顶锚点(窗口内无新块)",
+        "## Pinned anchors from the other projects (no new blocks in the window)"
+    );
+    let anchors_omitted = |n: usize| -> String {
+        t!(
+            "(+ {n} 行置顶锚点未展开 — 预算所限)",
+            "(+ {n} more anchor lines not shown — budget)"
+        )
+    };
     if !anchors.is_empty() {
-        used += 1 + line_cost("## 其余项目的置顶锚点(窗口内无新块)") + 1;
-        used += line_cost("(+ 999 行置顶锚点未展开 — 预算所限)");
+        used += 1 + line_cost(&anchors_header) + 1;
+        used += line_cost(&anchors_omitted(999));
     }
 
     if !active.is_empty() {
-        let header = vec![String::new(), "## 近期活跃".to_string()];
+        let header = vec![String::new(), t!("## 近期活跃", "## Recently active")];
         used += cost(&header);
         out.extend(header);
 
         let chunk_of = |t: &ActiveThread| -> Vec<String> {
             let mut chunk: Vec<String> = Vec::new();
             chunk.push(String::new());
-            chunk.push(format!(
+            chunk.push(t!(
                 "### {} / {} — {} · {} 块 · 最后活动 {}",
+                "### {} / {} — {} · {} blocks · last activity {}",
                 t.meta.workspace,
-                if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
+                if t.meta.title.is_empty() { untitled() } else { &t.meta.title },
                 t.meta.status,
                 t.meta.total_blocks,
                 format_pack_time(t.latest_window)
@@ -1504,17 +1799,19 @@ fn get_digest_json(
                 chunk.extend(digest_block_lines(b, &ref_titles));
             }
             if skip > 0 {
-                chunk.push(format!(
-                    "(+ {skip} more blocks in window — get_pack / get_blocks 读全量)"
+                chunk.push(t!(
+                    "(+ {skip} more blocks in window — get_pack / get_blocks 读全量)",
+                    "(+ {skip} more blocks in window — read them all with get_pack / get_blocks)"
                 ));
             }
             chunk
         };
         // The "who was active" answer never drops a thread — its floor is one line.
         let fallback_of = |t: &ActiveThread| -> String {
-            format!(
+            t!(
                 "- {}(窗口内 {} 块,最后活动 {} — 预算所限未展开)",
-                if t.meta.title.is_empty() { "（无标题）" } else { &t.meta.title },
+                "- {} ({} blocks in window, last activity {} — not expanded, budget)",
+                if t.meta.title.is_empty() { untitled() } else { &t.meta.title },
                 t.window.len() + t.pinned.iter().filter(|b| b.created_at >= cutoff).count(),
                 format_pack_time(t.latest_window)
             )
@@ -1559,14 +1856,14 @@ fn get_digest_json(
     if !anchors.is_empty() {
         // Header + worst-case omitted note were pre-charged above.
         out.push(String::new());
-        out.push("## 其余项目的置顶锚点(窗口内无新块)".to_string());
+        out.push(anchors_header.clone());
         out.push(String::new());
         let mut omitted = 0usize;
         for (meta, pinned) in &anchors {
             for b in pinned {
                 let line = format!(
                     "- {}: {PINNED_PREFIX}{}",
-                    if meta.title.is_empty() { "（无标题）" } else { &meta.title },
+                    if meta.title.is_empty() { untitled() } else { &meta.title },
                     anchor_n(&b.content, DIGEST_ANCHOR_CHARS)
                 );
                 let c = line_cost(&line);
@@ -1579,7 +1876,7 @@ fn get_digest_json(
             }
         }
         if omitted > 0 {
-            out.push(format!("(+ {omitted} 行置顶锚点未展开 — 预算所限)"));
+            out.push(anchors_omitted(omitted));
         }
     }
 
@@ -1652,22 +1949,26 @@ fn get_blocks_json(
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .map_err(|_| format!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。"))?;
+        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
     if deleted.is_some() {
-        return Err("该项目已被删除。".to_string());
+        return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
     if let Some(s) = filters.source_contains {
         if s.trim().is_empty() {
-            return Err("source_contains 不能为空串。".to_string());
+            return Err(t!("source_contains 不能为空串。", "source_contains must not be an empty string."));
         }
     }
     // Centering wants the block's true neighborhood; a filtered page would present
     // non-adjacent rows as neighbors. Refuse the combination outright (C5).
     if around_block_id.is_some() && !filters.is_empty() {
         return Err(
-            "around_block_id 与过滤参数不能同时使用 — 定位读取返回的是真实相邻块,\
-             过滤会造成假邻接。去掉过滤条件,或改用 offset/limit 分页。"
-                .to_string(),
+            t!(
+                "around_block_id 与过滤参数不能同时使用 — 定位读取返回的是真实相邻块,\
+                 过滤会造成假邻接。去掉过滤条件,或改用 offset/limit 分页。",
+                "around_block_id cannot be combined with filters — locating a block returns \
+                 its REAL neighbours, and a filter would fake that adjacency. Drop the \
+                 filters, or page with offset/limit instead."
+            ),
         );
     }
     // Centering overrides offset/limit: position = rows sorted the same way the page
@@ -1682,7 +1983,7 @@ fn get_blocks_json(
                 rusqlite::params![bid, thread_id],
                 |r| r.get(0),
             )
-            .map_err(|_| format!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"))?;
+            .map_err(|_| t!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。", "No block with id {bid} in this project — use a block_id from search_blocks."))?;
         // COUNT returns 0 both for "first block" and "block not in this thread" — tell
         // them apart explicitly.
         let exists: i64 = conn
@@ -1704,11 +2005,13 @@ fn get_blocks_json(
                 )
                 .ok();
             return Err(match owner {
-                Some((owner_id, owner_title)) => format!(
+                Some((owner_id, owner_title)) => t!(
                     "该项目里没有 id 为 {bid} 的块 — 它属于「{owner_title}」\
-                     (thread_id: {owner_id});换用那个 thread_id 再调用。"
+                     (thread_id: {owner_id});换用那个 thread_id 再调用。",
+                    "No block with id {bid} in this project — it belongs to \u{201c}{owner_title}\u{201d} \
+                     (thread_id: {owner_id}); call again with that thread_id."
                 ),
-                None => format!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。"),
+                None => t!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。", "No block with id {bid} in this project — use a block_id from search_blocks."),
             });
         }
         let ctx = context.unwrap_or(BLOCKS_DEFAULT_CONTEXT).clamp(0, (BLOCKS_MAX_LIMIT - 1) / 2);
@@ -1736,7 +2039,7 @@ fn get_blocks_json(
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
-                    pinned, created_at
+                    pinned, created_at, seq
              FROM blocks WHERE thread_id = ?{fsql} ORDER BY created_at ASC, rowid ASC
              LIMIT ? OFFSET ?"
         ))
@@ -1759,6 +2062,8 @@ fn get_blocks_json(
                 "source": r.get::<_, Option<String>>(6)?,
                 "pinned": r.get::<_, i64>(7)? == 1,
                 "created_at": format_pack_time(r.get::<_, i64>(8)?),
+                // v9: the number the user sees on this block in the app ("#12").
+                "seq": r.get::<_, Option<i64>>(9)?,
             }))
         })
         .map_err(|e| e.to_string())?
@@ -1973,12 +2278,18 @@ const PACK_DEFAULT_MAX_CHARS: i64 = 50_000;
 // message instead of a pack.
 fn pack_guard_message(built: &PackBuilt, range: &str) -> Option<String> {
     if built.total_blocks == 0 {
-        return Some(format!("〈{}〉还没有任何块。", built.title));
+        return Some(t!(
+            "〈{}〉还没有任何块。",
+            "\u{2039}{}\u{203a} has no blocks yet.",
+            built.title
+        ));
     }
     if built.range_blocks == 0 {
-        return Some(format!(
+        return Some(t!(
             "range={range} 窗口内没有块 —〈{}〉共 {} 块(置顶 {} 块)。试 range=last30 / all,\
              或用 get_blocks 分页读取。",
+            "No blocks in the range={range} window — \u{2039}{}\u{203a} has {} blocks in all \
+             ({} pinned). Try range=last30 / all, or page through it with get_blocks.",
             built.title, built.total_blocks, built.pinned_blocks
         ));
     }
@@ -1994,12 +2305,19 @@ fn pack_floor_message(built: &PackBuilt, max_chars: i64) -> String {
     let floor = render_at(built, built.blocks.len(), EXTRACT_CAP_LADDER[EXTRACT_CAP_LADDER.len() - 1])
         .chars()
         .count();
-    format!(
+    t!(
         "拿不到 pack:max_chars={max_chars} 连下限都装不下。这个项目 pack 全文 {} 字符;\
          即使丢掉全部时间线、把附件正文压到 {} 字符,骨架加全部置顶块仍有 {floor} 字符。\
          可行的两条路:①把 max_chars 提到 {floor} 以上(传 0 = 不限);\
          ②用 get_blocks(thread_id, offset, limit) 一页一页读——它不受这个预算约束。\
          (range=pinned 没用:置顶块本身就在这个下限里。)〈{}〉共 {} 块、置顶 {} 块。",
+        "No pack: max_chars={max_chars} cannot even hold the floor. This project's full \
+         pack is {} chars; even dropping the entire timeline and squeezing attachment text \
+         down to {} chars, the skeleton plus every pinned block still comes to {floor} \
+         chars. Two ways forward: (1) raise max_chars above {floor} (0 = no limit); \
+         (2) read it a page at a time with get_blocks(thread_id, offset, limit) — that is \
+         not bound by this budget. (range=pinned will not help: the pinned blocks ARE this \
+         floor.) \u{2039}{}\u{203a} has {} blocks, {} of them pinned.",
         built.text.chars().count(),
         EXTRACT_CAP_LADDER[EXTRACT_CAP_LADDER.len() - 1],
         built.title,
@@ -2019,15 +2337,15 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .map_err(|_| format!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。"))?;
+        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
     if deleted.is_some() {
-        return Err("该项目已被删除。".to_string());
+        return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
 
     let mut stmt = conn
         .prepare(
             "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
-                    pinned, created_at
+                    pinned, seq, created_at
              FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -2042,7 +2360,8 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                 ref_block_id: r.get(5)?,
                 source: r.get(6)?,
                 pinned: r.get::<_, i64>(7)? == 1,
-                created_at: r.get(8)?,
+                seq: r.get(8)?,
+                created_at: r.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -2158,7 +2477,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
             let workspace: String = r.get(3)?;
             Ok(json!({
                 "uri": format!("{THREAD_URI_PREFIX}{id}"),
-                "name": if title.is_empty() { "（无标题）".to_string() } else { title },
+                "name": if title.is_empty() { untitled().to_string() } else { title },
                 "description": summary.filter(|s| !s.trim().is_empty()).unwrap_or(workspace),
                 "mimeType": "text/plain",
             }))
@@ -2183,7 +2502,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 8;
+const EXPECTED_SCHEMA_VERSION: i64 = 9;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -2205,7 +2524,7 @@ fn new_id() -> Result<String, String> {
     use std::io::Read;
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| format!("随机源不可用: {e}"))?;
+        .map_err(|e| t!("随机源不可用: {e}", "No source of randomness available: {e}"))?;
     Ok(bytes.iter().map(|b| ALPHABET[(b & 0x3F) as usize] as char).collect())
 }
 
@@ -2215,19 +2534,22 @@ fn new_id() -> Result<String, String> {
 fn open_db_rw(dir: &std::path::Path) -> Result<Connection, String> {
     let path = dir.join("spool.db");
     if !path.exists() {
-        return Err("Spool 数据库不存在 — 请先启动一次 Spool 应用。".to_string());
+        return Err(t!("Spool 数据库不存在 — 请先启动一次 Spool 应用。", "No Spool database found — launch the Spool app once first."));
     }
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .map_err(|e| format!("打开数据库失败: {e}"))?;
+        .map_err(|e| t!("打开数据库失败: {e}", "Could not open the database: {e}"))?;
     conn.busy_timeout(std::time::Duration::from_millis(2000))
         .map_err(|e| e.to_string())?;
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     if version != EXPECTED_SCHEMA_VERSION {
-        return Err(format!(
+        return Err(t!(
             "数据库 schema 版本 {version} 与本工具支持的 {EXPECTED_SCHEMA_VERSION} 不符 — \
-             请先把 Spool 应用与其 MCP 服务更新到同一版本。为安全起见拒绝写入。"
+             请先把 Spool 应用与其 MCP 服务更新到同一版本。为安全起见拒绝写入。",
+            "Database schema version {version} does not match the \
+             {EXPECTED_SCHEMA_VERSION} this tool was built for — update the Spool app \
+             and its MCP server to the same version. Refusing to write, to be safe."
         ));
     }
     Ok(conn)
@@ -2291,7 +2613,7 @@ fn resolve_workspace(conn: &Connection, wt: &str) -> Result<(String, String), St
                 s.query_map([], |r| r.get::<_, String>(0)).and_then(|rows| rows.collect())
             })
             .unwrap_or_default();
-        format!("没有名为「{wt}」的工作区。现有工作区: {names:?}。")
+        t!("没有名为「{wt}」的工作区。现有工作区: {names:?}。", "No workspace named \u{201c}{wt}\u{201d}. Existing workspaces: {names:?}.")
     })
 }
 
@@ -2316,7 +2638,7 @@ fn create_thread_json(
 ) -> Result<String, String> {
     let title = title.trim();
     if title.is_empty() {
-        return Err("title 不能为空。".to_string());
+        return Err(t!("title 不能为空。", "title must not be empty."));
     }
     let (ws_id, ws_title): (String, String) = match workspace_title {
         Some(wt) => resolve_workspace(conn, wt)?,
@@ -2329,7 +2651,7 @@ fn create_thread_json(
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(|_| "没有任何工作区 — 请先在 Spool 里创建一个。".to_string())?,
+            .map_err(|_| t!("没有任何工作区 — 请先在 Spool 里创建一个。", "There are no workspaces — the user has to create one in Spool first."))?,
     };
     // R6 B-10: same workspace, same title used to be allowed silently — and since there
     // is no delete tool, the duplicate is permanent. Titles are also the ONLY way a
@@ -2348,12 +2670,18 @@ fn create_thread_json(
             .optional()
             .map_err(|e| e.to_string())?;
         if let Some(existing) = twin {
-            return Err(format!(
+            return Err(t!(
                 "工作区「{ws_title}」里已经有一个叫〈{title}〉的项目了。\
                  Spool 没有删除接口,建重了就永远留在那儿,而标题是唯一能对用户称呼项目的\
                  东西——两个同名的谁也说不清。要么直接往那个项目里 add_block(它的 \
                  thread_id 是 {existing},仅供你当参数用,别说给用户听),\
-                 要么把标题改成能和它区分开的说法。"
+                 要么把标题改成能和它区分开的说法。",
+                "Workspace \u{201c}{ws_title}\u{201d} already has a project called \u{2039}{title}\u{203a}. \
+                 Spool has no delete tool, so a duplicate stays there forever — and the \
+                 title is the only way to name a project to the user, which two identical \
+                 ones make impossible. Either add_block straight into the existing one \
+                 (its thread_id is {existing} — a parameter for you, never something to \
+                 say out loud), or pick a title that tells them apart."
             ));
         }
     }
@@ -2366,7 +2694,7 @@ fn create_thread_json(
          VALUES (?1, ?2, ?3, ?4, ?5, 'active', 0, ?6, ?6)",
         rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now],
     )
-    .map_err(|e| format!("写入失败: {e}"))?;
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     let mut out = json!({ "thread_id": id, "workspace": ws_title, "title": title });
     // R4 P2-1: the raw-id advisory covers every free-text write surface.
     let mut hits: Vec<(&str, String)> = Vec::new();
@@ -2394,7 +2722,7 @@ fn set_thread_summary_json(
 ) -> Result<String, String> {
     let summary = summary.trim();
     if summary.is_empty() {
-        return Err("summary 不能为空 — 清空摘要只能由用户在 Spool 里操作。".to_string());
+        return Err(t!("summary 不能为空 — 清空摘要只能由用户在 Spool 里操作。", "summary must not be empty — only the user can clear a summary, from inside Spool."));
     }
     let (title, existing, source, deleted): (String, Option<String>, Option<String>, Option<i64>) =
         conn.query_row(
@@ -2402,15 +2730,18 @@ fn set_thread_summary_json(
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
-        .map_err(|_| format!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。"))?;
+        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
     if deleted.is_some() {
-        return Err("该项目已被删除。".to_string());
+        return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
     let has_summary = existing.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
     if has_summary && source.as_deref() != Some("mcp") {
-        return Err(format!(
+        return Err(t!(
             "「{title}」的摘要是用户手写的,MCP 不得覆盖。请把你建议的摘要告诉用户,\
-             由用户自己在 Spool 里修改(用户清空摘要后 MCP 方可再写)。"
+             由用户自己在 Spool 里修改(用户清空摘要后 MCP 方可再写)。",
+            "The summary of \u{201c}{title}\u{201d} was written by the user, and MCP may never \
+             overwrite it. Tell the user the summary you would suggest and let them \
+             edit it in Spool (once they clear it, MCP may write again)."
         ));
     }
     let now = now_ms();
@@ -2418,7 +2749,7 @@ fn set_thread_summary_json(
         "UPDATE threads SET summary = ?1, summary_source = 'mcp', updated_at = ?2 WHERE id = ?3",
         rusqlite::params![summary, now, thread_id],
     )
-    .map_err(|e| format!("写入失败: {e}"))?;
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     let mut out = json!({ "thread_id": thread_id, "title": title, "summary": summary });
     // R4 P2-1: the raw-id advisory covers every free-text write surface.
     if let Some(hit) = suspect_raw_id(summary) {
@@ -2445,9 +2776,13 @@ fn raw_id_warning(hits: &[(&str, String)]) -> String {
         .map(|(surface, hit)| format!("{surface}:「{hit}」"))
         .collect::<Vec<_>>()
         .join(";");
-    format!(
+    t!(
         "文本中疑似包含内部 id({list})。请勿把内部 id 写进任何会展示的文本——\
-         引用其他块请用 ref_block_id 参数,id 只应出现在工具参数里。本次已原样写入。"
+         引用其他块请用 ref_block_id 参数,id 只应出现在工具参数里。本次已原样写入。",
+        "The text looks like it contains internal ids ({list}). Never write an internal \
+         id into anything that gets displayed — cite another block with the \
+         ref_block_id parameter; ids belong in tool arguments only. Written verbatim \
+         this time."
     )
 }
 
@@ -2485,13 +2820,13 @@ fn add_block_json(
 ) -> Result<String, String> {
     let content = content.trim();
     if content.is_empty() {
-        return Err("content 不能为空。".to_string());
+        return Err(t!("content 不能为空。", "content must not be empty."));
     }
     let deleted: Option<i64> = conn
         .query_row("SELECT deleted_at FROM threads WHERE id = ?1", [thread_id], |r| r.get(0))
-        .map_err(|_| format!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。"))?;
+        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
     if deleted.is_some() {
-        return Err("该项目已被删除。".to_string());
+        return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
     // D2: a citation must point at a live block at write time (cross-thread allowed —
     // that is the point). It may dangle later if the citee is deleted; the pack
@@ -2507,9 +2842,11 @@ fn add_block_json(
             )
             .map_err(|e| e.to_string())?;
         if live == 0 {
-            return Err(format!(
+            return Err(t!(
                 "没有 id 为 {rid} 的可引用块(或其项目已删)— ref_block_id 应来自 \
-                 search_blocks / get_blocks 的 block_id。"
+                 search_blocks / get_blocks 的 block_id。",
+                "No citable block with id {rid} (or its project was deleted) — \
+                 ref_block_id takes a block_id from search_blocks or get_blocks."
             ));
         }
     }
@@ -2526,9 +2863,12 @@ fn add_block_json(
     };
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute(
+        // v9: seq is computed inside the statement — WAL serialises writers, so the GUI
+        // inserting into the same project at the same moment cannot collide with this.
         "INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_block_id, source,
-                             pinned, created_at)
-         VALUES (?1, ?2, 'text', ?3, ?4, ?5, ?6, 0, ?7)",
+                             pinned, seq, created_at)
+         VALUES (?1, ?2, 'text', ?3, ?4, ?5, ?6, 0,
+                 (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?2), ?7)",
         rusqlite::params![
             id,
             thread_id,
@@ -2539,14 +2879,19 @@ fn add_block_json(
             now
         ],
     )
-    .map_err(|e| format!("写入失败: {e}"))?;
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     tx.execute(
         "UPDATE threads SET updated_at = ?1 WHERE id = ?2",
         rusqlite::params![now, thread_id],
     )
-    .map_err(|e| format!("写入失败: {e}"))?;
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     tx.commit().map_err(|e| e.to_string())?;
-    let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source });
+    // v9: hand the caller the number the user will actually see, so it can say "stored
+    // as #13 in ‹Machine learning course›" instead of naming nothing the user can find.
+    let seq: Option<i64> = conn
+        .query_row("SELECT seq FROM blocks WHERE id = ?1", [&id], |r| r.get(0))
+        .unwrap_or(None);
+    let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source, "seq": seq });
     // D1/5b: advisory only — the block was written verbatim above. R4 P2-1: the
     // caller-supplied source detail is a display surface too (packs, digest, GUI),
     // so it is scanned like content and annotation. R5 P3-1: every dirty surface is
@@ -2627,9 +2972,13 @@ fn resolve_fragment(conn: &Connection, fragment: &str) -> String {
         .optional()
         .unwrap_or(None);
     if let Some((title, content)) = block {
-        return format!(" → 指向现存块(〈{title}〉:{})", head_anchor(&content));
+        return t!(
+            " → 指向现存块(〈{title}〉:{})",
+            " → points at a live block (\u{2039}{title}\u{203a}: {})",
+            head_anchor(&content)
+        );
     }
-    " → 未指向现存对象".to_string()
+    t!(" → 未指向现存对象", " → points at nothing that exists")
 }
 
 // 署名家族 (mechanical): the enforced `· MCP` marker is the only proof of AI authorship;
@@ -2637,9 +2986,9 @@ fn resolve_fragment(conn: &Connection, fragment: &str) -> String {
 // thread_health prompt so the two audits label a row the same way.
 fn source_family(source: Option<&str>) -> &'static str {
     match source {
-        Some(s) if s.contains("· MCP") => "AI(MCP 署名)",
-        Some(_) => "捕捉来源",
-        None => "用户手写",
+        Some(s) if s.contains("· MCP") => ts!("AI(MCP 署名)", "AI (signed · MCP)"),
+        Some(_) => ts!("捕捉来源", "captured from a source"),
+        None => ts!("用户手写", "written by the user"),
     }
 }
 
@@ -2647,16 +2996,34 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
     let family = |source: Option<&str>| -> (&'static str, &'static str, &'static str) {
         let (fix_source, fix_text) = match source {
             Some(s) if s.contains("· MCP") => (
-                "在 Spool 中点击该块的来源标签即可编辑(Spool 不代改)。",
-                "在 Spool 中双击该块即可编辑正文/批注(Spool 不代改)。",
+                ts!(
+                    "在 Spool 中点击该块的来源标签即可编辑(Spool 不代改)。",
+                    "Editable in Spool by clicking the block's source label (Spool never edits it for you)."
+                ),
+                ts!(
+                    "在 Spool 中双击该块即可编辑正文/批注(Spool 不代改)。",
+                    "Editable in Spool by double-clicking the block (Spool never edits it for you)."
+                ),
             ),
             Some(_) => (
-                "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
-                "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
+                ts!(
+                    "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
+                    "Captured from a source — almost certainly an id-shaped string the original text already had. FYI only."
+                ),
+                ts!(
+                    "来源采集内容,大概率为原文自带的 id 形状串——仅供知悉。",
+                    "Captured from a source — almost certainly an id-shaped string the original text already had. FYI only."
+                ),
             ),
             None => (
-                "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
-                "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
+                ts!(
+                    "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
+                    "Written by the user — FYI only; Spool neither suggests nor makes changes to it."
+                ),
+                ts!(
+                    "用户手写内容——仅供知悉,Spool 不建议也不会修改。",
+                    "Written by the user — FYI only; Spool neither suggests nor makes changes to it."
+                ),
             ),
         };
         (source_family(source), fix_source, fix_text)
@@ -2697,8 +3064,9 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
 
     let block_entry = |row: &AuditRow, field: &str, fragment: &str, disposal: &str| -> String {
         let (label, _, _) = family(row.source.as_deref());
-        format!(
+        t!(
             "- 〈{}〉 · [{}] · 字段 {field} · 署名:{label}\n  片段:「{fragment}」{}\n  预览:{}\n  处置:{disposal}",
+            "- \u{2039}{}\u{203a} · [{}] · field {field} · authored by: {label}\n  fragment: \u{201c}{fragment}\u{201d}{}\n  preview: {}\n  disposal: {disposal}",
             row.thread_title,
             format_pack_time(row.created_at),
             resolve_fragment(conn, fragment),
@@ -2745,20 +3113,34 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
         .map_err(|e| e.to_string())?;
     for t in &threads {
         if let Some(frag) = hygiene_fragment(&t.title) {
-            sec_text.push(format!(
+            sec_text.push(t!(
                 "- 项目标题〈{}〉\n  片段:「{frag}」{}\n  处置:标题无署名——仅供知悉,处置留给用户。",
+                "- project title \u{2039}{}\u{203a}\n  fragment: \u{201c}{frag}\u{201d}{}\n  disposal: a title carries no authorship — FYI only, the user decides.",
                 t.title,
                 resolve_fragment(conn, &frag),
             ));
         }
         if let Some(frag) = t.summary.as_deref().and_then(hygiene_fragment) {
             let (label, disposal) = if t.summary_source.as_deref() == Some("mcp") {
-                ("AI(MCP 署名)", "可在 Spool 项目头部编辑,或经用户同意用 set_thread_summary 重写(Spool 不代改)。")
+                (
+                    ts!("AI(MCP 署名)", "AI (signed · MCP)"),
+                    ts!(
+                        "可在 Spool 项目头部编辑,或经用户同意用 set_thread_summary 重写(Spool 不代改)。",
+                        "Editable at the top of the project in Spool, or rewritable with set_thread_summary once the user agrees (Spool never edits it for you)."
+                    ),
+                )
             } else {
-                ("用户手写", "用户手写摘要——仅供知悉,Spool 不建议也不会修改。")
+                (
+                    ts!("用户手写", "written by the user"),
+                    ts!(
+                        "用户手写摘要——仅供知悉,Spool 不建议也不会修改。",
+                        "A summary the user wrote — FYI only; Spool neither suggests nor makes changes to it."
+                    ),
+                )
             };
-            sec_text.push(format!(
+            sec_text.push(t!(
                 "- 〈{}〉 · 字段 summary · 署名:{label}\n  片段:「{frag}」{}\n  处置:{disposal}",
+                "- \u{2039}{}\u{203a} · field summary · authored by: {label}\n  fragment: \u{201c}{frag}\u{201d}{}\n  disposal: {disposal}",
                 t.title,
                 resolve_fragment(conn, &frag),
             ));
@@ -2774,8 +3156,9 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
         .map_err(|e| e.to_string())?;
     for title in &workspaces {
         if let Some(frag) = hygiene_fragment(title) {
-            sec_text.push(format!(
+            sec_text.push(t!(
                 "- 工作区名〈{title}〉\n  片段:「{frag}」{}\n  处置:仅供知悉,处置留给用户。",
+                "- workspace name \u{2039}{title}\u{203a}\n  fragment: \u{201c}{frag}\u{201d}{}\n  disposal: FYI only, the user decides.",
                 resolve_fragment(conn, &frag),
             ));
         }
@@ -2813,24 +3196,36 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
         // "(cited block no longer exists)"), or only its thread is soft-deleted — the
         // row survives, so packs still inline its preview through the citation.
         let detail = if *citee_exists {
-            "被引块所在项目已删除;其预览仍会经引用出现在 pack 中"
+            ts!(
+                "被引块所在项目已删除;其预览仍会经引用出现在 pack 中",
+                "the cited block's project was deleted; its preview still reaches packs through this citation"
+            )
         } else {
-            "被引块已不存在;pack 已自动降级为 \"(cited block no longer exists)\""
+            ts!(
+                "被引块已不存在;pack 已自动降级为 \"(cited block no longer exists)\"",
+                "the cited block is gone; packs already degrade the line to \"(cited block no longer exists)\""
+            )
         };
-        sec_refs.push(format!(
+        sec_refs.push(t!(
             "- 〈{title}〉 · [{}] · 引用方:「{}」\n  {detail}。仅供知悉——可删除该引用方块,或保持现状。",
+            "- \u{2039}{title}\u{203a} · [{}] · citing block: \u{201c}{}\u{201d}\n  {detail}. FYI only — the user may delete the citing block or leave it as is.",
             format_pack_time(*created_at),
             head_anchor(content),
         ));
     }
 
     let mut lines: Vec<String> = vec![
-        format!("# Spool 库体检 — {}", format_pack_date(now_ms)),
+        t!(
+            "# Spool 库体检 — {}",
+            "# Spool library checkup — {}",
+            format_pack_date(now_ms)
+        ),
         // Which library this is — the audit's own subject, and the one read call an AI
         // can make to confirm it is not holding the wrong one (see library_identity).
         library_identity(),
-        format!(
+        t!(
             "Scanned {} blocks / {} projects / {} workspaces. Findings: source 标签卫生 {} · 正文/批注裸 id {} · 引用完整性 {}。",
+            "Scanned {} blocks / {} projects / {} workspaces. Findings: source-label hygiene {} · raw ids in text/annotations {} · citation integrity {}.",
             rows.len(),
             threads.len(),
             workspaces.len(),
@@ -2838,13 +3233,16 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
             sec_text.len(),
             sec_refs.len(),
         ),
-        "规则(机械可验算):spool:// 子串;21 位混合大小写 nanoid 形串(与 add_block 写入警告同一检测器);ref_block_id 指向已消失的块。只读报告——Spool 不修改任何内容,处置留给用户。".to_string(),
+        t!(
+            "规则(机械可验算):spool:// 子串;21 位混合大小写 nanoid 形串(与 add_block 写入警告同一检测器);ref_block_id 指向已消失的块。只读报告——Spool 不修改任何内容,处置留给用户。",
+            "Rules (mechanical, checkable): a spool:// substring; a 21-char mixed-case nanoid-shaped run (the same detector behind add_block's write warning); a ref_block_id pointing at a block that is gone. Read-only report — Spool changes nothing, the user decides."
+        ),
         String::new(),
     ];
     let mut render_section = |no: usize, name: &str, entries: &[String]| {
-        lines.push(format!("## {no}. {name}({})", entries.len()));
+        lines.push(t!("## {no}. {name}({})", "## {no}. {name} ({})", entries.len()));
         if entries.is_empty() {
-            lines.push("(无发现)".to_string());
+            lines.push(t!("(无发现)", "(nothing found)"));
         }
         for e in entries.iter().take(HYGIENE_SECTION_CAP) {
             lines.push(e.clone());
@@ -2854,16 +3252,20 @@ fn check_library_json(conn: &Connection, now_ms: i64) -> Result<String, String> 
         }
         lines.push(String::new());
     };
-    render_section(1, "Source 标签卫生", &sec_source);
-    render_section(2, "正文/批注裸 id", &sec_text);
-    render_section(3, "引用完整性", &sec_refs);
+    render_section(1, ts!("Source 标签卫生", "Source-label hygiene"), &sec_source);
+    render_section(2, ts!("正文/批注裸 id", "Raw ids in text / annotations"), &sec_text);
+    render_section(3, ts!("引用完整性", "Citation integrity"), &sec_refs);
 
     let total = sec_source.len() + sec_text.len() + sec_refs.len();
     lines.push(if total == 0 {
-        "体检通过:未发现内部管线泄漏或悬空引用。".to_string()
+        t!(
+            "体检通过:未发现内部管线泄漏或悬空引用。",
+            "Checkup passed: no internal-pipeline leaks and no dangling citations."
+        )
     } else {
-        format!(
-            "体检未通过:共 {total} 处发现。处置留给用户——AI 署名条目可在 Spool 中直接编辑;用户手写条目仅供知悉。"
+        t!(
+            "体检未通过:共 {total} 处发现。处置留给用户——AI 署名条目可在 Spool 中直接编辑;用户手写条目仅供知悉。",
+            "Checkup found {total} things. The user decides what to do — AI-signed rows are editable right in Spool; anything the user wrote is FYI only."
         )
     });
     Ok(lines.join("\n"))
@@ -3074,12 +3476,17 @@ fn tool_result_text(text: String, is_error: bool) -> Value {
 
 fn handle_tool_call(params: &Value) -> Value {
     let Some(dir) = app_data_dir() else {
-        return tool_result_text("无法定位 Spool 数据目录。".to_string(), true);
+        return tool_result_text(
+            t!("无法定位 Spool 数据目录。", "Could not locate Spool's data directory."),
+            true,
+        );
     };
     if !mcp_enabled(&dir) {
         return tool_result_text(
-            "Spool 的 MCP 服务未开启。请在 Spool → 设置 → 通用 → 「MCP 服务」打开开关后重试。"
-                .to_string(),
+            t!(
+                "Spool 的 MCP 服务未开启。请在 Spool → 设置 → 通用 → 「MCP 服务」打开开关后重试。",
+                "Spool's MCP service is off. Turn it on in Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} and try again."
+            ),
             true,
         );
     }
@@ -3112,7 +3519,7 @@ fn handle_tool_call(params: &Value) -> Value {
             ),
             "search_blocks" => {
                 let query =
-                    args.get("query").and_then(Value::as_str).ok_or("缺少 query 参数。")?;
+                    args.get("query").and_then(Value::as_str).ok_or_else(|| t!("缺少 query 参数。", "Missing the query argument."))?;
                 search_blocks_json(&open_db(&dir)?, query, num("limit"), num("offset"))
             }
             "check_library" => check_library_json(&open_db(&dir)?, now_ms()),
@@ -3129,7 +3536,7 @@ fn handle_tool_call(params: &Value) -> Value {
                 let thread_id = args
                     .get("thread_id")
                     .and_then(Value::as_str)
-                    .ok_or("缺少 thread_id 参数。")?;
+                    .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?;
                 get_blocks_json(
                     &open_db(&dir)?,
                     thread_id,
@@ -3149,10 +3556,10 @@ fn handle_tool_call(params: &Value) -> Value {
                 let thread_id = args
                     .get("thread_id")
                     .and_then(Value::as_str)
-                    .ok_or("缺少 thread_id 参数。")?;
+                    .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?;
                 let range = args.get("range").and_then(Value::as_str).unwrap_or("all");
                 if !RANGE_VALUES.contains(&range) {
-                    return Err(format!("range 必须是 {RANGE_VALUES:?} 之一。"));
+                    return Err(t!("range 必须是 {RANGE_VALUES:?} 之一。", "range must be one of {RANGE_VALUES:?}."));
                 }
                 let max_chars = num("max_chars").unwrap_or(PACK_DEFAULT_MAX_CHARS);
                 let include_ids =
@@ -3186,9 +3593,12 @@ fn handle_tool_call(params: &Value) -> Value {
             "create_thread" | "add_block" | "set_thread_summary" => {
                 if !mcp_write_enabled(&dir) {
                     return Err(
-                        "Spool 未允许 MCP 写入。请在 Spool → 设置 → 通用 → 「MCP 服务」\
-                         打开「允许 AI 写入」后重试。"
-                            .to_string(),
+                        t!(
+                            "Spool 未允许 MCP 写入。请在 Spool → 设置 → 通用 → 「MCP 服务」\
+                             打开「允许 AI 写入」后重试。",
+                            "Spool has not allowed MCP writes. Turn on \u{201c}Let AI write\u{201d} \
+                             under Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} and try again."
+                        ),
                     );
                 }
                 let mut conn = open_db_rw(&dir)?;
@@ -3196,7 +3606,7 @@ fn handle_tool_call(params: &Value) -> Value {
                     create_thread_json(
                         &conn,
                         args.get("workspace_title").and_then(Value::as_str),
-                        args.get("title").and_then(Value::as_str).ok_or("缺少 title 参数。")?,
+                        args.get("title").and_then(Value::as_str).ok_or_else(|| t!("缺少 title 参数。", "Missing the title argument."))?,
                         args.get("summary").and_then(Value::as_str),
                     )
                 } else if name == "set_thread_summary" {
@@ -3204,23 +3614,23 @@ fn handle_tool_call(params: &Value) -> Value {
                         &conn,
                         args.get("thread_id")
                             .and_then(Value::as_str)
-                            .ok_or("缺少 thread_id 参数。")?,
-                        args.get("summary").and_then(Value::as_str).ok_or("缺少 summary 参数。")?,
+                            .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+                        args.get("summary").and_then(Value::as_str).ok_or_else(|| t!("缺少 summary 参数。", "Missing the summary argument."))?,
                     )
                 } else {
                     add_block_json(
                         &mut conn,
                         args.get("thread_id")
                             .and_then(Value::as_str)
-                            .ok_or("缺少 thread_id 参数。")?,
-                        args.get("content").and_then(Value::as_str).ok_or("缺少 content 参数。")?,
+                            .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+                        args.get("content").and_then(Value::as_str).ok_or_else(|| t!("缺少 content 参数。", "Missing the content argument."))?,
                         args.get("source").and_then(Value::as_str),
                         args.get("annotation").and_then(Value::as_str),
                         args.get("ref_block_id").and_then(Value::as_str),
                     )
                 }
             }
-            other => Err(format!("未知工具: {other}")),
+            other => Err(t!("未知工具: {other}", "Unknown tool: {other}")),
         }
     };
 
@@ -3364,17 +3774,17 @@ pub fn configure_client(client: &str) -> Result<String, String> {
     }
     let mut v: Value = match std::fs::read_to_string(&cfg) {
         Ok(raw) => serde_json::from_str(&raw)
-            .map_err(|e| format!("现有配置文件无法解析（已保持原样）: {e}"))?,
+            .map_err(|e| t!("现有配置文件无法解析（已保持原样）: {e}", "Could not parse the existing config file (left untouched): {e}"))?,
         Err(_) => json!({}),
     };
     if !v.is_object() {
-        return Err("现有配置文件不是 JSON 对象（已保持原样）".into());
+        return Err(t!("现有配置文件不是 JSON 对象（已保持原样）", "The existing config file is not a JSON object (left untouched).").into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
 
     if cfg.exists() {
         let bak = cfg.with_extension("json.bak");
-        std::fs::copy(&cfg, &bak).map_err(|e| format!("备份失败,未写入: {e}"))?;
+        std::fs::copy(&cfg, &bak).map_err(|e| t!("备份失败,未写入: {e}", "Backup failed, so nothing was written: {e}"))?;
     }
 
     let servers = v
@@ -3383,7 +3793,7 @@ pub fn configure_client(client: &str) -> Result<String, String> {
         .entry(key)
         .or_insert_with(|| json!({}));
     if !servers.is_object() {
-        return Err(format!("现有配置的 {key} 不是对象（已保持原样）"));
+        return Err(t!("现有配置的 {key} 不是对象（已保持原样）", "The existing config's {key} is not an object (left untouched)."));
     }
     let entry = if typed {
         json!({ "type": "stdio", "command": exe.to_string_lossy(), "args": ["--mcp"] })
@@ -3396,7 +3806,7 @@ pub fn configure_client(client: &str) -> Result<String, String> {
         .insert("spool".into(), entry);
 
     let pretty = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-    std::fs::write(&cfg, pretty + "\n").map_err(|e| format!("写入失败: {e}"))?;
+    std::fs::write(&cfg, pretty + "\n").map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     Ok("written".into())
 }
 
@@ -3408,14 +3818,14 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
     let mut doc: toml_edit::DocumentMut = match std::fs::read_to_string(cfg) {
         Ok(raw) => raw
             .parse()
-            .map_err(|e| format!("现有配置文件无法解析（已保持原样）: {e}"))?,
+            .map_err(|e| t!("现有配置文件无法解析（已保持原样）: {e}", "Could not parse the existing config file (left untouched): {e}"))?,
         Err(_) => toml_edit::DocumentMut::new(),
     };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
 
     if cfg.exists() {
         let bak = cfg.with_extension("toml.bak");
-        std::fs::copy(cfg, &bak).map_err(|e| format!("备份失败,未写入: {e}"))?;
+        std::fs::copy(cfg, &bak).map_err(|e| t!("备份失败,未写入: {e}", "Backup failed, so nothing was written: {e}"))?;
     }
 
     let servers = doc.entry(key).or_insert(toml_edit::table());
@@ -3425,7 +3835,7 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
         t.set_implicit(true);
     }
     let Some(servers) = servers.as_table_like_mut() else {
-        return Err(format!("现有配置的 {key} 不是表（已保持原样）"));
+        return Err(t!("现有配置的 {key} 不是表（已保持原样）", "The existing config's {key} is not a table (left untouched)."));
     };
     let mut entry = toml_edit::Table::new();
     entry.insert("command", toml_edit::value(exe.to_string_lossy().as_ref()));
@@ -3434,7 +3844,7 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
     entry.insert("args", toml_edit::value(args));
     servers.insert("spool", toml_edit::Item::Table(entry));
 
-    std::fs::write(cfg, doc.to_string()).map_err(|e| format!("写入失败: {e}"))?;
+    std::fs::write(cfg, doc.to_string()).map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     Ok("written".into())
 }
 
@@ -3444,8 +3854,9 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
 // executed by the CLIENT's model (§20.13: borrow the third-party AI's capability),
 // not by Spool's own router.
 fn compress_prompt_text(pack_text: &str) -> String {
-    format!(
-        "你是一个上下文压缩工具。下面是一份由 Spool 生成的项目上下文简报,它太长了。把它压缩成一份更短但信息完整的版本,供粘贴给另一个 AI 使用。\n\n# 原始简报\n{pack_text}\n\n# 规则\n1. 完整保留文档骨架,以下部分一字不改地照抄:开头的 \"# Project Context\" 标题块、\"## How to Read This Context\" 整节、\"## Pinned Blocks\" 整节、\"## Related Files & Links\" 整节、\"## Output Language\" 整节,以及任何 \"---\" 之后的任务指令块\n2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段\n4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n5. 压缩要克制:目标是去冗余,不是缩成提要。压缩版整体长度一般应在原文的四分之一到二分之一;拿不准该不该删的内容就保留\n6. 直接输出压缩后的完整简报——不要前言、解释或代码块标记"
+    t!(
+        "你是一个上下文压缩工具。下面是一份由 Spool 生成的项目上下文简报,它太长了。把它压缩成一份更短但信息完整的版本,供粘贴给另一个 AI 使用。\n\n# 原始简报\n{pack_text}\n\n# 规则\n1. 完整保留文档骨架,以下部分一字不改地照抄:开头的 \"# Project Context\" 标题块、\"## How to Read This Context\" 整节、\"## Pinned Blocks\" 整节、\"## Related Files & Links\" 整节、\"## Output Language\" 整节,以及任何 \"---\" 之后的任务指令块\n2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段\n4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n5. 压缩要克制:目标是去冗余,不是缩成提要。压缩版整体长度一般应在原文的四分之一到二分之一;拿不准该不该删的内容就保留\n6. 直接输出压缩后的完整简报——不要前言、解释或代码块标记",
+        "You are a context compressor. Below is a project context briefing Spool generated; it is too long. Compress it into a shorter version that loses no information, ready to paste to another AI.\n\n# Original briefing\n{pack_text}\n\n# Rules\n1. Keep the document skeleton intact. Copy these verbatim, word for word: the opening \"# Project Context\" header block, the whole \"## How to Read This Context\" section, the whole \"## Pinned Blocks\" section, the whole \"## Related Files & Links\" section, the whole \"## Output Language\" section, and any task-instruction block after a \"---\"\n2. Compress ONLY the \"## Full Record\" section: merge repeated information, shorten long quotations and extracted file text, and keep each entry's [timestamp · from source] format\n3. Inside \"## Full Record\", keep these verbatim: every note: line (the user's annotations), every entry with no source label (things the user wrote), and every ==...== highlighted span\n4. Never add information the original does not contain. No commentary, no closing summary\n5. Compress with restraint: the goal is removing redundancy, not producing an abstract. The compressed version should usually run between a quarter and a half of the original; when unsure whether something can go, keep it\n6. Output the compressed briefing directly — no preamble, no explanation, no code fences"
     )
 }
 
@@ -3464,7 +3875,7 @@ fn resolve_thread(conn: &Connection, key: &str) -> Result<(String, String), Stri
     use rusqlite::OptionalExtension;
     let key = key.trim();
     if key.is_empty() {
-        return Err("项目参数不能为空 — 填项目标题(写一部分即可)。".to_string());
+        return Err(t!("项目参数不能为空 — 填项目标题(写一部分即可)。", "The project argument must not be empty — pass the project title (part of it is enough)."));
     }
     let live_title = conn
         .query_row(
@@ -3497,11 +3908,16 @@ fn resolve_thread(conn: &Connection, key: &str) -> Result<(String, String), Stri
         return Ok(hit.clone());
     }
     match hits.len() {
-        0 => Err(format!("没有标题含「{key}」的项目 — 用 list_threads 看现有项目。")),
+        0 => Err(t!("没有标题含「{key}」的项目 — 用 list_threads 看现有项目。", "No project whose title contains \u{201c}{key}\u{201d} — call list_threads to see what exists.")),
         1 => Ok(hits.into_iter().next().unwrap()),
-        n => Err(format!(
+        n => Err(t!(
             "「{key}」匹配到 {n} 个项目:{} — 写得更具体一点。",
-            hits.iter().take(10).map(|(_, t)| format!("〈{t}〉")).collect::<Vec<_>>().join("、")
+            "\u{201c}{key}\u{201d} matches {n} projects: {} — be more specific.",
+            hits.iter()
+                .take(10)
+                .map(|(_, t)| t!("〈{t}〉", "\u{2039}{t}\u{203a}"))
+                .collect::<Vec<_>>()
+                .join(ts!("、", ", "))
         )),
     }
 }
@@ -3511,9 +3927,13 @@ fn resolve_thread(conn: &Connection, key: &str) -> Result<(String, String), Stri
 fn prompt_body(
     build: impl FnOnce(&std::path::Path, &Connection) -> Result<String, String>,
 ) -> Result<String, String> {
-    let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+    let dir = app_data_dir()
+        .ok_or_else(|| t!("无法定位 Spool 数据目录。", "Could not locate Spool's data directory."))?;
     if !mcp_enabled(&dir) {
-        return Err("Spool 的 MCP 服务未开启。".to_string());
+        return Err(t!(
+            "Spool 的 MCP 服务未开启。",
+            "Spool's MCP service is off."
+        ));
     }
     let conn = open_db(&dir)?;
     build(&dir, &conn)
@@ -3524,29 +3944,41 @@ fn prompt_body(
 // worse experience than saying so in the first place.
 fn write_gate_line(dir: &std::path::Path) -> &'static str {
     if mcp_write_enabled(dir) {
-        "写入已开启:用户点头之后才调用写入工具,一次只写一块。"
+        ts!(
+            "写入已开启:用户点头之后才调用写入工具,一次只写一块。",
+            "Writing is enabled: call a write tool only after the user says yes, one block at a time."
+        )
     } else {
-        "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary 一定会被拒绝——别去调用。\
-         把结论完整讲给用户,并告诉他:Spool → 设置 → 通用 →「MCP 服务」→ 打开「允许 AI 写入」,\
-         你才能替他存回。"
+        ts!(
+            "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary 一定会被拒绝——别去调用。\
+             把结论完整讲给用户,并告诉他:Spool → 设置 → 通用 →「MCP 服务」→ 打开「允许 AI 写入」,\
+             你才能替他存回。",
+            "\u{26a0}\u{fe0f} The user has NOT turned on \u{201c}Let AI write\u{201d}, so add_block and \
+             set_thread_summary will be refused — do not call them. Give the user the whole \
+             finding in the chat, and tell them: Spool \u{2192} Settings \u{2192} General \u{2192} \
+             \u{201c}MCP service\u{201d} \u{2192} turn on \u{201c}Let AI write\u{201d}, and then you can store it for them."
+        )
     }
 }
 
 fn weekly_review_prompt_text(digest: &str, gate: &str) -> String {
-    format!(
-        "你在帮用户做一次回顾。下面是 Spool 生成的跨项目摘要(digest),它是这次回顾唯一的事实来源。\n\n# Digest\n{digest}\n\n# 你要做的\n1. 先读 digest 顶部的选取规则:它只包含窗口内每个项目最新几块加全部置顶,不是全部记录。要展开某个项目,先用 get_pack / get_blocks 补读,再下判断。\n2. 写一份回顾,四段,用大白话,别用项目管理黑话:\n   - 这段时间真正推进了什么(按项目讲,点名项目标题)\n   - 用户自己写下的东西说明他在纠结什么(💭 无来源的块和 note: 行是最高信号,==高亮== 是他自己划的重点)\n   - 哪些项目停住了(digest 末尾的置顶锚点和\"无活动\"计数)\n   - 接下来可以先做的一件事——每个项目最多一条,用建议的语气,不要命令\n3. digest 里看不出来的就说看不出来,绝不编。\n4. 先把回顾讲给用户看。他点头之后,才用 add_block 存成一块——存到哪个项目由他定(也可以让他新建一个专门放回顾的项目);批注里写清这是哪段时间的回顾。\n5. 全程用项目标题称呼项目,绝不把 id 说出来或写进内容。\n{gate}"
+    t!(
+        "你在帮用户做一次回顾。下面是 Spool 生成的跨项目摘要(digest),它是这次回顾唯一的事实来源。\n\n# Digest\n{digest}\n\n# 你要做的\n1. 先读 digest 顶部的选取规则:它只包含窗口内每个项目最新几块加全部置顶,不是全部记录。要展开某个项目,先用 get_pack / get_blocks 补读,再下判断。\n2. 写一份回顾,四段,用大白话,别用项目管理黑话:\n   - 这段时间真正推进了什么(按项目讲,点名项目标题)\n   - 用户自己写下的东西说明他在纠结什么(💭 无来源的块和 note: 行是最高信号,==高亮== 是他自己划的重点)\n   - 哪些项目停住了(digest 末尾的置顶锚点和\"无活动\"计数)\n   - 接下来可以先做的一件事——每个项目最多一条,用建议的语气,不要命令\n3. digest 里看不出来的就说看不出来,绝不编。\n4. 先把回顾讲给用户看。他点头之后,才用 add_block 存成一块——存到哪个项目由他定(也可以让他新建一个专门放回顾的项目);批注里写清这是哪段时间的回顾。\n5. 全程用项目标题称呼项目,绝不把 id 说出来或写进内容。\n{gate}",
+        "You are helping the user look back over a stretch of time. Below is the cross-project digest Spool generated; it is the only source of fact for this review.\n\n# Digest\n{digest}\n\n# What to do\n1. Read the selection rules at the top of the digest first: it holds only the newest few blocks per project in the window plus every pinned block — not the full record. To open a project up, read more with get_pack / get_blocks before judging it.\n2. Write the review in four parts, in plain language, with no project-management jargon:\n   - what actually moved forward (project by project, naming each project title)\n   - what the user's own writing says they are wrestling with (💭 sourceless blocks and note: lines are the highest signal; ==highlights== are what they marked themselves)\n   - which projects have stalled (the pinned anchors and the \"no activity\" count at the end of the digest)\n   - one thing worth doing next — at most one per project, phrased as a suggestion, never an order\n3. If the digest does not show something, say so. Never invent.\n4. Show the review to the user first. Only after they say yes, store it as one block with add_block — they choose which project (they may want a new one just for reviews); the annotation should say which stretch of time it covers.\n5. Refer to projects by title throughout. Never say an id out loud or write one into the content.\n{gate}"
     )
 }
 
 fn thread_health_prompt_text(report: &str, gate: &str) -> String {
-    format!(
-        "你在帮用户体检一个 Spool 项目。下面是 Spool 机械扫描出的报告——检测器与 check_library 同一套,只是范围缩到这一个项目。\n\n# 体检报告\n{report}\n\n# 你要做的\n1. 用大白话把发现讲给用户:疑似重复的块、悬空的引用、正文/批注/来源里露出的内部 id。用块的预览和项目标题指代,绝不说 id。\n2. 摘要是否过期,报告里没有结论——Spool 不记录摘要的写作时间。你根据\"当前摘要 + 最新的块\"自己判断,并说明依据。\n3. 处置权在用户:Spool 不合并、不改写、不删除任何东西。重复块由用户自己在应用里处置;用户手写的内容(无来源署名)只报不改,连改写建议都不要提。\n4. 唯一能由你代劳的是摘要:如果你判断它过期了,先把你想写的新摘要念给用户听,他同意再调 set_thread_summary。若那条摘要是用户手写的,工具会拒绝——那就只把建议讲出来。\n5. 报告是只读的,别把它整段贴回给用户,讲重点。\n{gate}"
+    t!(
+        "你在帮用户体检一个 Spool 项目。下面是 Spool 机械扫描出的报告——检测器与 check_library 同一套,只是范围缩到这一个项目。\n\n# 体检报告\n{report}\n\n# 你要做的\n1. 用大白话把发现讲给用户:疑似重复的块、悬空的引用、正文/批注/来源里露出的内部 id。用块的预览和项目标题指代,绝不说 id。\n2. 摘要是否过期,报告里没有结论——Spool 不记录摘要的写作时间。你根据\"当前摘要 + 最新的块\"自己判断,并说明依据。\n3. 处置权在用户:Spool 不合并、不改写、不删除任何东西。重复块由用户自己在应用里处置;用户手写的内容(无来源署名)只报不改,连改写建议都不要提。\n4. 唯一能由你代劳的是摘要:如果你判断它过期了,先把你想写的新摘要念给用户听,他同意再调 set_thread_summary。若那条摘要是用户手写的,工具会拒绝——那就只把建议讲出来。\n5. 报告是只读的,别把它整段贴回给用户,讲重点。\n{gate}",
+        "You are giving one Spool project a checkup. Below is the report Spool scanned mechanically — the same detectors as check_library, narrowed to this one project.\n\n# Checkup report\n{report}\n\n# What to do\n1. Tell the user what was found, in plain language: near-duplicate blocks, dangling citations, internal ids showing through in text / annotations / source labels. Point at blocks by their preview and the project title, never by id.\n2. Whether the summary has gone stale is NOT in the report — Spool does not record when a summary was written. Judge it yourself from the current summary plus the newest blocks, and say what you based it on.\n3. Disposal belongs to the user: Spool merges nothing, rewrites nothing, deletes nothing. Duplicates are theirs to handle in the app; anything the user wrote (no source label) is reported and left alone — do not even suggest a rewrite.\n4. The one thing you may do for them is the summary: if you judge it stale, say the new summary out loud first and call set_thread_summary only once they agree. If that summary was written by the user, the tool will refuse — then just make the suggestion.\n5. The report is read-only material. Do not paste it back wholesale; tell them what matters.\n{gate}"
     )
 }
 
 fn distill_prompt_text(title: &str, pack: &str, gate: &str) -> String {
-    format!(
-        "你在把 Spool 项目〈{title}〉提炼成一块结论。下面是这个项目的完整简报(pack),先读它开头的授权规则再动手。\n\n# Pack\n{pack}\n\n# 你要做的\n1. 按 pack 开头的四类授权规则读:📖 Reference 是事实底座,🧩 Synthesis 只是别人的框架、不能当事实,🔄 Process 读的是用户反复在问什么,💭 用户自己写的和 ==高亮== 是最高信号。\n2. 提炼成一块——不是摘要,是结论:到今天为止这个项目定下来的是什么、还没定的是什么、下一步卡在哪。控制在 300 字以内,一块只讲一件事。\n3. 只写 pack 里有的东西。pack 里得不出的判断就说得不出,绝不补脑。\n4. 先把这块念给用户听。他同意之后,用 add_block 存回同一个项目:content 是结论本体,annotation 写一句\"为什么这条值得留\",ref_block_id 填这条结论最直接依据的那个块——id 从 pack 末尾的 Block IDs 表取,那张表只是工具参数,别显示给用户,更别写进正文。\n5. 你只是追加一块,绝不改写或替换用户已有的任何块。\n{gate}"
+    t!(
+        "你在把 Spool 项目〈{title}〉提炼成一块结论。下面是这个项目的完整简报(pack),先读它开头的授权规则再动手。\n\n# Pack\n{pack}\n\n# 你要做的\n1. 按 pack 开头的四类授权规则读:📖 Reference 是事实底座,🧩 Synthesis 只是别人的框架、不能当事实,🔄 Process 读的是用户反复在问什么,💭 用户自己写的和 ==高亮== 是最高信号。\n2. 提炼成一块——不是摘要,是结论:到今天为止这个项目定下来的是什么、还没定的是什么、下一步卡在哪。控制在 300 字以内,一块只讲一件事。\n3. 只写 pack 里有的东西。pack 里得不出的判断就说得不出,绝不补脑。\n4. 先把这块念给用户听。他同意之后,用 add_block 存回同一个项目:content 是结论本体,annotation 写一句\"为什么这条值得留\",ref_block_id 填这条结论最直接依据的那个块——id 从 pack 末尾的 Block IDs 表取,那张表只是工具参数,别显示给用户,更别写进正文。\n5. 你只是追加一块,绝不改写或替换用户已有的任何块。\n{gate}",
+        "You are distilling the Spool project \u{2039}{title}\u{203a} down to one conclusion block. Below is the project's full briefing (the pack); read the authority rules at its top before you start.\n\n# Pack\n{pack}\n\n# What to do\n1. Read it by the four authority categories the pack opens with: 📖 Reference is the factual floor; 🧩 Synthesis is somebody else's framing, not fact; 🔄 Process is read for what the user keeps asking; 💭 what the user wrote themselves, and ==highlights==, are the highest signal.\n2. Distil ONE block — not a summary, a conclusion: what this project has settled as of today, what is still open, and where the next step is stuck. Keep it under 300 words, and to a single idea.\n3. Write only what is in the pack. If the pack does not support a judgement, say so. Never fill in the gaps.\n4. Say the block out loud to the user first. Once they agree, store it back into the same project with add_block: content is the conclusion itself, annotation is one line on why it is worth keeping, and ref_block_id is the block this conclusion rests on most directly — take that id from the Block IDs table at the end of the pack. That table is tool parameters only: never show it to the user, and never write an id into the content.\n5. You are appending one block. Never rewrite or replace anything the user already has.\n{gate}"
     )
 }
 
@@ -3576,26 +4008,30 @@ fn project_chooser_text(conn: &Connection, what: &str, arg: &str) -> Result<Stri
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     if rows.is_empty() {
-        return Err("库里还没有任何项目 — 让用户先在 Spool 里建一个。".to_string());
+        return Err(t!("库里还没有任何项目 — 让用户先在 Spool 里建一个。", "This library has no projects yet — ask the user to create one in Spool first."));
     }
     let listed: Vec<String> = rows
         .iter()
         .take(CHOOSER_LIST_CAP)
         .map(|(title, ws, blocks, updated)| {
-            format!(
+            t!(
                 "- 〈{}〉· 工作区「{ws}」· {blocks} 块 · 最后活动 {}",
-                if title.is_empty() { "（无标题）" } else { title },
+                "- \u{2039}{}\u{203a} · workspace \u{201c}{ws}\u{201d} · {blocks} blocks · last activity {}",
+                if title.is_empty() { untitled() } else { title },
                 format_pack_time(*updated)
             )
         })
         .collect();
     let more = rows.len().saturating_sub(listed.len());
     let more_line = if more > 0 {
-        format!("\n(还有 {more} 个项目 — 用 list_threads 看全部)")
+        t!(
+            "\n(还有 {more} 个项目 — 用 list_threads 看全部)",
+            "\n(+{more} more projects — list_threads shows them all)"
+        )
     } else {
         String::new()
     };
-    Ok(format!(
+    Ok(t!(
         "用户要「{what}」,但没说是哪个项目。别报错,也别替他挑。\n\n\
          # 库里现在的项目(按最近活动排)\n{}{more_line}\n\n\
          # 你要做的\n\
@@ -3603,6 +4039,15 @@ fn project_chooser_text(conn: &Connection, what: &str, arg: &str) -> Result<Stri
          2. 他答完,你直接把他说的标题当作 {arg} 参数再调一次「{what}」——写一部分标题就行,\
          不用他再去点一次菜单。\n\
          3. 全程用项目标题称呼项目,绝不把内部 id 说出来。",
+        "The user asked for \u{201c}{what}\u{201d} but did not say which project. Do not error, and do \
+         not pick for them.\n\n\
+         # Projects in this library (most recently active first)\n{}{more_line}\n\n\
+         # What to do\n\
+         1. Ask them in plain language which one they mean, reading the titles above back to them.\n\
+         2. When they answer, take the title they said, pass it as the {arg} argument, and call \
+         \u{201c}{what}\u{201d} again — part of the title is enough, and they should not have to \
+         click a menu a second time.\n\
+         3. Refer to projects by title throughout. Never say an internal id out loud.",
         listed.join("\n")
     ))
 }
@@ -3623,7 +4068,7 @@ fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
     };
     let range = str_arg("range").unwrap_or("all");
     if !RANGE_VALUES.contains(&range) {
-        return Err(format!("range 必须是 {RANGE_VALUES:?} 之一。"));
+        return Err(t!("range 必须是 {RANGE_VALUES:?} 之一。", "range must be one of {RANGE_VALUES:?}."));
     }
     // `project` is the declared name on three of the four; compress_pack's has always
     // been `thread_id`. Both are accepted everywhere — a human typing into a client's
@@ -3750,15 +4195,23 @@ fn thread_health_report(
     let mut sec_dup: Vec<String> = Vec::new();
     for g in dup["groups"].as_array().into_iter().flatten() {
         let members = g["blocks"].as_array().map_or(0, Vec::len);
-        let mut lines = vec![format!("- 相似度 {} · {members} 块:", g["similarity"])];
+        let mut lines = vec![t!(
+            "- 相似度 {} · {members} 块:",
+            "- similarity {} · {members} blocks:",
+            g["similarity"]
+        )];
         for b in g["blocks"].as_array().into_iter().flatten() {
-            lines.push(format!(
-                "  · [{}] 「{}」({} 字{}{})",
+            // The number leads: near-duplicates preview identically, so "#7 vs #12" is
+            // the only part of this line that tells them apart.
+            lines.push(t!(
+                "  · {}[{}] 「{}」({} 字{}{})",
+                "  · {}[{}] \u{201c}{}\u{201d} ({} chars{}{})",
+                b["seq"].as_i64().map_or(String::new(), |n| format!("#{n} ")),
                 b["created_at"].as_str().unwrap_or(""),
                 b["preview"].as_str().unwrap_or(""),
                 b["length"],
-                if b["pinned"] == json!(true) { " · 置顶" } else { "" },
-                if b["has_annotation"] == json!(true) { " · 有批注" } else { "" },
+                if b["pinned"] == json!(true) { ts!(" · 置顶", " · pinned") } else { "" },
+                if b["has_annotation"] == json!(true) { ts!(" · 有批注", " · annotated") } else { "" },
             ));
         }
         sec_dup.push(lines.join("\n"));
@@ -3770,12 +4223,19 @@ fn thread_health_report(
     for r in &rows {
         if r.ref_block_id.is_some() && !r.citee_live {
             let detail = if r.citee_exists {
-                "被引块所在项目已删除;其预览仍会经引用出现在 pack 中"
+                ts!(
+                    "被引块所在项目已删除;其预览仍会经引用出现在 pack 中",
+                    "the cited block's project was deleted; its preview still reaches packs through this citation"
+                )
             } else {
-                "被引块已不存在;pack 已降级为 \"(cited block no longer exists)\""
+                ts!(
+                    "被引块已不存在;pack 已降级为 \"(cited block no longer exists)\"",
+                    "the cited block is gone; packs already degrade the line to \"(cited block no longer exists)\""
+                )
             };
-            sec_refs.push(format!(
+            sec_refs.push(t!(
                 "- [{}] 引用方:「{}」\n  {detail}。",
+                "- [{}] citing block: \u{201c}{}\u{201d}\n  {detail}.",
                 format_pack_time(r.created_at),
                 head_anchor(&r.content),
             ));
@@ -3787,8 +4247,9 @@ fn thread_health_report(
         ];
         for (field, frag) in fields.into_iter() {
             let Some(frag) = frag else { continue };
-            sec_leak.push(format!(
+            sec_leak.push(t!(
                 "- [{}] 字段 {field} · 署名:{}\n  片段:「{frag}」{}\n  预览:{}",
+                "- [{}] field {field} · authored by: {}\n  fragment: \u{201c}{frag}\u{201d}{}\n  preview: {}",
                 format_pack_time(r.created_at),
                 source_family(r.source.as_deref()),
                 resolve_fragment(conn, &frag),
@@ -3803,33 +4264,57 @@ fn thread_health_report(
     let last_activity = rows.last().map(|r| format_pack_time(r.created_at));
 
     let mut out: Vec<String> = vec![
-        format!("# 项目体检 —〈{title}〉 · {}", format_pack_date(now_ms)),
-        format!(
-            "工作区「{workspace}」· 状态 {status} · {} 块(置顶 {pinned} · 有批注 {annotated} · 用户手写 {handwritten})· 最后一块 {}",
-            rows.len(),
-            last_activity.as_deref().unwrap_or("（还没有块）"),
+        t!(
+            "# 项目体检 —〈{title}〉 · {}",
+            "# Project checkup — \u{2039}{title}\u{203a} · {}",
+            format_pack_date(now_ms)
         ),
-        format!(
+        t!(
+            "工作区「{workspace}」· 状态 {status} · {} 块(置顶 {pinned} · 有批注 {annotated} · 用户手写 {handwritten})· 最后一块 {}",
+            "Workspace \u{201c}{workspace}\u{201d} · status {status} · {} blocks ({pinned} pinned · {annotated} annotated · {handwritten} written by the user) · newest block {}",
+            rows.len(),
+            last_activity
+                .as_deref()
+                .unwrap_or(ts!("（还没有块）", "(no blocks yet)")),
+        ),
+        t!(
             "当前摘要:{}",
+            "Current summary: {}",
             match summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                Some(s) => format!(
+                Some(s) => t!(
                     "「{s}」(署名:{})",
+                    "\u{201c}{s}\u{201d} (authored by: {})",
                     match summary_source.as_deref() {
-                        Some("mcp") => "AI(MCP)——可由 set_thread_summary 改写",
-                        Some("user") => "用户手写——set_thread_summary 会拒绝改写",
-                        _ => "未标注——按用户手写对待,set_thread_summary 会拒绝改写",
+                        Some("mcp") => ts!(
+                            "AI(MCP)——可由 set_thread_summary 改写",
+                            "AI (MCP) — set_thread_summary may rewrite it"
+                        ),
+                        Some("user") => ts!(
+                            "用户手写——set_thread_summary 会拒绝改写",
+                            "the user — set_thread_summary will refuse to rewrite it"
+                        ),
+                        _ => ts!(
+                            "未标注——按用户手写对待,set_thread_summary 会拒绝改写",
+                            "unlabelled — treated as the user's, so set_thread_summary will refuse to rewrite it"
+                        ),
                     }
                 ),
-                None => "(无摘要——set_thread_summary 可以写第一条)".to_string(),
+                None => t!(
+                    "(无摘要——set_thread_summary 可以写第一条)",
+                    "(no summary — set_thread_summary may write the first one)"
+                ),
             }
         ),
-        "检测口径:重复=字符三元组 Jaccard ≥ 0.6(find_similar_blocks 同一套);裸 id=21 位混合大小写 nanoid 形串与 spool:// 子串(add_block 写入警告同一检测器);悬空=ref_block_id 指向已消失的块。只读报告,Spool 不改任何内容。摘要是否过期需要你判断——Spool 不记录摘要的写作时间。".to_string(),
+        t!(
+            "检测口径:重复=字符三元组 Jaccard ≥ 0.6(find_similar_blocks 同一套);裸 id=21 位混合大小写 nanoid 形串与 spool:// 子串(add_block 写入警告同一检测器);悬空=ref_block_id 指向已消失的块。只读报告,Spool 不改任何内容。摘要是否过期需要你判断——Spool 不记录摘要的写作时间。",
+            "How this was detected: duplicate = character-trigram Jaccard \u{2265} 0.6 (the same measure as find_similar_blocks); raw id = a 21-char mixed-case nanoid-shaped run or a spool:// substring (the same detector behind add_block's write warning); dangling = a ref_block_id pointing at a block that is gone. Read-only report — Spool changes nothing. Whether the summary is stale is YOUR call: Spool does not record when a summary was written."
+        ),
         String::new(),
     ];
     let mut render_section = |no: usize, name: &str, entries: &[String]| {
-        out.push(format!("## {no}. {name}({})", entries.len()));
+        out.push(t!("## {no}. {name}({})", "## {no}. {name} ({})", entries.len()));
         if entries.is_empty() {
-            out.push("(无发现)".to_string());
+            out.push(t!("(无发现)", "(nothing found)"));
         }
         for e in entries.iter().take(HYGIENE_SECTION_CAP) {
             out.push(e.clone());
@@ -3839,12 +4324,19 @@ fn thread_health_report(
         }
         out.push(String::new());
     };
-    render_section(1, "疑似重复", &sec_dup);
-    render_section(2, "悬空引用", &sec_refs);
-    render_section(3, "正文/批注/来源里的裸 id", &sec_leak);
+    render_section(1, ts!("疑似重复", "Near-duplicates"), &sec_dup);
+    render_section(2, ts!("悬空引用", "Dangling citations"), &sec_refs);
+    render_section(
+        3,
+        ts!("正文/批注/来源里的裸 id", "Raw ids in text / annotations / source labels"),
+        &sec_leak,
+    );
 
     // 4. Staleness material: what the summary claims vs. what the project actually holds.
-    out.push("## 4. 判断摘要是否过期的材料".to_string());
+    out.push(t!(
+        "## 4. 判断摘要是否过期的材料",
+        "## 4. Material for judging whether the summary is stale"
+    ));
     let mut material: Vec<&HealthRow> = rows.iter().filter(|r| r.pinned).collect();
     let recent: Vec<&HealthRow> = rows
         .iter()
@@ -3854,11 +4346,12 @@ fn thread_health_report(
         .collect();
     material.extend(recent.into_iter().rev());
     if material.is_empty() {
-        out.push("(还没有块)".to_string());
+        out.push(t!("(还没有块)", "(no blocks yet)"));
     }
     for r in material {
-        out.push(format!(
+        out.push(t!(
             "- [{}]{}{} · 署名:{}",
+            "- [{}]{}{} · authored by: {}",
             format_pack_time(r.created_at),
             if r.pinned { format!(" {PINNED_PREFIX}") } else { " ".to_string() },
             head_anchor(&r.content),
@@ -3871,14 +4364,27 @@ fn thread_health_report(
     out.push(String::new());
     let total = sec_dup.len() + sec_refs.len() + sec_leak.len();
     out.push(if total == 0 {
-        "机械检查通过:没有重复组、悬空引用或管线泄漏。摘要是否过期仍需你判断。".to_string()
+        t!(
+            "机械检查通过:没有重复组、悬空引用或管线泄漏。摘要是否过期仍需你判断。",
+            "The mechanical checks pass: no duplicate groups, no dangling citations, no \
+             pipeline leaks. Whether the summary is stale is still your call."
+        )
     } else {
-        format!("机械检查共 {total} 处发现。处置留给用户。")
+        t!(
+            "机械检查共 {total} 处发现。处置留给用户。",
+            "The mechanical checks found {total} things. The user decides what to do."
+        )
     });
     Ok(out.join("\n"))
 }
 
 fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> {
+    // Pick up the app's current UI language before rendering anything. Per request, not
+    // per process: a client stays connected across a language switch in Settings, and the
+    // very next answer should already be in the new language.
+    if let Some(dir) = app_data_dir() {
+        refresh_lang(&dir);
+    }
     match method {
         "initialize" => {
             // Echo the client's protocol version (they only send ones they support);
@@ -3922,11 +4428,13 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
             let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
             let thread_id = uri
                 .strip_prefix(THREAD_URI_PREFIX)
-                .ok_or((-32602, format!("未知资源 uri: {uri}")))?;
+                .ok_or((-32602, t!("未知资源 uri: {uri}", "Unknown resource uri: {uri}")))?;
             let text = (|| -> Result<String, String> {
-                let dir = app_data_dir().ok_or("无法定位 Spool 数据目录。")?;
+                let dir = app_data_dir().ok_or_else(|| {
+                    t!("无法定位 Spool 数据目录。", "Could not locate Spool's data directory.")
+                })?;
                 if !mcp_enabled(&dir) {
-                    return Err("Spool 的 MCP 服务未开启。".to_string());
+                    return Err(t!("Spool 的 MCP 服务未开启。", "Spool's MCP service is off."));
                 }
                 get_pack_text(&open_db(&dir)?, thread_id, "all")
             })()
@@ -4117,6 +4625,7 @@ mod tests {
                 ref_block_id: b["refBlockId"].as_str().map(String::from),
                 source: b["source"].as_str().map(String::from),
                 pinned: b["pinned"].as_bool().unwrap(),
+                seq: b["seq"].as_i64(),
                 created_at: b["createdAt"].as_i64().unwrap(),
             })
             .collect();
@@ -5195,6 +5704,7 @@ mod tests {
             ref_block_id: None,
             source: None,
             pinned,
+            seq: Some(i as i64 + 1),
             created_at: 1_750_000_000_000 + i as i64 * 60_000,
         };
         let blocks: Vec<BlockRow> =
@@ -5297,6 +5807,7 @@ mod tests {
             ref_block_id: None,
             source: None,
             pinned,
+            seq: None,
             created_at: now - age_days * 86_400_000,
         };
         // Pinned, 40 days old, holding a 7800-char lecture extraction.

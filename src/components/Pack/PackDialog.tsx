@@ -16,7 +16,7 @@ import {
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { useT } from '@/lib/i18n';
+import { useLanguage, useT } from '@/lib/i18n';
 
 const RANGE_LABELS: Record<PackRange, string> = {
   all: '全部',
@@ -54,6 +54,9 @@ export default function PackDialog({
   onClose,
 }: Props) {
   const t = useT();
+  // The pack closes with a directive telling the receiving AI which language to answer
+  // in — it follows the app's own language, not a hard-coded one (2026-08-04).
+  const language = useLanguage();
   const [copied, setCopied] = useState(false);
   // v2.8 §20.7: per-pack task template selector. Per-pack only — no persistence across
   // sessions or per-thread defaults, by intent: we're learning which templates earn
@@ -83,10 +86,11 @@ export default function PackDialog({
         // B-3: a narrowed pack must say so in its header, or the AI it gets pasted to
         // reads the slice as the whole project.
         scope: { range, total: blocks.length },
+        outputLanguage: language,
       }),
       packedCount: packedBlocks.length,
     };
-  }, [thread, blocks, attachments, refTitles, refBlocks, template, range]);
+  }, [thread, blocks, attachments, refTitles, refBlocks, template, range, language]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

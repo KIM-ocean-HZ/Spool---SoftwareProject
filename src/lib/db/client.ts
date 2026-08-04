@@ -32,12 +32,19 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
-// Tables in reverse dependency order: blocks_fts (virtual, mirrors blocks),
-// attachments → blocks → threads → workspaces. Indexes and the blocks_* FTS
-// triggers are dropped automatically with their owning table.
-const TABLES_TO_DROP = ['blocks_fts', 'attachments', 'blocks', 'threads', 'workspaces'];
+// Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
+// and attachments), then attachments → blocks → threads → workspaces. Indexes and the
+// blocks_* / attachments_* FTS triggers are dropped automatically with their owning table.
+const TABLES_TO_DROP = [
+  'blocks_fts',
+  'attachments_fts',
+  'attachments',
+  'blocks',
+  'threads',
+  'workspaces',
+];
 
 let dbPromise: Promise<Database> | null = null;
 
@@ -221,6 +228,64 @@ const MIGRATIONS: Migration[] = [
         "UPDATE blocks SET source = 'Claude' || substr(source, instr(source, ' · MCP')) " +
           "WHERE source LIKE 'local-agent-mode%' AND instr(source, ' · MCP') > 0",
       );
+    },
+  },
+  {
+    // v9 (DESIGN_SCHEMA_V9, Ocean approved 2026-08-04) — two changes that both touch the
+    // database, deliberately landed as one migration so a library is never half-way
+    // between them. H-1: `blocks.seq`, the number a human can see and say ("#12"). H-3:
+    // an FTS index over attachment extracted text, so the words inside an attached PDF
+    // are findable. Every step is guarded, so a crash mid-step resumes cleanly.
+    from: 8,
+    to: 9,
+    name: 'add-block-seq-and-attachment-fts',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE blocks ADD COLUMN seq INTEGER');
+      } catch (e) {
+        console.info('[db] blocks.seq: not added (likely exists)', e);
+      }
+      // Backfill in the pack's own render order (created_at, then rowid as the
+      // tie-break), so "the 3rd block in the pack" and "#3" agree on a library that
+      // existed before numbering did. ROW_NUMBER is computed over ALL rows, so a
+      // resumed run re-derives the same numbers for whatever is still NULL.
+      await db.execute(
+        `WITH numbered AS (
+           SELECT rowid AS rid,
+                  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at ASC, rowid ASC) AS n
+             FROM blocks
+         )
+         UPDATE blocks SET seq = (SELECT n FROM numbered WHERE numbered.rid = blocks.rowid)
+          WHERE seq IS NULL`,
+      );
+      await db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_thread_seq ON blocks(thread_id, seq)',
+      );
+      await db.execute(
+        `CREATE VIRTUAL TABLE IF NOT EXISTS attachments_fts USING fts5(
+           extracted_text, content=attachments, content_rowid=rowid,
+           tokenize = 'trigram'
+         )`,
+      );
+      await db.execute(
+        `CREATE TRIGGER IF NOT EXISTS attachments_ai AFTER INSERT ON attachments BEGIN
+           INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.rowid, new.extracted_text);
+         END`,
+      );
+      await db.execute(
+        `CREATE TRIGGER IF NOT EXISTS attachments_ad AFTER DELETE ON attachments BEGIN
+           INSERT INTO attachments_fts(attachments_fts, rowid, extracted_text) VALUES('delete', old.rowid, old.extracted_text);
+         END`,
+      );
+      await db.execute(
+        `CREATE TRIGGER IF NOT EXISTS attachments_au AFTER UPDATE ON attachments BEGIN
+           INSERT INTO attachments_fts(attachments_fts, rowid, extracted_text) VALUES('delete', old.rowid, old.extracted_text);
+           INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.rowid, new.extracted_text);
+         END`,
+      );
+      // Index the attachments that already exist. 'rebuild' discards and re-derives the
+      // whole index from the content table, so it is safe to run twice.
+      await db.execute("INSERT INTO attachments_fts(attachments_fts) VALUES('rebuild')");
     },
   },
 ];

@@ -13,7 +13,7 @@ import {
   INSTRUCTION_HEADER,
   NOTE_INDENT,
   NOTE_MARKER,
-  OUTPUT_LANGUAGE,
+  OUTPUT_LANGUAGE_BY_LANG,
   PACK_HEADER,
   PACK_TEMPLATES,
   PINNED_PREFIX,
@@ -52,6 +52,10 @@ export interface AssembleArgs {
   // filterBlocksForRange, pass the range and the project's UNFILTERED block count — the
   // header then says "N of TOTAL" instead of claiming N is everything. Omit for 'all'.
   scope?: { range: PackRange; total: number };
+  // v9 (2026-08-04): which language the closing Output Language directive asks for.
+  // Defaults to Chinese so every existing caller and the golden fixture are unchanged;
+  // PackDialog passes the app's UI language, and mcp.rs reads it from settings.json.
+  outputLanguage?: 'zh' | 'en';
   // For deterministic output in tests.
   now?: number;
 }
@@ -143,6 +147,13 @@ const renderAttachment = (a: Attachment): string[] => {
   return [`${NOTE_INDENT}${FILE_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
 };
 
+// v9 (DESIGN_SCHEMA_V9 H-1): the block's human-visible number, the same "#12" shown in
+// the app's block stream. It is what lets a receiving AI point at one specific block and
+// the user actually find it — a preview cannot, because duplicate blocks preview
+// identically. Blank for rows written before v9's backfill, so the line degrades to
+// exactly what it used to be. Char-based and mirrored in mcp.rs (golden test).
+const seqMarker = (b: Block): string => (b.seq == null ? '' : `#${b.seq} `);
+
 // One block: its header line, an optional note, an optional block-level citation, then
 // each attachment. A pinned block gets the 📌 prefix wherever it is rendered — Pinned
 // Blocks section and Full Record alike.
@@ -154,15 +165,16 @@ const renderBlock = (
 ): string[] => {
   const time = formatPackTime(b.createdAt);
   const star = b.pinned ? PINNED_PREFIX : '';
+  const n = seqMarker(b);
   const lines: string[] = [];
 
   if (b.kind === 'ref') {
     const title =
       (b.refThreadId ? refTitles?.get(b.refThreadId) : null) || b.content || UNKNOWN_THREAD;
-    lines.push(`${star}[${time}] ${REF_MARKER}${title}`);
+    lines.push(`${star}${n}[${time}] ${REF_MARKER}${title}`);
   } else {
     const bracket = b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
-    lines.push(`${star}[${bracket}] ${b.content.trim()}`);
+    lines.push(`${star}${n}[${bracket}] ${b.content.trim()}`);
   }
 
   if (b.annotation?.trim()) {
@@ -203,7 +215,7 @@ const renderPinnedPlaceholder = (b: Block): string => {
     b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
   const head = headAnchor(b.content);
   const anchor = head.length > 0 ? `${head} ` : '';
-  return `${PINNED_PREFIX}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
+  return `${PINNED_PREFIX}${seqMarker(b)}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
 };
 
 // Pure function. No await, no fetch, no DB calls — this is the §6.4 hot path. The
@@ -217,6 +229,7 @@ export function assemble({
   refBlocks,
   template,
   scope,
+  outputLanguage,
   now,
 }: AssembleArgs): string {
   const dateStr = formatPackDate(now ?? Date.now());
@@ -303,7 +316,7 @@ export function assemble({
   out.push('');
   out.push('---');
   out.push('');
-  out.push(OUTPUT_LANGUAGE);
+  out.push(OUTPUT_LANGUAGE_BY_LANG[outputLanguage ?? 'zh']);
 
   // Trailing newline so consecutive paste actions don't run together.
   return out.join('\n') + '\n';

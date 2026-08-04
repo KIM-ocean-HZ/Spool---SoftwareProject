@@ -44,8 +44,20 @@ CREATE TABLE IF NOT EXISTS blocks (
   ref_block_id  TEXT,                           -- v7 (§20.13 v2.4 D2): block-level citation, declared by the writer at insert; unenforced FK (cited block may be deleted later)
   source        TEXT,                           -- provenance label; auto-filled at capture, user-editable
   pinned        INTEGER NOT NULL DEFAULT 0,      -- marked as core context
+  seq           INTEGER,                        -- v9: the block's human-visible number within its thread (#12); see below
   created_at    INTEGER NOT NULL
 );
+
+-- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
+-- in the block stream, "#12" in the pack — so an AI can point at one block and the user
+-- can find it. It is STORED, never derived: a "12th by time" rule would renumber every
+-- later block the moment one is deleted, and the #12 the user wrote down yesterday would
+-- silently point somewhere else. Assigned per thread as MAX(seq)+1 inside the INSERT
+-- statement (WAL serialises writers, so the app and the MCP subprocess cannot collide),
+-- and never reused after a delete. NULL only on rows written before v9's backfill.
+-- Internal ids stay invisible: `seq` is for people, `id` is still a tool parameter.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_thread_seq
+  ON blocks(thread_id, seq);
 
 CREATE INDEX IF NOT EXISTS idx_blocks_thread
   ON blocks(thread_id, created_at ASC);
@@ -93,4 +105,32 @@ END;
 CREATE TRIGGER IF NOT EXISTS blocks_au AFTER UPDATE ON blocks BEGIN
   INSERT INTO blocks_fts(blocks_fts, rowid, content, annotation) VALUES('delete', old.rowid, old.content, old.annotation);
   INSERT INTO blocks_fts(rowid, content, annotation) VALUES (new.rowid, new.content, new.annotation);
+END;
+
+-- v9 (DESIGN_SCHEMA_V9 H-3): the text Spool extracts out of an attached PDF/docx used to
+-- sit entirely outside the search index — the sentence was demonstrably in the lecture
+-- notes and search returned nothing. It gets its own FTS table rather than a column on
+-- blocks_fts: blocks_fts is an external-content index (content=blocks), so every one of
+-- its columns must be a real column of `blocks`, and the extracted text lives on
+-- `attachments`. A second external-content index over `attachments` costs no duplicated
+-- storage and keeps the attachment that matched identifiable, which is what lets a hit
+-- say "this sentence is in the file, not in the block's own text".
+CREATE VIRTUAL TABLE IF NOT EXISTS attachments_fts USING fts5(
+  extracted_text, content=attachments, content_rowid=rowid,
+  tokenize = 'trigram'
+);
+
+CREATE TRIGGER IF NOT EXISTS attachments_ai AFTER INSERT ON attachments BEGIN
+  INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.rowid, new.extracted_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS attachments_ad AFTER DELETE ON attachments BEGIN
+  INSERT INTO attachments_fts(attachments_fts, rowid, extracted_text) VALUES('delete', old.rowid, old.extracted_text);
+END;
+
+-- Extraction happens AFTER the row is inserted (attach first, extract async), so this
+-- update trigger — not the insert one — is what actually indexes most attachment text.
+CREATE TRIGGER IF NOT EXISTS attachments_au AFTER UPDATE ON attachments BEGIN
+  INSERT INTO attachments_fts(attachments_fts, rowid, extracted_text) VALUES('delete', old.rowid, old.extracted_text);
+  INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.rowid, new.extracted_text);
 END;

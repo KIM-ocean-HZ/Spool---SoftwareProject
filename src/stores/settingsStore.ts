@@ -68,6 +68,26 @@ export const languageForLocale = (locale: string | undefined): 'zh' | 'en' =>
 const detectSystemLanguage = (): 'zh' | 'en' =>
   languageForLocale(globalThis.navigator?.language);
 
+// The language actually in effect right now, mirrored into settings.json for readers
+// outside the webview. `language` above cannot serve that purpose: it is absent until
+// the user explicitly switches, and its absence is exactly what means "follow the
+// system" — so a reader that only sees settings.json cannot tell Chinese-by-default
+// from English-by-default. The MCP server is such a reader (a separate `spool --mcp`
+// process with no navigator), and it has to speak the same language the app does.
+// Written on every load, never read back into state, and NOT in KEYS — nothing about
+// `language`'s "the user chose this" semantics changes.
+export const RESOLVED_LANGUAGE_KEY = 'resolvedLanguage';
+
+const mirrorResolvedLanguage = async (store: Store, effective: 'zh' | 'en'): Promise<void> => {
+  try {
+    if ((await store.get<string>(RESOLVED_LANGUAGE_KEY)) === effective) return;
+    await store.set(RESOLVED_LANGUAGE_KEY, effective);
+    await store.save();
+  } catch (e) {
+    console.warn('resolvedLanguage mirror failed', e);
+  }
+};
+
 let storePromise: Promise<Store> | null = null;
 const getStore = (): Promise<Store> => {
   if (!storePromise) storePromise = Store.load('settings.json');
@@ -129,6 +149,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         }
         if (scrubbed) await store.save();
       }
+      await mirrorResolvedLanguage(store, (next.language as 'zh' | 'en') ?? detectSystemLanguage());
       set({ ...(next as Partial<SettingsState>), loaded: true });
     } catch (e) {
       console.warn('settings load failed', e);

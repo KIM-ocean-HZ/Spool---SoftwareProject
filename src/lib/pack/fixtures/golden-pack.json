@@ -28,7 +28,8 @@
       "source": "Claude",
       "pinned": true,
       "createdAt": 1746540000000,
-      "refBlockId": null
+      "refBlockId": null,
+      "seq": 1
     },
     {
       "id": "b2",
@@ -40,7 +41,8 @@
       "source": "Safari",
       "pinned": false,
       "createdAt": 1749100000000,
-      "refBlockId": null
+      "refBlockId": null,
+      "seq": 2
     },
     {
       "id": "b3",
@@ -52,7 +54,8 @@
       "source": null,
       "pinned": false,
       "createdAt": 1749200000000,
-      "refBlockId": null
+      "refBlockId": null,
+      "seq": 3
     },
     {
       "id": "b4",
@@ -64,7 +67,8 @@
       "source": null,
       "pinned": false,
       "createdAt": 1749300000000,
-      "refBlockId": null
+      "refBlockId": null,
+      "seq": 4
     },
     {
       "id": "b5",
@@ -76,7 +80,8 @@
       "source": null,
       "pinned": false,
       "createdAt": 1749996400000,
-      "refBlockId": null
+      "refBlockId": null,
+      "seq": 5
     },
     {
       "id": "b6",
@@ -88,7 +93,8 @@
       "refBlockId": "b1",
       "source": "Claude · MCP",
       "pinned": false,
-      "createdAt": 1749997000000
+      "createdAt": 1749997000000,
+      "seq": 6
     },
     {
       "id": "b7",
@@ -100,7 +106,8 @@
       "refBlockId": "b-gone",
       "source": "Claude · MCP",
       "pinned": false,
-      "createdAt": 1749998000000
+      "createdAt": 1749998000000,
+      "seq": 7
     }
   ],
   "attachments": [

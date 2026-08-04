@@ -14,6 +14,10 @@ export interface Block {
   refBlockId: string | null;   // v7 (§20.13 v2.4 D2): block-level citation, set by MCP writers
   source: string | null;       // provenance label, editable
   pinned: boolean;
+  // v9 (DESIGN_SCHEMA_V9 H-1): the block's human-visible number within its thread, shown
+  // as "#12" in the stream and in the pack. Null only on a row written before the v9
+  // backfill ran. Never renumbered, never reused — see schema.sql.
+  seq: number | null;
   createdAt: number;
 }
 
@@ -40,6 +44,7 @@ interface Row {
   ref_block_id: string | null;
   source: string | null;
   pinned: number;
+  seq: number | null;
   created_at: number;
 }
 
@@ -53,11 +58,12 @@ const fromRow = (r: Row): Block => ({
   refBlockId: r.ref_block_id,
   source: r.source,
   pinned: r.pinned === 1,
+  seq: r.seq ?? null,
   createdAt: r.created_at,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at';
+  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -111,11 +117,16 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     refBlockId: args.refBlockId ?? null,
     source: args.source ?? null,
     pinned: args.pinned ?? false,
+    seq: null,
     createdAt: Date.now(),
   };
+  // v9: `seq` is computed inside the INSERT, not read-then-written. WAL serialises
+  // writers, so a single statement holding the write lock cannot lose the race against
+  // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $10)`,
     [
       b.id,
       b.threadId,
@@ -129,6 +140,11 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.createdAt,
     ],
   );
+  const assigned = await db.select<{ seq: number | null }[]>(
+    'SELECT seq FROM blocks WHERE id = $1',
+    [b.id],
+  );
+  b.seq = assigned[0]?.seq ?? null;
   return b;
 };
 
@@ -142,27 +158,47 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
 export const insertBlocks = async (blocks: Block[]): Promise<void> => {
   if (blocks.length === 0) return;
   const db = await getDb();
-  const COLS = 10;
+  // v9: seq numbers for the batch. Unlike createBlock's in-statement subquery, a
+  // multi-row VALUES list cannot compute them itself — a correlated MAX(seq) may or may
+  // not see the rows inserted earlier in the same statement, which would hand out
+  // duplicates or gaps. So the base is read once and the offsets are literals. A forward
+  // targets one thread the user just picked; if a concurrent MCP write claimed a number
+  // in between, idx_blocks_thread_seq rejects the batch rather than duplicating a number,
+  // and the user can retry.
+  const base = new Map<string, number>();
+  for (const threadId of new Set(blocks.map((b) => b.threadId))) {
+    const rows = await db.select<{ next: number }[]>(
+      'SELECT COALESCE(MAX(seq), 0) AS next FROM blocks WHERE thread_id = $1',
+      [threadId],
+    );
+    base.set(threadId, rows[0]?.next ?? 0);
+  }
+  const COLS = 11;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11})`;
     })
     .join(', ');
-  const params = blocks.flatMap((b) => [
-    b.id,
-    b.threadId,
-    b.kind,
-    b.content,
-    b.annotation,
-    b.refThreadId,
-    b.refBlockId,
-    b.source,
-    b.pinned ? 1 : 0,
-    b.createdAt,
-  ]);
+  const params = blocks.flatMap((b) => {
+    const next = (base.get(b.threadId) ?? 0) + 1;
+    base.set(b.threadId, next);
+    return [
+      b.id,
+      b.threadId,
+      b.kind,
+      b.content,
+      b.annotation,
+      b.refThreadId,
+      b.refBlockId,
+      b.source,
+      b.pinned ? 1 : 0,
+      next,
+      b.createdAt,
+    ];
+  });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at) VALUES ${tuples}`,
     params,
   );
 };
@@ -174,9 +210,18 @@ export const updateBlockSource = async (id: string, source: string | null): Prom
 
 // Reparent a block to a different thread (§11.5 — the capture classification "move").
 // Keeps the block's id and created_at, so it sorts into the target thread by time.
+// v9: `seq` is per-thread, so a move has to draw a fresh number from the destination —
+// carrying the old one over would collide with whatever already holds it there. The
+// block's visible number therefore changes when it changes project; nothing else does.
 export const updateBlockThread = async (id: string, threadId: string): Promise<void> => {
   const db = await getDb();
-  await db.execute('UPDATE blocks SET thread_id = $1 WHERE id = $2', [threadId, id]);
+  await db.execute(
+    `UPDATE blocks
+        SET thread_id = $1,
+            seq = (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $1)
+      WHERE id = $2`,
+    [threadId, id],
+  );
 };
 
 export const updateBlockContent = async (id: string, content: string): Promise<void> => {
@@ -212,11 +257,14 @@ export const deleteBlock = async (id: string): Promise<void> => {
 // id and created_at so it lands back at the same feed position. The blocks_ai FTS trigger
 // re-indexes it on insert (a fresh rowid is assigned — fine, FTS is rebuilt from it).
 // Used to undo a delete, and to recreate the non-survivor blocks when undoing a merge.
+// v9: the original `seq` comes back with it. Numbers are never reused after a delete, so
+// nothing can have taken it in the meantime — and the user undoing a delete expects the
+// block they were just looking at, #12 included.
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       block.id,
       block.threadId,
@@ -227,6 +275,7 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.refBlockId,
       block.source,
       block.pinned ? 1 : 0,
+      block.seq,
       block.createdAt,
     ],
   );
