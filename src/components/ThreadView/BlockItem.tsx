@@ -144,6 +144,16 @@ function TextBlockItem({
   const navHitIndex = useSearchStore((s) => s.activeHitIndex);
   const flashTick = useSearchStore((s) => s.flashTick);
 
+  // Flash fired by clicking this block's own #n. Separate from the search-driven
+  // `highlight` prop so a locate never fights an in-progress search navigation; it
+  // clears itself once the animation has run.
+  const [selfFlash, setSelfFlash] = useState(false);
+  useEffect(() => {
+    if (!selfFlash) return;
+    const id = setTimeout(() => setSelfFlash(false), 900);
+    return () => clearTimeout(id);
+  }, [selfFlash]);
+
   // Inline-edit state for the captured text. We commit on blur/Enter (per §9.3) so
   // the user never has to look for a Save button. Esc reverts to the pre-edit value.
   const [editingContent, setEditingContent] = useState(false);
@@ -654,7 +664,7 @@ function TextBlockItem({
         block.pinned ? 'pl-4' : ''
       } ${
         isDropTarget ? 'ring-2 ring-accent ring-offset-1 ring-offset-paper' : ''
-      } ${highlight ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
+      } ${highlight || selfFlash ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
     >
       {block.pinned && (
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
@@ -683,6 +693,25 @@ function TextBlockItem({
                 <path d="M2.5 6.5l2.5 2.5 4.5-5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
+          </button>
+        )}
+        {/* v9 (DESIGN_SCHEMA_V9 H-1, Ocean approved style a): the block's own number,
+            the same #12 an AI says over MCP. Grey and small so it never competes with
+            the text; clicking it scrolls this block to the middle and flashes it, which
+            is what "point at that one" looks like when the AI just named it. */}
+        {block.seq != null && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActive(block.id);
+              articleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              setSelfFlash(true);
+            }}
+            title={t('这一块的编号 — AI 说「#12」指的就是它。点一下定位')}
+            className="shrink-0 font-mono tabular-nums text-muted transition-colors hover:text-accent"
+          >
+            #{block.seq}
           </button>
         )}
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>

@@ -322,6 +322,8 @@ const EN: Record<string, string> = {
   '用法就这一段：粘给 AI 直接能用，你自己读也看得懂':
     'This one paragraph is the whole how-to: paste it to your AI, or just read it yourself',
   '复制使用提示': 'Copy usage briefing',
+  '这一块的编号 — AI 说「#12」指的就是它。点一下定位':
+    'This block\u2019s number — when an AI says \u201c#12\u201d, this is what it means. Click to locate it',
   '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。':
     'I keep my project notes in Spool, and you can read them directly now.\n\nThings you can do for me:\n· "What have I been up to?" — start with a briefing across all my projects\n· "Where am I stuck on <a project>, and what have I settled?" — read that project in full\n· "Save that conclusion into <a project>" — store it back for me (I have to turn on "Let AI write" in Spool first)\n\nTwo rules: refer to things by project title and block number (like #12), never by an internal id; and every block you write is labelled with your name automatically, so I can always see which ones are yours.',
   '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
