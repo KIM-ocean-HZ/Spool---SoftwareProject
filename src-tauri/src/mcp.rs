@@ -560,10 +560,16 @@ fn assemble_pack_with(
     let count_line = match scope {
         // B-3: a range-filtered pack used to read "3 blocks total", so whoever the user
         // pasted it to concluded the project HAD three blocks.
+        // R7: `pinned` is not a time window — telling the receiving AI the other 13 blocks
+        // are "older than this window" was simply false. Mirrors templates.ts RANGE_REST.
         Some((range, total)) => format!(
-            "{} of {total} blocks in this project (range: {range} — the rest are older \
-             than this window, still in Spool).",
-            blocks.len()
+            "{} of {total} blocks in this project (range: {range} — {}, still in Spool).",
+            blocks.len(),
+            if range == "pinned" {
+                "the rest are not pinned"
+            } else {
+                "the rest are older than this window"
+            }
         ),
         None => format!("{} blocks total.", blocks.len()),
     };
@@ -1106,7 +1112,14 @@ fn search_blocks_json(
             })
         })
         .collect();
+    // R7: these used to come back on EVERY page — the same file match repeated once per
+    // page (and still arrived past the end of the block results), so a caller paging
+    // through counted one PDF hit a dozen times. They are a second population that
+    // offset/limit does not address, so they ride with the first page only; `total` never
+    // counted them either way, and `attachment_total` keeps reporting them on every page.
     let attachment_hits = search_attachments(conn, query, n_chars, boundary)?;
+    let attachment_total = attachment_hits.len();
+    let attachment_hits = if offset == 0 { attachment_hits } else { Vec::new() };
     serde_json::to_string_pretty(&json!({
         "query": query,
         "total": total,
@@ -1119,8 +1132,9 @@ fn search_blocks_json(
         // v9 (DESIGN_SCHEMA_V9 H-3): matches inside the text Spool extracted out of an
         // attached PDF/docx. Their own list, not merged into `hits`: offset/limit page
         // the block matches and mixing two populations under one cursor would make the
-        // paging lie. Empty whenever nothing in a file matched.
-        "attachment_total": attachment_hits.len(),
+        // paging lie. Empty whenever nothing in a file matched — and on every page after
+        // the first, where the count still shows but the hits themselves do not repeat.
+        "attachment_total": attachment_total,
         "attachment_hits": attachment_hits,
     }))
     .map_err(|e| e.to_string())
@@ -2019,6 +2033,9 @@ fn get_blocks_json(
     }
     // Centering overrides offset/limit: position = rows sorted the same way the page
     // query sorts (created_at, then rowid as the deterministic tie-break).
+    // R7: `context` was the one clamped parameter with no echo — a caller who passed 99
+    // saw only `limit: 49` and had to divide by two to learn what it actually used.
+    let mut effective_context: Option<i64> = None;
     let (offset, limit, anchor_position) = if let Some(bid) = around_block_id {
         let position: i64 = conn
             .query_row(
@@ -2061,6 +2078,7 @@ fn get_blocks_json(
             });
         }
         let ctx = context.unwrap_or(BLOCKS_DEFAULT_CONTEXT).clamp(0, (BLOCKS_MAX_LIMIT - 1) / 2);
+        effective_context = Some(ctx);
         ((position - ctx).max(0), 2 * ctx + 1, Some(position))
     } else {
         (
@@ -2191,6 +2209,9 @@ fn get_blocks_json(
         "limit": limit,
         "blocks": rows,
     });
+    if let Some(ctx) = effective_context {
+        out["context"] = json!(ctx);
+    }
     if let Some(pos) = anchor_position {
         out["anchor_position"] = json!(pos);
     }
@@ -3371,7 +3392,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — those ride outside offset/limit, so a phrase that lives only inside a PDF shows up there and never in `hits`.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -3755,13 +3776,20 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
         }
         "search_blocks" => {
             let att = n("attachment_total");
-            let extra = if att > 0 {
+            let extra = if att == 0 {
+                String::new()
+            } else if arr("attachment_hits") == 0 {
+                // Past the first page the hits themselves are not repeated (see
+                // search_blocks_json) — say where they are instead of implying they are here.
+                t!(
+                    "另有 {att} 处命中在附件正文里,列在第一页(offset=0)。",
+                    "Plus {att} matches inside attachment text, listed on the first page (offset=0)."
+                )
+            } else {
                 t!(
                     "另有 {att} 处命中在附件正文里。",
                     "Plus {att} matches inside attachment text."
                 )
-            } else {
-                String::new()
             };
             Some(t!(
                 "在全库搜「{}」,{} 条命中,这里给你 {} 条。{extra}",
@@ -5579,6 +5607,51 @@ mod tests {
         )
         .unwrap();
         assert!(summary.contains("机器学习课作业"), "{summary}");
+    }
+
+    // R7 (2026-08-04), reported independently by both outside reviewers: a file match came
+    // back on every page of a paged search — including pages past the end — so anyone
+    // paging counted the same PDF hit once per page.
+    #[test]
+    fn attachment_hits_ride_with_the_first_page_only() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-atthits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('t1', 'ws1', '机器学习课', 1, 9);
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
+               ('b1', 't1', 'text', '梯度下降第一条', 0, 1),
+               ('b2', 't1', 'text', '梯度下降第二条', 0, 2),
+               ('b3', 't1', 'text', '梯度下降第三条', 0, 3);
+             INSERT INTO attachments (id, block_id, kind, target, label, extracted_text,
+                                      extraction_kind, include_in_pack, created_at)
+               VALUES ('a1', 'b1', 'file', '/x/l3.pdf', 'l3.pdf', '讲义里讲的是梯度下降',
+                       'pdf', 1, 1);",
+        )
+        .unwrap();
+        let page = |off: i64| -> Value {
+            serde_json::from_str(&search_blocks_json(&conn, "梯度", Some(1), Some(off)).unwrap())
+                .unwrap()
+        };
+        let first = page(0);
+        assert_eq!(first["attachment_total"], 1);
+        assert_eq!(first["attachment_hits"].as_array().unwrap().len(), 1);
+        for off in [1, 2, 99] {
+            let p = page(off);
+            // The count still shows — the caller must know the file matches exist — but
+            // the hits themselves do not repeat.
+            assert_eq!(p["attachment_total"], 1, "count vanished at offset {off}");
+            assert!(
+                p["attachment_hits"].as_array().unwrap().is_empty(),
+                "attachment hit repeated at offset {off}"
+            );
+        }
     }
 
     // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's two "nothing to render" mouths —
