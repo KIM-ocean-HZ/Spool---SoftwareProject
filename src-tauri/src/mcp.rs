@@ -1401,7 +1401,7 @@ fn find_similar_blocks_json(
             )
             .map_err(|e| e.to_string())?;
         if exists == 0 {
-            return Err(t!("没有 id 为 {tid} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {tid} — call list_threads for the valid ids."));
+            return Err(no_such_thread());
         }
     }
 
@@ -2034,7 +2034,7 @@ fn get_blocks_json(
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
+        .map_err(|_| no_such_thread())?;
     if deleted.is_some() {
         return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
@@ -2071,7 +2071,7 @@ fn get_blocks_json(
                 rusqlite::params![bid, thread_id],
                 |r| r.get(0),
             )
-            .map_err(|_| t!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。", "No block with id {bid} in this project — use a block_id from search_blocks."))?;
+            .map_err(|_| no_such_block_here())?;
         // COUNT returns 0 both for "first block" and "block not in this thread" — tell
         // them apart explicitly.
         let exists: i64 = conn
@@ -2084,22 +2084,23 @@ fn get_blocks_json(
         if exists == 0 {
             // R3 BUG-8: when the block lives in ANOTHER thread, say which — the model
             // can self-correct in one step instead of hunting.
-            let owner: Option<(String, String)> = conn
+            let owner: Option<String> = conn
                 .query_row(
-                    "SELECT t.id, t.title FROM blocks b JOIN threads t ON t.id = b.thread_id
+                    "SELECT t.title FROM blocks b JOIN threads t ON t.id = b.thread_id
                      WHERE b.id = ?1 AND t.deleted_at IS NULL",
                     [bid],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    |r| r.get(0),
                 )
                 .ok();
             return Err(match owner {
-                Some((owner_id, owner_title)) => t!(
-                    "该项目里没有 id 为 {bid} 的块 — 它属于「{owner_title}」\
-                     (thread_id: {owner_id});换用那个 thread_id 再调用。",
-                    "No block with id {bid} in this project — it belongs to \u{201c}{owner_title}\u{201d} \
-                     (thread_id: {owner_id}); call again with that thread_id."
+                Some(owner_title) => t!(
+                    "这个 block_id 不在这个项目里 — 它属于〈{owner_title}〉。用 \
+                     list_threads(title_contains=\"{owner_title}\") 拿到那个项目的 thread_id,再调一次。",
+                    "That block_id is not in this project — it belongs to \u{2039}{owner_title}\u{203a}. \
+                     Get that project's thread_id with list_threads(title_contains=\"{owner_title}\") \
+                     and call again."
                 ),
-                None => t!("该项目里没有 id 为 {bid} 的块 — 用 search_blocks 的 block_id。", "No block with id {bid} in this project — use a block_id from search_blocks."),
+                None => no_such_block_here(),
             });
         }
         let ctx = context.unwrap_or(BLOCKS_DEFAULT_CONTEXT).clamp(0, (BLOCKS_MAX_LIMIT - 1) / 2);
@@ -2429,7 +2430,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
-        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
+        .map_err(|_| no_such_thread())?;
     if deleted.is_some() {
         return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
@@ -2684,6 +2685,25 @@ fn mcp_source_label() -> String {
     }
 }
 
+// §3.1-3 (三方评审 2026-08-04, Ocean 拍板): an error body is the single most likely thing
+// a client repeats to the user word for word — so it is the last place an internal id may
+// appear, and it used to be the first. Every "no such project" now says it without echoing
+// what was passed in. The caller loses nothing: it holds the id it just sent, and
+// list_threads maps titles to ids.
+fn no_such_thread() -> String {
+    t!(
+        "没有这个 id 对应的项目 — 用 list_threads 查有效 id(项目标题也在里面)。",
+        "No project has that id — call list_threads for the valid ids (with their titles)."
+    )
+}
+
+fn no_such_block_here() -> String {
+    t!(
+        "这个 block_id 不在这个项目里 — 用 search_blocks / get_blocks 返回的 block_id。",
+        "That block_id is not in this project — use one returned by search_blocks or get_blocks."
+    )
+}
+
 // Resolve a user-supplied workspace name (case-insensitive) to (id, title), erroring
 // with the live name list — shared by create_thread and get_digest so the two can
 // never disagree on what a name resolves to.
@@ -2761,25 +2781,32 @@ fn create_thread_json(
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        if let Some(existing) = twin {
+        if twin.is_some() {
             return Err(t!(
                 "工作区「{ws_title}」里已经有一个叫〈{title}〉的项目了。\
                  Spool 没有删除接口,建重了就永远留在那儿,而标题是唯一能对用户称呼项目的\
-                 东西——两个同名的谁也说不清。要么直接往那个项目里 add_block(它的 \
-                 thread_id 是 {existing},仅供你当参数用,别说给用户听),\
+                 东西——两个同名的谁也说不清。要么直接往那个项目里 add_block\
+                 (调 list_threads(title_contains=\"{title}\") 就能拿到它的 thread_id),\
                  要么把标题改成能和它区分开的说法。",
                 "Workspace \u{201c}{ws_title}\u{201d} already has a project called \u{2039}{title}\u{203a}. \
                  Spool has no delete tool, so a duplicate stays there forever — and the \
                  title is the only way to name a project to the user, which two identical \
                  ones make impossible. Either add_block straight into the existing one \
-                 (its thread_id is {existing} — a parameter for you, never something to \
-                 say out loud), or pick a title that tells them apart."
+                 (list_threads(title_contains=\"{title}\") gives you its thread_id), or pick \
+                 a title that tells them apart."
             ));
         }
     }
+    // D-1: refuse before the insert, exactly as add_block does — a project title and its
+    // summary are displayed text too (the catalogue card, every digest, the GUI header).
+    let summary = summary.map(str::trim).filter(|s| !s.is_empty());
+    let mut surfaces: Vec<(&str, &str)> = vec![("title", title)];
+    if let Some(s) = summary {
+        surfaces.push(("summary", s));
+    }
+    reject_raw_ids(conn, &surfaces)?;
     let id = new_id()?;
     let now = now_ms();
-    let summary = summary.map(str::trim).filter(|s| !s.is_empty());
     conn.execute(
         "INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
                               is_capture_target, created_at, updated_at)
@@ -2787,19 +2814,7 @@ fn create_thread_json(
         rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
-    let mut out = json!({ "thread_id": id, "workspace": ws_title, "title": title });
-    // R4 P2-1: the raw-id advisory covers every free-text write surface.
-    let mut hits: Vec<(&str, String)> = Vec::new();
-    if let Some(h) = suspect_raw_id(title) {
-        hits.push(("title", h));
-    }
-    if let Some(h) = summary.and_then(suspect_raw_id) {
-        hits.push(("summary", h));
-    }
-    if !hits.is_empty() {
-        out["warning"] = json!(raw_id_warning(&hits));
-    }
-    Ok(out.to_string())
+    Ok(json!({ "thread_id": id, "workspace": ws_title, "title": title }).to_string())
 }
 
 // The thread's "catalogue card" (§9.11): since the MCP-first pivot the app itself never
@@ -2822,7 +2837,7 @@ fn set_thread_summary_json(
             [thread_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
-        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
+        .map_err(|_| no_such_thread())?;
     if deleted.is_some() {
         return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
@@ -2836,48 +2851,27 @@ fn set_thread_summary_json(
              edit it in Spool (once they clear it, MCP may write again)."
         ));
     }
+    // D-1: same guard as the other two write tools — the catalogue card is displayed text.
+    reject_raw_ids(conn, &[("summary", summary)])?;
     let now = now_ms();
     conn.execute(
         "UPDATE threads SET summary = ?1, summary_source = 'mcp', updated_at = ?2 WHERE id = ?3",
         rusqlite::params![summary, now, thread_id],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
-    let mut out = json!({ "thread_id": thread_id, "title": title, "summary": summary });
-    // R4 P2-1: the raw-id advisory covers every free-text write surface.
-    if let Some(hit) = suspect_raw_id(summary) {
-        out["warning"] = json!(raw_id_warning(&[("summary", hit)]));
-    }
-    Ok(out.to_string())
+    Ok(json!({ "thread_id": thread_id, "title": title, "summary": summary }).to_string())
 }
 
 // v2.4 (D1/5b): a raw 21-char nanoid written into content/annotation surfaces in
-// search snippets and packs forever — the naming hard rule forbids it. Detection is
-// advisory only (warn, never refuse, never rewrite): an exactly-21-char run over the
-// nanoid alphabet with non-alphabet neighbors, requiring both cases to keep ordinary
-// 21-letter words (all-lowercase) out. False positives survive as a warning the writer
-// can ignore.
-// R5 P3-1: when several surfaces are dirty in one call, the advisory names each of
-// them instead of only the first match. (R5 P3-2 — an id glued inside a longer
-// same-alphabet token, e.g. behind a hyphenated prefix — stays undetected by design:
-// '-' belongs to the nanoid alphabet, so splitting on it would break detection of
-// real ids that contain hyphens. check_library shares the detector, keeping the
-// tradeoff uniform and disclosed.)
-fn raw_id_warning(hits: &[(&str, String)]) -> String {
-    let list = hits
-        .iter()
-        .map(|(surface, hit)| format!("{surface}:「{hit}」"))
-        .collect::<Vec<_>>()
-        .join(";");
-    t!(
-        "文本中疑似包含内部 id({list})。请勿把内部 id 写进任何会展示的文本——\
-         引用其他块请用 ref_block_id 参数,id 只应出现在工具参数里。本次已原样写入。",
-        "The text looks like it contains internal ids ({list}). Never write an internal \
-         id into anything that gets displayed — cite another block with the \
-         ref_block_id parameter; ids belong in tool arguments only. Written verbatim \
-         this time."
-    )
-}
-
+// search snippets and packs forever — the naming hard rule forbids it. The shape
+// detector: an exactly-21-char run over the nanoid alphabet with non-alphabet
+// neighbors, requiring both cases to keep ordinary 21-letter words (all-lowercase)
+// out. check_library reads existing rows with it; the write path pairs it with the
+// exact index below.
+// (R5 P3-2 — an id glued inside a longer same-alphabet token, e.g. behind a hyphenated
+// prefix — is invisible to THIS detector by design: '-' belongs to the nanoid alphabet,
+// so splitting on it would break detection of real ids that contain hyphens. D-2 covers
+// that case on the write path, where it matters most.)
 fn suspect_raw_id(text: &str) -> Option<String> {
     let is_id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let chars: Vec<char> = text.chars().collect();
@@ -2902,6 +2896,107 @@ fn suspect_raw_id(text: &str) -> Option<String> {
     None
 }
 
+// D-2 (三方评审 2026-08-04): every 21-char window over the id-alphabet runs in a text.
+// The shape detector above only sees a run that is EXACTLY 21 chars long; a real id
+// glued to a prefix ("ref-sbC2zgTo9dWyq_x1XPLNM") or written in one case slips past it.
+// A window list is what turns detection into an exact-match question the database can
+// answer — and it is normally empty, so the write path pays one Vec allocation.
+fn id_windows(text: &str) -> Vec<String> {
+    const ID_LEN: usize = 21;
+    let is_id_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let mut out: Vec<String> = Vec::new();
+    for run in text.split(|c: char| !is_id_char(c)) {
+        let chars: Vec<char> = run.chars().collect();
+        for w in chars.windows(ID_LEN) {
+            out.push(w.iter().collect());
+        }
+    }
+    out
+}
+
+// D-2: is one of those windows an id that actually exists in THIS library? Answering in
+// words ("block #12 in ‹Machine learning course›") — never by echoing the id back, which
+// is the very thing being refused. Cheap: the lookup only runs for texts that contain a
+// 21-char id-shaped window at all.
+fn real_id_hit(conn: &Connection, text: &str) -> Option<String> {
+    use rusqlite::OptionalExtension;
+    for cand in id_windows(text) {
+        let block: Option<(String, Option<i64>)> = conn
+            .query_row(
+                "SELECT t.title, b.seq FROM blocks b JOIN threads t ON t.id = b.thread_id
+                 WHERE b.id = ?1",
+                [&cand],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .ok()
+            .flatten();
+        if let Some((title, seq)) = block {
+            return Some(match seq {
+                Some(n) => t!("〈{title}〉里 #{n} 那一块", "block #{n} in \u{2039}{title}\u{203a}"),
+                None => t!("〈{title}〉里的一块", "a block in \u{2039}{title}\u{203a}"),
+            });
+        }
+        let thread: Option<String> = conn
+            .query_row("SELECT title FROM threads WHERE id = ?1", [&cand], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten();
+        if let Some(title) = thread {
+            return Some(t!("项目〈{title}〉", "the project \u{2039}{title}\u{203a}"));
+        }
+        let workspace: Option<String> = conn
+            .query_row("SELECT title FROM workspaces WHERE id = ?1", [&cand], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten();
+        if let Some(title) = workspace {
+            return Some(t!("工作区「{title}」", "the workspace \u{201c}{title}\u{201d}"));
+        }
+    }
+    None
+}
+
+// D-1 (三方评审 2026-08-04, Ocean 拍板): the detector used to warn AFTER the row was
+// already committed — all three reviewers landed on the same sentence, that a defence
+// written into advice is no defence at all. GPT reproduced it: warn, write anyway, and
+// the block becomes a permanent check_library finding. Every free-text write surface now
+// runs this guard BEFORE the insert, and a hit means zero rows written.
+//
+// The refusal never quotes the offending run: an error body is the single most likely
+// thing to be read out to the user verbatim (§3.1-3), and the caller wrote that text —
+// it can find the run from the surface name alone.
+fn reject_raw_ids(conn: &Connection, surfaces: &[(&str, &str)]) -> Result<(), String> {
+    for (surface, text) in surfaces {
+        if let Some(what) = real_id_hit(conn, text) {
+            return Err(t!(
+                "没有写入任何东西:{surface} 里出现了{what}的内部 id。内部 id 只能当工具参数用,\
+                 写进正文就会永久留在用户看得见的地方。把那串 21 位字符从 {surface} 里删掉再调一次;\
+                 如果你本来是想引用那一块,把它作为 ref_block_id 参数传进来 —— pack 里会渲染成一行\
+                 「↩ cites:」,用户看到的是那块的内容,不是一串编号。",
+                "Nothing was written: {surface} contains the internal id of {what}. Internal ids \
+                 are tool arguments only — written into text they stay visible to the user \
+                 forever. Take the 21-character run out of {surface} and call again; if you meant \
+                 to cite that block, pass it as the ref_block_id argument instead — the pack \
+                 renders that as an \u{201c}\u{21a9} cites:\u{201d} line showing the block's own \
+                 words rather than an id."
+            ));
+        }
+        if suspect_raw_id(text).is_some() {
+            return Err(t!(
+                "没有写入任何东西:{surface} 里有一串 21 位、大小写混排的字符,和 Spool 的内部 id 一个形状。\
+                 内部 id 绝不能写进会展示的文本 —— 引用别的块请用 ref_block_id 参数。\
+                 如果那串字符其实是资料本身(不是 id),改写一下(比如加个空格拆开)再调一次。",
+                "Nothing was written: {surface} contains a 21-character mixed-case run shaped \
+                 exactly like a Spool internal id. Internal ids must never go into displayed \
+                 text — cite another block with the ref_block_id argument. If that run really is \
+                 part of the material and not an id, reword it (a space is enough) and call again."
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn add_block_json(
     conn: &mut Connection,
     thread_id: &str,
@@ -2909,14 +3004,17 @@ fn add_block_json(
     source: Option<&str>,
     annotation: Option<&str>,
     ref_block_id: Option<&str>,
+    dry_run: bool,
 ) -> Result<String, String> {
     let content = content.trim();
     if content.is_empty() {
         return Err(t!("content 不能为空。", "content must not be empty."));
     }
-    let deleted: Option<i64> = conn
-        .query_row("SELECT deleted_at FROM threads WHERE id = ?1", [thread_id], |r| r.get(0))
-        .map_err(|_| t!("没有 id 为 {thread_id} 的项目 — 先用 list_threads 查看有效 id。", "No project with id {thread_id} — call list_threads for the valid ids."))?;
+    let (title, deleted): (String, Option<i64>) = conn
+        .query_row("SELECT title, deleted_at FROM threads WHERE id = ?1", [thread_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|_| no_such_thread())?;
     if deleted.is_some() {
         return Err(t!("该项目已被删除。", "That project has been deleted."));
     }
@@ -2935,14 +3033,13 @@ fn add_block_json(
             .map_err(|e| e.to_string())?;
         if live == 0 {
             return Err(t!(
-                "没有 id 为 {rid} 的可引用块(或其项目已删)— ref_block_id 应来自 \
-                 search_blocks / get_blocks 的 block_id。",
-                "No citable block with id {rid} (or its project was deleted) — \
+                "这个 ref_block_id 没有对应的可引用块(或其项目已删)— ref_block_id 要用 \
+                 search_blocks / get_blocks 返回的 block_id。",
+                "That ref_block_id matches no citable block (or its project was deleted) — \
                  ref_block_id takes a block_id from search_blocks or get_blocks."
             ));
         }
     }
-    let id = new_id()?;
     let now = now_ms();
     // §20.13 v2.1 (P0-1, field report A4): the client label is an invariant, not a
     // default. A caller-supplied source used to replace it wholesale — letting AI
@@ -2953,6 +3050,46 @@ fn add_block_json(
         Some(detail) => format!("{} — {detail}", mcp_source_label()),
         None => mcp_source_label(),
     };
+    let annotation = annotation.map(str::trim).filter(|s| !s.is_empty());
+    // D-1: the guard runs before anything is inserted, over every surface that ends up
+    // in displayed text. The source detail is one of them (packs, digest, the GUI's
+    // block header all show it).
+    let mut surfaces: Vec<(&str, &str)> = vec![("content", content)];
+    if let Some(a) = annotation {
+        surfaces.push(("annotation", a));
+    }
+    if let Some(s) = source_detail {
+        surfaces.push(("source", s));
+    }
+    reject_raw_ids(conn, &surfaces)?;
+    // §3.1-2 (Ocean 拍板 2026-08-04): dry_run is the answer to "an AI mis-writes a block
+    // and has no way to take it back". Every check above has already run, so this is the
+    // real verdict on this exact call — including the block number it would land on. The
+    // append-only constitution is untouched: nothing to undo, because nothing is written.
+    // (Claude Desktop's round-2 review wrote a malformed block whose `content` had
+    // swallowed the annotation parameter; it knew immediately and could do nothing.)
+    if dry_run {
+        let next_seq: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?1",
+                [thread_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(1);
+        return Ok(json!({
+            "dry_run": true,
+            "written": false,
+            "thread_id": thread_id,
+            "thread_title": title,
+            "would_be_seq": next_seq,
+            "content": content,
+            "annotation": annotation,
+            "source": source,
+            "ref_block_id": ref_block_id,
+        })
+        .to_string());
+    }
+    let id = new_id()?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute(
         // v9: seq is computed inside the statement — WAL serialises writers, so the GUI
@@ -2961,15 +3098,7 @@ fn add_block_json(
                              pinned, seq, created_at)
          VALUES (?1, ?2, 'text', ?3, ?4, ?5, ?6, 0,
                  (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?2), ?7)",
-        rusqlite::params![
-            id,
-            thread_id,
-            content,
-            annotation.map(str::trim),
-            ref_block_id,
-            source,
-            now
-        ],
+        rusqlite::params![id, thread_id, content, annotation, ref_block_id, source, now],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     tx.execute(
@@ -2983,25 +3112,14 @@ fn add_block_json(
     let seq: Option<i64> = conn
         .query_row("SELECT seq FROM blocks WHERE id = ?1", [&id], |r| r.get(0))
         .unwrap_or(None);
-    let mut out = json!({ "block_id": id, "thread_id": thread_id, "source": source, "seq": seq });
-    // D1/5b: advisory only — the block was written verbatim above. R4 P2-1: the
-    // caller-supplied source detail is a display surface too (packs, digest, GUI),
-    // so it is scanned like content and annotation. R5 P3-1: every dirty surface is
-    // named, not just the first match.
-    let mut hits: Vec<(&str, String)> = Vec::new();
-    if let Some(h) = suspect_raw_id(content) {
-        hits.push(("content", h));
-    }
-    if let Some(h) = annotation.and_then(suspect_raw_id) {
-        hits.push(("annotation", h));
-    }
-    if let Some(h) = source_detail.and_then(suspect_raw_id) {
-        hits.push(("source", h));
-    }
-    if !hits.is_empty() {
-        out["warning"] = json!(raw_id_warning(&hits));
-    }
-    Ok(out.to_string())
+    Ok(json!({
+        "block_id": id,
+        "thread_id": thread_id,
+        "thread_title": title,
+        "source": source,
+        "seq": seq
+    })
+    .to_string())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -3530,7 +3648,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "add_block",
-            "description": "Append one text block to an existing project — e.g. a conclusion or key finding from this conversation the user wants kept. The block is attributed to this AI client via its source label (never pass yourself off as the user). Keep it to the ONE thing worth keeping; do not bulk-import chat logs. Requires MCP writes enabled in Spool's settings.",
+            "description": "Append one text block to an existing project — e.g. a conclusion or key finding from this conversation the user wants kept. The block is attributed to this AI client via its source label (never pass yourself off as the user). Keep it to the ONE thing worth keeping; do not bulk-import chat logs. Blocks are append-only: there is no edit or delete tool, so a mis-written block is permanent — pass dry_run=true first to see exactly what would be stored. A text carrying an internal id (a 21-char run) is refused outright, nothing written; cite other blocks with ref_block_id. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -3539,7 +3657,8 @@ fn tools_descriptor() -> Value {
                     "content": { "type": "string", "description": "The block text." },
                     "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
                     "source": { "type": "string", "description": "Optional detail appended after the enforced '<client> · MCP' label (e.g. a paper id or URL the content came from). The client identity itself cannot be overridden." },
-                    "ref_block_id": { "type": "string", "description": "Optional citation: the block_id (from search_blocks / get_blocks) this finding builds on. Renders in packs as an '↩ cites:' line with the cited block's preview. Use this instead of ever writing ids into content." }
+                    "ref_block_id": { "type": "string", "description": "Optional citation: the block_id (from search_blocks / get_blocks) this finding builds on. Renders in packs as an '↩ cites:' line with the cited block's preview. Use this instead of ever writing ids into content." },
+                    "dry_run": { "type": "boolean", "description": "Validate and preview without writing: returns the exact content, annotation, source label and block number (#n) this call WOULD store, plus written=false. Nothing lands in the library. Use it whenever the content was assembled from parameters you are not certain about — a written block cannot be edited or taken back. Default false." }
                 },
                 "required": ["thread_id", "content"],
                 "additionalProperties": false
@@ -3719,6 +3838,7 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("source").and_then(Value::as_str),
                         args.get("annotation").and_then(Value::as_str),
                         args.get("ref_block_id").and_then(Value::as_str),
+                        args.get("dry_run").and_then(Value::as_bool).unwrap_or(false),
                     )
                 }
             }
@@ -3893,20 +4013,22 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             args.get("title").and_then(Value::as_str).unwrap_or_default()
         )),
         "add_block" => {
-            let stored = match v.get("seq").and_then(Value::as_i64) {
+            let title = v.get("thread_title").and_then(Value::as_str).unwrap_or_default();
+            // §3.1-2: the dry run must never read like a write. It is the one headline
+            // whose whole job is to say "this did NOT happen yet".
+            if v.get("dry_run").and_then(Value::as_bool).unwrap_or(false) {
+                return Some(t!(
+                    "预演,还没有写进 Spool:这条存下去会是〈{title}〉的 #{} 块。念给用户听,\
+                     他点头之后去掉 dry_run 再调一次。",
+                    "Dry run — nothing was written: this would become block #{} of \u{2039}{title}\u{203a}. \
+                     Read it back to the user, and call again without dry_run once they say yes.",
+                    n("would_be_seq")
+                ));
+            }
+            Some(match v.get("seq").and_then(Value::as_i64) {
                 // The number is the point: it is what the user can find in the app.
-                Some(seq) => t!("存进 Spool 了,是这个项目的 #{seq} 块。", "Stored in Spool as block #{seq} of that project."),
+                Some(seq) => t!("存进 Spool 了,是〈{title}〉的 #{seq} 块。", "Stored in Spool as block #{seq} of \u{2039}{title}\u{203a}."),
                 None => t!("存进 Spool 了。", "Stored in Spool."),
-            };
-            // R7: the bare-id warning used to live in the JSON only, under a headline that
-            // read as a clean success — so the one line a client shows the user said the
-            // write went fine while an internal id had just been written into their notes.
-            Some(match v.get("warning") {
-                Some(_) => stored + &t!(
-                    "⚠️ 正文里疑似写进了内部 id:别把这句念给用户,以后引用别的块请用 ref_block_id。",
-                    " \u{26a0}\u{fe0f} It looks like an internal id went into the text: do not read that line out to the user, and cite other blocks with ref_block_id instead."
-                ),
-                None => stored,
             })
         }
         "set_thread_summary" => Some(t!(
@@ -4717,7 +4839,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
                 // The identity leads: a client that truncates instructions keeps the one
                 // line that says which library this is.
-                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
+                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
             }))
         }
         "ping" => Ok(json!({})),
@@ -5066,7 +5188,7 @@ mod tests {
         let before: i64 = conn
             .query_row("SELECT updated_at FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
             .unwrap();
-        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注"), None).unwrap();
+        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注"), None, false).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP");
         let (content, source, annotation): (String, String, String) = conn
@@ -5085,23 +5207,23 @@ mod tests {
         assert!(after >= before);
         // v2.1 (P0-1): a custom source is a suffix — the client label survives.
         let out =
-            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None, None).unwrap();
+            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None, None, false).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP — lecture-11.pdf");
         // deleted / missing thread refuses
-        assert!(add_block_json(&mut conn, "nope", "x", None, None, None).is_err());
+        assert!(add_block_json(&mut conn, "nope", "x", None, None, None, false).is_err());
         // empty content refuses
-        assert!(add_block_json(&mut conn, &tid, "   ", None, None, None).is_err());
+        assert!(add_block_json(&mut conn, &tid, "   ", None, None, None, false).is_err());
 
         // v2.4 (D2): ref_block_id — validated live at write time, stored, echoed by
         // get_blocks, and rendered as the ↩ cites line (live + dangling) in the pack.
         let cited: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "被引的原始结论", None, None, None).unwrap(),
+            &add_block_json(&mut conn, &tid, "被引的原始结论", None, None, None, false).unwrap(),
         )
         .unwrap();
         let cited_id = cited["block_id"].as_str().unwrap().to_string();
         let citing: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "站在前一块上的新结论", None, None, Some(&cited_id))
+            &add_block_json(&mut conn, &tid, "站在前一块上的新结论", None, None, Some(&cited_id), false)
                 .unwrap(),
         )
         .unwrap();
@@ -5114,7 +5236,7 @@ mod tests {
             .unwrap();
         assert_eq!(stored, cited_id);
         let err =
-            add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope")).unwrap_err();
+            add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope"), false).unwrap_err();
         assert!(err.contains("ref_block_id"), "{err}");
         let page: Value = serde_json::from_str(
             &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS, false).unwrap(),
@@ -5355,12 +5477,12 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"), None)
+        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"), None, false)
             .unwrap();
         // Word-boundary fodder (v2.1, field report A3): "ai" inside a word must not
         // hit; standalone "AI" must.
-        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None, None).unwrap();
-        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None, None).unwrap();
+        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None, None, false).unwrap();
+        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None, None, false).unwrap();
 
         // FTS path (≥3 codepoints): {total, hits} with a **marked** snippet.
         let res: Value =
@@ -5464,9 +5586,9 @@ mod tests {
         // R3 BUG-1: the boundary must hold on the trigram path too — a 3+ char Latin
         // word must not hit substrings ("GRE" inside "degree"), while the standalone
         // word still matches; CJK keeps substring semantics.
-        add_block_json(&mut conn, &tid, "a degree of freedom in Great Deluge", None, None, None)
+        add_block_json(&mut conn, &tid, "a degree of freedom in Great Deluge", None, None, None, false)
             .unwrap();
-        add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None).unwrap();
+        add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None, false).unwrap();
         let res: Value =
             serde_json::from_str(&search_blocks_json(&conn, "GRE", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1, "{res}");
@@ -5613,15 +5735,15 @@ mod tests {
         .unwrap();
         assert!(long.chars().count() < 120, "headline echoes the whole query: {}", long.chars().count());
 
-        // A write that tripped the bare-id detector must not read as a clean success.
-        let warned = human_headline(
+        // D-1: there is no "written, but…" headline any more — a dirty write never gets
+        // this far. What the success line owes the user is the project and the number.
+        let stored = human_headline(
             "add_block",
             &json!({}),
-            &json!({ "seq": 2, "warning": "文本中疑似包含内部 id(content:「LabBkMl00000000000008」)。" })
-                .to_string(),
+            &json!({ "seq": 2, "thread_title": "机器学习课作业" }).to_string(),
         )
         .unwrap();
-        assert!(warned.contains("#2") && warned.contains("内部 id"), "{warned}");
+        assert!(stored.contains("#2") && stored.contains("〈机器学习课作业〉"), "{stored}");
 
         // The summary write names the project — the title is the only handle the AI may
         // say out loud, and it is right there in the payload.
@@ -5813,9 +5935,11 @@ mod tests {
         assert!(d_empty.contains("窗口内没有新块"), "{d_empty}");
     }
 
-    // v2.4 (D1/5b): the raw-id write warning — advisory, never blocks the write.
+    // D-1 / D-2 (三方评审 2026-08-04, Ocean 拍板): the write surfaces refuse a raw id
+    // outright — the old behaviour warned AFTER committing, so the reviewer's test block
+    // is a permanent library finding to this day. Plus §3.1-2's dry_run.
     #[test]
-    fn add_block_warns_on_suspect_raw_id() {
+    fn write_tools_refuse_raw_ids_and_can_dry_run() {
         store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         // Shape checks on the detector itself.
         assert_eq!(
@@ -5827,6 +5951,9 @@ mod tests {
         assert_eq!(suspect_raw_id("sbC2zgTo9dWyq_x1XPLNM9"), None); // 22-char run
         assert_eq!(suspect_raw_id("词sbC2zgTo9dWyq_x1XPLNM词"), Some("sbC2zgTo9dWyq_x1XPLNM".into()));
         assert_eq!(suspect_raw_id(""), None);
+        // D-2's window list is what lets an id glued to a prefix still be found.
+        assert!(id_windows("ref-sbC2zgTo9dWyq_x1XPLNM").contains(&"sbC2zgTo9dWyq_x1XPLNM".to_string()));
+        assert!(id_windows("短".repeat(30).as_str()).is_empty());
 
         let tmp = std::env::temp_dir().join(format!("spool-mcp-warn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -5843,77 +5970,113 @@ mod tests {
         .unwrap();
         drop(conn);
         let mut conn = open_db_rw(&tmp).unwrap();
-        let out = create_thread_json(&conn, None, "警告测试", None).unwrap();
+        let out = create_thread_json(&conn, None, "拒绝测试", None).unwrap();
         let tid = serde_json::from_str::<Value>(&out).unwrap()["thread_id"]
             .as_str()
             .unwrap()
             .to_string();
+        let count = |c: &Connection| -> i64 {
+            c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0)).unwrap()
+        };
 
-        // Clean content: no warning key at all.
+        // Clean content writes, and says which project and which number it landed on.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None, None).unwrap(),
+            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None, None, false).unwrap(),
         )
         .unwrap();
-        assert!(v.get("warning").is_none());
+        assert_eq!(v["thread_title"], "拒绝测试");
+        assert_eq!(v["seq"], 1);
+        let cited_id = v["block_id"].as_str().unwrap().to_string();
+        assert_eq!(count(&conn), 1);
 
-        // Suspect id in the annotation: still written verbatim, warning names the match.
-        let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM"), None)
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
-        let stored: String = conn
-            .query_row(
-                "SELECT annotation FROM blocks WHERE id = ?1",
-                [v["block_id"].as_str().unwrap()],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(stored, "对应 sbC2zgTo9dWyq_x1XPLNM");
+        // D-1: an id in ANY surface refuses, and refuses BEFORE the insert — the row
+        // count is the assertion that matters, the message is secondary.
+        for (content, source, annotation) in [
+            ("结论 sbC2zgTo9dWyq_x1XPLNM", None, None),
+            ("结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM")),
+            ("结论", Some("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM"), None),
+        ] {
+            let err = add_block_json(&mut conn, &tid, content, source, annotation, None, false)
+                .unwrap_err();
+            assert!(err.contains("没有写入任何东西"), "{err}");
+            // §3.1-3: the refusal never echoes the id it refused.
+            assert!(!err.contains("sbC2zgTo9dWyq_x1XPLNM"), "{err}");
+            assert_eq!(count(&conn), 1, "refused writes must leave no row");
+        }
 
-        // R4 P2-1: every free-text write surface warns — the add_block source detail,
-        // create_thread title/summary, set_thread_summary. Writes still land verbatim.
-        let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "结论", Some("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM"), None, None)
-                .unwrap(),
+        // D-2: a REAL id from this library is caught even glued behind a prefix, where
+        // the 21-char-run detector cannot see it — and the refusal names the block in
+        // words the user could actually be told.
+        let err = add_block_json(
+            &mut conn,
+            &tid,
+            &format!("见 block-{cited_id} 那条"),
+            None,
+            None,
+            None,
+            false,
         )
-        .unwrap();
-        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"), "{v}");
-        let v: Value = serde_json::from_str(
-            &create_thread_json(&conn, None, "新题", Some("接 sbC2zgTo9dWyq_x1XPLNM 继续")).unwrap(),
-        )
-        .unwrap();
-        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+        .unwrap_err();
+        assert!(err.contains("〈拒绝测试〉里 #1 那一块"), "{err}");
+        assert!(!err.contains(&cited_id), "{err}");
+        assert_eq!(count(&conn), 1);
+        // The project's own id, too.
+        let err =
+            add_block_json(&mut conn, &tid, &format!("项目 {tid} 的结论"), None, None, None, false)
+                .unwrap_err();
+        assert!(err.contains("项目〈拒绝测试〉"), "{err}");
+        assert_eq!(count(&conn), 1);
+
+        // Same guard on the other two write tools.
+        let err = create_thread_json(&conn, None, "新题", Some("接 sbC2zgTo9dWyq_x1XPLNM 继续"))
+            .unwrap_err();
+        assert!(err.contains("没有写入任何东西"), "{err}");
         let clean: Value =
             serde_json::from_str(&create_thread_json(&conn, None, "干净标题", None).unwrap())
                 .unwrap();
-        assert!(clean.get("warning").is_none());
         let sid = clean["thread_id"].as_str().unwrap();
-        let v: Value = serde_json::from_str(
-            &set_thread_summary_json(&conn, sid, "总结见 sbC2zgTo9dWyq_x1XPLNM").unwrap(),
-        )
-        .unwrap();
-        assert!(v["warning"].as_str().unwrap().contains("sbC2zgTo9dWyq_x1XPLNM"));
+        let err = set_thread_summary_json(&conn, sid, "总结见 sbC2zgTo9dWyq_x1XPLNM").unwrap_err();
+        assert!(err.contains("没有写入任何东西"), "{err}");
+        let stored: Option<String> = conn
+            .query_row("SELECT summary FROM threads WHERE id = ?1", [sid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored, None, "a refused summary must not land either");
 
-        // R5 P3-1: with several dirty surfaces in one call, the warning names each
-        // surface with its own match instead of stopping at the first.
+        // §3.1-2 dry_run: full verdict, zero rows. Including the verdict "this would be
+        // refused" — a dry run that passed what the real call rejects would be useless.
         let v: Value = serde_json::from_str(
-            &add_block_json(
-                &mut conn,
-                &tid,
-                "正文串 sbAAAAAAAAAAAAAAAAAAB",
-                Some("来源串 sbCCCCCCCCCCCCCCCCCCd"),
-                Some("批注串 sbBBBBBBBBBBBBBBBBBBc"),
-                None,
-            )
-            .unwrap(),
+            &add_block_json(&mut conn, &tid, "  预演内容  ", Some("笔记"), Some("批注"), Some(&cited_id), true)
+                .unwrap(),
         )
         .unwrap();
-        let w = v["warning"].as_str().unwrap();
-        assert!(w.contains("content:「sbAAAAAAAAAAAAAAAAAAB」"), "{w}");
-        assert!(w.contains("annotation:「sbBBBBBBBBBBBBBBBBBBc」"), "{w}");
-        assert!(w.contains("source:「sbCCCCCCCCCCCCCCCCCCd」"), "{w}");
+        assert_eq!(v["dry_run"], true);
+        assert_eq!(v["written"], false);
+        assert_eq!(v["thread_title"], "拒绝测试");
+        assert_eq!(v["would_be_seq"], 2);
+        assert_eq!(v["content"], "预演内容");
+        assert_eq!(v["annotation"], "批注");
+        assert_eq!(v["source"].as_str().unwrap(), mcp_source_label() + " — 笔记");
+        assert_eq!(count(&conn), 1, "dry_run must not write");
+        assert!(add_block_json(&mut conn, &tid, "预演 sbC2zgTo9dWyq_x1XPLNM", None, None, None, true)
+            .is_err());
+        // And the headline says out loud that nothing happened.
+        let line = human_headline(
+            "add_block",
+            &json!({ "thread_id": tid, "content": "预演内容", "dry_run": true }),
+            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, true).unwrap(),
+        )
+        .unwrap();
+        assert!(line.contains("还没有写进 Spool"), "{line}");
+        assert!(line.contains("#2"), "{line}");
+
+        // The real call still works after all that, and lands on the number the dry run
+        // promised.
+        let v: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, false).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["seq"], 2);
+        assert_eq!(count(&conn), 2);
     }
 
     // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal
@@ -6075,7 +6238,8 @@ mod tests {
         let no_filters = BlockFilters { pinned: None, has_annotation: None, source_contains: None };
         let err =
             get_blocks_json(&conn, "nope", None, None, None, None, &no_filters, false).unwrap_err();
-        assert!(err.starts_with("No project with id"), "{err}");
+        assert!(err.starts_with("No project has that id"), "{err}");
+        assert!(!err.contains("nope"), "{err}");
         let pack = get_pack_text(&conn, "t1", "all").unwrap();
         assert!(pack.contains("Respond in English"), "{pack}");
         // The model-facing half of the pack does NOT translate (§19.13).
@@ -6088,7 +6252,9 @@ mod tests {
         let no_filters = BlockFilters { pinned: None, has_annotation: None, source_contains: None };
         let err =
             get_blocks_json(&conn, "nope", None, None, None, None, &no_filters, false).unwrap_err();
-        assert!(err.starts_with("没有 id 为"), "{err}");
+        assert!(err.starts_with("没有这个 id 对应的项目"), "{err}");
+        // §3.1-3: neither language may echo what was passed in.
+        assert!(!err.contains("nope"), "{err}");
         let pack = get_pack_text(&conn, "t1", "all").unwrap();
         assert!(pack.contains("Respond in Simplified Chinese"), "{pack}");
         assert!(pack.contains("## How to Read This Context"), "{pack}");
