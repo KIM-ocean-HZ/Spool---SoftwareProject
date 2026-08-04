@@ -13,13 +13,14 @@
 ## 0. 一句话状态
 
 **实机评审的 B 组十一条全部修完;H-2(工具化)、H-6(必填参数)按批复做完;
+两者都已在 Claude Code 客户端里实机验过(§2.4);
 H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重写。**(2026-08-04)
-**Ocean 明示:先不推 main。** 推之前必须再问一次。本地已攒 9 个提交,工作区干净。
+**Ocean 明示:先不推 main。** 推之前必须再问一次。本地已攒 13 个提交,工作区干净。
 基线全绿:`npx tsc -b` / `npx vitest run`(**161**,+1)/ `cargo test`(**18**,+1)。
 真库这一窗**一个字都没动**(MCP 实验室走 `SPOOL_DATA_DIR`,和真库物理隔离)。
 
-**👉 下一窗第一件事:读 §1,那里只有一条 —— 等 Ocean 批两份设计稿。**
-在他批之前能做的只有 §2.4 的收尾(Claude Code 里那一步实机验证)。
+**👉 下一窗第一件事:读 §1。MCP 这一轮的代码活已经干完并验完了,
+剩下的全部卡在「等 Ocean 批两份设计稿」上。** 他没批之前别自己开工那两条(硬规则 6)。
 
 ---
 
@@ -29,9 +30,8 @@ H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重�
 |---|---|---|
 | A | 🚩 **`docs/DESIGN_MCP_ZERO_FRICTION.md`**(H-5 零摩擦引导)—— 四个决定,Ocean 拍完就能开工 | 等批复(硬规则 6) |
 | B | 🚩 **`docs/DESIGN_SCHEMA_V9.md`**(H-1 可见编号 + H-3 PDF 全文搜索)—— 两个决定,两条必须并成一次迁移 | 等批复。⚠️ 动 schema 前备份真库 |
-| C | **Claude Code 里跑一遍新构建的回归**(§2.4 有完整操作流程) | 需要重启 Claude Code / VS Code 才能连上新程序 |
-| D | 第二轮实机评审(Claude Desktop + ChatGPT)| 提示词已备好在 `docs/MCP_LAB_PROMPT.md`,等 Ocean 有空跑 |
-| E | 长期计划里挑一条开工 —— 第 2 条 Claude Code 引擎位**已批复可开工** | §4 表格 |
+| C | 第二轮实机评审(Claude Desktop + ChatGPT)| 提示词已备好在 `docs/MCP_LAB_PROMPT.md`,等 Ocean 有空跑 |
+| D | 长期计划里挑一条开工 —— 第 2 条 Claude Code 引擎位**已批复可开工**,是唯一一条不用再拍板的 | §4 表格 |
 
 **要等别的事先完成的**:
 
@@ -111,9 +111,9 @@ H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重�
   时间戳一样,而重复块本来就常常是同一批进来的,正好在最需要区分的场合失效。
   所以建议走正路(落库的 `seq`)。也写明了顺序:**可见编号必须排在「写入硬拒裸 id」(D-1)之前**。
 
-### 2.4 🚩 实机验证:做了什么、还差什么(下一窗接着做)
+### 2.4 实机验证 —— **两层都过了,这条已收尾**
 
-**已经验过的(真 stdio,和客户端 spawn 的是同一个启动脚本、同一份程序、同一套环境)**:
+**第一层:真 stdio**(和客户端 spawn 的是同一个启动脚本、同一份程序、同一套环境):
 
 | 项 | 结果 |
 |---|---|
@@ -129,41 +129,45 @@ H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重�
 | 歧义 | 「机器学习」→ 列出两个候选 |
 | 空项目 | 「〈菜谱〉还没有任何块。」 |
 
-**还差的一步,和为什么差**:Claude Code 会话里连着的 `spool_lab` 是**旧的那份程序副本**
-(MCP 服务器是客户端启动时 spawn 的,改了程序不重启就还是旧的)。
-这一窗在 Claude Code 里**实测复现了旧版的 bug**(`max_chars=8000` 回 140 字、
-照它建议换 `range=pinned` 又失败一次),**但新版没能在客户端里点一次**。
+**第二层:Claude Code 客户端里真点了一遍**(Ocean 2026-08-04 重启 VS Code 之后):
 
-真 stdio 验不了的只有一件事:**Claude Code 客户端侧的必填参数拦截**
-(H-6 那条 bug 就发生在客户端,请求根本没到服务器)。`prompts/list` 现在
-四个 prompt 全是 `required: false`(已实测),按理点一下就能跑,但**要点过才算数**。
+| 验什么 | 结果 |
+|---|---|
+| **H-6** `/mcp__spool_lab__distill` 什么都不填 | ✅ 不再报 `Missing required argument`,回项目清单 + 问用户要哪个 |
+| **B-1** `max_chars=8000` | ✅ 拿到真 pack;`Budget note` 那行在;附件正文压到 2000 字并原地标了「还有 5800 字没显示」 |
+| **H-2** 三个新工具 | ✅ `thread_health` / `distill` / `weekly_review` 都在工具列表里,直接调得动 |
+| **H-2 语义** 材料 vs 指令分得清 | ✅ `# 体检报告` 和 `# 你要做的` 两段边界清楚,模型不会把指令当内容贴给用户 |
+| 写入开关自报 | ✅ 报告末尾带「写入已开启:用户点头之后才调用」 |
+| 检测器在真实数据上 | ✅ 重复(相似度 1.0 那两条正则化笔记)、悬空引用、两处裸 id 都抓到,并写明各自指向哪里 |
 
-**操作流程(给 Ocean 或下一窗执行)**:
+**为什么必须分两层验**:真 stdio 验不了 **Claude Code 客户端侧的必填参数拦截** ——
+H-6 那条 bug 就发生在客户端,请求根本没发到服务器,服务器侧怎么测都测不出来。
+而客户端要连上新程序**必须重启**(见硬规则 11)。
+
+**下次改完 MCP 代码,照这个顺序重跑一遍**:
 
 ```
-# 1. 重建程序 + 重播实验室(改过 Rust 就必须做,这一窗已经做过了)
+# 1. 重建程序 + 重播实验室(改过 Rust 就必须做)
 cd ~/Desktop/Knote/src-tauri && cargo build --release
 cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh
 
 # 2. 重启 Claude Code —— 在 VS Code 里就是重开窗口(⌘⇧P → Reload Window)
 #    ⚠️ 当前会话会断,所以这一步放在一轮对话的最后做
 
-# 3. 重开之后,在 Claude Code 里逐条点:
-#    /mcp__spool_lab__distill              ← 什么都不填,直接回车
-#    /mcp__spool_lab__thread_health        ← 什么都不填,直接回车
-#    /mcp__spool_lab__weekly_review        ← 什么都不填
-#    /mcp__spool_lab__compress_pack        ← 什么都不填
-#    期望:四个都不报 "Missing required argument",而是回一份项目清单 + 问你要哪一个
+# 3. 重开之后逐条点(什么都不填,直接回车):
+#    /mcp__spool_lab__distill  /mcp__spool_lab__thread_health
+#    /mcp__spool_lab__weekly_review  /mcp__spool_lab__compress_pack
+#    期望:都不报 "Missing required argument",而是回项目清单
 #
-# 4. 再让 AI 调一次工具版:「用 spool_lab 给机器学习课做个体检」
-#    期望:它调 mcp__spool_lab__thread_health,不需要你点任何菜单
+# 4. 让 AI 调工具版:「用 spool_lab 给机器学习课做个体检」
+#    期望:它自己调 mcp__spool_lab__thread_health,不用点任何菜单
 #
-# 5. 最后核对预算那条:「用 spool_lab 读机器学习课的 pack,max_chars 传 8000」
-#    期望:拿到一份真的 pack(7637 字符左右),不是一句"超了"
+# 5. 核对预算:「用 spool_lab 读机器学习课的 pack,max_chars 传 8000」
+#    期望:拿到一份真 pack(7600 字左右),不是一句"超了"
 ```
 
 ⚠️ **`~/.claude.json` 是 Claude Code 自己的状态文件,它可能在退出时回写** ——
-重启之后复查一眼 `spool_lab` 还在不在。
+重启之后复查一眼 `spool_lab` 还在不在。(这一次实测:重启后还在,没被回写掉。)
 
 ### 2.5 第二轮评审提示词 —— 提交 `c16cd20`
 
@@ -225,7 +229,7 @@ Ocean 2026-08-03 指出:**MCP 新增接口和 Windows 版这两条,在 08-02 那
 
 | # | 计划 | 状态 | 细节在哪 |
 |---|---|---|---|
-| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **已实现并已按实机反馈修过一轮**(2026-08-04:三个同时做成工具,必填参数取消)。等第二轮评审报告 | 实现见 §2.1–2.2;原设计 `docs/DESIGN_NEXT_STAGE.md` §4.2(⚠️ 其中「斜杠菜单即发现面」的前提已被实测推翻,见第 7 条) |
+| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **已实现,已按实机反馈修过一轮,并已在 Claude Code 客户端里验过**(2026-08-04:三个同时做成工具,必填参数取消)。等第二轮评审报告 | 实现见 §2.1–2.2,验证见 §2.4;原设计 `docs/DESIGN_NEXT_STAGE.md` §4.2(⚠️ 其中「斜杠菜单即发现面」的前提已被实测推翻,见第 7 条) |
 | 2 | **Claude Code 引擎位**(`claude -p` headless + 挂自己的 MCP server) | 设计稿**已批复可开工**,目标 v0.4.0,未动手 | `docs/DESIGN_AI_ENGINE.md`(§4.1 的细化稿) |
 | 3 | **AI 活动面**(脉络级折叠区,纯读,从 source + 时间聚合) | 未开工 | `DESIGN_NEXT_STAGE.md` §4.3 |
 | 4 | **「我的思考」凸显**(只看我写的过滤;摘要区分我的批注 vs AI 结论) | 未开工。两份实机报告独立要到了这条(`source_contains` 表达不了「source 为空」) | `DESIGN_NEXT_STAGE.md` §4.4 |
