@@ -2349,8 +2349,10 @@ fn create_thread_json(
             .map_err(|e| e.to_string())?;
         if let Some(existing) = twin {
             return Err(format!(
-                "工作区「{ws_title}」里已经有一个叫〈{title}〉的项目了(thread_id: {existing})。\
-                 Spool 没有删除接口,建重了就永远留在那儿。要么直接往那个项目里 add_block,\
+                "工作区「{ws_title}」里已经有一个叫〈{title}〉的项目了。\
+                 Spool 没有删除接口,建重了就永远留在那儿,而标题是唯一能对用户称呼项目的\
+                 东西——两个同名的谁也说不清。要么直接往那个项目里 add_block(它的 \
+                 thread_id 是 {existing},仅供你当参数用,别说给用户听),\
                  要么把标题改成能和它区分开的说法。"
             ));
         }
