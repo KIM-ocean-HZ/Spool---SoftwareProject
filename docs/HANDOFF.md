@@ -12,15 +12,15 @@
 
 ## 0. 一句话状态
 
-**实机评审的 B 组十一条全部修完;H-2(工具化)、H-6(必填参数)按批复做完;
-两者都已在 Claude Code 客户端里实机验过(§2.4);
-H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重写。**(2026-08-04)
-**Ocean 明示:先不推 main。** 推之前必须再问一次。本地已攒 13 个提交,工作区干净。
-基线全绿:`npx tsc -b` / `npx vitest run`(**161**,+1)/ `cargo test`(**18**,+1)。
-真库这一窗**一个字都没动**(MCP 实验室走 `SPOOL_DATA_DIR`,和真库物理隔离)。
+**两份待批设计稿全部批复并全部落地:schema v9(可见编号 + PDF 正文能搜到)、
+MCP 零摩擦四个决定;外加 Ocean 新提的「MCP 说话跟随设置语言」。**(2026-08-04)
+**Ocean 明示:先不推 main。** 推之前必须再问一次。本地已攒 17 个提交,工作区干净。
+基线全绿:`npx tsc -b` / `npx vitest run`(**163**,+2)/ `cargo test`(**19**,+1)。
+真库这一窗**没有被迁移**(见 §1 第一条 —— 需要 Ocean 点头换装才会发生),
+迁移前已备份 `spool.db.backup-20260804-141006-preschema-v9`,并在真库副本上**预演过一次**:
+12 块进 12 块出,`integrity_check` = ok,编号按项目从 1 开始。
 
-**👉 下一窗第一件事:读 §1。MCP 这一轮的代码活已经干完并验完了,
-剩下的全部卡在「等 Ocean 批两份设计稿」上。** 他没批之前别自己开工那两条(硬规则 6)。
+**👉 下一窗第一件事:读 §1。**
 
 ---
 
@@ -28,10 +28,10 @@ H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重�
 
 | # | 事情 | 卡在哪 |
 |---|---|---|
-| A | 🚩 **`docs/DESIGN_MCP_ZERO_FRICTION.md`**(H-5 零摩擦引导)—— 四个决定,Ocean 拍完就能开工 | 等批复(硬规则 6) |
-| B | 🚩 **`docs/DESIGN_SCHEMA_V9.md`**(H-1 可见编号 + H-3 PDF 全文搜索)—— 两个决定,两条必须并成一次迁移 | 等批复。⚠️ 动 schema 前备份真库 |
-| C | 第二轮实机评审(Claude Desktop + ChatGPT)| 提示词已备好在 `docs/MCP_LAB_PROMPT.md`,等 Ocean 有空跑 |
-| D | 长期计划里挑一条开工 —— 第 2 条 Claude Code 引擎位**已批复可开工**,是唯一一条不用再拍板的 | §4 表格 |
+| A | 🚩 **换装 `/Applications/Spool.app`,让真库跑完 v9 迁移** —— 不换装,真库这条 MCP 通路会一直拒绝读(报「先把 Spool 启动一次」)。做法照抄 §5.3 | **等 Ocean 明示**(硬规则 7) |
+| B | 第二轮实机评审(Claude Desktop + ChatGPT)| 提示词在 `docs/MCP_LAB_PROMPT.md`,**需要按这一窗的改动更新一遍**(见 §3.5),等 Ocean 有空跑 |
+| C | 长期计划里挑一条开工 —— 第 2 条 Claude Code 引擎位**已批复可开工**,是唯一一条不用再拍板的 | §4 表格 |
+| D | **D-1:add_block 检测到裸 id 就硬拒绝** —— 可见编号已经落地,AI 再也没有理由写裸 id,硬拒绝从此没有代价 | 可开工,不需要拍板(原 DESIGN_SCHEMA_V9 §4 写明「必须排在 H-1 之后」,现在满足了) |
 
 **要等别的事先完成的**:
 
@@ -45,104 +45,107 @@ H-5 与 H-1+H-3 出了设计稿等 Ocean 拍板;第二轮评审提示词已重�
 
 ## 2. 这一窗做了什么(后来人会问的)
 
-### 2.1 B 组十一条 —— 提交 `25795e0`
+Ocean 2026-08-04 的批复原话(五条):① MCP 语言要跟随设置语言;②「schema v9 可见编号
+走正路」+「App 里长什么样选 a」;③ ZERO_FRICTION 四个决定全批,开工;④ 长期计划第 2 条
+可开工;⑤ 确认 mcp.rs 底部那堆测试代码不进发布版。
 
-上一窗分诊出「确认为真、在主路径上、不需要拍板」的十一条,一次修完。**主犯是 B-1**:
+**⑤ 当场答复:确认不进。** [mcp.rs 的 `#[cfg(test)]`](../src-tauri/src/mcp.rs) 把后面一千四百多行
+整段圈起来,`cargo build --release` 根本不编译它。里面 `include_str!` 读的 schema.sql、
+造的临时库,只在 `cargo test` 时存在。
 
-- **B-1**:一个置顶块挂着 7800 字的附件抽取正文,而**附件正文在 pack 里完全不受预算约束**
-  —— 骨架 + 全部置顶就已经过线,`budgeted_pack` 直接放弃,`max_chars=8000` 只回一句
-  「超了」(140 字)。而且那句话推荐 `range=pinned`,照做会**一模一样地再失败一次**
-  (置顶本身就是下限)。
-  **改法**:附件正文成为**第二个预算维度**。先丢最旧的时间线块(原有逻辑),
-  还装不下才逐级压附件正文(8000→2000→500→120),每一刀都在原地写明
-  (`[... truncated, N more chars not shown ...]`),并在 pack 顶部加一行 `Budget note:`。
-  实在装不下时的那句话改成:「下限是 4137 字符,把 max_chars 提到 4137 以上,
-  或者用 get_blocks 分页——它不受这个预算约束」。
-- **B-2**:`range=last7/last30` 把置顶块整个丢掉。置顶在别处一律是「永不删」
-  (超预算裁剪的最高档),同一个概念两处相反。**TS 侧同步改了**(PackDialog 也吃这条)。
-- **B-3**:range 模式下 pack 表头写「3 blocks total」,别的 AI 会以为这个项目总共 3 块。
-  现在写「3 of 17 blocks in this project (range: last7 …)」。
-  ⚠️ **`range=all` 一个字节都没变,所以 golden 没重生**(比原计划省了一轮)。
-- **B-4**:`approx_pack_chars` 少算骨架和每块的脚手架,实测低估约 47%。现在骨架是
-  **量出来的**(空 pack 即骨架,`pack_skeleton_chars()` 用 OnceLock 算一次),
-  每块的时间戳/来源/置顶占位行也计入。实测 12979 vs 真值 13229 —— 低 2%。
-- **B-5**:`get_blocks` 完全不暴露附件,而超预算时恰恰建议走它。现在每块带附件清单
-  和 `extracted_chars`,`include_extracted_text=true` 才内联正文(默认 false:
-  一份讲义 8000 字会把每一页都撑爆)。
-- **B-6**:`search_blocks` 命中里加 `source` + `pinned`(授权四类全靠 source 判定)。
-- **B-7**:`search_blocks` 加 `offset`。
-- **B-8**:`list_threads` 加 `summary_source`(`user`/`mcp`/`null`),**按写入守卫的口径归一化**
-  —— 有摘要且不是 `mcp` 就是 `user`(老行是 NULL)。
-- **B-9**:数值参数小数直接当没传过。现在小数/字符串都收(截断取整),
-  并回显 effective 值(`offset`/`limit`/`max_groups`;digest 头部加了预算)。
-- **B-10**:`create_thread` 允许同工作区同名且零提示 —— 而 Spool 没有删除接口,
-  建重了永远留着,标题又是唯一能对用户称呼项目的东西。**改为拒绝**并指出已有那个。
-  (提交 `9733c45` 把拒绝话术里的 id 标成「仅供你当参数用,别说给用户听」。)
-- **B-11**:digest 的「共 11 条在库」其实是 11 **个项目**;空项目提示不带项目名;
-  instructions 里「truncated pointers」说得不准;半角/全角混排。
+### 2.1 schema v9 —— 提交 `182c314`
 
-**两条假问题没动**(上一窗已实测证伪):check_library 的摘要扫描没错(是种子数据造错了,
-上一窗已修);find_similar 和 check_library 数字对不上是时间差造成的错觉。
+**H-1 可见编号(走正路)**:`blocks.seq`,每个项目内单调递增、永不复用、**落库不派生**。
+派生的「按时间排第几」会在删掉一块之后把后面全改号 —— 用户昨天记下的 #12 今天指向别的
+东西,比没有编号更糟。存量按 `created_at ASC, rowid ASC` 回填,和 pack 的渲染顺序一致,
+所以老 pack 里的第几块就是 #几。
 
-### 2.2 H-2 工具化 + H-6 必填参数 —— 提交 `37ce47a`
+写入路径四条都改了,每条的理由不同:
 
-- **H-2(已批复)**:`weekly_review` / `thread_health` / `distill` **各多挂一个工具调用面**。
-  prompts 在两个主力客户端根本不暴露,只做成 prompt 等于没做。
-  两个面共用一个装配函数 **`guidance_text()`**,不会各长各的。
-  工具描述里写清了「返回的是材料 + 给你的指令,照着做,别整段贴给用户」。
-  **工具总数从 10 变 13。**
-- **H-6(已查准)**:`distill` / `thread_health` 的 `project` 声明成 `required: true`,
-  **Claude Code 在客户端侧就拦下了**,请求根本发不到服务器。
-  现在**四个 prompt 一个必填参数都没有**;不给项目时不报错,回的是现有项目清单 +
-  一句「问用户要哪一个,他答完你直接拿标题再调一次」。菜单点一下就有反应。
-  `compress_pack` 的 `thread_id` 一并改,并且 `project` / `thread_id` 两个名字**互相都认**。
+- `createBlock` / `add_block`:seq 在 **INSERT 语句内部**算(`SELECT MAX(seq)+1`)。WAL 串行化
+  写者,所以 GUI 和 MCP 子进程同时往同一个项目写也撞不上。
+- `insertBlocks`(批量转发):多行 VALUES **不能**自己算 —— 相关子查询看不看得见同一条语句里
+  前面刚插的行是不确定的,会发号重复或跳号。改成先读基数、再写字面量,唯一索引兜底。
+- `updateBlockThread`(改项目):必须重新取号,seq 是项目内的,原号搬过去会和别人撞。
+  **块换项目 = 换号**,这是设计使然。
+- `restoreBlock`(撤销删除):连原号一起还原。号不回收,不可能被别人占走。
 
-### 2.3 两份待批设计稿 —— 提交 `49cd992`
+**H-3 PDF 正文能被搜到**:⚠️ **实现和设计稿写的不一样,这里说明**。设计稿写的是
+「`blocks_fts` 加一列 `extracted`」,**SQLite 做不到** —— `blocks_fts` 是外部内容表
+(`content=blocks`),它的每一列都必须是 `blocks` 的真实列,而抽取正文在 `attachments` 上。
+改为给 `attachments` 建自己的 `attachments_fts` + 三个触发器:零重复存储,而且「哪个附件
+命中的」天然说得清(设计稿 §2 第 3 点要的就是这个)。
 
-硬规则 6:设计类任务先出方案。**这两份都没动代码。**
+因此 `search_blocks` 多了一栏 `attachment_hits`(带 `matched_in` 和是哪个文件),
+**单列一栏,没有并进 `hits`**:`offset`/`limit` 分的是块命中,两拨混在一个游标下会让分页说谎。
 
-- **`docs/DESIGN_MCP_ZERO_FRICTION.md`**(H-5)。四个决定。
-  ⚠️ 里面有个真问题要 Ocean 知道:「工具返回第一行说人话」这条,
-  **`get_pack` 的返回是用户要原样粘给别的 AI 的东西**,前面加一行就多了一行不属于 pack
-  的话 —— 给了三个选项,我建议「除 get_pack 外都加」。
-  另外说明:H-2 和 H-6 落地之后,他三条要求里的 ③ 已经解决了一半。
-- **`docs/DESIGN_SCHEMA_V9.md`**(H-1 + H-3)。两个决定。
-  H-1 的**便宜路线(时间戳当编号)解不掉重复块那个真问题** —— 同一分钟捕捉进来的两块
-  时间戳一样,而重复块本来就常常是同一批进来的,正好在最需要区分的场合失效。
-  所以建议走正路(落库的 `seq`)。也写明了顺序:**可见编号必须排在「写入硬拒裸 id」(D-1)之前**。
+⚠️ **本轮只做了 MCP 侧的附件搜索**。App 自己的搜索框(`src/lib/search/query.ts`)仍然搜不到
+PDF 正文 —— 设计稿点名的是 `search_blocks`,而 app 搜索要改就得动 `SearchField` 类型、
+片段渲染、块内 `<mark>` 跳转那一整条链,是另一件事。**Ocean 要的话再开一轮。**
 
-### 2.4 实机验证 —— **两层都过了,这条已收尾**
+**App 侧(样式 a)**:提交 `268dccd`。编号在时间戳左边,灰色等宽小字,不抢戏。
+点一下把这块滚到屏幕中间并闪一下(Ocean 原话「点击高亮显示该 block」)。
+v9 之前的块 seq 为空,那种行一个字都不多显示。
 
-**第一层:真 stdio**(和客户端 spawn 的是同一个启动脚本、同一份程序、同一套环境):
+### 2.2 MCP 说话跟随设置语言 —— 同提交 `182c314`
 
-| 项 | 结果 |
-|---|---|
-| `max_chars=8000` | 拿到 **7637 字符的部分 pack**(旧版:140 字的"超了")。附件正文压到 2000 字 |
-| `max_chars=2000` | 拒绝,并告知下限 4137、该怎么办 |
-| `range=last7` 表头 | 「5 of 16 blocks in this project (range: last7 …)」,3 块置顶全在 |
-| `approx_pack_chars` | 12979 vs 真值 13229 |
-| `summary_source` | 「找工作」= user、「机器学习课」= null |
-| 附件暴露 | `extracted_chars: 7800`、`extraction_kind: "pdf"` |
-| 小数/负数/offset | 3.7→3、-5→1、offset 能翻完 total 23 |
-| 同名项目 | 拒绝,并说清该怎么办 |
-| 三个新工具 + 无参数 | 全部回得来;无参数回项目清单 |
-| 歧义 | 「机器学习」→ 列出两个候选 |
-| 空项目 | 「〈菜谱〉还没有任何块。」 |
+Ocean 问「目前词汇使用是不是仅中文」,答案是**混着的**:工具名、工具描述、
+initialize instructions、pack 的授权四类表头是英文;报错、digest 表头、库体检、
+项目体检、四段引导文全是中文(194 处)。
 
-**第二层:Claude Code 客户端里真点了一遍**(Ocean 2026-08-04 重启 VS Code 之后):
+**病根最重的一处**:pack 结尾的 `## Output Language` 写死「Respond in Simplified Chinese」。
+英文用户界面是英文的,pack 一贴出去,对面 AI 张口就是中文。
+
+**按 Ocean 拍的范围**:只有「人看得懂的那部分」跟随设置;
+工具名 / 工具描述 / initialize instructions / pack 授权表头**保持英文**
+(§19.13:模型跟英文指令更稳,尤其「绝不说 id」这类负向约束)。
+
+**语言从哪来** —— 这里有个坑值得记住:`settings.json` 里的 `language` 键
+**只有用户手动切过语言才会写**,它的「不存在」正是「跟随系统 locale」的意思
+(`settingsStore.ts` 有一整段红线写这个)。而 MCP 是独立进程,没有 navigator 可问。
+所以 app 每次 load 把**生效语言**镜像进一个新键 `resolvedLanguage`,MCP 读它。
+**`language` 本身的语义一个字没动。**
+
+实现上是 `t!` / `ts!` 两个宏 + 一个 `Lang`。⚠️ **语言状态是 thread-local,不是进程全局** ——
+测试并行跑,进程级全局意味着谁先碰到它谁就决定了别的测试用什么语言渲染,**已经真的抖出来
+一次**。每个断言中文的测试现在都自己写明 `store_lang(Lang::Zh)`。
+
+### 2.3 ZERO_FRICTION 四个决定 —— 提交 `04ea00f`、`4631c25`
+
+- **决定 1(走 a)**:除 `get_pack` 外每个工具的返回顶上加一行大白话,内容全部从即将
+  返回的那份数据里算出来,两者不可能对不上。`add_block` 那行报 **#编号** —— 用户真能在
+  应用里找到的东西。`get_pack` 按批复不加:它的返回是要原样粘给别的 AI 的。
+- **决定 2**:initialize instructions 开头加一段「用户会怎么开口」,四组常见说法对应哪个
+  工具;并要求第一轮如果用户没具体问什么,**用他自己的项目名**一句话说清能帮他做什么
+  (先调 list_threads,例子必须是真的)。
+- **决定 3**:用法收口到**设置里那段可复制的开场白**。原来那段是给 AI 读的工作规则,
+  人读了不知道自己该干什么;重写成人也看得懂的开场白(三句示例问法 + 两条规矩)。
+  官网和 README 不再自己列用法,改成指路。**官网改完已重跑 `build-site-zh.mjs`**。
+- **决定 4**:教程种子里「一键接入 Claude Desktop / Cursor」→「设置 → MCP,一键接上你在用的
+  AI 客户端」。不列客户端名字(列了要维护,商标那条 §5.6 也说了会过期)。EN 同步。
+
+### 2.4 顺手补的两处(不在批复里,但撞上了)
+
+- **读也做版本检查了**。MCP 服务随 Spool.app 一起装,换新版之后客户端拿到的是新服务、
+  磁盘上还是旧库(迁移发生在应用里,MCP 进程只读)。这个错配原来会以
+  「`no such column: b.seq`」的样子冒出来,用户完全不知道该干什么;现在直说
+  「先把 Spool 启动一次」。反过来库比服务新,就告诉他客户端连的是旧程序。
+- **实验室种子跟到 v9**(含 seq 回填,和迁移同一套口径)。
+
+### 2.5 验证 —— 真 stdio 走了一遍,两种语言都验了
 
 | 验什么 | 结果 |
 |---|---|
-| **H-6** `/mcp__spool_lab__distill` 什么都不填 | ✅ 不再报 `Missing required argument`,回项目清单 + 问用户要哪个 |
-| **B-1** `max_chars=8000` | ✅ 拿到真 pack;`Budget note` 那行在;附件正文压到 2000 字并原地标了「还有 5800 字没显示」 |
-| **H-2** 三个新工具 | ✅ `thread_health` / `distill` / `weekly_review` 都在工具列表里,直接调得动 |
-| **H-2 语义** 材料 vs 指令分得清 | ✅ `# 体检报告` 和 `# 你要做的` 两段边界清楚,模型不会把指令当内容贴给用户 |
-| 写入开关自报 | ✅ 报告末尾带「写入已开启:用户点头之后才调用」 |
-| 检测器在真实数据上 | ✅ 重复(相似度 1.0 那两条正则化笔记)、悬空引用、两处裸 id 都抓到,并写明各自指向哪里 |
+| pack 里的 `#12` | 16 块全带号;`📌 #14` 这种置顶块在两处(Pinned 与 Full Record)号一致 |
+| 重复组能不能区分 | 实验室里那三条一模一样的正则化笔记 → `#4 / #5 / #6`,**这正是编号要解决的场合** |
+| 附件正文搜得到 | 搜「谷底两侧」(只存在于 PDF 里)→ 块命中 0、`attachment_total` 1,并说清是 `lecture-03.pdf` |
+| 工具首行人话 | 「查了一遍重复:1 组内容高度相似(扫了 37 块)。合并要你自己在 Spool 里做。」 |
+| 无参数 `thread_health` | 回项目清单 + 问用户要哪个(H-6 没有回退) |
+| 语言跟随 | `resolvedLanguage` 改成 `en` 之后:体检报告、报错、项目清单全英文,**pack 结尾变成 Respond in English**;授权四类表头两种语言下都保持英文 |
+| 真库迁移预演 | 在真库副本上跑完 v8→v9:12 块进 12 块出,`integrity_check` = ok,编号按项目从 1 开始 |
 
-**为什么必须分两层验**:真 stdio 验不了 **Claude Code 客户端侧的必填参数拦截** ——
-H-6 那条 bug 就发生在客户端,请求根本没发到服务器,服务器侧怎么测都测不出来。
-而客户端要连上新程序**必须重启**(见硬规则 11)。
+**没验到的那一层**:Claude Code / Claude Desktop 客户端里的实机点击。
+需要 Ocean 重启客户端(硬规则 11)。**实验室已经是最新程序、最新数据,他重启就能测。**
 
 **下次改完 MCP 代码,照这个顺序重跑一遍**:
 
@@ -160,35 +163,20 @@ cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh
 #    期望:都不报 "Missing required argument",而是回项目清单
 #
 # 4. 让 AI 调工具版:「用 spool_lab 给机器学习课做个体检」
-#    期望:它自己调 mcp__spool_lab__thread_health,不用点任何菜单
+#    期望:它自己调 mcp__spool_lab__thread_health,返回第一行是人话
 #
-# 5. 核对预算:「用 spool_lab 读机器学习课的 pack,max_chars 传 8000」
-#    期望:拿到一份真 pack(7600 字左右),不是一句"超了"
+# 5. 核对编号:「用 spool_lab 读机器学习课的 pack」
+#    期望:每块带 #n;那三条重复的正则化笔记是 #4 / #5 / #6
 ```
 
 ⚠️ **`~/.claude.json` 是 Claude Code 自己的状态文件,它可能在退出时回写** ——
-重启之后复查一眼 `spool_lab` 还在不在。(这一次实测:重启后还在,没被回写掉。)
-
-### 2.5 第二轮评审提示词 —— 提交 `c16cd20`
-
-`docs/MCP_LAB_PROMPT.md` **整份重写**,不是换个日期:
-
-- 开头列「**已经知道并且已经决定了的,别再报**」六条。上一轮两份报告有一半篇幅
-  撞在同样几条上。
-- 必跑清单拆四部分:**R1–R11 是回归**(这一轮修的十一条,每条要 AI 给出
-  「修对/没修对/修出新问题」+ 复现参数);**N1–N3 是新东西**(三个新工具、无参数行为);
-  C 是常规读写快速过。
-- **新增 Z1–Z4**,直接问零摩擦那三条要求 —— 这一节是 `DESIGN_MCP_ZERO_FRICTION.md`
-  待批的直接输入。ChatGPT 那份还多问一句:**你到底有没有读到 initialize instructions**
-  (如果没有,那把用法写在那里就是白写)。
-- 补了一张「**本轮对答案速查**」(实测数值),用来当场判报告真假。
-- 文末 §5 写明 Claude Code 是**开发窗自己的回归自测台**,不是找茬评审。
+重启之后复查一眼 `spool_lab` 还在不在。
 
 ---
 
 ## 3. 还没还的旧账
 
-### 3.1 🚩 截图现在是旧术语了(两窗未还)
+### 3.1 🚩 截图现在是旧术语了(三窗未还)
 
 术语从「脉络/thread」改成「项目/project」之后,**官网上所有 app 截图里的文案都成了旧版**。
 最明显的一处:MCP 段那张图里 AI 回的是 "…or open a specific **thread**?"。
@@ -202,22 +190,27 @@ cd ~/Desktop/Knote && ./scripts/seed-mcp-lab.sh
 - 怎么修:演示库里现成就有 `Machine learning course`(Study 工作区)和 `Portfolio site`,
   把主截图和增长对照换成「机器学习课」那条线。脚本 `scripts/seed-growth-demo.sh day1|week6`
   现在写死的是找工作的内容,要改。
+- 🆕 **重拍时注意:块上现在多了 `#12` 这个新视觉元素**,老截图和新界面又多一处对不上。
 - ⚠️ **换完截图记得重跑 `scripts/build-site-shots.sh`**,再把它打印的 srcset 贴回 HTML。
 
-### 3.2 教程种子里的 MCP 说明过时
-
-还停在「一键接入 Claude Desktop / Cursor」,实际支持六个。
-Ocean 说这句「预留到以后和其他教程修订一起做」。
-**`DESIGN_MCP_ZERO_FRICTION.md` 的决定 4 就是这条**,批了就顺手改掉。
-
-### 3.3 `site/assets/shots/mcp-ask.png` 没有任何页面引用
+### 3.2 `site/assets/shots/mcp-ask.png` 没有任何页面引用
 
 本来就是死文件(CLAUDE.md §3:不擅自删预先存在的死代码)。要删得 Ocean 点头。
 
-### 3.4 网页工程债
+### 3.3 网页工程债
 
 没有 sitemap.xml、没有 robots.txt。没人提过,不确定要不要。
 (中文页 alt / `<noscript>` 已由 Ocean 2026-08-03 拍板**不写**,这条销案,别再提。)
+
+### 3.4 App 搜索框搜不到附件正文
+
+见 §2.1 末尾。MCP 侧已经能搜,app 自己的搜索框还不能。要动就是另一轮。
+
+### 3.5 `docs/MCP_LAB_PROMPT.md` 还是上一轮的
+
+R1–R11 回归项说的是上一轮修的十一条,Z1–Z4 问的是零摩擦那三条要求 —— **零摩擦已经落地了**,
+再照着问会问出一堆「已经做了」。下轮评审前要按这一窗的改动重写:可见编号、附件搜索、
+语言跟随、工具首行人话,都是新的可验证面。
 
 ---
 
@@ -229,13 +222,14 @@ Ocean 2026-08-03 指出:**MCP 新增接口和 Windows 版这两条,在 08-02 那
 
 | # | 计划 | 状态 | 细节在哪 |
 |---|---|---|---|
-| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **已实现,已按实机反馈修过一轮,并已在 Claude Code 客户端里验过**(2026-08-04:三个同时做成工具,必填参数取消)。等第二轮评审报告 | 实现见 §2.1–2.2,验证见 §2.4;原设计 `docs/DESIGN_NEXT_STAGE.md` §4.2(⚠️ 其中「斜杠菜单即发现面」的前提已被实测推翻,见第 7 条) |
+| 1 | **MCP 新增三个 prompt**:`weekly_review`(拉 digest → 周回顾块)、`thread_health`(查重+悬空+摘要过期,与 `check_library` 同口径)、`distill`(一条脉络提炼成结论块) | **已实现,已在 Claude Code 客户端里验过**(2026-08-04:三个同时做成工具,必填参数取消)。等第二轮评审报告 | 实现见上一版交接 §2.1–2.2;原设计 `docs/DESIGN_NEXT_STAGE.md` §4.2(⚠️ 其中「斜杠菜单即发现面」的前提已被实测推翻,见第 7 条) |
 | 2 | **Claude Code 引擎位**(`claude -p` headless + 挂自己的 MCP server) | 设计稿**已批复可开工**,目标 v0.4.0,未动手 | `docs/DESIGN_AI_ENGINE.md`(§4.1 的细化稿) |
 | 3 | **AI 活动面**(脉络级折叠区,纯读,从 source + 时间聚合) | 未开工 | `DESIGN_NEXT_STAGE.md` §4.3 |
 | 4 | **「我的思考」凸显**(只看我写的过滤;摘要区分我的批注 vs AI 结论) | 未开工。两份实机报告独立要到了这条(`source_contains` 表达不了「source 为空」) | `DESIGN_NEXT_STAGE.md` §4.4 |
 | 5 | **首日价值三小项**(捕捉满三条提示打包 / 今天读了什么日卡 / 讲透「没配 MCP 也全功能」) | 未开工。⚠️ 其中「提示打包」与首启那轮做的一次性收口是同一块地,做之前先看 `DESIGN_FIRST_RUN.md` §7 | `DESIGN_NEXT_STAGE.md` §4.5 |
-| 7 | **MCP 零摩擦使用引导**:不许用户零散拼凑用法、不许用户自己问「spool 能干什么」、不许用户不知道 AI 在调什么工具 | **设计稿已出,等 Ocean 批**。起因:实测主力客户端都不暴露 prompts,§4.2「斜杠菜单即发现面」的前提不成立 | `docs/DESIGN_MCP_ZERO_FRICTION.md` |
-| 8 | 🆕 **schema v9 那一轮**:块的可见编号(H-1)+ PDF 正文能被搜到(H-3)。两条必须并成一次迁移 | **设计稿已出,等 Ocean 批**。⚠️ 动手前备份真库 | `docs/DESIGN_SCHEMA_V9.md` |
+| 7 | **MCP 零摩擦使用引导** | ✅ **2026-08-04 全部落地**(四个决定),设计稿已删。剩下的验证在 §1 的 B | 实现见 §2.3 |
+| 8 | **schema v9 那一轮**:块的可见编号(H-1)+ PDF 正文能被搜到(H-3) | ✅ **2026-08-04 落地**,设计稿已删。⚠️ **真库还没迁移**,等换装(§1 的 A);app 搜索框那半截见 §3.4 | 实现见 §2.1 |
+| 9 | 🆕 **D-1:add_block 硬拒绝裸 id** + **D-2:拿库内真实 id 建索引做精确比对** | **可开工,不需要拍板**。可见编号已落地,前置条件满足 | 原 `DESIGN_SCHEMA_V9.md` §4,内容已并进本表 |
 | 6 | **Windows 版** | **排在所有任务最后**(Ocean 2026-07-30 定序),现在别动。三个待拍板(手势 / 签名花钱 / 首版范围)都要他本人决定 | `docs/DESIGN_WINDOWS_PORT.md` |
 
 > 上表第 1、3 条里的「脉络」是**设计稿原文的措辞**,照抄未改。真去实现时注意:
@@ -251,22 +245,24 @@ AI 的删除/撤回/编辑接口(append-only 是宪法级承诺)。
 
 ### 5.1 真库与备份
 
-- 真库:`~/Library/Application Support/com.oceanjin.spool/spool.db`
-- 最近一次备份:同目录 `spool.db.backup-20260803-215543-preinstall`(08-03 换装前)。
-  **这一窗没动过真库,也没做 schema 迁移**(`1823ab5` 之后 schema 没动过,仍是 v8)。
-- ⚠️ 一旦开工 §4 第 8 条(schema v9),**动手前先备份**(硬规则 3、
-  memory `spool-db-wipe-incident`)。
+- 真库:`~/Library/Application Support/com.oceanjin.spool/spool.db`,**现在仍是 schema v8**。
+- 这一窗的备份:同目录 `spool.db.backup-20260804-141006-preschema-v9`(动 schema 前做的,
+  用 `sqlite3 .backup`,已核对块数一致)。更早一份:`spool.db.backup-20260803-215543-preinstall`。
+- ⚠️ **真库的 v8→v9 迁移还没发生**,因为迁移只在 app 启动时跑,而 `/Applications/Spool.app`
+  还是旧构建。换装(§1 的 A)之后第一次启动才会迁移,**app 自己还会再存一份
+  `spool.pre-migration-v8-*.db`**。
+- 已在**真库副本**上预演过整条迁移,结果见 §2.5 最后一行。
 
 ### 5.2 隔离验证环境
 
 - **MCP 实验室**:`scripts/seed-mcp-lab.sh`
-  (`~/Library/Application Support/com.oceanjin.spool.lab/`)。**这一窗末尾是最新程序。**
+  (`~/Library/Application Support/com.oceanjin.spool.lab/`)。**这一窗末尾是最新程序 + 最新数据
+  (schema v9,块都带编号)**,Ocean 重启客户端就能测。
   - ⚠️ **别把它挪进桌面/文稿/下载** —— 那三个是 TCC 保护目录,Claude Desktop 没被授权时
     连启动脚本都 exec 不了(`Operation not permitted` + 一连上就断,2026-08-03 实测踩过)。
   - ⚠️ 它走的是**另一条隔离路线** —— `SPOOL_DATA_DIR` + 二进制副本,**不改 identifier、
     不装 app、不碰 GUI**。只验 MCP 面时用它,比重建 verify 构建轻得多。
-  - ⚠️ **改了 Rust 就必须 `cargo build --release` + 重跑本脚本 + 重启客户端**,
-    否则客户端连的还是旧程序(§2.4 就栽在这一步上)。
+  - ⚠️ **改了 Rust 就必须 `cargo build --release` + 重跑本脚本 + 重启客户端**,三步缺一不可。
 - **验证构建**:`src-tauri/target/release/bundle/macos/Spool.app`。⚠️ 它现在是
   `com.oceanjin.spool` + Developer ID 签名(08-03 为了换装重建的),**不是 verify 构建**。
   要做隔离验证,得改 identifier 重建 —— 改完**立刻**建、建完**立刻**改回来。
@@ -278,9 +274,9 @@ AI 的删除/撤回/编辑接口(append-only 是宪法级承诺)。
   很容易拍错窗口并误判「改动没生效」。完整规程和四条踩坑记录在 memory
   `isolated-verify-workflow` §10,动手前先读。
 
-### 5.3 换装:`/Applications/Spool.app` 现在是 main 的本地构建
+### 5.3 换装:`/Applications/Spool.app`
 
-08-03 换的,做法照抄:
+现在装的是 08-03 那次的本地构建(**不含这一窗的任何改动**)。重新换装照抄:
 
 1. **先备份真库**(硬规则 3)。
 2. ⚠️ **`target/release/bundle` 里那个构建的 identifier 可能是 `com.oceanjin.spool.verify`,
@@ -295,6 +291,8 @@ AI 的删除/撤回/编辑接口(append-only 是宪法级承诺)。
    ```
 4. 本地构建**没有公证**,但本地构建的文件没有 quarantine 属性,Gatekeeper 不拦。
    (对外发 Release 仍然要走公证,见 memory `distribution-route-notarized-dmg`。)
+5. 🆕 **换装后第一次启动会跑 v8→v9 迁移**。启动完核对一眼:块的左上角出现 `#1 #2 …`,
+   `sqlite3 spool.db 'PRAGMA user_version'` 是 9。
 
 ### 5.4 官网现在的骨架
 
@@ -340,7 +338,7 @@ Anthropic / OpenAI 要**事先书面批准**;Windsurf 要先问;Cursor 最宽松
   这不影响官网那句话,官网说的是下载包。)
 - ⚠️ **「macOS 12+」是 advice 编的,别写**。实测 `LSMinimumSystemVersion` 是 **10.13**。
   官网只写 **Apple Silicon**(这条是真的,dmg 只有 arm64)。
-- 自动化测试实际是 **161 vitest + 18 cargo**(本窗数字)。官网没写数字,回避掉了。
+- 自动化测试实际是 **163 vitest + 19 cargo**(本窗数字)。官网没写数字,回避掉了。
 - **本地签名凭据文件已结案**:Ocean 2026-08-02 批复「文件留在本机就行,`.gitignore` 挡住即可」。
   `docs/ID.txt` 已在 `.gitignore`,并核实**从未进过任何一次提交**。不撤销、不重发、不挪走,
   **更不许任何人擅自删他的文件**。
@@ -361,9 +359,9 @@ Anthropic / OpenAI 要**事先书面批准**;Windsurf 要先问;Cursor 最宽松
    `node scripts/build-site-zh.mjs`**(忘了会被 vitest 抓到)。
 5. 改 `assemble.ts`/`templates.ts` 输出必须 GOLDEN_WRITE=1 重生 golden 并同步 mcp.rs;
    **重生后把无关的时间戳漂移还原**(本机 UTC+8,一次重生会平移 7 小时,产生 7 行无关 diff);
-   动 schema 必须迁移注册表 + 双侧锁步常量(`EXPECTED_SCHEMA_VERSION` 现在是 **8**)+ 真库备份。
-   > 💡 这一窗改表头(B-3)时用了个省事的办法:**让新写法只在 range≠all 时出现**,
-   > `range=all` 一个字节没变,golden 就不用重生。以后动 pack 渲染可以照这个思路想一想。
+   动 schema 必须迁移注册表 + 双侧锁步常量(`EXPECTED_SCHEMA_VERSION` 现在是 **9**)+ 真库备份。
+   > 💡 golden 两侧比较时都会把日期归一化成 `<DATE>`,所以还原时间戳纯粹是为了让 diff 干净
+   > —— 这一窗就是这么做的,最后 diff 里只剩 `#n` 那一处真改动。
 6. 每任务独立提交;**设计类任务先出方案交 Ocean 批复再动手**。
 7. 换装/清数据/迁移等破坏性操作前核对证据链,且需 Ocean 明示。
    **对外动作(发 Release、推公开站点、去第三方注册表挂号)同样需要明示。**
@@ -376,6 +374,10 @@ Anthropic / OpenAI 要**事先书面批准**;Windsurf 要先问;Cursor 最宽松
     改 i18n 之后跑一遍脚本核对:把 `src/lib/i18n/index.ts` 的键集合抽出来,
     比对所有 `t('…')` / `tr('…')` 字面量,以及 `UNDO_OP_LABEL` / PackDialog / useTrayMenu
     这类**把中文放进映射表再交给 t()** 的地方(正则扫不到调用点,要单独比对)。
-11. 🆕 **改了 Rust 的 MCP 代码,客户端不重启就还是旧程序。**
+    (这一窗跑过:309 个键,0 个对不上。)
+11. **改了 Rust 的 MCP 代码,客户端不重启就还是旧程序。**
     `cargo build --release` → `scripts/seed-mcp-lab.sh` → **重启客户端**,三步缺一不可。
-    这一窗差点把「客户端里没验到」当成「改了没生效」。
+12. 🆕 **mcp.rs 里给用户看的新文案必须走 `t!` / `ts!`,两种语言一起写。**
+    漏了不会报错,只会在英文界面下冒出一句中文。改完可以扫一遍:
+    `grep -n '[一-龥]' src-tauri/src/mcp.rs | grep -v 't!(' | grep -v 'ts!('`
+    —— 剩下的应该只有注释和 `t!` 的中文那一半。
