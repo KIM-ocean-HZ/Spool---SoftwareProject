@@ -110,7 +110,7 @@ export default function McpConfig() {
     try {
       await writeText(
         t(
-          '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨项目问题先用 get_digest；search_blocks 定位主题在哪个项目；get_pack 读完整上下文（大项目先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应项目；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用项目标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。',
+          '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。',
         ),
       );
       setPromptCopied(true);
@@ -217,7 +217,7 @@ export default function McpConfig() {
       {mcpEnabled && (
         <div className="mt-2 flex items-center justify-between gap-2">
           <span className="min-w-0 text-xs text-muted">
-            {t('接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺')}
+            {t('用法就这一段：粘给 AI 直接能用，你自己读也看得懂')}
           </span>
           <button
             type="button"

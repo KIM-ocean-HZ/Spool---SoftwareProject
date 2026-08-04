@@ -442,7 +442,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            '设置 → MCP → 一键接入 Claude Desktop / Cursor。接好后对 AI 说「读一下我的欢迎项目」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
+            '设置 → MCP，一键接上你在用的 AI 客户端。接好后对 AI 说「读一下我的欢迎项目」——它能直接查阅、检索、替你归档结论。AI 写入的块会带来源标签，和你自己的笔记始终分得清。',
         },
       ],
     },
@@ -452,7 +452,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
       blocks: [
         {
           content:
-            '前提：设置 → MCP → 一键接入 Claude Desktop / Cursor（重启客户端生效）。接好后 AI 就能直接查阅这本思簿——下面每块一个场景，引号里的话可以照抄。Spool 本体不带 AI，数据始终在本机。',
+            '前提：设置 → MCP，一键接上你在用的 AI 客户端（重启那个客户端才生效）。接好后 AI 就能直接查阅这本思簿——下面每块一个场景，引号里的话可以照抄。Spool 本体不带 AI，数据始终在本机。',
           annotation: 'AI 只读接入即可用；要让它代写，需另开「允许 AI 写入」。',
           pinned: true,
         },
@@ -514,7 +514,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         },
         {
           content:
-            'Settings → MCP → connect Claude Desktop or Cursor in one click. Then tell your AI "read my welcome project" — it can look things up, search, and file conclusions back for you. Blocks written by an AI carry a source tag, so they never blur with your own notes.',
+            'Settings → MCP, and connect whichever AI client you use in one click. Then tell your AI "read my welcome project" — it can look things up, search, and file conclusions back for you. Blocks written by an AI carry a source tag, so they never blur with your own notes.',
         },
       ],
     },
@@ -524,7 +524,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
       blocks: [
         {
           content:
-            'First: Settings → MCP → connect Claude Desktop or Cursor in one click (restart the client to apply). After that your AI can read this notebook directly — one scenario per block below, and the line in quotes is meant to be copied as-is. Spool ships no AI of its own; your data stays on this machine.',
+            'First: Settings → MCP, and connect whichever AI client you use in one click (restart that client to apply). After that your AI can read this notebook directly — one scenario per block below, and the line in quotes is meant to be copied as-is. Spool ships no AI of its own; your data stays on this machine.',
           annotation:
             'Read-only access is enough for all of this; to let the AI write back, turn on "Allow AI to write" as well.',
           pinned: true,

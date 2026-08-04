@@ -319,11 +319,11 @@ const EN: Record<string, string> = {
     'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
   '去下载': 'Get it',
   '装好后这里就能一键接入': 'Once installed, one-click connect works here',
-  '接入后，把一段「怎么用 Spool 帮我」的提示粘给 AI，体验更顺':
-    'Once connected, paste the AI a short "how to use Spool for me" briefing for a smoother start',
+  '用法就这一段：粘给 AI 直接能用，你自己读也看得懂':
+    'This one paragraph is the whole how-to: paste it to your AI, or just read it yourself',
   '复制使用提示': 'Copy usage briefing',
-  '我用 Spool（思簿）管理项目上下文，你可以通过它的 MCP 工具直接读写：用 list_threads 了解我的项目；问我「最近在忙什么」这类跨项目问题先用 get_digest；search_blocks 定位主题在哪个项目；get_pack 读完整上下文（大项目先看 approx_pack_chars，优先 range=pinned）。我让你「记住/归档」结论时，用 add_block 存进对应项目；新课题用 create_thread；读完新材料可用 set_thread_summary 更新一句话摘要；find_similar_blocks 可以帮我找重复捕捉；我要「体检」时用 check_library 出只读报告。对我说话永远用项目标题指代，绝不要输出内部 id。你写入的内容会自动带你的来源标签。':
-    'I manage my project context in Spool. You can read and write it through its MCP tools: list_threads to survey my projects; for cross-project questions like "what have I been working on" start with get_digest; search_blocks to locate which project a topic lives in; get_pack for the full briefing (check approx_pack_chars first; prefer range=pinned for big projects). When I ask you to remember/archive a conclusion, file it with add_block; start new topics with create_thread; refresh a project’s one-line summary with set_thread_summary after new material lands; find_similar_blocks helps spot duplicate captures; when I ask for a checkup, run check_library for a read-only report. Always refer to projects by their titles when talking to me — never output internal ids. Everything you write is automatically labeled with your source.',
+  '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。':
+    'I keep my project notes in Spool, and you can read them directly now.\n\nThings you can do for me:\n· "What have I been up to?" — start with a briefing across all my projects\n· "Where am I stuck on <a project>, and what have I settled?" — read that project in full\n· "Save that conclusion into <a project>" — store it back for me (I have to turn on "Let AI write" in Spool first)\n\nTwo rules: refer to things by project title and block number (like #12), never by an internal id; and every block you write is labelled with your name automatically, so I can always see which ones are yours.',
   '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
   '在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
     'Where to ask: in the chat box for Claude Desktop / ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
