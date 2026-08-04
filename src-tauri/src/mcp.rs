@@ -807,6 +807,15 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
 // project. The estimate now carries the fixed skeleton — measured, not guessed: an empty
 // pack IS the skeleton, computed once per process since the header is a compile-time
 // constant — plus per-block terms in the SQL aggregate.
+//
+// R7 (2026-08-04): it still ran SHORT on every project carrying attachments, because the
+// aggregate counted a file's extracted text but none of the lines that frame it — the
+// "↳ attached …" line under the block and the "- label — target" row in Related Files
+// (a full filesystem path each). Under by 315 on a 13294-char project, by 287 on a
+// 3824-char one. Short is the dangerous direction: the description tells callers to pass
+// this straight as max_chars, so a caller that did exactly that got a silently truncated
+// pack. The per-attachment and per-citation terms below are deliberately generous —
+// over-estimating costs a caller nothing, under-estimating costs them blocks.
 fn pack_skeleton_chars() -> i64 {
     static N: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
     *N.get_or_init(|| {
@@ -845,12 +854,15 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                                    + COALESCE(LENGTH(source), 0)
                                    + 30
                                    + CASE WHEN annotation IS NOT NULL THEN 11 ELSE 0 END
-                                   + CASE WHEN pinned = 1 THEN 120 ELSE 0 END) AS chars
+                                   + CASE WHEN pinned = 1 THEN 120 ELSE 0 END
+                                   + CASE WHEN ref_block_id IS NOT NULL THEN 80 ELSE 0 END) AS chars
                           FROM blocks GROUP BY thread_id) bc ON bc.thread_id = t.id
              LEFT JOIN (SELECT b2.thread_id,
-                               SUM(MIN(LENGTH(a.extracted_text), 8000)) AS att_chars
+                               SUM(CASE WHEN a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
+                                        THEN MIN(LENGTH(a.extracted_text), 8000) ELSE 0 END
+                                   + 2 * COALESCE(LENGTH(a.label), LENGTH(a.target))
+                                   + LENGTH(a.target) + 100) AS att_chars
                           FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
-                         WHERE a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
                          GROUP BY b2.thread_id) ac ON ac.thread_id = t.id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL{title_clause}
              ORDER BY w.sort_order ASC, w.created_at ASC, t.updated_at DESC",
@@ -3359,7 +3371,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. NOTE: text extracted from attached files is NOT indexed — a phrase that lives only inside a PDF will not be found here.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — those ride outside offset/limit, so a phrase that lives only inside a PDF shows up there and never in `hits`.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -3691,6 +3703,16 @@ fn handle_tool_call(params: &Value) -> Value {
 // another AI; a line in front of it would travel along as text that is not part of the
 // pack. It also needs the exemption least — it already opens with
 // "# Project Context: <title>", which says in plain words what was read.
+// A headline quotes what the caller asked for; a 400-character query would otherwise
+// become a 400-character sentence in front of the payload.
+fn ellipsize(s: &str) -> String {
+    const CAP: usize = 40;
+    if s.chars().count() <= CAP {
+        return s.to_string();
+    }
+    s.chars().take(CAP).collect::<String>() + "…"
+}
+
 fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
     // Every headline is derived from the payload that is already being returned, so the
     // two can never disagree.
@@ -3712,12 +3734,24 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
                 .iter()
                 .filter_map(|r| r.get("workspace").and_then(Value::as_str))
                 .collect();
-            Some(t!(
-                "看了一眼库里有哪些项目:{} 个项目,分布在 {} 个工作区。",
-                "Looked over the library: {} projects across {} workspaces.",
-                rows.len(),
-                workspaces.len()
-            ))
+            // R7: under title_contains these rows are a search result, not the library.
+            // "库里…0 个项目" for a miss was flatly false, and it is the kind of sentence a
+            // client repeats to the user word for word.
+            match args.get("title_contains").and_then(Value::as_str) {
+                Some(q) => Some(t!(
+                    "找了一遍标题带「{}」的项目:{} 个,分布在 {} 个工作区。",
+                    "Looked for projects with \u{201c}{}\u{201d} in the title: {} across {} workspace(s).",
+                    ellipsize(q),
+                    rows.len(),
+                    workspaces.len()
+                )),
+                None => Some(t!(
+                    "看了一眼库里有哪些项目:{} 个项目,分布在 {} 个工作区。",
+                    "Looked over the library: {} projects across {} workspaces.",
+                    rows.len(),
+                    workspaces.len()
+                )),
+            }
         }
         "search_blocks" => {
             let att = n("attachment_total");
@@ -3732,19 +3766,35 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             Some(t!(
                 "在全库搜「{}」,{} 条命中,这里给你 {} 条。{extra}",
                 "Searched the library for \u{201c}{}\u{201d}: {} matches, showing {}. {extra}",
-                args.get("query").and_then(Value::as_str).unwrap_or_default(),
+                ellipsize(args.get("query").and_then(Value::as_str).unwrap_or_default()),
                 n("total"),
                 n("returned")
             ))
         }
         "get_blocks" => {
             let title = v.get("thread_title").and_then(Value::as_str).unwrap_or_default();
-            Some(t!(
-                "读了〈{title}〉里的 {} 块(这个项目共 {} 块)。",
-                "Read {} blocks from \u{2039}{title}\u{203a} ({} blocks in the project).",
-                arr("blocks"),
-                n("total")
-            ))
+            // R7: `total` is the count AFTER pinned / has_annotation / source_contains
+            // narrowed the page, so calling it "this project" turned a 16-block project
+            // into a 3-block one. Only the unfiltered page may speak for the project.
+            let filtered = v
+                .get("filters")
+                .and_then(Value::as_object)
+                .is_some_and(|f| !f.is_empty());
+            Some(if filtered {
+                t!(
+                    "读了〈{title}〉里筛出的 {} 块(符合条件的共 {} 块)。",
+                    "Read {} of the {} blocks in \u{2039}{title}\u{203a} that match the filter.",
+                    arr("blocks"),
+                    n("total")
+                )
+            } else {
+                t!(
+                    "读了〈{title}〉里的 {} 块(这个项目共 {} 块)。",
+                    "Read {} blocks from \u{2039}{title}\u{203a} ({} blocks in the project).",
+                    arr("blocks"),
+                    n("total")
+                )
+            })
         }
         "find_similar_blocks" => Some(t!(
             "查了一遍重复:{} 组内容高度相似(扫了 {} 块)。合并要你自己在 Spool 里做。",
@@ -3789,14 +3839,27 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             "Created the project \u{2039}{}\u{203a} in Spool.",
             args.get("title").and_then(Value::as_str).unwrap_or_default()
         )),
-        "add_block" => Some(match v.get("seq").and_then(Value::as_i64) {
-            // The number is the point: it is what the user can find in the app.
-            Some(seq) => t!("存进 Spool 了,是这个项目的 #{seq} 块。", "Stored in Spool as block #{seq} of that project."),
-            None => t!("存进 Spool 了。", "Stored in Spool."),
-        }),
+        "add_block" => {
+            let stored = match v.get("seq").and_then(Value::as_i64) {
+                // The number is the point: it is what the user can find in the app.
+                Some(seq) => t!("存进 Spool 了,是这个项目的 #{seq} 块。", "Stored in Spool as block #{seq} of that project."),
+                None => t!("存进 Spool 了。", "Stored in Spool."),
+            };
+            // R7: the bare-id warning used to live in the JSON only, under a headline that
+            // read as a clean success — so the one line a client shows the user said the
+            // write went fine while an internal id had just been written into their notes.
+            Some(match v.get("warning") {
+                Some(_) => stored + &t!(
+                    "⚠️ 正文里疑似写进了内部 id:别把这句念给用户,以后引用别的块请用 ref_block_id。",
+                    " \u{26a0}\u{fe0f} It looks like an internal id went into the text: do not read that line out to the user, and cite other blocks with ref_block_id instead."
+                ),
+                None => stored,
+            })
+        }
         "set_thread_summary" => Some(t!(
-            "更新了这个项目在目录里的一句话摘要。",
-            "Updated this project's one-line summary in the catalogue."
+            "更新了〈{}〉在目录里的一句话摘要。",
+            "Updated the one-line summary of \u{2039}{}\u{203a} in the catalogue.",
+            v.get("title").and_then(Value::as_str).unwrap_or_default()
         )),
         // get_pack: see above.
         _ => None,
@@ -5416,13 +5479,26 @@ mod tests {
         // + capped attachment(8000) — a2 is opted out, a3 has no text — plus the
         // per-block scaffolding (30 each, +11 for the annotated one, +120 for the pinned
         // one's second rendering) and the measured skeleton. LENGTH() counts chars on
-        // TEXT columns.
+        // TEXT columns. R7: every attachment also costs its two framing lines, opted out
+        // of inlining or not — 2×label + target + 100 for each of a1/a2/a3.
         let skeleton = pack_skeleton_chars();
         assert!(skeleton > 2000, "skeleton looks wrong: {skeleton}");
+        let att_frame = |label: i64, target: i64| 2 * label + target + 100;
         assert_eq!(
             t1["approx_pack_chars"],
-            5 + 9 + 10 + 8000 + 30 + 30 + 11 + 120 + skeleton
+            5 + 9 + 10
+                + 8000
+                + 30 + 30 + 11 + 120
+                + att_frame(5, 8) * 3 // a.pdf/b.pdf/c.pdf, /x/?.pdf
+                + skeleton
         );
+        // R7: the property that actually matters, and the one the exact sum above cannot
+        // guarantee on its own — the description tells callers to pass this straight as
+        // max_chars, so it must never come out BELOW the pack it is estimating.
+        let real = build_pack(&conn, "t1", "all").unwrap().text.chars().count() as i64;
+        let est = t1["approx_pack_chars"].as_i64().unwrap();
+        assert!(est >= real, "estimate {est} is under the real pack {real} — callers lose blocks");
+
         let t2 = &rows[1];
         assert_eq!(t2["blocks"], 0);
         assert_eq!(t2["pinned"], 0);
@@ -5438,6 +5514,71 @@ mod tests {
             serde_json::from_str(&list_threads_json(&conn, Some("不存在")).unwrap()).unwrap();
         assert!(none.is_empty());
         assert!(list_threads_json(&conn, Some("  ")).is_err());
+    }
+
+    // R7 (2026-08-04): the plain-language headline is the one sentence a client shows the
+    // user verbatim, so it must never assert something the payload does not say. Both
+    // filtered surfaces used to report the FILTERED count as the whole — "读了〈机器学习课〉
+    // 里的 3 块(这个项目共 3 块)" for a 16-block project, "库里…2 个项目" for a 13-project
+    // library. Nothing tested these lines, which is why they could drift.
+    #[test]
+    fn headlines_never_pass_a_filtered_count_off_as_the_total() {
+        store_lang(Lang::Zh);
+        let filtered = human_headline(
+            "get_blocks",
+            &json!({ "thread_id": "t1", "pinned": true }),
+            &json!({ "blocks": [1, 2, 3], "total": 3, "thread_title": "机器学习课",
+                     "filters": { "pinned": true } })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(filtered.contains("筛出") && filtered.contains("机器学习课"), "{filtered}");
+        assert!(!filtered.contains("这个项目共"), "filtered page still claims a project total: {filtered}");
+
+        let whole = human_headline(
+            "get_blocks",
+            &json!({ "thread_id": "t1" }),
+            &json!({ "blocks": [1, 2], "total": 16, "thread_title": "机器学习课" }).to_string(),
+        )
+        .unwrap();
+        assert!(whole.contains("这个项目共 16 块"), "{whole}");
+
+        let searched = human_headline(
+            "list_threads",
+            &json!({ "title_contains": "机器学习" }),
+            &json!([{ "workspace": "学业" }, { "workspace": "学业" }]).to_string(),
+        )
+        .unwrap();
+        assert!(searched.contains("机器学习") && !searched.contains("库里"), "{searched}");
+
+        // A 400-character query must not become a 400-character headline.
+        let long = human_headline(
+            "search_blocks",
+            &json!({ "query": "学".repeat(400) }),
+            &json!({ "total": 0, "returned": 0, "attachment_total": 0 }).to_string(),
+        )
+        .unwrap();
+        assert!(long.chars().count() < 120, "headline echoes the whole query: {}", long.chars().count());
+
+        // A write that tripped the bare-id detector must not read as a clean success.
+        let warned = human_headline(
+            "add_block",
+            &json!({}),
+            &json!({ "seq": 2, "warning": "文本中疑似包含内部 id(content:「LabBkMl00000000000008」)。" })
+                .to_string(),
+        )
+        .unwrap();
+        assert!(warned.contains("#2") && warned.contains("内部 id"), "{warned}");
+
+        // The summary write names the project — the title is the only handle the AI may
+        // say out loud, and it is right there in the payload.
+        let summary = human_headline(
+            "set_thread_summary",
+            &json!({ "thread_id": "t1" }),
+            &json!({ "title": "机器学习课作业", "summary": "x" }).to_string(),
+        )
+        .unwrap();
+        assert!(summary.contains("机器学习课作业"), "{summary}");
     }
 
     // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's two "nothing to render" mouths —
