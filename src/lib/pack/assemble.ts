@@ -48,6 +48,10 @@ export interface AssembleArgs {
   // is appended after "Related Files & Links" and before the Output Language line.
   // Default = 'default' (no extra block — pre-v2.8 behavior).
   template?: PackTemplateKey;
+  // B-3 (MCP field review 2026-08-04): when the caller pre-filtered `blocks` with
+  // filterBlocksForRange, pass the range and the project's UNFILTERED block count — the
+  // header then says "N of TOTAL" instead of claiming N is everything. Omit for 'all'.
+  scope?: { range: PackRange; total: number };
   // For deterministic output in tests.
   now?: number;
 }
@@ -62,6 +66,10 @@ export const PACK_RANGE_KEYS: PackRange[] = ['all', 'pinned', 'last7', 'last30']
 
 const RANGE_DAYS: Partial<Record<PackRange, number>> = { last7: 7, last30: 30 };
 
+// B-2 (MCP field review 2026-08-04): the day ranges keep pinned blocks whatever their
+// age. Pinned means "core context, never drop it" everywhere else in the pipeline (the
+// MCP budget trimmer never touches a pinned block); a last7 pack that silently dropped
+// the thesis statement and the deadline was the same concept saying the opposite thing.
 export const filterBlocksForRange = (
   blocks: Block[],
   range: PackRange,
@@ -71,7 +79,7 @@ export const filterBlocksForRange = (
   if (range === 'pinned') return blocks.filter((b) => b.pinned);
   const days = RANGE_DAYS[range]!;
   const cutoff = now - days * 86_400_000;
-  return blocks.filter((b) => b.createdAt >= cutoff);
+  return blocks.filter((b) => b.pinned || b.createdAt >= cutoff);
 };
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
@@ -208,12 +216,20 @@ export function assemble({
   refTitles,
   refBlocks,
   template,
+  scope,
   now,
 }: AssembleArgs): string {
   const dateStr = formatPackDate(now ?? Date.now());
   const out: string[] = [];
 
-  out.push(PACK_HEADER(thread.title, dateStr, blocks.length));
+  out.push(
+    PACK_HEADER(
+      thread.title,
+      dateStr,
+      blocks.length,
+      scope && scope.range !== 'all' ? { range: scope.range, total: scope.total } : undefined,
+    ),
+  );
   out.push('');
   out.push(INSTRUCTION_HEADER);
 

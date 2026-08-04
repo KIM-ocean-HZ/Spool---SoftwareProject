@@ -385,20 +385,38 @@ describe('assemble', () => {
       expect(filterBlocksForRange(blocks, 'pinned', NOW).map((b) => b.id)).toEqual(['mid']);
     });
 
-    it("'last7' / 'last30' cut by capture time", () => {
-      expect(filterBlocksForRange(blocks, 'last7', NOW).map((b) => b.id)).toEqual(['new']);
+    it("'last7' / 'last30' cut by capture time but never drop a pinned block (B-2)", () => {
+      // 'mid' is ten days old AND pinned — outside the last7 window, inside the pack.
+      expect(filterBlocksForRange(blocks, 'last7', NOW).map((b) => b.id)).toEqual(['mid', 'new']);
       expect(filterBlocksForRange(blocks, 'last30', NOW).map((b) => b.id)).toEqual(['mid', 'new']);
+      const unpinned = [
+        textBlock('old', 'thirty-one days ago', { createdAt: NOW - 31 * DAY }),
+        textBlock('new', 'yesterday', { createdAt: NOW - 1 * DAY }),
+      ];
+      expect(filterBlocksForRange(unpinned, 'last7', NOW).map((b) => b.id)).toEqual(['new']);
     });
 
     it('a range-filtered pack reports the filtered count and omits excluded content', () => {
-      const out = assemble({
-        thread,
-        blocks: filterBlocksForRange(blocks, 'last7', NOW),
-        now: NOW,
-      });
-      expect(out).toContain('1 blocks total');
+      const packed = filterBlocksForRange(blocks, 'last7', NOW);
+      const out = assemble({ thread, blocks: packed, now: NOW });
+      expect(out).toContain('2 blocks total');
       expect(out).toContain('yesterday');
       expect(out).not.toContain('thirty-one days ago');
+    });
+
+    it('scope makes the header say how many of the project the pack holds (B-3)', () => {
+      const packed = filterBlocksForRange(blocks, 'last7', NOW);
+      const out = assemble({
+        thread,
+        blocks: packed,
+        scope: { range: 'last7', total: blocks.length },
+        now: NOW,
+      });
+      expect(out).toContain('2 of 3 blocks in this project (range: last7');
+      expect(out).not.toContain('blocks total');
+      // range 'all' keeps the plain wording (the golden path).
+      const all = assemble({ thread, blocks, scope: { range: 'all', total: blocks.length }, now: NOW });
+      expect(all).toContain('3 blocks total');
     });
   });
 

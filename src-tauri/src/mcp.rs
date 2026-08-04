@@ -204,11 +204,14 @@ fn attachment_label(a: &AttachmentRow) -> &str {
 // JS `text.slice(0, 8000)` counts UTF-16 code units; here we count chars (Unicode
 // scalars). They agree for everything except astral-plane characters straddling the
 // cap — an acceptable off-by-a-few on an 8000-char truncation boundary.
-fn render_extracted_text(text: &str) -> String {
+// R6 B-1: `cap` is EXTRACT_CHAR_CAP on the plain path (byte-identical to the TS twin);
+// the budgeted path lowers it so inlined file text stops being the one part of a pack
+// no budget can touch.
+fn render_extracted_text(text: &str, cap: usize) -> String {
     let total = text.chars().count();
-    let (body, marker) = if total > EXTRACT_CHAR_CAP {
-        let body: String = text.chars().take(EXTRACT_CHAR_CAP).collect();
-        (body, format!("\n{}", truncation_marker(total - EXTRACT_CHAR_CAP)))
+    let (body, marker) = if total > cap {
+        let body: String = text.chars().take(cap).collect();
+        (body, format!("\n{}", truncation_marker(total - cap)))
     } else {
         (text.to_string(), String::new())
     };
@@ -219,7 +222,7 @@ fn render_extracted_text(text: &str) -> String {
         .join("\n")
 }
 
-fn render_attachment(a: &AttachmentRow) -> Vec<String> {
+fn render_attachment(a: &AttachmentRow, extract_cap: usize) -> Vec<String> {
     let label = attachment_label(a);
     if a.kind == "url" {
         return vec![format!("{NOTE_INDENT}{URL_MARKER}{label} — {}", a.target)];
@@ -233,7 +236,7 @@ fn render_attachment(a: &AttachmentRow) -> Vec<String> {
             let ext_kind = a.extraction_kind.as_deref().unwrap_or("text");
             return vec![
                 format!("{NOTE_INDENT}{FILE_MARKER}{label} ({ext_kind})"),
-                render_extracted_text(text),
+                render_extracted_text(text, extract_cap),
             ];
         }
     }
@@ -289,6 +292,7 @@ fn render_block(
     attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
     ref_blocks: &RefBlocks,
+    extract_cap: usize,
 ) -> Vec<String> {
     let mut lines: Vec<String> = vec![block_head_line(b, ref_titles, None)];
     if let Some(note) = block_note_line(b) {
@@ -305,7 +309,7 @@ fn render_block(
         });
     }
     for a in attachments.iter().filter(|a| a.block_id == b.id) {
-        lines.extend(render_attachment(a));
+        lines.extend(render_attachment(a, extract_cap));
     }
     lines
 }
@@ -342,15 +346,37 @@ fn render_pinned_placeholder(b: &BlockRow) -> String {
 }
 
 // §17 range filter — port of filterBlocksForRange (assemble.ts).
+// R6 B-2: the day ranges keep pinned blocks whatever their age. Pinned means "core
+// context, never drop it" everywhere else in the pack pipeline (the budget trimmer
+// never touches a pinned block); a range that silently dropped the thesis statement
+// and the deadline was the same concept saying the opposite thing.
 pub fn filter_blocks_for_range(blocks: Vec<BlockRow>, range: &str, now_ms: i64) -> Vec<BlockRow> {
     match range {
         "pinned" => blocks.into_iter().filter(|b| b.pinned).collect(),
         "last7" | "last30" => {
             let days: i64 = if range == "last7" { 7 } else { 30 };
             let cutoff = now_ms - days * 86_400_000;
-            blocks.into_iter().filter(|b| b.created_at >= cutoff).collect()
+            blocks.into_iter().filter(|b| b.pinned || b.created_at >= cutoff).collect()
         }
         _ => blocks, // "all"
+    }
+}
+
+// What the budgeted renderer may vary, and what the header must disclose. The plain
+// path (`RenderOpts::plain`) is byte-identical to the TS twin — the golden test pins it.
+struct RenderOpts<'a> {
+    // Drop this many OLDEST blocks from the Full Record.
+    omit: usize,
+    // Per-attachment inlined-text cap; EXTRACT_CHAR_CAP on the plain path.
+    extract_cap: usize,
+    // Some((range, total_blocks)) when the block list was pre-filtered by range — the
+    // header then says "N of TOTAL" instead of claiming N is the whole project (B-3).
+    scope: Option<(&'a str, usize)>,
+}
+
+impl RenderOpts<'_> {
+    fn plain() -> Self {
+        RenderOpts { omit: 0, extract_cap: EXTRACT_CHAR_CAP, scope: None }
     }
 }
 
@@ -362,31 +388,56 @@ pub fn assemble_pack(
     ref_blocks: &RefBlocks,
     now_ms: i64,
 ) -> String {
-    assemble_pack_omitting(thread_title, blocks, attachments, ref_titles, ref_blocks, now_ms, 0)
+    assemble_pack_with(
+        thread_title,
+        blocks,
+        attachments,
+        ref_titles,
+        ref_blocks,
+        now_ms,
+        &RenderOpts::plain(),
+    )
 }
 
 // v2.4 (C2): the budgeted variant drops the `omit` OLDEST blocks from the Full Record
 // (their slot is one explicit omission line at the top of the section) while the
 // skeleton and the complete Pinned Blocks section survive. Related Files & Links lists
 // only the kept blocks' attachments — the pack must not point at content it omitted.
-// omit == 0 is the plain pack; the golden test pins that path byte-for-byte.
-fn assemble_pack_omitting(
+// RenderOpts::plain() is the plain pack; the golden test pins that path byte-for-byte.
+fn assemble_pack_with(
     thread_title: &str,
     blocks: &[BlockRow],
     attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
     ref_blocks: &RefBlocks,
     now_ms: i64,
-    omit: usize,
+    opts: &RenderOpts,
 ) -> String {
+    let RenderOpts { omit, extract_cap, scope } = *opts;
     let date_str = format_pack_date(now_ms);
     let mut out: Vec<String> = Vec::new();
 
     let title = if thread_title.is_empty() { "(untitled)" } else { thread_title };
+    let count_line = match scope {
+        // B-3: a range-filtered pack used to read "3 blocks total", so whoever the user
+        // pasted it to concluded the project HAD three blocks.
+        Some((range, total)) => format!(
+            "{} of {total} blocks in this project (range: {range} — the rest are older \
+             than this window, still in Spool).",
+            blocks.len()
+        ),
+        None => format!("{} blocks total.", blocks.len()),
+    };
     out.push(format!(
-        "# Project Context: {title}\n\nGenerated by Spool on {date_str}. {} blocks total.",
-        blocks.len()
+        "# Project Context: {title}\n\nGenerated by Spool on {date_str}. {count_line}"
     ));
+    if extract_cap < EXTRACT_CHAR_CAP {
+        out.push(format!(
+            "Budget note: attached-file text is inlined at up to {extract_cap} chars per \
+             file (every cut is marked where it happens); pass max_chars=0 for the full \
+             extractions."
+        ));
+    }
     out.push(String::new());
     out.push(INSTRUCTION_HEADER.to_string());
 
@@ -398,7 +449,7 @@ fn assemble_pack_omitting(
         out.push(EMPTY_PINNED_LINE.to_string());
     } else {
         for b in &pinned {
-            out.extend(render_block(b, attachments, ref_titles, ref_blocks));
+            out.extend(render_block(b, attachments, ref_titles, ref_blocks, extract_cap));
         }
     }
 
@@ -441,7 +492,7 @@ fn assemble_pack_omitting(
             if b.pinned {
                 out.push(render_pinned_placeholder(b));
             } else {
-                out.extend(render_block(b, attachments, ref_titles, ref_blocks));
+                out.extend(render_block(b, attachments, ref_titles, ref_blocks, extract_cap));
             }
         }
     }
@@ -581,6 +632,21 @@ fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
         .map_err(|e| format!("打开数据库失败: {e}"))
 }
 
+// R6 B-4: `approx_pack_chars` used to count block text only, with the tool description
+// telling the caller to "add ~3k for the skeleton" — which left out the per-block
+// scaffolding (time bracket, source marker, note indent, the pinned placeholder line
+// that renders a second time in the Full Record) and came out ~47% under on a real
+// project. The estimate now carries the fixed skeleton — measured, not guessed: an empty
+// pack IS the skeleton, computed once per process since the header is a compile-time
+// constant — plus per-block terms in the SQL aggregate.
+fn pack_skeleton_chars() -> i64 {
+    static N: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        let titles = std::collections::HashMap::new();
+        assemble_pack("", &[], &[], &titles, &RefBlocks::new(), 0).chars().count() as i64
+    })
+}
+
 fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<String, String> {
     // R3 friction #1: "title → id" without pulling the whole list. Same matching
     // idiom as get_blocks' source_contains (instr + ASCII case-folding).
@@ -600,13 +666,18 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                     COALESCE(bc.blocks, 0),
                     t.summary,
                     COALESCE(bc.pinned, 0),
-                    COALESCE(bc.chars, 0) + COALESCE(ac.att_chars, 0)
+                    COALESCE(bc.chars, 0) + COALESCE(ac.att_chars, 0),
+                    t.summary_source
              FROM threads t
              JOIN workspaces w ON w.id = t.workspace_id
              LEFT JOIN (SELECT thread_id,
                                COUNT(*) AS blocks,
                                SUM(pinned) AS pinned,
-                               SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)) AS chars
+                               SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)
+                                   + COALESCE(LENGTH(source), 0)
+                                   + 30
+                                   + CASE WHEN annotation IS NOT NULL THEN 11 ELSE 0 END
+                                   + CASE WHEN pinned = 1 THEN 120 ELSE 0 END) AS chars
                           FROM blocks GROUP BY thread_id) bc ON bc.thread_id = t.id
              LEFT JOIN (SELECT b2.thread_id,
                                SUM(MIN(LENGTH(a.extracted_text), 8000)) AS att_chars
@@ -628,6 +699,9 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
     };
     let rows = stmt
         .query_map(rusqlite::params_from_iter(params), |r| {
+            let summary: Option<String> = r.get(6)?;
+            let has_summary = summary.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
+            let summary_source: Option<String> = r.get(9)?;
             Ok(json!({
                 "thread_id": r.get::<_, String>(0)?,
                 "title": r.get::<_, String>(1)?,
@@ -637,13 +711,23 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                 "blocks": r.get::<_, i64>(5)?,
                 // §20.13 v2: the one-liner serves "list with summaries" without a
                 // heavyweight get_pack (and without a separate get_thread_meta tool).
-                "summary": r.get::<_, Option<String>>(6)?,
+                "summary": summary,
+                // R6 B-8: who wrote that summary decides whether set_thread_summary will
+                // take a rewrite — without it the only way to find out was to try, be
+                // refused, and relay to the user. Normalized exactly the way the write
+                // guard decides: anything but 'mcp' under a non-empty summary is the
+                // user's (legacy rows carry NULL).
+                "summary_source": match (has_summary, summary_source.as_deref()) {
+                    (false, _) => Value::Null,
+                    (true, Some("mcp")) => json!("mcp"),
+                    (true, _) => json!("user"),
+                },
                 // v2.1 (field report B1): read-cost planning before a get_pack call.
-                // approx_pack_chars = content + annotations + inlined attachment text
-                // (per-attachment inline cap 8000 mirrored); the fixed pack skeleton
-                // adds ~3k on top.
+                // R6 B-4: this is now the WHOLE pack estimate — content + annotations +
+                // inlined attachment text (per-attachment inline cap 8000 mirrored) +
+                // the measured fixed skeleton. Compare it straight against max_chars.
                 "pinned": r.get::<_, i64>(7)?,
-                "approx_pack_chars": r.get::<_, i64>(8)?,
+                "approx_pack_chars": r.get::<_, i64>(8)? + pack_skeleton_chars(),
             }))
         })
         .map_err(|e| e.to_string())?
@@ -657,7 +741,7 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
 // trigram FTS5 MATCH ranked by rank; 1–2 codepoints → LIKE scan ordered by recency
 // (trigram cannot match shorter queries). Soft-deleted threads/workspaces excluded.
 const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created_at,
-                           t.title, w.title";
+                           t.title, w.title, b.source, b.pinned";
 const SEARCH_DEFAULT_LIMIT: i64 = 20;
 const SEARCH_MAX_LIMIT: i64 = 50;
 
@@ -666,12 +750,20 @@ const SEARCH_MAX_LIMIT: i64 = 50;
 // path and, since R3 BUG-1, the trigram path (FTS matches substrings by design).
 const SEARCH_LIKE_SCAN_CAP: i64 = 200;
 
-fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Result<String, String> {
+fn search_blocks_json(
+    conn: &Connection,
+    query: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<String, String> {
     let query = query.trim();
     if query.is_empty() {
         return Err("query 不能为空。".to_string());
     }
     let limit = limit.unwrap_or(SEARCH_DEFAULT_LIMIT).clamp(1, SEARCH_MAX_LIMIT) as usize;
+    // R6 B-7: without offset, a library with more than `limit` matches had a hard wall —
+    // "total 23 / returned 20" and no way to reach the last three.
+    let offset = offset.unwrap_or(0).max(0) as usize;
     let n_chars = query.chars().count();
     // Field reports A3 (R2) + BUG-1 (R3): a Latin query must match whole words — "AI"
     // must not hit "obtained", and "GRE" must not hit "degree" (trigram matches
@@ -691,6 +783,11 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
         created_at: i64,
         thread_title: String,
         workspace: String,
+        // R6 B-6: the four authority categories are decided by `source` — a hit list
+        // without it forced a second get_blocks call just to tell a lecture PDF from an
+        // AI-written note.
+        source: Option<String>,
+        pinned: bool,
         // v2.4 (6b): the boundary filter already locates the hit — carry its snippet
         // instead of recomputing at render time.
         snippet: Option<String>,
@@ -704,6 +801,8 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
             created_at: r.get(4)?,
             thread_title: r.get(5)?,
             workspace: r.get(6)?,
+            source: r.get(7)?,
+            pinned: r.get::<_, i64>(8)? == 1,
             snippet: None,
         })
     };
@@ -736,7 +835,11 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
         // Latin queries: rank-ordered scan window, then the word-boundary filter — the
         // raw FTS count would include substring hits ("GRE" in "degree"), so total is
         // the filtered count within the scan cap, mirroring the LIKE path.
-        let fetch = if boundary { SEARCH_LIKE_SCAN_CAP } else { limit as i64 };
+        let fetch = if boundary {
+            SEARCH_LIKE_SCAN_CAP
+        } else {
+            (offset + limit) as i64 // B-7: the page has to be inside the fetched window
+        };
         let mut stmt = conn
             .prepare(&format!("SELECT {SEARCH_COLS} {where_fts} ORDER BY rank LIMIT ?2"))
             .map_err(|e| e.to_string())?;
@@ -784,6 +887,7 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
 
     let hits: Vec<Value> = cands
         .iter()
+        .skip(offset)
         .take(limit)
         .map(|c| {
             // Snippet from wherever the hit actually is; annotation-only matches used
@@ -808,12 +912,19 @@ fn search_blocks_json(conn: &Connection, query: &str, limit: Option<i64>) -> Res
                 "created_at": format_pack_time(c.created_at),
                 "thread_title": c.thread_title,
                 "workspace": c.workspace,
+                // B-6: the authority category (📖/🧩/🔄/💭) is read off this label.
+                "source": c.source,
+                "pinned": c.pinned,
             })
         })
         .collect();
     serde_json::to_string_pretty(&json!({
         "query": query,
         "total": total,
+        // R6 B-9: the effective paging values, after clamping — a caller who asked for
+        // limit=-5 should see what it actually got, not silently believe it got 5.
+        "offset": offset,
+        "limit": limit,
         "returned": hits.len(),
         "hits": hits,
     }))
@@ -1098,8 +1209,11 @@ fn find_similar_blocks_json(
         "scan_cap": SIMILAR_SCAN_CAP,
         "threshold": SIMILAR_THRESHOLD,
         "total_groups": total_groups,
+        // B-9: the clamped value actually used, so "I asked for 99 and got 30" is
+        // visible rather than inferred.
+        "max_groups": max_groups,
         "groups": rendered,
-        "note": "Spool 不提供合并——把发现讲给用户（用 preview 与 thread_title 指代，勿输出 id；pinned/has_annotation/length 是用户挑保留块的关键信息），由用户在应用里处置。",
+        "note": "Spool 不提供合并——把发现讲给用户(用 preview 与 thread_title 指代,勿输出 id;pinned/has_annotation/length 是用户挑保留块的关键信息),由用户在应用里处置。",
     }))
     .map_err(|e| e.to_string())
 }
@@ -1308,12 +1422,15 @@ fn get_digest_json(
     ));
     out.push(String::new());
     out.push(format!(
-        "Generated by Spool on {}. 窗口内 {} 个项目有新块(共 {} 条在库)。选取规则:\
-         每个项目最新 {DIGEST_THREAD_QUOTA} 块 + 全部置顶(置顶不占配额),单块截断于 \
-         {DIGEST_BLOCK_CHAR_CAP} 字符;深读用 get_pack / get_blocks。",
+        "Generated by Spool on {}. 窗口内 {} 个项目有新块(库里共 {} 个项目)。\
+         预算 {}。选取规则:每个项目最新 {DIGEST_THREAD_QUOTA} 块 + 全部置顶(置顶不占配额),\
+         单块截断于 {DIGEST_BLOCK_CHAR_CAP} 字符;深读用 get_pack / get_blocks。",
         format_pack_date(now_ms),
         active.len(),
-        threads.len()
+        // B-11: "共 11 条在库" read as eleven blocks; it was always eleven PROJECTS.
+        threads.len(),
+        // B-9: since_days is already visible in the title line above; max_chars was not.
+        if max_chars == 0 { "不限".to_string() } else { format!("{max_chars} 字符") },
     ));
     out.push(
         "Authority categories per get_pack's reading header; source labels preserved.".to_string(),
@@ -1524,6 +1641,7 @@ fn get_blocks_json(
     around_block_id: Option<&str>,
     context: Option<i64>,
     filters: &BlockFilters,
+    include_extracted_text: bool,
 ) -> Result<String, String> {
     let (title, deleted): (String, Option<i64>) = conn
         .query_row(
@@ -1544,8 +1662,8 @@ fn get_blocks_json(
     // non-adjacent rows as neighbors. Refuse the combination outright (C5).
     if around_block_id.is_some() && !filters.is_empty() {
         return Err(
-            "around_block_id 与过滤参数不能同时使用 — 定位读取返回的是真实相邻块，\
-             过滤会造成假邻接。去掉过滤条件，或改用 offset/limit 分页。"
+            "around_block_id 与过滤参数不能同时使用 — 定位读取返回的是真实相邻块,\
+             过滤会造成假邻接。去掉过滤条件,或改用 offset/limit 分页。"
                 .to_string(),
         );
     }
@@ -1669,6 +1787,48 @@ fn get_blocks_json(
                 .unwrap_or(Value::Null);
         }
     }
+    // R6 B-5: get_pack's over-budget message points here ("page the rest with
+    // get_blocks") — but get_blocks exposed no attachments at all, so following that
+    // advice silently dropped a 7800-char lecture extraction. Every row now lists its
+    // attachments with the extraction's size; `include_extracted_text` inlines the text
+    // itself (off by default — one PDF would otherwise dominate every page).
+    {
+        let mut att_stmt = conn
+            .prepare(
+                "SELECT kind, target, label, extraction_kind, include_in_pack, extracted_text
+                 FROM attachments WHERE block_id = ?1 ORDER BY created_at ASC",
+            )
+            .map_err(|e| e.to_string())?;
+        for row in &mut rows {
+            let Some(bid) = row["block_id"].as_str().map(String::from) else { continue };
+            let atts: Vec<Value> = att_stmt
+                .query_map([&bid], |r| {
+                    let extracted: Option<String> = r.get(5)?;
+                    let mut a = json!({
+                        "kind": r.get::<_, String>(0)?,
+                        "target": r.get::<_, String>(1)?,
+                        "label": r.get::<_, String>(2)?,
+                        "extraction_kind": r.get::<_, Option<String>>(3)?,
+                        "inlined_in_pack": r.get::<_, i64>(4)? == 1,
+                        "extracted_chars": extracted.as_deref().map(|t| t.chars().count()),
+                    });
+                    if include_extracted_text {
+                        a["extracted_text"] = match &extracted {
+                            Some(t) => json!(t),
+                            None => Value::Null,
+                        };
+                    }
+                    Ok(a)
+                })
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            if !atts.is_empty() {
+                row["attachments"] = json!(atts);
+            }
+        }
+    }
+
     let mut out = json!({
         "thread_id": thread_id,
         "thread_title": title,
@@ -1706,11 +1866,20 @@ struct PackBuilt {
     range_blocks: usize,
     pinned_blocks: usize,
     title: String,
+    range: String,
     blocks: Vec<BlockRow>,
     attachments: Vec<AttachmentRow>,
     ref_titles: std::collections::HashMap<String, String>,
     ref_blocks: RefBlocks,
     now_ms: i64,
+}
+
+impl PackBuilt {
+    // B-3: only a narrowed pack needs the "N of TOTAL" header — range=all keeps the
+    // plain wording (and the golden path).
+    fn scope(&self) -> Option<(&str, usize)> {
+        (self.range != "all").then_some((self.range.as_str(), self.total_blocks))
+    }
 }
 
 // R3 friction #2: the pack deliberately hides ids in its body (naming rule), which
@@ -1739,26 +1908,40 @@ fn pack_id_table(blocks: &[BlockRow], omit: usize) -> String {
 // v2.4 (C2): instead of stats-only, an over-budget pack keeps the skeleton + the full
 // Pinned Blocks section and fills the Full Record from the NEWEST block backwards until
 // max_chars; the omitted oldest blocks become one explicit line at the section top.
-// Returns None when even the everything-omitted rendering (skeleton + pinned) is over
-// budget — the caller falls back to the stats guard message. Binary search over the
-// omit count: length decreases as omission grows (the omission line's digit count can
-// wobble it by a char or two, which the verified-endpoints search absorbs).
+// Binary search over the omit count: length decreases as omission grows (the omission
+// line's digit count can wobble it by a char or two, which the verified-endpoints search
+// absorbs).
+//
+// R6 B-1: the floor used to be skeleton + pinned WITH every pinned block's inlined
+// attachment text at full 8000-char cap — one lecture PDF on one pinned block put the
+// floor at 11.7k, so max_chars=8000 fell through to a stats message and got nothing.
+// Inlined file text is now the second budget dimension: the ladder keeps timeline blocks
+// first (drop oldest), and only when even the empty-timeline floor overflows does it
+// re-render with a tighter per-file cap. Returns None only when the tightest floor is
+// still over budget.
+const EXTRACT_CAP_LADDER: [usize; 4] = [EXTRACT_CHAR_CAP, 2000, 500, 120];
+
 fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<(String, usize)> {
+    EXTRACT_CAP_LADDER.iter().find_map(|&cap| budgeted_pack_at(built, max_chars, cap))
+}
+
+fn render_at(built: &PackBuilt, omit: usize, extract_cap: usize) -> String {
+    assemble_pack_with(
+        &built.title,
+        &built.blocks,
+        &built.attachments,
+        &built.ref_titles,
+        &built.ref_blocks,
+        built.now_ms,
+        &RenderOpts { omit, extract_cap, scope: built.scope() },
+    )
+}
+
+fn budgeted_pack_at(built: &PackBuilt, max_chars: i64, extract_cap: usize) -> Option<(String, usize)> {
     let n = built.blocks.len();
-    let render = |omit: usize| {
-        assemble_pack_omitting(
-            &built.title,
-            &built.blocks,
-            &built.attachments,
-            &built.ref_titles,
-            &built.ref_blocks,
-            built.now_ms,
-            omit,
-        )
-    };
-    let fits = |omit: usize| render(omit).chars().count() as i64 <= max_chars;
+    let fits = |omit: usize| render_at(built, omit, extract_cap).chars().count() as i64 <= max_chars;
     if fits(0) {
-        return Some((render(0), 0)); // the guard path never sends this, but keep it total
+        return Some((render_at(built, 0, extract_cap), 0));
     }
     if !fits(n) {
         return None;
@@ -1773,7 +1956,7 @@ fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<(String, usize)> {
             lo = mid;
         }
     }
-    Some((render(hi), hi))
+    Some((render_at(built, hi, extract_cap), hi))
 }
 
 // One get_pack call used to return 70k+ chars (field report A1) — over the tool-result
@@ -1782,27 +1965,44 @@ fn budgeted_pack(built: &PackBuilt, max_chars: i64) -> Option<(String, usize)> {
 // opts back into unlimited.
 const PACK_DEFAULT_MAX_CHARS: i64 = 50_000;
 
-fn pack_guard_message(built: &PackBuilt, range: &str, max_chars: i64) -> Option<String> {
+// The two "there is nothing to render" cases. Over-budget is NOT one of them any more
+// (that path degrades — see budgeted_pack); a caller that hits one of these gets a
+// message instead of a pack.
+fn pack_guard_message(built: &PackBuilt, range: &str) -> Option<String> {
     if built.total_blocks == 0 {
-        return Some("该项目还没有任何块。".to_string());
+        return Some(format!("〈{}〉还没有任何块。", built.title));
     }
     if built.range_blocks == 0 {
         return Some(format!(
-            "range={range} 窗口内没有块 — 该项目共 {} 块(置顶 {} 块)。试 range=last30 / all,\
+            "range={range} 窗口内没有块 —〈{}〉共 {} 块(置顶 {} 块)。试 range=last30 / all,\
              或用 get_blocks 分页读取。",
-            built.total_blocks, built.pinned_blocks
-        ));
-    }
-    let chars = built.text.chars().count() as i64;
-    if max_chars > 0 && chars > max_chars {
-        return Some(format!(
-            "pack 全文 {chars} 字符,超过 max_chars={max_chars}(默认 {PACK_DEFAULT_MAX_CHARS},\
-             传 0 取全文)。该项目共 {} 块、置顶 {} 块。控制预算:range=pinned / last30,\
-             或用 get_blocks(thread_id, offset, limit) 分页读取全文。",
-            built.total_blocks, built.pinned_blocks
+            built.title, built.total_blocks, built.pinned_blocks
         ));
     }
     None
+}
+
+// Reached only when even the tightest floor (skeleton + all pinned blocks, file text
+// squeezed to EXTRACT_CAP_LADDER's last rung) exceeds max_chars. R6 B-1: the old text
+// told the caller to retry with range=pinned — which lands on the very same floor and
+// fails identically. Name the number that would work, and the one path that is not
+// bounded by this budget at all.
+fn pack_floor_message(built: &PackBuilt, max_chars: i64) -> String {
+    let floor = render_at(built, built.blocks.len(), EXTRACT_CAP_LADDER[EXTRACT_CAP_LADDER.len() - 1])
+        .chars()
+        .count();
+    format!(
+        "拿不到 pack:max_chars={max_chars} 连下限都装不下。这个项目 pack 全文 {} 字符;\
+         即使丢掉全部时间线、把附件正文压到 {} 字符,骨架加全部置顶块仍有 {floor} 字符。\
+         可行的两条路:①把 max_chars 提到 {floor} 以上(传 0 = 不限);\
+         ②用 get_blocks(thread_id, offset, limit) 一页一页读——它不受这个预算约束。\
+         (range=pinned 没用:置顶块本身就在这个下限里。)〈{}〉共 {} 块、置顶 {} 块。",
+        built.text.chars().count(),
+        EXTRACT_CAP_LADDER[EXTRACT_CAP_LADDER.len() - 1],
+        built.title,
+        built.total_blocks,
+        built.pinned_blocks,
+    )
 }
 
 fn get_pack_text(conn: &Connection, thread_id: &str, range: &str) -> Result<String, String> {
@@ -1909,12 +2109,22 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
 
     let ref_titles = load_ref_titles(conn)?;
 
+    let scope = (range != "all").then_some((range, total_blocks));
     Ok(PackBuilt {
-        text: assemble_pack(&title, &blocks, &attachments, &ref_titles, &ref_blocks, now_ms),
+        text: assemble_pack_with(
+            &title,
+            &blocks,
+            &attachments,
+            &ref_titles,
+            &ref_blocks,
+            now_ms,
+            &RenderOpts { scope, ..RenderOpts::plain() },
+        ),
         total_blocks,
         range_blocks,
         pinned_blocks,
         title,
+        range: range.to_string(),
         blocks,
         attachments,
         ref_titles,
@@ -2118,6 +2328,30 @@ fn create_thread_json(
             )
             .map_err(|_| "没有任何工作区 — 请先在 Spool 里创建一个。".to_string())?,
     };
+    // R6 B-10: same workspace, same title used to be allowed silently — and since there
+    // is no delete tool, the duplicate is permanent. Titles are also the ONLY way a
+    // project may be named to the user (naming hard rule) and the key resolve_thread
+    // resolves prompts by, so two identical ones make both surfaces ambiguous forever.
+    {
+        use rusqlite::OptionalExtension;
+        let twin: Option<String> = conn
+            .query_row(
+                "SELECT id FROM threads
+                 WHERE workspace_id = ?1 AND deleted_at IS NULL AND lower(trim(title)) = lower(?2)
+                 LIMIT 1",
+                rusqlite::params![ws_id, title],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some(existing) = twin {
+            return Err(format!(
+                "工作区「{ws_title}」里已经有一个叫〈{title}〉的项目了(thread_id: {existing})。\
+                 Spool 没有删除接口,建重了就永远留在那儿。要么直接往那个项目里 add_block,\
+                 要么把标题改成能和它区分开的说法。"
+            ));
+        }
+    }
     let id = new_id()?;
     let now = now_ms();
     let summary = summary.map(str::trim).filter(|s| !s.is_empty());
@@ -2170,8 +2404,8 @@ fn set_thread_summary_json(
     let has_summary = existing.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
     if has_summary && source.as_deref() != Some("mcp") {
         return Err(format!(
-            "「{title}」的摘要是用户手写的，MCP 不得覆盖。请把你建议的摘要告诉用户，\
-             由用户自己在 Spool 里修改（用户清空摘要后 MCP 方可再写）。"
+            "「{title}」的摘要是用户手写的,MCP 不得覆盖。请把你建议的摘要告诉用户,\
+             由用户自己在 Spool 里修改(用户清空摘要后 MCP 方可再写)。"
         ));
     }
     let now = now_ms();
@@ -2640,7 +2874,7 @@ fn tools_descriptor() -> Value {
     json!([
         {
             "name": "list_threads",
-            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, block/pinned counts, approx_pack_chars (content chars; the fixed pack skeleton adds ~3k) and last-updated times. Call this first — both to pick a project and to budget reads before get_pack. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
+            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts, approx_pack_chars and last-updated times. approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -2665,7 +2899,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "get_pack",
-            "description": "Return Spool's paste-ready context briefing (the 'pack') for one project — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call returns a partial pack — reading header and Pinned Blocks complete, Full Record filled newest-first to the budget, with one line at the section top saying how many older blocks were omitted and how to read them (get_blocks paging, narrower range, or max_chars=0 for the full text).",
+            "description": "Return Spool's paste-ready context briefing (the 'pack') for one project — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call still returns a pack — reading header and Pinned Blocks complete, Full Record filled newest-first to the budget, and if that alone overflows, inlined attachment text is squeezed too. Every cut is stated in place (how many older blocks were omitted, how many chars of a file's text were dropped) and how to read the rest: get_blocks paging, or max_chars=0 for the full text.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -2673,7 +2907,7 @@ fn tools_descriptor() -> Value {
                     "range": {
                         "type": "string",
                         "enum": RANGE_VALUES,
-                        "description": "Optional scope: all (default), pinned (user-marked core blocks only), last7 / last30 (blocks captured in the last N days)."
+                        "description": "Optional scope: all (default), pinned (user-marked core blocks only), last7 / last30 (blocks captured in the last N days — pinned blocks are always kept, whatever their age). A narrowed pack says so in its header ('N of TOTAL blocks')."
                     },
                     "max_chars": { "type": "integer", "description": "Output cap in Unicode code points (a JS .length count of the same text runs higher when astral chars are present). Default 50000; 0 = unlimited." },
                     "include_ids": { "type": "boolean", "description": "Append a Block IDs side-table (one line per rendered block) after the pack, for follow-up calls like add_block.ref_block_id or get_blocks.around_block_id. Rides outside max_chars. Ids stay tool parameters — never show or write them. Default false." }
@@ -2684,13 +2918,14 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…** plus block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. NOTE: text extracted from attached files is NOT indexed — a phrase that lives only inside a PDF will not be found here.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Keyword or phrase." },
-                    "limit": { "type": "integer", "description": "Max hits, default 20, cap 50." }
+                    "limit": { "type": "integer", "description": "Max hits, default 20, cap 50." },
+                    "offset": { "type": "integer", "description": "Hits to skip, default 0 — page through a `total` larger than `limit`." }
                 },
                 "required": ["query"],
                 "additionalProperties": false
@@ -2712,7 +2947,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "get_blocks",
-            "description": "Page through one project's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps). The middle granularity between a search snippet and a full pack. To read around a search hit, pass its block_id as around_block_id (with optional context, default 3 each side) — this centers the page and returns anchor_position; offset/limit are ignored. Optional filters (pinned / has_annotation / source_contains) AND-combine and narrow the page + total; they cannot be combined with around_block_id.",
+            "description": "Page through one project's blocks in chronological order, as JSON (full content, annotation, source, pinned, timestamps, plus each block's attachments with the size of any extracted file text). The middle granularity between a search snippet and a full pack, and the way to read a project whose pack is over budget. To read around a search hit, pass its block_id as around_block_id (with optional context, default 3 each side) — this centers the page and returns anchor_position; offset/limit are ignored. Optional filters (pinned / has_annotation / source_contains) AND-combine and narrow the page + total; they cannot be combined with around_block_id.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -2724,7 +2959,8 @@ fn tools_descriptor() -> Value {
                     "context": { "type": "integer", "description": "With around_block_id: blocks each side, default 3, cap 24." },
                     "pinned": { "type": "boolean", "description": "Only pinned (true) or only unpinned (false) blocks." },
                     "has_annotation": { "type": "boolean", "description": "Only blocks with (true) / without (false) a user annotation." },
-                    "source_contains": { "type": "string", "description": "Only blocks whose source label contains this text, case-insensitive (e.g. 'MCP', 'PDF'). User-typed blocks have no source and never match." }
+                    "source_contains": { "type": "string", "description": "Only blocks whose source label contains this text, case-insensitive (e.g. 'MCP', 'PDF'). User-typed blocks have no source and never match." },
+                    "include_extracted_text": { "type": "boolean", "description": "Inline the full text extracted from attached files (PDF/docx/…) into each attachment entry. Default false — attachments always report extracted_chars, so read that first and only turn this on when you need the text. One lecture PDF can be 8000+ chars." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -2742,7 +2978,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "create_thread",
-            "description": "Create a new project in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
+            "description": "Create a new project in Spool. Use when the user asks to start tracking a new topic/project from this conversation. Search first — a project whose title already exists in the target workspace is refused (Spool has no delete tool, so a duplicate is permanent and makes both projects ambiguous to name). Requires the user to have enabled MCP writes in Spool's settings. Returns the new thread_id.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -2807,6 +3043,17 @@ fn handle_tool_call(params: &Value) -> Value {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
 
+    // R6 B-9: a numeric argument that arrived as 3.5 or "20" used to fall through
+    // as_i64 and silently become the DEFAULT — the caller's intent vanished without a
+    // word. Take whatever number-shaped thing the client sent, truncate toward zero, and
+    // let the tool's own clamp (echoed in its output) be the single visible adjustment.
+    let num = |key: &str| -> Option<i64> {
+        let v = args.get(key)?;
+        v.as_i64()
+            .or_else(|| v.as_f64().map(|f| f.trunc() as i64))
+            .or_else(|| v.as_str()?.trim().parse::<f64>().ok().map(|f| f.trunc() as i64))
+    };
+
     let run = || -> Result<String, String> {
         match name {
             "list_threads" => list_threads_json(
@@ -2816,22 +3063,21 @@ fn handle_tool_call(params: &Value) -> Value {
             "get_digest" => get_digest_json(
                 &open_db(&dir)?,
                 args.get("workspace_title").and_then(Value::as_str),
-                args.get("since_days").and_then(Value::as_i64),
-                args.get("max_chars").and_then(Value::as_i64),
+                num("since_days"),
+                num("max_chars"),
                 now_ms(),
             ),
             "search_blocks" => {
                 let query =
                     args.get("query").and_then(Value::as_str).ok_or("缺少 query 参数。")?;
-                let limit = args.get("limit").and_then(Value::as_i64);
-                search_blocks_json(&open_db(&dir)?, query, limit)
+                search_blocks_json(&open_db(&dir)?, query, num("limit"), num("offset"))
             }
             "check_library" => check_library_json(&open_db(&dir)?, now_ms()),
             "find_similar_blocks" => find_similar_blocks_json(
                 &open_db(&dir)?,
                 args.get("thread_id").and_then(Value::as_str),
                 args.get("workspace_title").and_then(Value::as_str),
-                args.get("max_groups").and_then(Value::as_i64),
+                num("max_groups"),
             ),
             "get_blocks" => {
                 let thread_id = args
@@ -2841,15 +3087,16 @@ fn handle_tool_call(params: &Value) -> Value {
                 get_blocks_json(
                     &open_db(&dir)?,
                     thread_id,
-                    args.get("offset").and_then(Value::as_i64),
-                    args.get("limit").and_then(Value::as_i64),
+                    num("offset"),
+                    num("limit"),
                     args.get("around_block_id").and_then(Value::as_str),
-                    args.get("context").and_then(Value::as_i64),
+                    num("context"),
                     &BlockFilters {
                         pinned: args.get("pinned").and_then(Value::as_bool),
                         has_annotation: args.get("has_annotation").and_then(Value::as_bool),
                         source_contains: args.get("source_contains").and_then(Value::as_str),
                     },
+                    args.get("include_extracted_text").and_then(Value::as_bool).unwrap_or(false),
                 )
             }
             "get_pack" => {
@@ -2861,10 +3108,7 @@ fn handle_tool_call(params: &Value) -> Value {
                 if !RANGE_VALUES.contains(&range) {
                     return Err(format!("range 必须是 {RANGE_VALUES:?} 之一。"));
                 }
-                let max_chars = args
-                    .get("max_chars")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(PACK_DEFAULT_MAX_CHARS);
+                let max_chars = num("max_chars").unwrap_or(PACK_DEFAULT_MAX_CHARS);
                 let include_ids =
                     args.get("include_ids").and_then(Value::as_bool).unwrap_or(false);
                 let built = build_pack(&open_db(&dir)?, thread_id, range)?;
@@ -2878,21 +3122,19 @@ fn handle_tool_call(params: &Value) -> Value {
                         text
                     }
                 };
-                match pack_guard_message(&built, range, max_chars) {
-                    None => Ok(with_ids(built.text.clone(), 0)),
-                    Some(msg) => {
-                        // C2: over budget (the only guard with content on hand) tries a
-                        // partial render; empty thread / empty window keep their messages,
-                        // as does the extreme where skeleton + pinned alone overflow.
-                        if built.range_blocks > 0 {
-                            match budgeted_pack(&built, max_chars) {
-                                Some((text, omit)) => Ok(with_ids(text, omit)),
-                                None => Ok(msg),
-                            }
-                        } else {
-                            Ok(msg)
-                        }
-                    }
+                if let Some(msg) = pack_guard_message(&built, range) {
+                    return Ok(msg); // empty project / empty window — nothing to render
+                }
+                let chars = built.text.chars().count() as i64;
+                if max_chars <= 0 || chars <= max_chars {
+                    return Ok(with_ids(built.text.clone(), 0));
+                }
+                // C2 + R6 B-1: over budget degrades to a partial pack (oldest timeline
+                // entries first, then tighter per-file extraction) — a message only when
+                // even the tightest floor overflows.
+                match budgeted_pack(&built, max_chars) {
+                    Some((text, omit)) => Ok(with_ids(text, omit)),
+                    None => Ok(pack_floor_message(&built, max_chars)),
                 }
             }
             "create_thread" | "add_block" | "set_thread_summary" => {
@@ -3086,7 +3328,7 @@ pub fn configure_client(client: &str) -> Result<String, String> {
 
     if cfg.exists() {
         let bak = cfg.with_extension("json.bak");
-        std::fs::copy(&cfg, &bak).map_err(|e| format!("备份失败，未写入: {e}"))?;
+        std::fs::copy(&cfg, &bak).map_err(|e| format!("备份失败,未写入: {e}"))?;
     }
 
     let servers = v
@@ -3127,7 +3369,7 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
 
     if cfg.exists() {
         let bak = cfg.with_extension("toml.bak");
-        std::fs::copy(cfg, &bak).map_err(|e| format!("备份失败，未写入: {e}"))?;
+        std::fs::copy(cfg, &bak).map_err(|e| format!("备份失败,未写入: {e}"))?;
     }
 
     let servers = doc.entry(key).or_insert(toml_edit::table());
@@ -3481,7 +3723,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
                 // The identity leads: a client that truncates instructions keeps the one
                 // line that says which library this is.
-                "instructions": format!("{}\n\n{}", library_identity(), "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are truncated pointers — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
+                "instructions": format!("{}\n\n{}", library_identity(), "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block warns; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
             }))
         }
         "ping" => Ok(json!({})),
@@ -3617,7 +3859,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                         prompt_body(|dir, conn| {
                             let (id, title) = resolve_thread(conn, key)?;
                             let built = build_pack(conn, &id, range)?;
-                            if let Some(msg) = pack_guard_message(&built, range, 0) {
+                            if let Some(msg) = pack_guard_message(&built, range) {
                                 return Err(msg); // empty project / empty window
                             }
                             // Same budget as get_pack, and the id side-table rides along
@@ -3827,9 +4069,17 @@ mod tests {
         for b in filter_blocks_for_range(fixture_rows().1, "pinned", now) {
             assert!(b.pinned);
         }
+        // B-2: the day window keeps in-window blocks AND every pinned block, whatever
+        // its age — same rule as the TS twin.
         for b in filter_blocks_for_range(fixture_rows().1, "last7", now) {
-            assert!(b.created_at >= now - 7 * 86_400_000);
+            assert!(b.pinned || b.created_at >= now - 7 * 86_400_000);
         }
+        let last7 = filter_blocks_for_range(fixture_rows().1, "last7", now);
+        assert_eq!(
+            last7.iter().filter(|b| b.pinned).count(),
+            pinned,
+            "no pinned block may fall out of a day range"
+        );
     }
 
     #[test]
@@ -3936,7 +4186,7 @@ mod tests {
             add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope")).unwrap_err();
         assert!(err.contains("ref_block_id"), "{err}");
         let page: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS).unwrap(),
+            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS, false).unwrap(),
         )
         .unwrap();
         let citing_row = page["blocks"]
@@ -3957,7 +4207,7 @@ mod tests {
         let pack = build_pack(&conn, &tid, "all").unwrap().text;
         assert!(pack.contains("↩ cites: (cited block no longer exists)"), "{pack}");
         let page: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS).unwrap(),
+            &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS, false).unwrap(),
         )
         .unwrap();
         let citing_row = page["blocks"]
@@ -4061,7 +4311,7 @@ mod tests {
 
         // R2 C1: around_block_id centers the page (t1 order: b1,b2,b3,b5,b6 → b3 at
         // position 2; context 1 → b2..b5) and reports the anchor position.
-        let out = get_blocks_json(&conn, "t1", None, None, Some("b3"), Some(1), &NO_FILTERS).unwrap();
+        let out = get_blocks_json(&conn, "t1", None, None, Some("b3"), Some(1), &NO_FILTERS, false).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["anchor_position"], 2);
         let ids: Vec<&str> = v["blocks"]
@@ -4074,7 +4324,7 @@ mod tests {
         // A block from another thread is not silently treated as offset 0 — and the
         // error names the owning thread (R3 BUG-8) so the model can self-correct.
         let err =
-            get_blocks_json(&conn, "t1", None, None, Some("b4"), None, &NO_FILTERS).unwrap_err();
+            get_blocks_json(&conn, "t1", None, None, Some("b4"), None, &NO_FILTERS, false).unwrap_err();
         assert!(err.contains("别处"), "{err}");
         assert!(!err.contains("  "), "double-space artifact: {err}");
     }
@@ -4180,7 +4430,7 @@ mod tests {
 
         // FTS path (≥3 codepoints): {total, hits} with a **marked** snippet.
         let res: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1);
         let hits = res["hits"].as_array().unwrap();
         assert_eq!(hits.len(), 1);
@@ -4191,37 +4441,37 @@ mod tests {
 
         // LIKE path (2 codepoints): annotation-only match snippets the annotation.
         let res: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "核对", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "核对", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1);
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("note: "));
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**核对**"));
 
         // Short Latin query: word boundary required — "obtained" must not hit.
         let res: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "ai", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "ai", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1);
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**AI**"));
 
 
         // No hit → empty hits, not an error; blank query → error.
         let none: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "不存在的词", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "不存在的词", None, None).unwrap()).unwrap();
         assert_eq!(none["total"], 0);
         assert!(none["hits"].as_array().unwrap().is_empty());
-        assert!(search_blocks_json(&conn, "  ", None).is_err());
+        assert!(search_blocks_json(&conn, "  ", None, None).is_err());
 
         // get_blocks paging: chronological, total independent of the page size.
         let page: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1), None, None, &NO_FILTERS).unwrap())
+            serde_json::from_str(&get_blocks_json(&conn, &tid, None, Some(1), None, None, &NO_FILTERS, false).unwrap())
                 .unwrap();
         assert_eq!(page["total"], 3);
         assert_eq!(page["blocks"].as_array().unwrap().len(), 1);
         assert_eq!(page["blocks"][0]["content"], "量子退火的调参结论");
         let page2: Value =
-            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None, None, None, &NO_FILTERS).unwrap())
+            serde_json::from_str(&get_blocks_json(&conn, &tid, Some(2), None, None, None, &NO_FILTERS, false).unwrap())
                 .unwrap();
         assert_eq!(page2["blocks"][0]["content"], "AI 分类器的结论");
-        assert!(get_blocks_json(&conn, "nope", None, None, None, None, &NO_FILTERS).is_err());
+        assert!(get_blocks_json(&conn, "nope", None, None, None, None, &NO_FILTERS, false).is_err());
 
         // v2.4 (C5): page filters AND-combine, narrow `total`, echo back, and refuse
         // to mix with around_block_id.
@@ -4232,7 +4482,7 @@ mod tests {
             source_contains,
         };
         let pinned_only: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), None, None))
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), None, None), false)
                 .unwrap(),
         )
         .unwrap();
@@ -4240,7 +4490,7 @@ mod tests {
         assert_eq!(pinned_only["blocks"][0]["content"], "AI 分类器的结论");
         assert_eq!(pinned_only["filters"]["pinned"], true);
         let annotated: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, Some(true), None))
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, Some(true), None), false)
                 .unwrap(),
         )
         .unwrap();
@@ -4248,21 +4498,21 @@ mod tests {
         assert_eq!(annotated["blocks"][0]["annotation"], "再核对");
         // source_contains is case-insensitive and never matches sourceless rows.
         let by_source: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("mcp")))
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("mcp")), false)
                 .unwrap(),
         )
         .unwrap();
         assert_eq!(by_source["total"], 3, "{by_source}"); // every block here is MCP-written
         let none_match: Value = serde_json::from_str(
-            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), Some(true), None))
+            &get_blocks_json(&conn, &tid, None, None, None, None, &f(Some(true), Some(true), None), false)
                 .unwrap(),
         )
         .unwrap();
         assert_eq!(none_match["total"], 0);
-        assert!(get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("  ")))
+        assert!(get_blocks_json(&conn, &tid, None, None, None, None, &f(None, None, Some("  ")), false)
             .is_err());
         let bid = pinned_only["blocks"][0]["block_id"].as_str().unwrap();
-        let err = get_blocks_json(&conn, &tid, None, None, Some(bid), None, &f(Some(true), None, None))
+        let err = get_blocks_json(&conn, &tid, None, None, Some(bid), None, &f(Some(true), None, None), false)
             .unwrap_err();
         assert!(err.contains("不能同时使用"), "{err}");
         // Unfiltered responses carry no filters echo.
@@ -4284,11 +4534,11 @@ mod tests {
             .unwrap();
         add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None).unwrap();
         let res: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "GRE", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "GRE", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1, "{res}");
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**GRE**"));
         let res: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "填空", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "填空", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1);
 
         // Resources probe: uri shape, summary as description.
@@ -4301,7 +4551,7 @@ mod tests {
         // Soft-deleted threads vanish from both search and resources.
         conn.execute("UPDATE threads SET deleted_at = 2 WHERE id = ?1", [&tid]).unwrap();
         let gone: Value =
-            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None).unwrap()).unwrap();
+            serde_json::from_str(&search_blocks_json(&conn, "调参结论", None, None).unwrap()).unwrap();
         assert_eq!(gone["total"], 0);
         assert!(thread_resources(&conn).unwrap().is_empty());
     }
@@ -4343,13 +4593,22 @@ mod tests {
         let t1 = &rows[0];
         assert_eq!(t1["blocks"], 2);
         assert_eq!(t1["pinned"], 1);
-        // chars = content(5) + annotation(9 chars) + content(10) + capped attachment(8000);
-        // a2 is opted out, a3 has no text. LENGTH() counts chars on TEXT columns.
-        assert_eq!(t1["approx_pack_chars"], 5 + 9 + 10 + 8000);
+        // B-4: the estimate is the whole pack. content(5) + annotation(9) + content(10)
+        // + capped attachment(8000) — a2 is opted out, a3 has no text — plus the
+        // per-block scaffolding (30 each, +11 for the annotated one, +120 for the pinned
+        // one's second rendering) and the measured skeleton. LENGTH() counts chars on
+        // TEXT columns.
+        let skeleton = pack_skeleton_chars();
+        assert!(skeleton > 2000, "skeleton looks wrong: {skeleton}");
+        assert_eq!(
+            t1["approx_pack_chars"],
+            5 + 9 + 10 + 8000 + 30 + 30 + 11 + 120 + skeleton
+        );
         let t2 = &rows[1];
         assert_eq!(t2["blocks"], 0);
         assert_eq!(t2["pinned"], 0);
-        assert_eq!(t2["approx_pack_chars"], 0);
+        // An empty project still costs the skeleton to pack.
+        assert_eq!(t2["approx_pack_chars"], skeleton);
 
         // R3 friction #1: title_contains is the title→id resolver.
         let hit: Vec<Value> =
@@ -4362,31 +4621,30 @@ mod tests {
         assert!(list_threads_json(&conn, Some("  ")).is_err());
     }
 
-    // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's three mouths — empty thread,
-    // empty range window, over budget — and its two pass-through cases.
+    // §20.13 v2.1 (P0-2/P2-7): the get_pack guard's two "nothing to render" mouths —
+    // empty thread, empty range window — and its pass-through. R6 B-1 moved over-budget
+    // out of here: it degrades to a partial pack now (see budgeted_pack_squeezes_extracts).
     #[test]
     fn pack_guard_paths() {
-        let mk = |total: usize, range: usize, pinned: usize, text: &str| PackBuilt {
-            text: text.into(),
+        let mk = |total: usize, range: usize, pinned: usize, title: &str| PackBuilt {
+            text: String::new(),
             total_blocks: total,
             range_blocks: range,
             pinned_blocks: pinned,
-            title: String::new(),
+            title: title.into(),
+            range: "all".into(),
             blocks: Vec::new(),
             attachments: Vec::new(),
             ref_titles: HashMap::new(),
             ref_blocks: RefBlocks::new(),
             now_ms: 0,
         };
-        assert!(pack_guard_message(&mk(0, 0, 0, ""), "all", 100)
-            .unwrap()
-            .contains("还没有任何块"));
-        let msg = pack_guard_message(&mk(12, 0, 2, ""), "last7", 100).unwrap();
-        assert!(msg.contains("12") && msg.contains("last7"));
-        let msg = pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 5).unwrap();
-        assert!(msg.contains("max_chars=5"));
-        assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 0).is_none());
-        assert!(pack_guard_message(&mk(3, 3, 1, "abcdefghij"), "all", 100).is_none());
+        // B-11: the empty-project message names the project instead of saying "该项目".
+        let msg = pack_guard_message(&mk(0, 0, 0, "菜谱"), "all").unwrap();
+        assert!(msg.contains("还没有任何块") && msg.contains("菜谱"));
+        let msg = pack_guard_message(&mk(12, 0, 2, "机器学习课"), "last7").unwrap();
+        assert!(msg.contains("12") && msg.contains("last7") && msg.contains("机器学习课"));
+        assert!(pack_guard_message(&mk(3, 3, 1, "机器学习课"), "all").is_none());
     }
 
     // v2.4 (D3): get_digest — deterministic cross-thread briefing. Fixed clock, seeded
@@ -4858,6 +5116,7 @@ mod tests {
             range_blocks: 20,
             pinned_blocks: 1,
             title: "预算测试".into(),
+            range: "all".into(),
             blocks,
             attachments,
             ref_titles: HashMap::new(),
@@ -4903,6 +5162,88 @@ mod tests {
         assert!(table.contains("— b19"), "{table}");
         assert!(table.contains("— b0"), "pinned survives omission: {table}");
         assert!(!table.contains("— b1\n"), "omitted unpinned must not list: {table}");
+    }
+
+    // R6 B-1 (field review 2026-08-04): a single PINNED block carrying a long file
+    // extraction used to put the pack's floor above any sane max_chars — the trimmer
+    // never touches pinned blocks and inlined file text obeyed no budget at all, so
+    // max_chars=8000 returned a 140-char apology instead of a pack. Also B-2/B-3: the
+    // day ranges keep pinned blocks, and a narrowed pack says "N of TOTAL".
+    #[test]
+    fn budgeted_pack_squeezes_extracts_and_range_keeps_pinned() {
+        let now = 1_750_001_000_000i64;
+        let mk_block = |id: &str, pinned: bool, age_days: i64| BlockRow {
+            id: id.into(),
+            kind: "text".into(),
+            content: format!("块 {id}: 一句正文"),
+            annotation: None,
+            ref_thread_id: None,
+            ref_block_id: None,
+            source: None,
+            pinned,
+            created_at: now - age_days * 86_400_000,
+        };
+        // Pinned, 40 days old, holding a 7800-char lecture extraction.
+        let blocks = vec![mk_block("p", true, 40), mk_block("n", false, 1)];
+        let attachments = vec![AttachmentRow {
+            block_id: "p".into(),
+            kind: "file".into(),
+            target: "/tmp/lecture-03.pdf".into(),
+            label: "lecture-03.pdf".into(),
+            extracted_text: Some("讲义正文。".repeat(1560)), // 7800 chars
+            extraction_kind: Some("pdf".into()),
+            include_in_pack: true,
+        }];
+        let built = PackBuilt {
+            text: assemble_pack("机器学习课", &blocks, &attachments, &HashMap::new(), &RefBlocks::new(), now),
+            total_blocks: 2,
+            range_blocks: 2,
+            pinned_blocks: 1,
+            title: "机器学习课".into(),
+            range: "all".into(),
+            blocks,
+            attachments,
+            ref_titles: HashMap::new(),
+            ref_blocks: RefBlocks::new(),
+            now_ms: now,
+        };
+        // Pre-condition = the reported bug: with file text outside the budget, even
+        // dropping the whole timeline leaves the floor over 8000, so the old single-
+        // dimension search gave up and the caller got a stats message.
+        assert!(budgeted_pack_at(&built, 8000, EXTRACT_CHAR_CAP).is_none());
+
+        // The reported case: 8000 must yield a real pack, not a message.
+        let (pack, _) = budgeted_pack(&built, 8000).expect("8000 must produce a partial pack");
+        assert!(pack.chars().count() <= 8000);
+        assert!(pack.contains("块 p:"), "the pinned block itself is never dropped");
+        assert!(pack.contains("truncated,"), "the extraction cut is marked in place");
+        assert!(pack.contains("Budget note:"), "and disclosed at the top: {}", &pack[..300]);
+        // Still honest at the bottom of the ladder, and the floor message names a
+        // workable number instead of re-suggesting range=pinned.
+        // Below the fixed skeleton nothing can be rendered — the message says so with a
+        // number that works, instead of re-suggesting a range that lands on the same floor.
+        assert!(budgeted_pack(&built, 2000).is_none());
+        let msg = pack_floor_message(&built, 2000);
+        assert!(msg.contains("get_blocks") && !msg.contains("试 range=pinned"));
+
+        // B-2: a 40-day-old PINNED block survives last7. B-3: the header says so.
+        let filtered = filter_blocks_for_range(
+            vec![mk_block("p", true, 40), mk_block("n", false, 1)],
+            "last7",
+            now,
+        );
+        assert_eq!(filtered.len(), 2, "pinned survives the day window");
+        let narrowed = assemble_pack_with(
+            "机器学习课",
+            &filtered,
+            &[],
+            &HashMap::new(),
+            &RefBlocks::new(),
+            now,
+            &RenderOpts { scope: Some(("last7", 17)), ..RenderOpts::plain() },
+        );
+        assert!(narrowed.contains("2 of 17 blocks in this project (range: last7"));
+        assert!(!narrowed.contains("blocks total"));
     }
 
     // One test on purpose: it redirects HOME to a temp dir, and env vars are

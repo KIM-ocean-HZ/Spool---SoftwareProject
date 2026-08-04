@@ -73,7 +73,17 @@ export default function PackDialog({
     const packedAttachments =
       range === 'all' ? attachments : attachments.filter((a) => ids.has(a.blockId));
     return {
-      text: assemble({ thread, blocks: packedBlocks, attachments: packedAttachments, refTitles, refBlocks, template }),
+      text: assemble({
+        thread,
+        blocks: packedBlocks,
+        attachments: packedAttachments,
+        refTitles,
+        refBlocks,
+        template,
+        // B-3: a narrowed pack must say so in its header, or the AI it gets pasted to
+        // reads the slice as the whole project.
+        scope: { range, total: blocks.length },
+      }),
       packedCount: packedBlocks.length,
     };
   }, [thread, blocks, attachments, refTitles, refBlocks, template, range]);
