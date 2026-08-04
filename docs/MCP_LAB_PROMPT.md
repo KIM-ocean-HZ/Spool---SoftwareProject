@@ -157,7 +157,7 @@ C. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕)
 2. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
 3. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
 4. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
-5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl000000000008),看它怎么警告你,
+5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),看它怎么警告你,
    警告完你打算怎么办
 
 D. 资源:如果你的客户端能 @ 引用 MCP 资源,把「机器学习课」引用一次,说说和 get_pack 比差在哪
@@ -296,7 +296,7 @@ C. 写(每次动手前先告诉我你要写什么,我不拦你,但要留痕)
 2. add_block 把你的一条真结论写进去:带批注,并用 ref_block_id 引用它依据的那个块
 3. set_thread_summary 给「机器学习课」写第一条摘要(应该成功)
 4. set_thread_summary 去改「找工作」的摘要(应该被拒)——把拒绝原话贴给我
-5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl000000000008),看它怎么警告你,
+5. add_block 故意在正文里塞一个 21 位的 id(比如 LabBkMl00000000000008),看它怎么警告你,
    警告完你打算怎么办
 
 D. 资源:如果你的客户端能引用 MCP 资源,把「机器学习课」引用一次,说说和 get_pack 比差在哪;
@@ -349,8 +349,8 @@ E. 装成那个用户,连着问三句,看这套工具够不够用、中间有几
 | 两条一模一样的块 + 一条改了标点的 | 机器学习课 | find_similar_blocks / thread_health |
 | 跨项目的重复(同一句话) | 机器学习课 ↔ 机器学习课作业 | 全库 find_similar_blocks |
 | 指向不存在的块的引用 | 机器学习课 | check_library / thread_health / pack 里降级成一行说明 |
-| 正文里露出的 `spool://` 和 21 位裸 id | 机器学习课 | check_library / thread_health |
-| 摘要里露出的裸 id | 租房 | check_library(项目摘要那一节) |
+| 正文里露出的 `spool://` 和 21 位裸 id | 机器学习课 | check_library / thread_health。两条都指向现存对象,报告里会写「→ 指向现存块/项目」 |
+| 摘要里露出的裸 id | 租房 | check_library(项目摘要那一节)。这条**故意指向不存在的对象**,报告里写「→ 未指向现存对象」 |
 | 用户手写的摘要 | 找工作 | set_thread_summary 必须拒绝 |
 | AI 写的摘要 | 机器学习课作业、租房、简历改版 | set_thread_summary 可以覆盖 |
 | 没有摘要 | 机器学习课等 | set_thread_summary 写第一条 |
