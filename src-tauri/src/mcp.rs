@@ -875,12 +875,14 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                     t.summary,
                     COALESCE(bc.pinned, 0),
                     COALESCE(bc.chars, 0) + COALESCE(ac.att_chars, 0),
-                    t.summary_source
+                    t.summary_source,
+                    bc.last_at
              FROM threads t
              JOIN workspaces w ON w.id = t.workspace_id
              LEFT JOIN (SELECT thread_id,
                                COUNT(*) AS blocks,
                                SUM(pinned) AS pinned,
+                               MAX(created_at) AS last_at,
                                SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)
                                    + COALESCE(LENGTH(source), 0)
                                    + 30
@@ -896,7 +898,8 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                           FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
                          GROUP BY b2.thread_id) ac ON ac.thread_id = t.id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL{title_clause}
-             ORDER BY w.sort_order ASC, w.created_at ASC, t.updated_at DESC",
+             ORDER BY w.sort_order ASC, w.created_at ASC,
+                      COALESCE(bc.last_at, t.created_at) DESC, t.id ASC",
             title_clause = if title_contains.is_some() {
                 " AND instr(lower(t.title), lower(?)) > 0"
             } else {
@@ -913,11 +916,22 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
             let summary: Option<String> = r.get(6)?;
             let has_summary = summary.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
             let summary_source: Option<String> = r.get(9)?;
+            let last_block_at: Option<i64> = r.get(10)?;
             Ok(json!({
                 "thread_id": r.get::<_, String>(0)?,
                 "title": r.get::<_, String>(1)?,
                 "status": r.get::<_, String>(2)?,
                 "updated_at": format_pack_time(r.get::<_, i64>(3)?),
+                // R6 (third-round debt 1): updated_at moves on ANY mutation — including an
+                // MCP-written summary, which used to be enough to shove a project to the
+                // head of "recently active" without a single new block. last_block_at is
+                // the content clock: when a block was last added, null for an empty
+                // project. Row order now follows it, not updated_at. NB it does not mean
+                // "the user was here" — add_block's own writes count as activity too.
+                "last_block_at": match last_block_at {
+                    Some(ts) => json!(format_pack_time(ts)),
+                    None => Value::Null,
+                },
                 "workspace": r.get::<_, String>(4)?,
                 "blocks": r.get::<_, i64>(5)?,
                 // §20.13 v2: the one-liner serves "list with summaries" without a
@@ -3494,7 +3508,7 @@ fn tools_descriptor() -> Value {
     json!([
         {
             "name": "list_threads",
-            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts, approx_pack_chars and last-updated times. approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
+            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts and approx_pack_chars. Two clocks per project: last_block_at is when a block was last added (null if the project has none) and is what the rows are ordered by inside each workspace; updated_at moves on any change at all, including an AI-written summary. Neither distinguishes your own writes from the user's. approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -5731,6 +5745,44 @@ mod tests {
         assert_eq!(t2["pinned"], 0);
         // An empty project still costs the skeleton to pack.
         assert_eq!(t2["approx_pack_chars"], skeleton);
+
+        // R6 (third-round debt 1): last_block_at is the CONTENT clock — MAX(blocks.created_at),
+        // which is b2 at 2, not t1's updated_at of 9. An empty project has no content clock
+        // at all, so it reads null rather than borrowing its own created_at (which would
+        // print as a real date and read as ancient activity).
+        assert_eq!(t1["last_block_at"], json!(format_pack_time(2)));
+        assert_eq!(t2["last_block_at"], Value::Null, "empty project invented a block time");
+
+        // R6 (third-round debt 1), the bug itself: writing a summary bumps threads.updated_at,
+        // and while that column drove ORDER BY, one AI-written summary was enough to shove an
+        // EMPTY project past a project with real blocks. Simulate exactly that write, and give
+        // the empty project the NEWER updated_at of the two — that is what the old
+        // `ORDER BY t.updated_at DESC` would have promoted, so this assertion goes red on the
+        // pre-fix code instead of merely passing on the new. Timestamps are epoch MILLIseconds
+        // and days apart on purpose: 1..9ms all collapse into one rendered minute.
+        let five_days = 432_000_000_i64;
+        let ten_days = 864_000_000_i64;
+        conn.execute_batch(&format!(
+            "UPDATE threads SET updated_at = {ten_days}, summary = '摘要',
+                                summary_source = 'mcp' WHERE id = 't2';
+             UPDATE threads SET updated_at = {five_days} WHERE id = 't1';"
+        ))
+        .unwrap();
+        let after: Vec<Value> = serde_json::from_str(&list_threads_json(&conn, None).unwrap()).unwrap();
+        let after_titles: Vec<&str> = after.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert_eq!(
+            after_titles,
+            vec!["有料", "空的"],
+            "a summary write on an empty project outranked a project with blocks: {after_titles:?}"
+        );
+        assert_eq!(after[1]["last_block_at"], Value::Null, "the summary write invented a block time");
+        // Same row, two clocks, visibly apart: updated_at moved five days, last_block_at did not.
+        assert_eq!(after[0]["updated_at"], json!(format_pack_time(five_days)));
+        assert_eq!(
+            after[0]["last_block_at"],
+            json!(format_pack_time(2)),
+            "last_block_at drifted with updated_at instead of tracking blocks"
+        );
 
         // R3 friction #1: title_contains is the title→id resolver.
         let hit: Vec<Value> =
