@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useRef } from 'react';
 import PermissionBanner from '@/components/PermissionBanner';
+import ReviewPanel from '@/components/Review/ReviewPanel';
 import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
@@ -15,6 +16,7 @@ import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useUndo } from '@/hooks/useUndo';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
+import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { selectAllThreadsFlat, selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -55,6 +57,10 @@ export default function App() {
       setSeedLanguage(useSettingsStore.getState().language);
       await loadWorkspaces();
       await loadThreads();
+      // The review queue is filled by a different process entirely (an AI client's
+      // `spool --mcp`), so the count is polled, never pushed. Once at startup, and again
+      // on focus below.
+      void useProposalsStore.getState().refresh();
       // 拍板点 5: only a launch that created the database arms the one-time closing
       // line, so an existing library never sees it (DESIGN_FIRST_RUN §4).
       if (getFirstRunThreadId()) {
@@ -150,6 +156,7 @@ export default function App() {
       void useThreadsStore.getState().loadAll();
       const active = useThreadsStore.getState().activeId;
       if (active) void useBlocksStore.getState().load(active);
+      void useProposalsStore.getState().refresh();
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -234,6 +241,7 @@ export default function App() {
         </div>
       </div>
       <SearchOverlay />
+      <ReviewPanel />
       <Settings />
       <ToastRack />
     </>

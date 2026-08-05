@@ -32,14 +32,17 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
-// and attachments), then attachments → blocks → threads → workspaces. Indexes and the
-// blocks_* / attachments_* FTS triggers are dropped automatically with their owning table.
+// and attachments), the v10 review queue, then attachments → blocks → threads →
+// workspaces. Indexes and the blocks_* / attachments_* FTS triggers are dropped
+// automatically with their owning table.
 const TABLES_TO_DROP = [
   'blocks_fts',
   'attachments_fts',
+  'proposals',
+  'proposal_batches',
   'attachments',
   'blocks',
   'threads',
@@ -286,6 +289,42 @@ const MIGRATIONS: Migration[] = [
       // Index the attachments that already exist. 'rebuild' discards and re-derives the
       // whole index from the content table, so it is safe to run twice.
       await db.execute("INSERT INTO attachments_fts(attachments_fts) VALUES('rebuild')");
+    },
+  },
+  {
+    // v10 (DESIGN_MCP_WRITE_ROLE §4 M1): the triage review queue. Two brand-new tables
+    // and nothing else — no column of an existing table moves, so an interrupted run
+    // leaves every block, thread and workspace exactly as it was. CREATE ... IF NOT
+    // EXISTS makes each step its own guard.
+    from: 9,
+    to: 10,
+    name: 'add-proposal-queue',
+    run: async (db) => {
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS proposal_batches (
+           id               TEXT PRIMARY KEY,
+           client           TEXT NOT NULL DEFAULT '',
+           note             TEXT,
+           source_text      TEXT,
+           source_thread_id TEXT,
+           created_at       INTEGER NOT NULL,
+           expires_at       INTEGER NOT NULL
+         )`,
+      );
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS proposals (
+           id           TEXT PRIMARY KEY,
+           batch_id     TEXT NOT NULL REFERENCES proposal_batches(id) ON DELETE CASCADE,
+           thread_id    TEXT NOT NULL,
+           content      TEXT NOT NULL,
+           annotation   TEXT,
+           ref_block_id TEXT,
+           sort_order   INTEGER NOT NULL
+         )`,
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_proposals_batch ON proposals(batch_id, sort_order ASC)',
+      );
     },
   },
 ];
@@ -761,7 +800,10 @@ export const getDb = (): Promise<Database> => {
 // expected to reload the window afterwards so every store re-hydrates.
 export const clearAllData = async (): Promise<void> => {
   const db = await getDb();
-  for (const t of ['attachments', 'blocks', 'threads', 'workspaces']) {
+  // v10: the review queue goes too. It names thread ids that are about to stop existing,
+  // and a queue that survives "clear all data" would offer to file text into projects the
+  // user just wiped.
+  for (const t of ['proposals', 'proposal_batches', 'attachments', 'blocks', 'threads', 'workspaces']) {
     await db.execute(`DELETE FROM ${t}`);
   }
   await seedDefaults(db, seedLanguage);

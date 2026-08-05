@@ -134,3 +134,38 @@ CREATE TRIGGER IF NOT EXISTS attachments_au AFTER UPDATE ON attachments BEGIN
   INSERT INTO attachments_fts(attachments_fts, rowid, extracted_text) VALUES('delete', old.rowid, old.extracted_text);
   INSERT INTO attachments_fts(rowid, extracted_text) VALUES (new.rowid, new.extracted_text);
 END;
+
+-- v10 (DESIGN_MCP_WRITE_ROLE §4, M1): the triage review queue.
+--
+-- These two tables are NOT part of the library. A proposal is something an AI has
+-- offered; a block is something the user's library holds. §4.2-2 draws that line as a
+-- hard one: proposals never enter the block stream, a pack, a digest or a search — so
+-- they live in their own tables rather than as a flag on `blocks`, and every reader of
+-- `blocks` stays correct without knowing this feature exists.
+--
+-- Approval is what turns a proposal into blocks (written through the ordinary insert
+-- path, source-labelled like any MCP write); rejection deletes the rows and leaves no
+-- trace (§4.3 — a rejection log would turn the queue into a landfill). Expiry is the
+-- same deletion, just triggered by time instead of a click.
+CREATE TABLE IF NOT EXISTS proposal_batches (
+  id               TEXT PRIMARY KEY,
+  client           TEXT NOT NULL DEFAULT '',  -- source label the approved blocks will carry
+  note             TEXT,                      -- one line from the AI: what this batch is
+  source_text      TEXT,                      -- §4.4 A: the whole passage the split came from
+  source_thread_id TEXT,                      -- where that passage lands, as the user's own block
+  created_at       INTEGER NOT NULL,
+  expires_at       INTEGER NOT NULL           -- §4.2-3: 7 days, then the batch is void
+);
+
+CREATE TABLE IF NOT EXISTS proposals (
+  id           TEXT PRIMARY KEY,
+  batch_id     TEXT NOT NULL REFERENCES proposal_batches(id) ON DELETE CASCADE,
+  thread_id    TEXT NOT NULL,                 -- the project this block would land in
+  content      TEXT NOT NULL,
+  annotation   TEXT,
+  ref_block_id TEXT,                          -- an explicit citation; §4.4 A fills it in on approval
+  sort_order   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_batch
+  ON proposals(batch_id, sort_order ASC);

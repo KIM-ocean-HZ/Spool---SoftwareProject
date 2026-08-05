@@ -2667,7 +2667,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 9;
+const EXPECTED_SCHEMA_VERSION: i64 = 10;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -3221,6 +3221,268 @@ fn add_block_json(
 }
 
 // ---------------------------------------------------------------------------------------
+// propose_blocks — DESIGN_MCP_WRITE_ROLE §4 (M1), the triage queue.
+//
+// One scenario earns a queue, and only one (§4.1): the user pastes a slab that spans three
+// projects and the AI splits it up. That case is high-volume, mechanical, and its failure
+// mode is the expensive one — the block is fine, the DRAWER is wrong, and the drawer is
+// all the structure Spool has. Reading a dozen filings back in a chat window is not a
+// review; a screen with two big buttons is.
+//
+// Everything else keeps going through add_block. A single conclusion the user asked for is
+// one sentence they just read on screen — §7 of the design, confirmed by the round-3
+// client: a queue there would be ceremony.
+//
+// Three rules this function exists to hold (§4.2):
+//   1. It writes NOTHING to the library. It returns instantly with "N queued", because the
+//      AI needs an answer in seconds and the user may be asleep. The tool description and
+//      the headline both say "queued", never "saved" — that mis-sentence is the single
+//      most likely accident in this design.
+//   2. Proposals are invisible to every read tool. They are in their own tables, so this
+//      is structural rather than a filter each reader has to remember.
+//   3. They expire. Seven days, then void.
+//
+// What it may NOT propose: a change to anything the user wrote. §3.3 settled that — an
+// approval gate defends against wrong content, not against a person clicking "approve" for
+// the fiftieth time, and append-only defends against BOTH without needing the user awake.
+// Proposals are appends. The schema has no other shape available to them.
+// ---------------------------------------------------------------------------------------
+
+// §4.2-3: a proposal nobody looked at stops being a proposal. Without an expiry the queue
+// becomes a second to-do list, which is the thing the user already has too many of.
+const PROPOSAL_TTL_DAYS: i64 = 7;
+const PROPOSAL_TTL_MS: i64 = PROPOSAL_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+// §4.1 sizes triage at "three to a dozen or so". The cap is well past that and still short
+// of pathological: the review screen's judgement is "was this split right", which a person
+// can make over a dozen rows and cannot make over a hundred.
+const PROPOSAL_MAX_ITEMS: usize = 24;
+
+// The AI's one line about what this batch is, shown at the top of the review screen. Same
+// reasoning as add_block's source cap: a header line that runs to a paragraph stops being
+// a header. Refused rather than truncated, for the same reason.
+const PROPOSAL_NOTE_CHAR_CAP: usize = 200;
+
+struct PendingProposal<'a> {
+    thread_id: &'a str,
+    thread_title: String,
+    content: &'a str,
+    annotation: Option<&'a str>,
+    ref_block_id: Option<&'a str>,
+}
+
+// A live project, by id, or the standard refusal. Shared by the item loop and the
+// source_text target so the two can never disagree about what "live" means.
+fn live_thread_title(conn: &Connection, thread_id: &str) -> Result<String, String> {
+    let (title, deleted): (String, Option<i64>) = conn
+        .query_row("SELECT title, deleted_at FROM threads WHERE id = ?1", [thread_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|_| no_such_thread())?;
+    if deleted.is_some() {
+        return Err(t!("该项目已被删除。", "That project has been deleted."));
+    }
+    Ok(title)
+}
+
+fn propose_blocks_json(
+    conn: &mut Connection,
+    items: &[Value],
+    source_text: Option<&str>,
+    source_thread_id: Option<&str>,
+    note: Option<&str>,
+    now: i64,
+) -> Result<String, String> {
+    if items.is_empty() {
+        return Err(t!(
+            "items 不能为空 —— 至少要有一条提案。",
+            "items must not be empty — a batch needs at least one proposal."
+        ));
+    }
+    if items.len() > PROPOSAL_MAX_ITEMS {
+        return Err(t!(
+            "一次最多提 {PROPOSAL_MAX_ITEMS} 条({} 条太多了)。待审面是让用户一眼判断\
+             「这次拆得对不对」的,几十条他只会全批了事 —— 分几次提,或者先问用户想怎么拆。",
+            "At most {PROPOSAL_MAX_ITEMS} proposals per batch ({} is too many). The review \
+             screen exists so the user can judge \u{201c}was this split right\u{201d} at a \
+             glance; at several dozen they will simply approve everything. Send fewer, or ask \
+             the user how they want it split first.",
+            items.len()
+        ));
+    }
+    let note = note.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(n) = note {
+        let len = n.chars().count();
+        if len > PROPOSAL_NOTE_CHAR_CAP {
+            return Err(t!(
+                "note 太长了({len} 字,上限 {PROPOSAL_NOTE_CHAR_CAP})。它是待审面顶上的一行,\
+                 说清这批是从哪儿来的就够了。",
+                "note is too long ({len} chars, limit {PROPOSAL_NOTE_CHAR_CAP}). It is the one \
+                 line at the top of the review screen — saying where this batch came from is enough."
+            ));
+        }
+    }
+
+    // §4.4 A: the passage the split came FROM, kept whole so a block read three weeks later
+    // can still be checked against its context. It lands as the user's own block (they
+    // wrote it — the AI only decided where the pieces go), and every item in the batch
+    // cites it. Without a target project there is nowhere to put it, so the pair travels
+    // together or not at all.
+    let source_text = source_text.map(str::trim).filter(|s| !s.is_empty());
+    let source_thread_id = source_thread_id.map(str::trim).filter(|s| !s.is_empty());
+    let source_thread_title = match (source_text, source_thread_id) {
+        (Some(_), Some(tid)) => Some((tid, live_thread_title(conn, tid)?)),
+        (Some(_), None) => {
+            return Err(t!(
+                "给了 source_text 就必须给 source_thread_id —— 原文要存成一块,总得有个项目\
+                 放它(用户指定的那个,或者收件箱那种)。拆出来的每一块会自动引用它。",
+                "source_text needs source_thread_id: the passage is stored as a block, so it \
+                 needs a project to live in (the one the user named, or an inbox-shaped one). \
+                 Every item in the batch then cites it automatically."
+            ))
+        }
+        (None, Some(_)) => {
+            return Err(t!(
+                "只给了 source_thread_id 却没有 source_text —— 没有原文就没有要存的那一块。",
+                "source_thread_id was given without source_text — with no passage there is \
+                 nothing to store."
+            ))
+        }
+        (None, None) => None,
+    };
+
+    // Validate the whole batch before touching the database. A partially-queued batch would
+    // be worse than a refusal: the user would review a split with pieces missing and have
+    // no way to know.
+    let mut pending: Vec<PendingProposal> = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let n = i + 1;
+        let thread_id = item
+            .get("thread_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                t!("第 {n} 条缺少 thread_id。", "Proposal {n} is missing thread_id.")
+            })?;
+        let content = item
+            .get("content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                t!("第 {n} 条的 content 是空的。", "Proposal {n} has empty content.")
+            })?;
+        let thread_title = live_thread_title(conn, thread_id)?;
+        let annotation =
+            item.get("annotation").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let ref_block_id = item
+            .get("ref_block_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        // Same liveness check as add_block: a citation has to point at something that
+        // exists when it is made. (It may dangle later; the pack renderer says so.)
+        if let Some(rid) = ref_block_id {
+            let live: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM blocks b JOIN threads t ON t.id = b.thread_id
+                     WHERE b.id = ?1 AND t.deleted_at IS NULL",
+                    [rid],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if live == 0 {
+                return Err(t!(
+                    "第 {n} 条的 ref_block_id 没有对应的可引用块(或其项目已删)。",
+                    "Proposal {n}'s ref_block_id matches no citable block (or its project was deleted)."
+                ));
+            }
+        }
+        pending.push(PendingProposal {
+            thread_id,
+            thread_title,
+            content,
+            annotation,
+            ref_block_id,
+        });
+    }
+
+    // D-1 again, and for the same reason: these texts become displayed blocks the moment
+    // the user clicks approve, and by then the caller is long gone and cannot be told.
+    let mut surfaces: Vec<(&str, &str)> = Vec::new();
+    for p in &pending {
+        surfaces.push(("content", p.content));
+        if let Some(a) = p.annotation {
+            surfaces.push(("annotation", a));
+        }
+    }
+    if let Some(s) = source_text {
+        surfaces.push(("source_text", s));
+    }
+    if let Some(n) = note {
+        surfaces.push(("note", n));
+    }
+    reject_raw_ids(conn, &surfaces)?;
+
+    let batch_id = new_id()?;
+    let expires_at = now + PROPOSAL_TTL_MS;
+    let client = mcp_source_label();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "INSERT INTO proposal_batches (id, client, note, source_text, source_thread_id,
+                                       created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            batch_id,
+            client,
+            note,
+            source_text,
+            source_thread_title.as_ref().map(|(id, _)| *id),
+            now,
+            expires_at
+        ],
+    )
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
+    for (i, p) in pending.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO proposals (id, batch_id, thread_id, content, annotation,
+                                    ref_block_id, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                new_id()?,
+                batch_id,
+                p.thread_id,
+                p.content,
+                p.annotation,
+                p.ref_block_id,
+                i as i64
+            ],
+        )
+        .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+
+    // Projects named by title, in the order they first appear — the caller relays this to
+    // the user, and the naming rule holds here like everywhere else.
+    let mut projects: Vec<String> = Vec::new();
+    for p in &pending {
+        let title = if p.thread_title.is_empty() { untitled().to_string() } else { p.thread_title.clone() };
+        if !projects.contains(&title) {
+            projects.push(title);
+        }
+    }
+    Ok(json!({
+        "queued": pending.len(),
+        "written": false,
+        "projects": projects,
+        "expires_in_days": PROPOSAL_TTL_DAYS,
+        "source_text_project": source_thread_title.map(|(_, title)| title),
+    })
+    .to_string())
+}
+
+// ---------------------------------------------------------------------------------------
 // check_library — 存量数据卫生 (2026-07-12): read-only hygiene audit closing the R4
 // gap ("工具面已达标,差的最后一截在数据卫生"). Three mechanical detectors, in
 // write-side parity where one exists:
@@ -3763,6 +4025,36 @@ fn tools_descriptor() -> Value {
             }
         },
         {
+            "name": "propose_blocks",
+            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. Use it for exactly one job: the user hands you a passage that belongs in several different projects and you split it up. Anything smaller — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as the user's own block and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "The blocks you propose, in the order the user should read them. At most 24 — a batch the user cannot judge in one pass gets approved unread, which defeats the point.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "thread_id": { "type": "string", "description": "Project id (list_threads / search_blocks) this block would land in." },
+                                "content": { "type": "string", "description": "The block text — a piece of the original passage, not your summary of it." },
+                                "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
+                                "ref_block_id": { "type": "string", "description": "Optional citation to an existing block. Leave it out when you passed source_text — the original passage is cited automatically." }
+                            },
+                            "required": ["thread_id", "content"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "source_text": { "type": "string", "description": "The whole passage these items were cut from, verbatim. Stored as the user's OWN block on approval (they wrote it; you only decided where the pieces go), and cited by every item. Needs source_thread_id." },
+                    "source_thread_id": { "type": "string", "description": "Project id for the original passage — ask the user which project, or use their inbox-shaped one. Required with source_text." },
+                    "note": { "type": "string", "description": "One line for the top of the review screen: where this batch came from and how you split it. Max 200 characters." }
+                },
+                "required": ["items"],
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "set_thread_summary",
             "description": "Write or refresh a project's one-line status summary (its catalogue card, shown in Spool's project header and list_threads). Use after meaningful new material lands in a project. Only an empty summary or one previously written via MCP can be set — a summary the user wrote by hand is never overwritten; if the tool refuses, tell the user your suggested summary instead. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true },
@@ -3899,7 +4191,10 @@ fn handle_tool_call(params: &Value) -> Value {
                     None => Ok(pack_floor_message(&built, max_chars)),
                 }
             }
-            "create_thread" | "add_block" | "set_thread_summary" => {
+            // propose_blocks queues rather than writes, but it rides the same consent:
+            // approving a batch inserts blocks, and a user who has not turned writing on
+            // has not agreed to an AI putting text in front of them to approve either.
+            "create_thread" | "add_block" | "set_thread_summary" | "propose_blocks" => {
                 if !mcp_write_enabled(&dir) {
                     return Err(
                         t!(
@@ -3917,6 +4212,19 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("workspace_title").and_then(Value::as_str),
                         args.get("title").and_then(Value::as_str).ok_or_else(|| t!("缺少 title 参数。", "Missing the title argument."))?,
                         args.get("summary").and_then(Value::as_str),
+                    )
+                } else if name == "propose_blocks" {
+                    let items = args
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| t!("缺少 items 参数(要一个数组)。", "Missing the items argument (an array)."))?;
+                    propose_blocks_json(
+                        &mut conn,
+                        items,
+                        args.get("source_text").and_then(Value::as_str),
+                        args.get("source_thread_id").and_then(Value::as_str),
+                        args.get("note").and_then(Value::as_str),
+                        now_ms(),
                     )
                 } else if name == "set_thread_summary" {
                     set_thread_summary_json(
@@ -4128,6 +4436,36 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
                 Some(seq) => t!("存进 Spool 了,是〈{title}〉的 #{seq} 块。", "Stored in Spool as block #{seq} of \u{2039}{title}\u{203a}."),
                 None => t!("存进 Spool 了。", "Stored in Spool."),
             })
+        }
+        // §4.2-1, and the reason this headline exists at all: the accident this design is
+        // most likely to produce is the model saying "saved" when nothing was saved. The
+        // payload says written=false, but a headline is what gets read out loud — so it
+        // says the same thing in the words the user will hear, and hands over the sentence
+        // to use.
+        "propose_blocks" => {
+            let projects = v
+                .get("projects")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(|p| t!("〈{p}〉", "\u{2039}{p}\u{203a}"))
+                        .collect::<Vec<_>>()
+                        .join(ts!("、", ", "))
+                })
+                .unwrap_or_default();
+            Some(t!(
+                "没有存进库:{} 条提案排进了 Spool 的待审面(要进 {projects}),等用户过目。\
+                 跟他说「Spool 里有 {} 条待你过目」,别说已经存好了 —— 他现在打开 Spool 才看得到。\
+                 {} 天内没处理就自动作废。",
+                "Nothing was saved: {} proposals are queued in Spool's review screen (headed for \
+                 {projects}), waiting for the user. Tell them \u{201c}there are {} items waiting \
+                 for you in Spool\u{201d} — never that you saved them; they see these by opening \
+                 Spool. Unreviewed batches expire after {} days.",
+                n("queued"),
+                n("queued"),
+                n("expires_in_days")
+            ))
         }
         "set_thread_summary" => Some(t!(
             "更新了〈{}〉在目录里的一句话摘要。",
@@ -4982,6 +5320,7 @@ and what to call:\n\
   \"what have I been up to\" / \"sum up my week\"          \u{2192} get_digest, then weekly_review\n\
   \"where am I stuck on X\" / \"what have I settled\"      \u{2192} search_blocks \u{2192} get_pack, or distill\n\
   \"save this back\" / \"remember this for me\"            \u{2192} add_block (ask which project first)\n\
+  a pasted slab that belongs in several projects       \u{2192} propose_blocks (the user approves it in Spool)\n\
   \"is X getting messy\" / \"any duplicates in X\"         \u{2192} thread_health\n\
 If this is your first turn with Spool connected and the user has not asked for anything \
 specific, say in ONE sentence what you can now do for them, naming their real projects \
@@ -5012,7 +5351,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
                 // The identity leads: a client that truncates instructions keeps the one
                 // line that says which library this is.
-                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
+                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. One case is not a write at all: when a passage the user handed you belongs in several DIFFERENT projects, propose_blocks queues the split for them to approve inside Spool, and saves nothing — pass source_text so the pieces cite the passage they came from, and tell the user \\\"N items are waiting for you in Spool\\\", never that you saved them. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
             }))
         }
         "ping" => Ok(json!({})),
@@ -6354,6 +6693,173 @@ mod tests {
         // Counted in chars, not bytes: 120 CJK chars are 360 bytes and must still pass.
         let cjk = "来".repeat(SOURCE_DETAIL_CHAR_CAP);
         assert!(add_block_json(&mut conn, &tid, "正文", Some(&cjk), None, None, false).is_ok());
+    }
+
+    // DESIGN_MCP_WRITE_ROLE §4 (M1). The three claims the triage queue makes, each
+    // asserted rather than trusted: it writes nothing, it is invisible to every read, and
+    // a batch lands whole or not at all.
+    #[test]
+    fn propose_blocks_queues_without_touching_the_library() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-mcp-propose-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '收件箱', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+               VALUES ('th1', 'ws1', '机器学习课', 'active', 0, 1, 1),
+                      ('th2', 'ws1', '论文', 'active', 0, 1, 1),
+                      ('inbox', 'ws1', '收件箱项目', 'active', 0, 1, 1),
+                      ('gone', 'ws1', '已删项目', 'active', 0, 1, 1);
+             UPDATE threads SET deleted_at = 2 WHERE id = 'gone';
+             INSERT INTO blocks (id, thread_id, kind, content, source, pinned, seq, created_at)
+               VALUES ('blk_existing_00000000', 'th1', 'text', '早先的一块', NULL, 0, 1, 10);",
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        *CLIENT_NAME.lock().unwrap() = Some("TestClient".into());
+        let blocks = |c: &Connection| -> i64 {
+            c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0)).unwrap()
+        };
+        let queued = |c: &Connection| -> i64 {
+            c.query_row("SELECT COUNT(*) FROM proposals", [], |r| r.get(0)).unwrap()
+        };
+        let before = blocks(&conn);
+
+        let items = json!([
+            { "thread_id": "th1", "content": "第一段属于机器学习课", "annotation": "为什么留" },
+            { "thread_id": "th2", "content": "第二段属于论文" },
+            { "thread_id": "th1", "content": "第三段也属于机器学习课" },
+        ]);
+        let now = 1_700_000_000_000i64;
+        let out = propose_blocks_json(
+            &mut conn,
+            items.as_array().unwrap(),
+            Some("整段原文，横跨两个项目"),
+            Some("inbox"),
+            Some("从聊天里那段粘贴拆的"),
+            now,
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["queued"], 3);
+        assert_eq!(v["written"], false);
+        assert_eq!(v["expires_in_days"], PROPOSAL_TTL_DAYS);
+        assert_eq!(v["source_text_project"], "收件箱项目");
+        // Projects are named by title, never by id — the naming hard rule reaches here too.
+        let listed = v["projects"].as_array().unwrap();
+        assert_eq!(listed.len(), 2, "one entry per project, in first-seen order");
+        assert_eq!(listed[0], "机器学习课");
+        assert_eq!(listed[1], "论文");
+        assert!(!out.contains("th1"), "an id must not ride back in the payload: {out}");
+
+        // Claim 1: the library is untouched.
+        assert_eq!(blocks(&conn), before, "propose_blocks must not write a block");
+        assert_eq!(queued(&conn), 3);
+        let expires: i64 = conn
+            .query_row("SELECT expires_at FROM proposal_batches", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(expires, now + PROPOSAL_TTL_MS);
+        // The client label is captured at propose time, so an approval days later still
+        // attributes the AI that actually wrote it.
+        let client: String =
+            conn.query_row("SELECT client FROM proposal_batches", [], |r| r.get(0)).unwrap();
+        assert_eq!(client, "TestClient · MCP");
+
+        // Claim 2: no read tool can see a proposal. These four are the surfaces §4.2-2
+        // names; each is asked for the exact text that is sitting in the queue.
+        let hits = search_blocks_json(&conn, "第一段属于机器学习课", None, None).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&hits).unwrap()["total"],
+            0,
+            "search must not reach into the queue"
+        );
+        let pack = get_pack_text(&conn, "th1", "all").unwrap();
+        assert!(!pack.contains("第一段属于"), "a proposal must not appear in a pack");
+        let digest = get_digest_json(&conn, None, Some(90), None, now).unwrap();
+        assert!(!digest.contains("第一段属于"), "a proposal must not appear in a digest");
+        let page = get_blocks_json(&conn, "th1", None, None, None, None, &NO_FILTERS, false).unwrap();
+        assert!(!page.contains("第一段属于"), "a proposal must not appear in get_blocks");
+
+        // The headline is the sentence the user actually hears. §4.2-1 makes this the one
+        // most likely thing to go wrong, so it is asserted, not left to the payload.
+        let line = human_headline("propose_blocks", &json!({}), &out).unwrap();
+        assert!(line.contains("没有存进库"), "{line}");
+        assert!(line.contains("待你过目"), "{line}");
+        assert!(!line.contains("存好了") || line.contains("别说已经存好了"), "{line}");
+
+        // Claim 3: all or nothing. A batch whose LAST item names a deleted project leaves
+        // the first two unqueued — reviewing half a split is worse than reviewing none,
+        // because nothing on screen says a piece is missing.
+        let before_batches: i64 = conn
+            .query_row("SELECT COUNT(*) FROM proposal_batches", [], |r| r.get(0))
+            .unwrap();
+        let bad = json!([
+            { "thread_id": "th1", "content": "好的一条" },
+            { "thread_id": "gone", "content": "落在已删项目里的一条" },
+        ]);
+        assert!(propose_blocks_json(&mut conn, bad.as_array().unwrap(), None, None, None, now)
+            .is_err());
+        assert_eq!(queued(&conn), 3, "a refused batch queues nothing");
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM proposal_batches", [], |r| r.get(0)),
+            Ok(before_batches)
+        );
+
+        // D-1 reaches the queue: text carrying a real internal id is refused before the
+        // insert, exactly as add_block refuses it — otherwise the id would surface in a
+        // block the moment the user clicked approve, with the caller long gone.
+        let leaky = json!([
+            { "thread_id": "th1", "content": "依据 blk_existing_00000000 那一条" },
+        ]);
+        let err =
+            propose_blocks_json(&mut conn, leaky.as_array().unwrap(), None, None, None, now)
+                .unwrap_err();
+        assert!(err.contains("content"), "{err}");
+        assert_eq!(queued(&conn), 3);
+
+        // The passage and its home travel together (§4.4 A): a passage with nowhere to
+        // live, or a home with no passage, is a half-configured citation.
+        let one = json!([{ "thread_id": "th1", "content": "一条" }]);
+        assert!(propose_blocks_json(
+            &mut conn,
+            one.as_array().unwrap(),
+            Some("原文"),
+            None,
+            None,
+            now
+        )
+        .is_err());
+        assert!(propose_blocks_json(
+            &mut conn,
+            one.as_array().unwrap(),
+            None,
+            Some("inbox"),
+            None,
+            now
+        )
+        .is_err());
+
+        // Size bounds: empty is a caller mistake, and a batch too big to judge in one pass
+        // defeats the screen it is queued for.
+        assert!(propose_blocks_json(&mut conn, &[], None, None, None, now).is_err());
+        let flood: Vec<Value> = (0..=PROPOSAL_MAX_ITEMS)
+            .map(|i| json!({ "thread_id": "th1", "content": format!("第 {i} 条") }))
+            .collect();
+        assert!(propose_blocks_json(&mut conn, &flood, None, None, None, now).is_err());
+        // Exactly at the cap passes — the boundary is inclusive.
+        let at_cap: Vec<Value> = (0..PROPOSAL_MAX_ITEMS)
+            .map(|i| json!({ "thread_id": "th1", "content": format!("第 {i} 条") }))
+            .collect();
+        assert!(propose_blocks_json(&mut conn, &at_cap, None, None, None, now).is_ok());
+        assert_eq!(queued(&conn), 3 + PROPOSAL_MAX_ITEMS as i64);
+        assert_eq!(blocks(&conn), before, "nothing along any path wrote a block");
     }
 
     // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal

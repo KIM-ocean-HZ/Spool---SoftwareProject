@@ -381,9 +381,67 @@ const EN: Record<string, string> = {
   '分钟': 'min',
   '让 AI 维护': 'Let AI maintain',
   '提炼结论': 'Distil a conclusion',
+  '整理去重': 'Tidy up duplicates',
+  '生成周回顾': 'Write a weekly review',
   'AI 整理中…': 'AI working…',
   '用本机的 Claude Code 把这条脉络提炼成一块结论':
     'Use the Claude Code on this machine to distil this thread into one conclusion block',
+  '让本机的 Claude Code 查一遍重复块、失效引用，看摘要过没过期':
+    'Have the Claude Code on this machine look for duplicate blocks and dead citations, and judge whether the summary has gone stale',
+  '让本机的 Claude Code 回顾最近一周——跨所有项目，不只这一个':
+    'Have the Claude Code on this machine look back over the past week — across every project, not just this one',
+  // M2 §1.2 — the running pill, and what the queue behind it says.
+  '{action}中': '{action} running',
+  '{action}中 · 还排着 {n} 个': '{action} running · {n} waiting',
+  '点一下停下来（已经写进去的块会留着）':
+    'Click to stop. Blocks already written stay — Spool only ever appends.',
+  '这条脉络已经排上了，等它跑完': 'This project is already in the queue — let it finish',
+  // §1.3 — how a finished run reports itself.
+  '{action}：AI 归档了 {n} 块': '{action}: the AI filed {n} block(s)',
+  '{action}：跑完了，没有新增块': '{action}: finished, nothing new was written',
+  '已停止 {action}': 'Stopped {action}',
+  '已停止 {action}；已经写进去的 {n} 块留着（Spool 只追加，不回滚）':
+    'Stopped {action}. The {n} block(s) already written stay — Spool only appends, it never rolls back.',
+  '{action} 没跑成': '{action} did not run',
+  '{action} 没跑完；已经写进去的 {n} 块留着':
+    '{action} did not finish. The {n} block(s) already written stay.',
+  // '详情' already has a key above (the permission banner's).
+  '收起详情': 'Hide details',
+
+  // DESIGN_AI_ENGINE M3 — the "AI 活动" fold.
+  'AI 活动': 'AI activity',
+  'AI 活动 · 这个项目里有 {n} 块是 AI 写的':
+    'AI activity · {n} block(s) here were written by an AI',
+  '{source} · {when} · {n} 块': '{source} · {when} · {n} block(s)',
+  '归档了 {n} 块': 'filed {n} block(s)',
+  '没有新增块': 'nothing new',
+  '被你停下了': 'you stopped it',
+  '被你停下了，写进去的 {n} 块留着': 'you stopped it; the {n} block(s) written stay',
+  '没跑成': 'did not run',
+  '跳到这一块': 'Jump to this block',
+
+  // DESIGN_MCP_WRITE_ROLE §4.3 — the review screen for AI proposals.
+  'AI 提了 {n} 条待你过目（还没进你的库）':
+    '{n} item(s) an AI proposed, waiting for you — not in your library yet',
+  'AI 提的，等你过目': 'Proposed by an AI, waiting for you',
+  '这些还没进你的库。你点头才存，点「都不要」就当没发生过。':
+    'None of this is in your library yet. It is stored only if you say yes; "No thanks" makes it as if it never happened.',
+  '没有待你过目的。': 'Nothing waiting for you.',
+  '{client} 提了 {n} 条': '{client} proposed {n} item(s)',
+  '{n} 天后作废': 'void in {n}d',
+  '原文 — 会以你自己的名义存进〈{title}〉':
+    'Original passage — stored under your own name in ‹{title}›',
+  '下面每条都会标注「出自这段」。': 'Each item below will cite this passage.',
+  '进〈{title}〉': 'into ‹{title}›',
+  '都存进去（{n} 条）': 'Store all {n}',
+  '存这 {n} 条': 'Store these {n}',
+  '都不要': 'No thanks',
+  '直接扔掉，不留痕迹': 'Throws it away and leaves no trace',
+  '{n} 批已过期（超过 7 天没处理），已经作废。':
+    '{n} batch(es) expired after 7 days without review, and are void.',
+  '清掉': 'Clear',
+  '存进去了 {n} 块': 'Stored {n} block(s)',
+  '存不进去：{msg}': 'Could not store: {msg}',
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',

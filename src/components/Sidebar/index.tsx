@@ -1,5 +1,6 @@
-import { Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { Inbox, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
@@ -16,6 +17,11 @@ export default function Sidebar() {
   const activeId = useThreadsStore((s) => s.activeId);
   const openSearch = useSearchStore((s) => s.openSearch);
   const openSettings = useSettingsStore((s) => s.openPanel);
+  // DESIGN_MCP_WRITE_ROLE §4.3: the only way in. A badge, in the footer, absent when the
+  // queue is empty — never a dialog that jumps the window to the front (the AI may have
+  // queued this while the user was in another app, or asleep).
+  const pendingProposals = useProposalsStore((s) => s.pendingCount);
+  const openReview = useProposalsStore((s) => s.open);
 
   return (
     <aside className="flex h-full w-[280px] flex-none flex-col border-r border-line bg-paper-2/40">
@@ -56,6 +62,16 @@ export default function Sidebar() {
           <span>{t('工作区')}</span>
         </button>
         <div className="flex items-center gap-1">
+          {pendingProposals > 0 && (
+            <button
+              onClick={() => void openReview()}
+              title={t('AI 提了 {n} 条待你过目（还没进你的库）', { n: pendingProposals })}
+              className="flex items-center gap-1 rounded border border-accent/60 bg-accent-soft px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
+            >
+              <Inbox size={12} />
+              <span className="font-mono">{pendingProposals}</span>
+            </button>
+          )}
           <button
             onClick={openSearch}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
