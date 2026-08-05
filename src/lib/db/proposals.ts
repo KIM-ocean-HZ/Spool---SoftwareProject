@@ -161,7 +161,15 @@ export const purgeExpired = async (now: number): Promise<number> => {
  * The batch is deleted whether every item was approved or only some: what the user
  * declined is a rejection, and rejections leave no trace.
  *
- * Returns the blocks written, the original included.
+ * **Every write is retirable.** There is no transaction to lean on here (see threads.ts:141
+ * — tauri-plugin-sql's pool cannot hold BEGIN/COMMIT across statements), and an insert CAN
+ * fail mid-batch for a reason that has nothing to do with this feature: `idx_blocks_thread_seq`
+ * is unique, and the MCP subprocess may claim a number between two of these calls. So each
+ * proposal row is deleted the instant its block lands, and the passage is un-set from the
+ * batch the instant it is stored. Approving again after a failure therefore writes only
+ * what did not get written — rather than a second copy of everything that did.
+ *
+ * Returns the blocks written, the passage included.
  */
 export const approveBatch = async (batchId: string, keepIds?: string[]): Promise<number> => {
   const db = await getDb();
@@ -181,7 +189,7 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
   }
 
   // The passage only earns its place if something is going to cite it.
-  let originId: string | null = null;
+  let written = 0;
   if (batch.source_text && batch.source_thread_id) {
     const live = await db.select<{ id: string }[]>(
       'SELECT id FROM threads WHERE id = $1 AND deleted_at IS NULL',
@@ -196,11 +204,19 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
         // quoted material, which is the one thing it is not.
         source: null,
       });
-      originId = origin.id;
+      // Hand the citation to the rows themselves and drop the passage from the batch. That
+      // is what makes a retry safe: the passage cannot be written twice, and the items that
+      // have not landed yet still know what to cite.
+      await db.execute(
+        'UPDATE proposals SET ref_block_id = $1 WHERE batch_id = $2 AND ref_block_id IS NULL',
+        [origin.id, batchId],
+      );
+      for (const r of keep) if (r.ref_block_id === null) r.ref_block_id = origin.id;
+      await db.execute('UPDATE proposal_batches SET source_text = NULL WHERE id = $1', [batchId]);
+      written += 1;
     }
   }
 
-  let written = originId ? 1 : 0;
   for (const r of keep) {
     // A project deleted between proposal and approval takes its items with it — the
     // alternative is inventing a destination the user never chose.
@@ -214,8 +230,9 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       content: r.content,
       annotation: r.annotation,
       source: batch.client || 'MCP',
-      refBlockId: r.ref_block_id ?? originId,
+      refBlockId: r.ref_block_id,
     });
+    await db.execute('DELETE FROM proposals WHERE id = $1', [r.id]);
     written += 1;
   }
   await deleteBatches([batchId]);

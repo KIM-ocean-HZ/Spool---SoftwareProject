@@ -149,8 +149,17 @@ JSON
 
 sqlite3 "$DATA/spool.db" < "$REPO/src/lib/db/schema.sql"
 
+# The version is READ from client.ts, never typed here. mcp.rs refuses any schema version
+# it was not built for, and that refusal reads like "MCP 服务未开启" from the client side —
+# so a hard-coded number left one release behind costs a whole test round before anyone
+# works out the lab was never the problem. (2026-08-05: it was stamped 9 while the code had
+# moved to 10.) mcp.rs is pinned to the same line by schema_version_locked_to_gui.
+SCHEMA_VERSION="$(sed -n 's/^const SCHEMA_VERSION = \([0-9]*\);.*/\1/p' "$REPO/src/lib/db/client.ts")"
+[ -n "$SCHEMA_VERSION" ] || { echo "读不出 client.ts 的 SCHEMA_VERSION,停下" >&2; exit 1; }
+echo "· schema 版本取自 client.ts:v$SCHEMA_VERSION"
+
 sqlite3 "$DATA/spool.db" <<SQL
-PRAGMA user_version = 9;
+PRAGMA user_version = $SCHEMA_VERSION;
 
 -- Dates are relative to the run day, so the library always looks current.
 -- ms-epoch of a local wall-clock time: strftime('%s', date('now','localtime','-N days') || ' HH:MM:00','utc')*1000

@@ -3472,12 +3472,18 @@ fn propose_blocks_json(
             projects.push(title);
         }
     }
+    let source_project = source_thread_title.map(|(_, title)| title);
     Ok(json!({
         "queued": pending.len(),
         "written": false,
         "projects": projects,
         "expires_in_days": PROPOSAL_TTL_DAYS,
-        "source_text_project": source_thread_title.map(|(_, title)| title),
+        "source_text_project": source_project,
+        // Found in the 2026-08-05 self-review: `queued` counts PROPOSALS, and approving
+        // also stores the passage — so "2 waiting" becomes 3 blocks in 3 projects, one of
+        // which the caller never named to the user. Both numbers are reported, because
+        // they answer different questions and the second one is what actually lands.
+        "blocks_on_approval": pending.len() + usize::from(source_text.is_some()),
     })
     .to_string())
 }
@@ -4196,12 +4202,25 @@ fn handle_tool_call(params: &Value) -> Value {
             // has not agreed to an AI putting text in front of them to approve either.
             "create_thread" | "add_block" | "set_thread_summary" | "propose_blocks" => {
                 if !mcp_write_enabled(&dir) {
+                    // propose_blocks stores nothing, so a caller could reasonably read the
+                    // shared refusal as Spool being confused. Say why the switch still
+                    // applies: what waits in that queue becomes blocks the moment the user
+                    // clicks approve, and they have not agreed to that yet.
+                    let why = if name == "propose_blocks" {
+                        ts!(
+                            "(propose_blocks 本身不写入,但用户点头就会变成块 —— 同一个开关管着它。)",
+                            " (propose_blocks writes nothing itself, but what it queues becomes \
+                             blocks the moment the user approves — the same switch covers it.)"
+                        )
+                    } else {
+                        ""
+                    };
                     return Err(
                         t!(
                             "Spool 未允许 MCP 写入。请在 Spool → 设置 → 通用 → 「MCP 服务」\
-                             打开「允许 AI 写入」后重试。",
+                             打开「允许 AI 写入」后重试。{why}",
                             "Spool has not allowed MCP writes. Turn on \u{201c}Let AI write\u{201d} \
-                             under Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} and try again."
+                             under Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} and try again.{why}"
                         ),
                     );
                 }
@@ -4454,14 +4473,28 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
                         .join(ts!("、", ", "))
                 })
                 .unwrap_or_default();
+            // The passage is a block too, and it goes to a project that is not in
+            // `projects`. Saying "2 waiting" and then storing 3 blocks in 3 places is the
+            // same class of mis-sentence this headline exists to prevent, one step later.
+            let passage = match v.get("source_text_project").and_then(Value::as_str) {
+                Some(p) => t!(
+                    "另外,你传的那整段原文会以用户自己的名义存进〈{p}〉,并被每一条引用 —— \
+                     所以他点头之后落库的是 {} 块。把这句也说给他听。",
+                    " The passage you passed is stored under the user's OWN name in \
+                     \u{2039}{p}\u{203a} and cited by every item, so approving stores {} blocks in \
+                     all. Tell them that too.",
+                    n("blocks_on_approval")
+                ),
+                None => String::new(),
+            };
             Some(t!(
                 "没有存进库:{} 条提案排进了 Spool 的待审面(要进 {projects}),等用户过目。\
                  跟他说「Spool 里有 {} 条待你过目」,别说已经存好了 —— 他现在打开 Spool 才看得到。\
-                 {} 天内没处理就自动作废。",
+                 {} 天内没处理就自动作废。{passage}",
                 "Nothing was saved: {} proposals are queued in Spool's review screen (headed for \
                  {projects}), waiting for the user. Tell them \u{201c}there are {} items waiting \
                  for you in Spool\u{201d} — never that you saved them; they see these by opening \
-                 Spool. Unreviewed batches expire after {} days.",
+                 Spool. Unreviewed batches expire after {} days.{passage}",
                 n("queued"),
                 n("queued"),
                 n("expires_in_days")
@@ -4849,14 +4882,20 @@ fn write_gate_line(dir: &std::path::Path) -> &'static str {
             "Writing is enabled: call a write tool only after the user says yes, one block at a time."
         )
     } else {
+        // R7 self-review (2026-08-05): this used to name only two tools, so a model told
+        // "those two are refused" would reasonably reach for the third write tool it can
+        // see — and hit a second refusal it was never warned about. The list is now the
+        // whole write surface.
         ts!(
-            "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary 一定会被拒绝——别去调用。\
+            "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary / propose_blocks \
+             一定会被拒绝——别去调用,提案队列也一样走不通。\
              把结论完整讲给用户,并告诉他:Spool → 设置 → 通用 →「MCP 服务」→ 打开「允许 AI 写入」,\
              你才能替他存回。",
-            "\u{26a0}\u{fe0f} The user has NOT turned on \u{201c}Let AI write\u{201d}, so add_block and \
-             set_thread_summary will be refused — do not call them. Give the user the whole \
-             finding in the chat, and tell them: Spool \u{2192} Settings \u{2192} General \u{2192} \
-             \u{201c}MCP service\u{201d} \u{2192} turn on \u{201c}Let AI write\u{201d}, and then you can store it for them."
+            "\u{26a0}\u{fe0f} The user has NOT turned on \u{201c}Let AI write\u{201d}, so add_block, \
+             set_thread_summary and propose_blocks will all be refused — do not call them; the \
+             proposal queue is closed too. Give the user the whole finding in the chat, and tell \
+             them: Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} \
+             \u{2192} turn on \u{201c}Let AI write\u{201d}, and then you can store it for them."
         )
     }
 }
@@ -6793,6 +6832,13 @@ mod tests {
         assert!(line.contains("没有存进库"), "{line}");
         assert!(line.contains("待你过目"), "{line}");
         assert!(!line.contains("存好了") || line.contains("别说已经存好了"), "{line}");
+        // Self-review 2026-08-05: `queued` counts proposals, but approving also stores the
+        // passage — into a project that is NOT in `projects`. "3 queued" followed by four
+        // blocks across three projects is the same mis-sentence one step later, so both
+        // the payload and the spoken line have to carry the number that actually lands.
+        assert_eq!(v["blocks_on_approval"], 4);
+        assert!(line.contains("收件箱项目"), "the passage's project must be named: {line}");
+        assert!(line.contains("4 块"), "the real block count must be spoken: {line}");
 
         // Claim 3: all or nothing. A batch whose LAST item names a deleted project leaves
         // the first two unqueued — reviewing half a split is worse than reviewing none,
@@ -6860,6 +6906,23 @@ mod tests {
         assert!(propose_blocks_json(&mut conn, &at_cap, None, None, None, now).is_ok());
         assert_eq!(queued(&conn), 3 + PROPOSAL_MAX_ITEMS as i64);
         assert_eq!(blocks(&conn), before, "nothing along any path wrote a block");
+
+        // Without a passage there is nothing extra to say, and the clause must not appear —
+        // an over-eager headline would have the caller announce a block that is not coming.
+        let plain = propose_blocks_json(
+            &mut conn,
+            json!([{ "thread_id": "th1", "content": "单独一条" }]).as_array().unwrap(),
+            None,
+            None,
+            None,
+            now,
+        )
+        .unwrap();
+        let pv: Value = serde_json::from_str(&plain).unwrap();
+        assert_eq!(pv["blocks_on_approval"], 1);
+        assert!(pv["source_text_project"].is_null());
+        let plain_line = human_headline("propose_blocks", &json!({}), &plain).unwrap();
+        assert!(!plain_line.contains("原文"), "{plain_line}");
     }
 
     // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal

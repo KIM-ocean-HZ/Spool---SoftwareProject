@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { create } from 'zustand';
-import { countBlocks } from '@/lib/db/blocks';
+import { countMcpBlocks } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
 import { useProposalsStore } from './proposalsStore';
@@ -94,11 +94,12 @@ export const useEngineStore = create<EngineState>((set, get) => {
 
     // Counted before and after, because "AI 归档了 N 块" has to be true. The blocks are
     // written by a different process through MCP, and they may land in projects other
-    // than this one (生成周回顾 files wherever the user's review belongs), so a count of
-    // the whole library is the only honest measure.
+    // than this one (生成周回顾 files wherever the user's review belongs) — so the count
+    // is library-wide, but narrowed to MCP-labelled rows so a capture the user made during
+    // those same minutes is not reported back to them as the AI's work.
     let before = 0;
     try {
-      before = await countBlocks();
+      before = await countMcpBlocks();
     } catch {
       before = -1; // unknown; reported as a plain "finished" below
     }
@@ -122,7 +123,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
     // every path, not just the happy one.
     let written = 0;
     try {
-      const after = await countBlocks();
+      const after = await countMcpBlocks();
       written = before < 0 ? 0 : Math.max(0, after - before);
       await useThreadsStore.getState().loadAll();
       const active = useThreadsStore.getState().activeId;

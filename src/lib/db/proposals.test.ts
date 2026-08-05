@@ -177,4 +177,36 @@ describe('proposal queue (DESIGN_MCP_WRITE_ROLE §4 M1)', () => {
     expect(await approveBatch('never-existed')).toBe(0);
     expect(await listBlocksByThread(mlId)).toHaveLength(0);
   });
+
+  // Found by the 2026-08-05 self-review. There is no transaction here (the plugin's pool
+  // cannot hold one across statements), and an insert can genuinely fail mid-batch —
+  // idx_blocks_thread_seq is unique and the MCP subprocess may take a number in between.
+  // Retrying after that must not write a second copy of everything that already landed.
+  it('a retry after a mid-batch failure writes only what is missing', async () => {
+    await queue();
+    // Fail the insert into the SECOND item's project, and only that one — standing in for
+    // whatever real cause (a seq collision with the MCP subprocess, a locked database).
+    // The passage and the first item go elsewhere and land normally.
+    handle.exec(`
+      CREATE TRIGGER fail_one BEFORE INSERT ON blocks WHEN new.thread_id = '${paperId}'
+      BEGIN SELECT RAISE(ABORT, 'simulated insert failure'); END;
+    `);
+
+    await expect(approveBatch('batch1')).rejects.toThrow();
+    // The passage and the first item landed; the failing one did not.
+    expect(await listBlocksByThread(inboxId)).toHaveLength(1);
+    expect(await listBlocksByThread(mlId)).toHaveLength(1);
+
+    // Clear the obstruction and approve again — the survivors must not double.
+    handle.exec('DROP TRIGGER fail_one');
+    await approveBatch('batch1');
+    expect(await listBlocksByThread(inboxId)).toHaveLength(1);
+    expect(await listBlocksByThread(mlId)).toHaveLength(1);
+    const paper = await listBlocksByThread(paperId);
+    expect(paper).toHaveLength(1);
+    // And the retried item still cites the passage, which was written on the first pass.
+    const origin = (await listBlocksByThread(inboxId))[0]!;
+    expect(paper[0]!.refBlockId).toBe(origin.id);
+    expect(await countPending(NOW)).toBe(0);
+  });
 });

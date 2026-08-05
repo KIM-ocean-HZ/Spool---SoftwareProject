@@ -431,10 +431,11 @@ const EN: Record<string, string> = {
   '{n} 天后作废': 'void in {n}d',
   '原文 — 会以你自己的名义存进〈{title}〉':
     'Original passage — stored under your own name in ‹{title}›',
-  '下面每条都会标注「出自这段」。': 'Each item below will cite this passage.',
+  '下面每条都会标注「出自这段」。这段本身也算一块。':
+    'Each item below will cite this passage. The passage itself counts as one block too.',
   '进〈{title}〉': 'into ‹{title}›',
-  '都存进去（{n} 条）': 'Store all {n}',
-  '存这 {n} 条': 'Store these {n}',
+  '都存进去（{n} 块）': 'Store all {n} blocks',
+  '存这 {n} 块': 'Store these {n} blocks',
   '都不要': 'No thanks',
   '直接扔掉，不留痕迹': 'Throws it away and leaves no trace',
   '{n} 批已过期（超过 7 天没处理），已经作废。':

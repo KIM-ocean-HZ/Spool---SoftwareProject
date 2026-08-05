@@ -145,6 +145,11 @@ function BatchCard({
   // there to take something out, not to build the batch up one click at a time.
   const [picked, setPicked] = useSelection(batch);
   const partial = picked.size > 0 && picked.size < batch.items.length;
+  // The button counts BLOCKS, not rows on this screen. §4.4 A stores the passage as a
+  // block of its own, in a project that may not be any of the ones listed below — so a
+  // button reading "store all 2" while three blocks land in three projects would be the
+  // screen telling the user something untrue about the click they are about to make.
+  const passageBlock = batch.sourceText && batch.sourceThreadId ? 1 : 0;
 
   return (
     <div className="mb-3 rounded-md border border-line-strong bg-paper-2/30 p-3">
@@ -172,7 +177,7 @@ function BatchCard({
             {batch.sourceText}
           </p>
           <div className="mt-1 text-[10px] text-muted">
-            {t('下面每条都会标注「出自这段」。')}
+            {t('下面每条都会标注「出自这段」。这段本身也算一块。')}
           </div>
         </div>
       )}
@@ -224,8 +229,8 @@ function BatchCard({
         >
           <Check size={12} />
           {partial
-            ? t('存这 {n} 条', { n: picked.size })
-            : t('都存进去（{n} 条）', { n: batch.items.length })}
+            ? t('存这 {n} 块', { n: picked.size + passageBlock })
+            : t('都存进去（{n} 块）', { n: batch.items.length + passageBlock })}
         </button>
         <button
           type="button"

@@ -74,12 +74,25 @@ export const getBlockById = async (id: string): Promise<Block | null> => {
   return rows[0] ? fromRow(rows[0]) : null;
 };
 
-// DESIGN_AI_ENGINE §1.3: how many blocks the library holds right now. An AI run writes
-// through a separate process and may file into several projects at once, so counting
+// DESIGN_AI_ENGINE §1.3: how many AI-written blocks the library holds right now. An AI run
+// writes through a separate process and may file into several projects at once, so counting
 // before and after is the only way "AI 归档了 N 块" can be a fact rather than a claim.
-export const countBlocks = async (): Promise<number> => {
+//
+// Restricted to MCP-labelled rows for a reason found in the 2026-08-05 self-review: a plain
+// COUNT(*) also counts what the USER captured during those minutes, and "the AI filed 3
+// blocks" when one of them was their own double-tap ⌥ is a lie the user catches
+// immediately — in the one feature whose whole capital is "you can see what the AI did".
+//
+// ⚠️ The predicate mirrors isMcpSource() in lib/blocks/sourceIcon.ts, clause for clause.
+// Two spellings of one rule drift; blocks.test.ts asserts they agree on the same labels.
+const MCP_SOURCE_PREDICATE =
+  "source = 'MCP' OR source LIKE 'MCP — %' OR instr(source, ' · MCP') > 0";
+
+export const countMcpBlocks = async (): Promise<number> => {
   const db = await getDb();
-  const rows = await db.select<{ c: number }[]>('SELECT COUNT(*) AS c FROM blocks');
+  const rows = await db.select<{ c: number }[]>(
+    `SELECT COUNT(*) AS c FROM blocks WHERE ${MCP_SOURCE_PREDICATE}`,
+  );
   return rows[0]?.c ?? 0;
 };
 

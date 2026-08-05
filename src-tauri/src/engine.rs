@@ -348,15 +348,23 @@ pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
 /// wanted (append-only, §2.3). A timeout or a cancel therefore means "stopped", not
 /// "undone" — the caller says so in the toast.
 pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<RunEnvelope, String> {
+    // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
+    // one window's JS; a second window, or a hand-issued invoke, would otherwise start a
+    // second run — and RUNNING_PGID holds exactly one process group, so the cancel button
+    // would end up aimed at whichever run published last while the other kept billing.
+    // (Found in the 2026-08-05 self-review: the TS queue was the only thing holding this.)
+    if RUNNING_PGID.load(Ordering::SeqCst) != 0 {
+        return Err("a maintenance run is already in flight".into());
+    }
     let status = detect();
     let (Some(bin), true) = (status.path.as_deref(), status.available) else {
         return Err("Claude Code CLI not found".into());
     };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let cfg_dir = std::env::temp_dir();
-    // Unique per run: two runs must never share (or delete) each other's config. M2 runs
-    // strictly one at a time (the queue in engineStore serialises them), but a stale file
-    // from a killed run would otherwise be handed to the next one.
+    // One file per process, which is also one per run given the guard above. It is
+    // rewritten at the start of every run and deleted at the end, so a stale copy left by
+    // a killed run is overwritten rather than inherited.
     let cfg_path = cfg_dir.join(format!("spool-mcp-{}.json", std::process::id()));
     std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
         .map_err(|e| format!("could not write the MCP config: {e}"))?;

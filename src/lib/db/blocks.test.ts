@@ -5,11 +5,13 @@ import { createAttachment, listAttachmentsByBlock } from './attachments';
 import {
   type Block,
   computeMergedFields,
+  countMcpBlocks,
   createBlock,
   listBlocksByThread,
   mergeBlocks,
   togglePin,
 } from './blocks';
+import { isMcpSource } from '@/lib/blocks/sourceIcon';
 import { __setTestDb } from './client';
 import schemaSql from './schema.sql?raw';
 import { createThread } from './threads';
@@ -221,5 +223,46 @@ describe('mergeBlocks against a real SQLite engine (§20.1)', () => {
       .prepare("SELECT rowid FROM blocks_fts WHERE blocks_fts MATCH 'second'")
       .all() as { rowid: number }[];
     expect(ftsRows.length).toBeGreaterThan(0);
+  });
+});
+
+// DESIGN_AI_ENGINE §1.3 — "AI 归档了 N 块" is measured with a SQL predicate, while every
+// rendering surface decides the same question with isMcpSource(). Two spellings of one
+// rule drift; this is the pin that makes a drift fail loudly instead of quietly turning
+// the engine's headline number into a lie.
+describe('countMcpBlocks agrees with isMcpSource', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  it('counts exactly the labels the badge treats as AI-written', async () => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, 'T');
+    const labels: (string | null)[] = [
+      null,                       // the user typed it
+      'Safari',                   // a capture
+      'lecture-11.pdf',           // an attachment
+      'MCP',                      // a client that sent no name
+      'MCP — course.edu',         // …with a detail
+      'Claude · MCP',             // the ordinary case
+      'Claude Desktop · MCP — paper.pdf',
+      'Cursor · MCP',
+      'MCP的笔记',                 // a label that merely starts with the letters
+    ];
+    for (const source of labels) {
+      await createBlock({ threadId: thread.id, content: source ?? 'user', source });
+    }
+    const expected = labels.filter((s) => isMcpSource(s)).length;
+    expect(expected).toBe(5);
+    expect(await countMcpBlocks()).toBe(expected);
   });
 });
