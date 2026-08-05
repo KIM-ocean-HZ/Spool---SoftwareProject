@@ -1,6 +1,7 @@
 mod capture;
 #[cfg(target_os = "macos")]
 mod double_tap;
+pub mod engine;
 pub mod mcp;
 pub mod overlay;
 
@@ -14,6 +15,39 @@ fn mcp_exe_path() -> Result<String, String> {
     std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .map_err(|e| e.to_string())
+}
+
+// DESIGN_AI_ENGINE §1.4 / §2.1: the settings status line and the render gate for the
+// "let AI maintain" actions. Absent CLI is the default state, not an error — the caller
+// simply renders nothing (§0).
+#[tauri::command]
+fn ai_engine_status() -> engine::EngineStatus {
+    engine::detect()
+}
+
+// DESIGN_AI_ENGINE §5 M1: one action, end to end. The prompt comes from mcp.rs's
+// guidance_text — same constant source as the MCP `distill` prompt (§2.2), never a copy.
+// Runs on a blocking thread: the CLI takes minutes, and the UI stays live throughout
+// (§1.2 — no modal, the user can keep working or switch away).
+#[tauri::command]
+async fn ai_engine_run(
+    action: String,
+    project: String,
+    timeout_secs: u64,
+) -> Result<String, String> {
+    // M1 ships "提炼结论" only. Refusing the other names outright — rather than falling
+    // through to distill — keeps a future typo from silently running the wrong action.
+    if action != "distill" {
+        return Err(format!("unsupported action: {action}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let prompt = mcp::guidance_text(&action, &serde_json::json!({ "project": project }))?;
+        // max_turns: the agentic loop needs a few turns (read the pack, then write one
+        // block); 12 is generous for that and still a hard stop.
+        engine::run_action(&prompt, timeout_secs, 12).map(|env| env.result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // §20.12 one-click MCP client hookup (2026-07-07) — see mcp.rs for the fs/JSON logic.
@@ -178,6 +212,8 @@ pub fn run() {
             capture::set_shortcuts,
             capture::probe_browser_automation,
             overlay::overlay_db_reply,
+            ai_engine_status,
+            ai_engine_run,
             mcp_exe_path,
             mcp_client_status,
             configure_mcp_client,

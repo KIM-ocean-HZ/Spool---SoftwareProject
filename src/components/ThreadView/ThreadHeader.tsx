@@ -5,6 +5,7 @@ import {
   Package,
   Pin,
   RotateCcw,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +14,10 @@ import { useT } from '@/lib/i18n';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { isDormant } from '@/lib/threads/dormancy';
+import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useEngineStore } from '@/stores/engineStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 export type ThreadViewMode = 'log' | 'digest';
@@ -139,6 +143,31 @@ export default function ThreadHeader({
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   // Skips the trailing debounce when Esc abandons an edit.
   const summaryCanceledRef = useRef(false);
+
+  // DESIGN_AI_ENGINE §1.1 — the "让 AI 维护" group. Rendered only when the CLI is present
+  // AND both MCP switches are on; otherwise it is absent entirely (no greyed rows).
+  const engineStatus = useEngineStore((s) => s.status);
+  const runningThreadId = useEngineStore((s) => s.runningThreadId);
+  const runEngine = useEngineStore((s) => s.run);
+  const probeEngine = useEngineStore((s) => s.probe);
+  const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
+  const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
+  const aiEngineActionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
+  const aiEngineTimeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
+  // Probe once per session — the answer changes only when the user installs something,
+  // and it costs two process spawns.
+  useEffect(() => {
+    if (engineStatus === null) void probeEngine();
+  }, [engineStatus, probeEngine]);
+  const engineGate = {
+    cliAvailable: engineStatus?.available === true,
+    mcpEnabled,
+    mcpWriteEnabled,
+    actionsEnabled: aiEngineActionsEnabled,
+    running: runningThreadId !== null,
+  };
+  const showEngineActions = canShowEngineActions(engineGate);
+  const engineBusy = engineActionsDisabled(engineGate);
 
   // Total character count of what a pack of this thread would carry (see
   // CONTENT_WARN_THRESHOLD). Summing a few hundred strings is nanosecond-scale;
@@ -288,6 +317,29 @@ export default function ThreadHeader({
                 />
                 <span>{thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}</span>
               </button>
+              {/* DESIGN_AI_ENGINE §1.1 「让 AI 维护」. M1 ships one action; M2 adds
+                  整理去重 and 生成周回顾 beside it. Absent unless the CLI was detected
+                  and both MCP switches are on — no greyed-out rows (安静原则). */}
+              {showEngineActions && (
+                <>
+                  <div className="my-1 border-t border-line" />
+                  <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-muted">
+                    {t('让 AI 维护')}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void runEngine(thread.id, thread.title, aiEngineTimeoutSecs);
+                    }}
+                    disabled={engineBusy}
+                    title={t('用本机的 Claude Code 把这条脉络提炼成一块结论')}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
+                  >
+                    <Sparkles size={12} className="flex-none" />
+                    <span>{engineBusy ? t('AI 整理中…') : t('提炼结论')}</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

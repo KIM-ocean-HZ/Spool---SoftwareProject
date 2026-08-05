@@ -364,6 +364,27 @@ const EN: Record<string, string> = {
   '语言 / Language': 'Language / 语言',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
+  // DESIGN_AI_ENGINE §1.4 / §3 — the Claude Code engine slot.
+  '本机 AI 引擎': 'On-machine AI engine',
+  '检测到你已安装 Claude Code 时，项目菜单里会多出「让 AI 维护」——用你自己的 Claude 订阅跑，Spool 不存任何 API key，也不联网。':
+    'When Claude Code is detected on this machine, a "Let AI maintain" group appears in the project menu. It runs on your own Claude subscription — Spool stores no API key and still never goes online.',
+  '检测中…': 'Checking…',
+  '✓ 已检测到': '✓ Found',
+  '未检测到 Claude Code': 'Claude Code not found',
+  '安装方法': 'How to install',
+  '在项目菜单里显示 AI 维护动作': 'Show AI maintenance actions in the project menu',
+  '需要上面两个开关都打开——AI 维护的产出是写回一块，读权限不够用。':
+    'Both switches above must be on — these actions write a block back, so read access alone is not enough.',
+  '单次最长运行时间': 'Time limit per run',
+  '超过就停下（已经写进去的块会留着——Spool 只追加，不回滚）。上限 10 分钟。':
+    'Stops when it runs over. Blocks already written stay — Spool only ever appends, it never rolls back. 10 minutes maximum.',
+  '分钟': 'min',
+  '让 AI 维护': 'Let AI maintain',
+  '提炼结论': 'Distil a conclusion',
+  'AI 整理中…': 'AI working…',
+  '用本机的 Claude Code 把这条脉络提炼成一块结论':
+    'Use the Claude Code on this machine to distil this thread into one conclusion block',
+
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
   '没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a project header',

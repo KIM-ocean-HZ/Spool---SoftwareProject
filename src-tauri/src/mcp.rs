@@ -4624,7 +4624,11 @@ fn project_chooser_text(conn: &Connection, what: &str, arg: &str) -> Result<Stri
 // prompts are a dead end in the two main clients (ChatGPT/Codex and Claude Desktop don't
 // expose them at all), so each one is also a read-only tool the model calls straight from
 // what the user said. One builder, so the two surfaces can never drift.
-fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
+// DESIGN_AI_ENGINE §2.2: the Claude Code engine slot reuses THIS function for its prompt
+// text rather than keeping a copy — "one constant source, two beneficiaries". The engine
+// passes the same {"project": …} shape a client would, so a wording change here reaches
+// both the MCP prompt and the GUI action in one edit.
+pub fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
     let num = |k: &str| -> Option<i64> {
         let v = args.get(k)?;
         v.as_i64()

@@ -1,0 +1,29 @@
+// DESIGN_AI_ENGINE §1.1 — the render gate for the "让 AI 维护" menu group.
+//
+// Three conditions, all required: the Claude Code CLI was detected, the MCP service
+// switch is on, and "允许 AI 写入" is on. The actions write blocks through the existing
+// MCP surface, so without the write switch they cannot do the thing they promise —
+// showing them would be an offer Spool can't keep.
+//
+// Any condition unmet: the group does not render at all. No greyed-out entries, no
+// explanatory tooltip (§1.1 安静原则 — a feature that needs a CLI the user has never
+// heard of should be invisible, not nagging). The Settings page is where the detection
+// state is visible, and that is the only place it appears.
+
+export interface EngineGateInput {
+  /** Whether `claude` was found on this machine (Rust: ai_engine_status). */
+  cliAvailable: boolean;
+  mcpEnabled: boolean;
+  mcpWriteEnabled: boolean;
+  /** §1.4 user opt-out. Default true — meaningful only once the CLI is present. */
+  actionsEnabled: boolean;
+  /** §1.2: one task per thread; the group is disabled (not hidden) while one runs. */
+  running?: boolean;
+}
+
+export const canShowEngineActions = (g: EngineGateInput): boolean =>
+  g.cliAvailable && g.mcpEnabled && g.mcpWriteEnabled && g.actionsEnabled;
+
+// Visible but not clickable, so the user can see why nothing happens on a second click.
+// Distinct from the hidden case above: hiding mid-run would make the menu jump.
+export const engineActionsDisabled = (g: EngineGateInput): boolean => g.running === true;

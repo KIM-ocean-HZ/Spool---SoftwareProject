@@ -12,6 +12,8 @@ type PersistableKey =
   | 'autoExtractAttachments'
   | 'mcpEnabled'
   | 'mcpWriteEnabled'
+  | 'aiEngineActionsEnabled'
+  | 'aiEngineTimeoutSecs'
   | 'language'
   | 'firstCaptureHintPending';
 
@@ -32,6 +34,13 @@ interface SettingsState {
   // Default OFF — reading packs and letting an external AI insert rows are different
   // trust levels. Also read straight from settings.json by the --mcp subprocess.
   mcpWriteEnabled: boolean;
+  // DESIGN_AI_ENGINE §1.4: whether the "让 AI 维护" group appears in a thread's ⋯ menu.
+  // Default ON, because it only means anything once the Claude Code CLI is detected —
+  // no CLI, no menu group, whatever this says (§1.1's three-way render gate).
+  aiEngineActionsEnabled: boolean;
+  // §1.4: per-run budget in seconds. Default 5 minutes, and Rust clamps to 10 whatever
+  // arrives here — an agentic loop with no ceiling is a runaway subscription bill.
+  aiEngineTimeoutSecs: number;
   // UI language. Defaults to the system locale (see detectSystemLanguage); 'en' vs 'zh'
   // switches every surface via the lib/i18n dictionary. Persisted only once the user
   // picks one by hand; other windows re-read on change.
@@ -105,6 +114,8 @@ const KEYS: PersistableKey[] = [
   'autoExtractAttachments',
   'mcpEnabled',
   'mcpWriteEnabled',
+  'aiEngineActionsEnabled',
+  'aiEngineTimeoutSecs',
   'language',
   'firstCaptureHintPending',
 ];
@@ -126,6 +137,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   autoExtractAttachments: true,
   mcpEnabled: false,
   mcpWriteEnabled: false,
+  aiEngineActionsEnabled: true,
+  aiEngineTimeoutSecs: 300,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
   loaded: false,
