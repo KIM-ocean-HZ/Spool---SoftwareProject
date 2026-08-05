@@ -25,8 +25,9 @@ fn ai_engine_status() -> engine::EngineStatus {
     engine::detect()
 }
 
-// DESIGN_AI_ENGINE §5 M1: one action, end to end. The prompt comes from mcp.rs's
-// guidance_text — same constant source as the MCP `distill` prompt (§2.2), never a copy.
+// DESIGN_AI_ENGINE §5 M2: all three actions. The prompt comes from mcp.rs's
+// guidance_text — the same constant source as the MCP prompts of the same names (§2.2),
+// never a copy, so re-wording one reaches both surfaces.
 // Runs on a blocking thread: the CLI takes minutes, and the UI stays live throughout
 // (§1.2 — no modal, the user can keep working or switch away).
 #[tauri::command]
@@ -35,19 +36,37 @@ async fn ai_engine_run(
     project: String,
     timeout_secs: u64,
 ) -> Result<String, String> {
-    // M1 ships "提炼结论" only. Refusing the other names outright — rather than falling
-    // through to distill — keeps a future typo from silently running the wrong action.
-    if action != "distill" {
+    // An unknown name is refused outright rather than falling through to a default: a
+    // typo that silently ran a different action against the user's library would be worse
+    // than an error nobody sees.
+    if !matches!(action.as_str(), "distill" | "thread_health" | "weekly_review") {
         return Err(format!("unsupported action: {action}"));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let prompt = mcp::guidance_text(&action, &serde_json::json!({ "project": project }))?;
-        // max_turns: the agentic loop needs a few turns (read the pack, then write one
+        // 生成周回顾 is the one action that is not about the thread it was started from —
+        // it reads the whole library's digest (§1.1). Passing a project would not narrow
+        // it, it would just be ignored, so it is not passed.
+        let args = if action == "weekly_review" {
+            serde_json::json!({})
+        } else {
+            serde_json::json!({ "project": project })
+        };
+        let prompt = mcp::guidance_text(&action, &args)?;
+        // max_turns: the agentic loop needs a few turns (read the material, then write one
         // block); 12 is generous for that and still a hard stop.
         engine::run_action(&prompt, timeout_secs, 12).map(|env| env.result)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// §1.2: the running pill is clickable, and this is what it calls. Returns whether there
+// was anything to stop — a click that lands just after the run finished is not an error.
+// Blocks the AI already wrote stay where they are (append-only, §2.3): stopping is not
+// undoing, and the toast says so.
+#[tauri::command]
+fn ai_engine_cancel() -> bool {
+    engine::request_cancel()
 }
 
 // §20.12 one-click MCP client hookup (2026-07-07) — see mcp.rs for the fs/JSON logic.
@@ -214,6 +233,7 @@ pub fn run() {
             overlay::overlay_db_reply,
             ai_engine_status,
             ai_engine_run,
+            ai_engine_cancel,
             mcp_exe_path,
             mcp_client_status,
             configure_mcp_client,

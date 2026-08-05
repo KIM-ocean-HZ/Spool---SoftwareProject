@@ -45,12 +45,18 @@ describe('engine action gate', () => {
     expect(canShowEngineActions({ ...all, mcpWriteEnabled: false })).toBe(false);
   });
 
-  // §1.2: a run in progress disables rather than hides — hiding would make the menu jump
-  // under the user's cursor.
-  it('disables while a run is in flight, without hiding', () => {
-    const running = { ...all, running: true };
-    expect(canShowEngineActions(running)).toBe(true);
-    expect(engineActionsDisabled(running)).toBe(true);
+  // §1.2: a task already queued for THIS thread disables rather than hides — hiding
+  // would make the menu jump under the user's cursor.
+  it('disables while this thread already has a task, without hiding', () => {
+    const busy = { ...all, busyOnThisThread: true };
+    expect(canShowEngineActions(busy)).toBe(true);
+    expect(engineActionsDisabled(busy)).toBe(true);
     expect(engineActionsDisabled(all)).toBe(false);
+  });
+
+  // M2: the lock is per thread, not global. A run on one project must not lock every
+  // other project's menu, or the serial queue could never be filled.
+  it('leaves another thread selectable while one is running', () => {
+    expect(engineActionsDisabled({ ...all, busyOnThisThread: false })).toBe(false);
   });
 });

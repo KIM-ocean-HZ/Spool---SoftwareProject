@@ -17,8 +17,16 @@ export interface EngineGateInput {
   mcpWriteEnabled: boolean;
   /** §1.4 user opt-out. Default true — meaningful only once the CLI is present. */
   actionsEnabled: boolean;
-  /** §1.2: one task per thread; the group is disabled (not hidden) while one runs. */
-  running?: boolean;
+  /**
+   * §1.2: whether THIS thread already has a task running or waiting.
+   *
+   * M1 read this as "anything is running anywhere", which was right when a second click
+   * was simply refused. M2 has a queue, and a global lock would make it unreachable —
+   * you could never line up a second project's tidy-up while the first ran. The rule that
+   * survives is the one the queue is actually for: one task per thread, because two
+   * distils of the same project produce two conclusions off the same material.
+   */
+  busyOnThisThread?: boolean;
 }
 
 export const canShowEngineActions = (g: EngineGateInput): boolean =>
@@ -26,4 +34,5 @@ export const canShowEngineActions = (g: EngineGateInput): boolean =>
 
 // Visible but not clickable, so the user can see why nothing happens on a second click.
 // Distinct from the hidden case above: hiding mid-run would make the menu jump.
-export const engineActionsDisabled = (g: EngineGateInput): boolean => g.running === true;
+export const engineActionsDisabled = (g: EngineGateInput): boolean =>
+  g.busyOnThisThread === true;

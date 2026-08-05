@@ -74,6 +74,15 @@ export const getBlockById = async (id: string): Promise<Block | null> => {
   return rows[0] ? fromRow(rows[0]) : null;
 };
 
+// DESIGN_AI_ENGINE §1.3: how many blocks the library holds right now. An AI run writes
+// through a separate process and may file into several projects at once, so counting
+// before and after is the only way "AI 归档了 N 块" can be a fact rather than a claim.
+export const countBlocks = async (): Promise<number> => {
+  const db = await getDb();
+  const rows = await db.select<{ c: number }[]>('SELECT COUNT(*) AS c FROM blocks');
+  return rows[0]?.c ?? 0;
+};
+
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();
   const rows = await db.select<Row[]>(

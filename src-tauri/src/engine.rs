@@ -19,9 +19,11 @@
 //!
 //! M1 scope: detection + the settings section + one action ("distil a conclusion")
 //! end-to-end, including cancel and timeout. That is the shortest path that proves the
-//! pipe. M2 adds the other two actions and the serial queue.
+//! pipe. M2 (here) adds the other two actions, a real cancel, and the serial queue that
+//! keeps two runs from interleaving writes into one library.
 
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -54,7 +56,7 @@ const MCP_SERVER_NAME: &str = "spool";
 // back in `permission_denials` and the run ends with the model politely asking the user to
 // turn on a permission that is already on. Explicit names work. If a tool is added to
 // mcp.rs it must be added here too, or the AI simply cannot reach it.
-const ALLOWED_TOOL_NAMES: [&str; 13] = [
+const ALLOWED_TOOL_NAMES: [&str; 14] = [
     "add_block",
     "check_library",
     "create_thread",
@@ -64,6 +66,11 @@ const ALLOWED_TOOL_NAMES: [&str; 13] = [
     "get_digest",
     "get_pack",
     "list_threads",
+    // Nothing here calls for it, and it is still listed: the list's job is "only Spool's
+    // tools", not "only the tools this action needs". A denied call does not fail quietly —
+    // it ends the run with the model asking for a permission that is already on (see the
+    // wildcard note above) — and propose_blocks is the one write tool that writes nothing.
+    "propose_blocks",
     "search_blocks",
     "set_thread_summary",
     "thread_health",
@@ -108,13 +115,59 @@ fn parse_version(out: &str) -> Option<String> {
     Some(first.split_whitespace().next().unwrap_or(first).to_string())
 }
 
+// §1.2 cancel. The run is a Tauri command answering on a blocking thread, so the click
+// that stops it arrives on a different thread entirely and has nothing but these two
+// atomics to reach it by.
+//
+// The pid is the child's, which is also its process-GROUP id — spawn puts it in a fresh
+// group (see run_action), so `kill(-pid)` takes the whole tree. That matters here more
+// than usual: `claude` spawns MCP servers of its own, and killing only the parent would
+// leave `spool --mcp` subprocesses holding the library.
+static RUNNING_PGID: AtomicI32 = AtomicI32::new(0);
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Ask the current run to stop. Returns false when nothing was running — which the caller
+/// treats as success, not an error: the user pressed cancel on something that had already
+/// finished, and there is nothing left to say.
+pub fn request_cancel() -> bool {
+    let pgid = RUNNING_PGID.load(Ordering::SeqCst);
+    if pgid == 0 {
+        return false;
+    }
+    CANCELLED.store(true, Ordering::SeqCst);
+    kill_group(pgid);
+    true
+}
+
+fn kill_group(pgid: i32) {
+    #[cfg(unix)]
+    unsafe {
+        // SIGTERM first so the CLI can close its own children cleanly, then SIGKILL for
+        // whatever ignored it. A stuck process here would hold a subscription-billed run
+        // open, so the second signal is not optional.
+        libc::kill(-pgid, libc::SIGTERM);
+        std::thread::sleep(Duration::from_millis(150));
+        libc::kill(-pgid, libc::SIGKILL);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pgid;
+    }
+}
+
 // A child process that must not outlive its budget. `Command::output()` blocks with no
 // timeout of its own, so probes go through here: spawn, wait with a deadline, kill on
 // expiry. Polling rather than a thread per call — these are sub-second in practice, and
 // the settings page calls them on every refresh.
+//
+// `cancellable` is what separates the two kinds of caller. A version probe is a 5-second
+// affair nobody asks to stop; a run is minutes long, and while it is up its process group
+// is published so request_cancel can reach it. Probes must NOT publish theirs — a probe
+// racing a run would otherwise overwrite the pid the cancel button aims at.
 fn output_with_timeout(
     mut cmd: std::process::Command,
     budget: Duration,
+    cancellable: bool,
 ) -> Result<std::process::Output, String> {
     let mut child = cmd
         .stdin(Stdio::null())
@@ -122,14 +175,50 @@ fn output_with_timeout(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    if cancellable {
+        CANCELLED.store(false, Ordering::SeqCst);
+        RUNNING_PGID.store(child.id() as i32, Ordering::SeqCst);
+    }
+    // Whatever happens below — normal exit, timeout, cancel, an error reading the pipe —
+    // the published pid has to go. A stale one aims the next cancel at a pid the OS may
+    // have handed to something else entirely.
+    let clear = || {
+        if cancellable {
+            RUNNING_PGID.store(0, Ordering::SeqCst);
+        }
+    };
     let start = std::time::Instant::now();
     loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(_) => return child.wait_with_output().map_err(|e| e.to_string()),
-            None => {
+        match child.try_wait() {
+            Err(e) => {
+                clear();
+                return Err(e.to_string());
+            }
+            Ok(Some(_)) => {
+                clear();
+                // A cancelled child usually exits before this poll notices, so the flag —
+                // not the exit status — is what decides the message.
+                if cancellable && CANCELLED.swap(false, Ordering::SeqCst) {
+                    let _ = child.wait_with_output();
+                    return Err(CANCELLED_MARKER.to_string());
+                }
+                return child.wait_with_output().map_err(|e| e.to_string());
+            }
+            Ok(None) => {
+                if cancellable && CANCELLED.load(Ordering::SeqCst) {
+                    kill_group(child.id() as i32);
+                    let _ = child.wait();
+                    clear();
+                    CANCELLED.store(false, Ordering::SeqCst);
+                    return Err(CANCELLED_MARKER.to_string());
+                }
                 if start.elapsed() >= budget {
+                    if cancellable {
+                        kill_group(child.id() as i32);
+                    }
                     let _ = child.kill();
                     let _ = child.wait();
+                    clear();
                     return Err(format!("timed out after {}s", budget.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(25));
@@ -137,6 +226,11 @@ fn output_with_timeout(
         }
     }
 }
+
+/// The frontend distinguishes "the user stopped it" from "it broke" by this exact string;
+/// a cancel is not an error to apologise for. Deliberately not translated — it is a wire
+/// marker between two layers of Spool, never shown to anyone.
+pub const CANCELLED_MARKER: &str = "spool:cancelled";
 
 // The PATH a GUI app inherits on macOS is the launchd one, not the shell's — a `claude`
 // installed by npm/homebrew into ~/.local/bin or /opt/homebrew/bin is on the user's shell
@@ -165,7 +259,7 @@ pub fn detect() -> EngineStatus {
     let mut tried: Vec<String> = Vec::new();
     let mut which = std::process::Command::new("/usr/bin/which");
     which.arg("claude");
-    if let Ok(out) = output_with_timeout(which, PROBE_TIMEOUT) {
+    if let Ok(out) = output_with_timeout(which, PROBE_TIMEOUT, false) {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !p.is_empty() {
@@ -181,7 +275,7 @@ pub fn detect() -> EngineStatus {
     for path in tried {
         let mut cmd = std::process::Command::new(&path);
         cmd.arg("--version");
-        if let Ok(out) = output_with_timeout(cmd, PROBE_TIMEOUT) {
+        if let Ok(out) = output_with_timeout(cmd, PROBE_TIMEOUT, false) {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout).into_owned();
                 return EngineStatus {
@@ -243,16 +337,16 @@ pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
         .map_err(|e| format!("could not read the CLI's JSON output: {e}"))
 }
 
-/// One headless run, start to finish (M1: the "distil a conclusion" action).
+/// One headless run, start to finish.
 ///
 /// The prompt is not built here — it comes from mcp.rs, the same constant source the MCP
-/// `distill` prompt uses (§2.2), so the two can never drift. What this owns is the
-/// process: minimal env, a temp config that is deleted whatever happens, a hard deadline,
-/// and a kill that takes the whole process group with it.
+/// prompts use (§2.2), so the two can never drift. What this owns is the process: minimal
+/// env, a temp config that is deleted whatever happens, a hard deadline, and a kill that
+/// takes the whole process group with it.
 ///
 /// Blocks the AI writes land through MCP while this runs; there is no rollback and none is
-/// wanted (append-only, §2.3). A timeout therefore means "stopped", not "undone" — the
-/// caller says so in the toast.
+/// wanted (append-only, §2.3). A timeout or a cancel therefore means "stopped", not
+/// "undone" — the caller says so in the toast.
 pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<RunEnvelope, String> {
     let status = detect();
     let (Some(bin), true) = (status.path.as_deref(), status.available) else {
@@ -260,7 +354,9 @@ pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<Run
     };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let cfg_dir = std::env::temp_dir();
-    // Unique per run: two runs must never share (or delete) each other's config.
+    // Unique per run: two runs must never share (or delete) each other's config. M2 runs
+    // strictly one at a time (the queue in engineStore serialises them), but a stale file
+    // from a killed run would otherwise be handed to the next one.
     let cfg_path = cfg_dir.join(format!("spool-mcp-{}.json", std::process::id()));
     std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
         .map_err(|e| format!("could not write the MCP config: {e}"))?;
@@ -276,7 +372,25 @@ pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<Run
     if let Some(home) = std::env::var_os("HOME") {
         cmd.env("HOME", home);
     }
-    let result = output_with_timeout(cmd, Duration::from_secs(clamp_timeout_secs(timeout_secs)));
+    // §2.2: its own process group, so a cancel or a timeout takes the CLI's children with
+    // it. `claude` spawns MCP servers — one of them is another `spool --mcp` against the
+    // user's library — and killing only the parent would strand them.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                // Between fork and exec: setpgid(0, 0) makes this child its own group
+                // leader, so its pid doubles as the group id the kill aims at.
+                if libc::setpgid(0, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let result =
+        output_with_timeout(cmd, Duration::from_secs(clamp_timeout_secs(timeout_secs)), true);
     // Delete the config before returning down either path — it names an executable, and
     // leaving it in /tmp serves nothing.
     let _ = std::fs::remove_file(&cfg_path);
@@ -398,9 +512,56 @@ mod tests {
         let mut cmd = std::process::Command::new("/bin/sh");
         cmd.args(["-c", "sleep 30"]);
         let started = std::time::Instant::now();
-        let err = output_with_timeout(cmd, Duration::from_millis(300)).unwrap_err();
+        let err = output_with_timeout(cmd, Duration::from_millis(300), false).unwrap_err();
         assert!(err.contains("timed out"), "{err}");
         assert!(started.elapsed() < Duration::from_secs(5), "the child was not killed promptly");
+    }
+
+    // §1.2 (M2): the pill is clickable, so a run has to actually stop — well inside its
+    // own budget, and reported as a cancel rather than as a failure. A grandchild is in
+    // the tree on purpose: `claude` spawns MCP servers, and killing only the process the
+    // parent knows about would leave one of them holding the user's library open.
+    #[test]
+    #[cfg(unix)]
+    fn a_run_can_be_cancelled_and_takes_its_children_with_it() {
+        use std::os::unix::process::CommandExt;
+        let marker = std::env::temp_dir()
+            .join(format!("spool-cancel-probe-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let _ = std::fs::remove_file(&marker);
+        let script = format!(
+            // The grandchild outlives its parent unless the whole group is signalled, and
+            // it is what writes the file. A file present at the end means the kill leaked.
+            "( sleep 1; touch '{}' ) & sleep 30",
+            marker.display()
+        );
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.args(["-c", &script]);
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setpgid(0, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        // The cancel arrives from another thread, exactly as the Tauri command does.
+        let stopper = std::thread::spawn(|| {
+            // Long enough for the run to have published its pid, short enough that a
+            // broken cancel is caught by the assertion below instead of by the budget.
+            std::thread::sleep(Duration::from_millis(250));
+            assert!(request_cancel(), "there was a run to cancel");
+        });
+        let started = std::time::Instant::now();
+        let err = output_with_timeout(cmd, Duration::from_secs(20), true).unwrap_err();
+        stopper.join().unwrap();
+        assert_eq!(err, CANCELLED_MARKER, "a cancel is not a failure to apologise for");
+        assert!(started.elapsed() < Duration::from_secs(5), "the cancel did not take effect");
+        // The published pid is cleared, so the next cancel cannot aim at a dead process.
+        assert!(!request_cancel(), "nothing should still be registered as running");
+        // Give the leaked grandchild every chance to prove it survived.
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(!marker.exists(), "a child of the cancelled run outlived the kill");
+        let _ = std::fs::remove_file(&marker);
     }
 }
 

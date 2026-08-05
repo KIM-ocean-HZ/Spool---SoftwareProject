@@ -16,7 +16,7 @@ import type { Thread } from '@/lib/db/threads';
 import { isDormant } from '@/lib/threads/dormancy';
 import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { useEngineStore } from '@/stores/engineStore';
+import { ACTION_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -39,6 +39,27 @@ interface Props {
 // go; past it pack fidelity degrades and the range selector (§17) is the right tool,
 // so the counter turns --status-parked and click opens PackDialog.
 const CONTENT_WARN_THRESHOLD = 20_000;
+
+// DESIGN_AI_ENGINE §1.1 — the three actions, in the design's own order and wording. Each
+// runs the MCP prompt of the same name through the local `claude`; the hint is what the
+// user sees on hover, so it says what comes out, not which tool it calls.
+const ENGINE_ACTIONS: { action: EngineAction; label: string; hint: string }[] = [
+  {
+    action: 'thread_health',
+    label: '整理去重',
+    hint: '让本机的 Claude Code 查一遍重复块、失效引用，看摘要过没过期',
+  },
+  {
+    action: 'distill',
+    label: '提炼结论',
+    hint: '用本机的 Claude Code 把这条脉络提炼成一块结论',
+  },
+  {
+    action: 'weekly_review',
+    label: '生成周回顾',
+    hint: '让本机的 Claude Code 回顾最近一周——跨所有项目，不只这一个',
+  },
+];
 
 // Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
 // title is the one free-form header field. While the user is typing the local value
@@ -147,8 +168,10 @@ export default function ThreadHeader({
   // DESIGN_AI_ENGINE §1.1 — the "让 AI 维护" group. Rendered only when the CLI is present
   // AND both MCP switches are on; otherwise it is absent entirely (no greyed rows).
   const engineStatus = useEngineStore((s) => s.status);
-  const runningThreadId = useEngineStore((s) => s.runningThreadId);
-  const runEngine = useEngineStore((s) => s.run);
+  const engineCurrent = useEngineStore((s) => s.current);
+  const engineQueue = useEngineStore((s) => s.queue);
+  const enqueueEngine = useEngineStore((s) => s.enqueue);
+  const cancelEngine = useEngineStore((s) => s.cancel);
   const probeEngine = useEngineStore((s) => s.probe);
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
   const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
@@ -159,15 +182,20 @@ export default function ThreadHeader({
   useEffect(() => {
     if (engineStatus === null) void probeEngine();
   }, [engineStatus, probeEngine]);
+  // §1.2: the lock is per thread. Another project's run is a reason to wait in line, not
+  // a reason this project's menu goes dead.
+  const busyOnThisThread =
+    engineCurrent?.threadId === thread.id || engineQueue.some((q) => q.threadId === thread.id);
   const engineGate = {
     cliAvailable: engineStatus?.available === true,
     mcpEnabled,
     mcpWriteEnabled,
     actionsEnabled: aiEngineActionsEnabled,
-    running: runningThreadId !== null,
+    busyOnThisThread,
   };
   const showEngineActions = canShowEngineActions(engineGate);
   const engineBusy = engineActionsDisabled(engineGate);
+  const runningHere = engineCurrent?.threadId === thread.id;
 
   // Total character count of what a pack of this thread would carry (see
   // CONTENT_WARN_THRESHOLD). Summing a few hundred strings is nanosecond-scale;
@@ -246,6 +274,28 @@ export default function ThreadHeader({
           <span>{t('打包')}</span>
         </button>
 
+        {/* DESIGN_AI_ENGINE §1.2 — the running pill. Same shape as 捕捉中 so the two read
+            as one system, and clicking it stops the run. It is the only control the
+            action has once started, so it also carries what is waiting behind it. Nothing
+            is undone by stopping (append-only); the toast says as much. */}
+        {runningHere && engineCurrent && (
+          <button
+            onClick={() => void cancelEngine()}
+            title={t('点一下停下来（已经写进去的块会留着）')}
+            className="flex flex-none items-center gap-1 rounded-full border border-accent/60 bg-accent-soft px-2.5 py-1 text-[11px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
+          >
+            <span>
+              {engineQueue.length > 0
+                ? t('{action}中 · 还排着 {n} 个', {
+                    action: t(ACTION_LABEL[engineCurrent.action]),
+                    n: engineQueue.length,
+                  })
+                : t('{action}中', { action: t(ACTION_LABEL[engineCurrent.action]) })}
+            </span>
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
+          </button>
+        )}
+
         {/* #7 (2026-07-13): folding the capture switch into ⋯ killed its
             discoverability for new users — a quiet ghost button restores it. When
             this thread IS the target it becomes a plain 捕捉中 status, not a button. */}
@@ -317,27 +367,31 @@ export default function ThreadHeader({
                 />
                 <span>{thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}</span>
               </button>
-              {/* DESIGN_AI_ENGINE §1.1 「让 AI 维护」. M1 ships one action; M2 adds
-                  整理去重 and 生成周回顾 beside it. Absent unless the CLI was detected
-                  and both MCP switches are on — no greyed-out rows (安静原则). */}
+              {/* DESIGN_AI_ENGINE §1.1 「让 AI 维护」, all three actions (M2). Absent
+                  unless the CLI was detected and both MCP switches are on — no greyed-out
+                  rows (安静原则). Disabled only while THIS thread has a task; a run on
+                  another project just means this one queues behind it. */}
               {showEngineActions && (
                 <>
                   <div className="my-1 border-t border-line" />
                   <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-muted">
                     {t('让 AI 维护')}
                   </div>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void runEngine(thread.id, thread.title, aiEngineTimeoutSecs);
-                    }}
-                    disabled={engineBusy}
-                    title={t('用本机的 Claude Code 把这条脉络提炼成一块结论')}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
-                  >
-                    <Sparkles size={12} className="flex-none" />
-                    <span>{engineBusy ? t('AI 整理中…') : t('提炼结论')}</span>
-                  </button>
+                  {ENGINE_ACTIONS.map(({ action, label, hint }) => (
+                    <button
+                      key={action}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        enqueueEngine(thread.id, thread.title, action, aiEngineTimeoutSecs);
+                      }}
+                      disabled={engineBusy}
+                      title={t(hint)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
+                    >
+                      <Sparkles size={12} className="flex-none" />
+                      <span>{t(label)}</span>
+                    </button>
+                  ))}
                 </>
               )}
             </div>
