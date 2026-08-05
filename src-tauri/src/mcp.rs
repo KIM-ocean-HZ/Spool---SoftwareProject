@@ -1203,9 +1203,12 @@ fn search_attachments(
         extraction_kind: Option<String>,
         extracted_text: String,
         seq: Option<i64>,
+        source: Option<String>,
     }
+    // b.source rides LAST on purpose: `map` reads by position, so appending keeps every
+    // existing index put.
     let cols = "b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
-                a.label, a.target, a.extraction_kind, a.extracted_text, b.seq";
+                a.label, a.target, a.extraction_kind, a.extracted_text, b.seq, b.source";
     let map = |r: &rusqlite::Row| -> rusqlite::Result<AttHit> {
         Ok(AttHit {
             block_id: r.get(0)?,
@@ -1219,6 +1222,7 @@ fn search_attachments(
             extraction_kind: r.get(8)?,
             extracted_text: r.get(9)?,
             seq: r.get(10)?,
+            source: r.get(11)?,
         })
     };
     // Same two paths as the block search: trigram FTS at ≥3 chars, a LIKE scan below
@@ -1275,6 +1279,11 @@ fn search_attachments(
                 "workspace": h.workspace,
                 "created_at": format_pack_time(h.created_at),
                 "seq": h.seq,
+                // R6 (third-round debt 2): block hits have carried this since B-6, and the
+                // authority category (📖/🧩/🔄/💭) is read off it. Without it here, a file
+                // hit was the one search result whose weight the caller could not judge —
+                // an institutional PDF and an AI-written draft looked identical.
+                "source": h.source,
                 "matched_in": "attachment",
                 // Which file the sentence is actually in — without this the user opens
                 // the block, cannot find the words, and concludes search is broken.
@@ -3552,7 +3561,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and carries the same source label as a block hit, so weigh its authority the same way. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -5876,10 +5885,10 @@ mod tests {
                VALUES ('ws1', '收件箱', 0, 1, 1);
              INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
                VALUES ('t1', 'ws1', '机器学习课', 1, 9);
-             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
-               ('b1', 't1', 'text', '梯度下降第一条', 0, 1),
-               ('b2', 't1', 'text', '梯度下降第二条', 0, 2),
-               ('b3', 't1', 'text', '梯度下降第三条', 0, 3);
+             INSERT INTO blocks (id, thread_id, kind, content, source, pinned, created_at) VALUES
+               ('b1', 't1', 'text', '梯度下降第一条', '课程网站 · PDF', 0, 1),
+               ('b2', 't1', 'text', '梯度下降第二条', NULL, 0, 2),
+               ('b3', 't1', 'text', '梯度下降第三条', NULL, 0, 3);
              INSERT INTO attachments (id, block_id, kind, target, label, extracted_text,
                                       extraction_kind, include_in_pack, created_at)
                VALUES ('a1', 'b1', 'file', '/x/l3.pdf', 'l3.pdf', '讲义里讲的是梯度下降',
@@ -5893,6 +5902,13 @@ mod tests {
         let first = page(0);
         assert_eq!(first["attachment_total"], 1);
         assert_eq!(first["attachment_hits"].as_array().unwrap().len(), 1);
+        // R6 (third-round debt 2): a file hit carries its block's source label, so the
+        // caller can weigh it (📖 institutional vs 🧩 AI-written) the same way it weighs a
+        // block hit. b1's label rides through; the two sourceless blocks stay 💭 by absence.
+        let att = &first["attachment_hits"][0];
+        assert_eq!(att["source"], "课程网站 · PDF", "file hit lost its authority label: {att}");
+        assert_eq!(att["matched_in"], "attachment");
+        assert_eq!(att["attachment"]["label"], "l3.pdf");
         for off in [1, 2, 99] {
             let p = page(off);
             // The count still shows — the caller must know the file matches exist — but
