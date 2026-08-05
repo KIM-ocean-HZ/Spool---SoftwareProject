@@ -8,8 +8,9 @@
 | 文件 | 干什么用 | 状态 |
 |---|---|---|
 | `HANDOFF.md` | 交接:下一窗第一件事、卡在哪、踩过的坑 | 每窗重写 |
-| `DESIGN_AI_ENGINE.md` | Claude Code 引擎位 | M1 做完,M2/M3 待开工 |
-| `DESIGN_MCP_WRITE_ROLE.md` | MCP 写入权限该干什么(角色定位 + 待审队列) | 四件全批完,M1 可开工 |
+| `DESIGN_AI_ENGINE.md` | Claude Code 引擎位 | **M1/M2/M3 全做完**,剩 v0.4.0 收口 |
+| `DESIGN_MCP_WRITE_ROLE.md` | MCP 写入权限该干什么(角色定位 + 待审队列) | **M1 已落地**;M2(写入开关能否默认打开)等真实使用 |
+| `EVAL_M1_M2_M3.md` | 上面两条的自评 + 实机探针结果 | ⚠️ **§5 有一个问题等 Ocean 答** |
 | `DESIGN_WINDOWS_PORT.md` | Windows 版勘查 | 未开工,排在最后 |
 | `MCP_LAB_PROMPT.md` | 隔离实验室的评审提示词 | 第三轮的,下轮要改 |
 
