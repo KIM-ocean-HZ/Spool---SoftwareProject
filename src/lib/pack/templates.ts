@@ -23,6 +23,9 @@ export const REF_MARKER = '→ Referenced project: ';
 // from needing another lookup; a deleted citee renders the MISSING text instead.
 export const REF_BLOCK_MARKER = '↩ cites: ';
 export const REF_BLOCK_MISSING = '(cited block no longer exists)';
+// R6 debt 3: appended to a ↩ cites: line ONLY when the cited block lives in another
+// project — otherwise the citation read as if the evidence were in this pack.
+export const REF_BLOCK_FROM = ' — in project: ';
 export const ATTACHMENT_SEE_BELOW = ' — see Related Files & Links section below';
 
 // --- Section headings -------------------------------------------------------------------

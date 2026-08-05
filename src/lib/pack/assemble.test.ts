@@ -452,7 +452,10 @@ describe('assemble', () => {
         now: number;
         thread: Thread;
         refTitles: Record<string, string>;
-        refBlocks: Record<string, { content: string; createdAt: number }>;
+        refBlocks: Record<
+          string,
+          { content: string; createdAt: number; foreignTitle?: string }
+        >;
         blocks: Block[];
         attachments: Attachment[];
       };

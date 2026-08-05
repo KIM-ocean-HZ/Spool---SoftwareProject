@@ -19,6 +19,7 @@ import {
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
   REF_BLOCK_MARKER,
+  REF_BLOCK_FROM,
   REF_BLOCK_MISSING,
   REF_MARKER,
   SECTION_FILES,
@@ -43,7 +44,7 @@ export interface AssembleArgs {
   // v2.4 (§20.13 D2): cited block id → its content + capture time, for blocks carrying
   // refBlockId. Caller-supplied like refTitles (cited blocks may live in other threads).
   // A citing block whose id is missing here renders the citation as no-longer-exists.
-  refBlocks?: Map<string, { content: string; createdAt: number }>;
+  refBlocks?: Map<string, { content: string; createdAt: number; foreignTitle?: string }>;
   // v2.8 §20.7: optional task-template selector. The chosen template's closing block
   // is appended after "Related Files & Links" and before the Output Language line.
   // Default = 'default' (no extra block — pre-v2.8 behavior).
@@ -175,7 +176,7 @@ const renderBlock = (
   b: Block,
   byBlock: Map<string, Attachment[]>,
   refTitles: Map<string, string> | undefined,
-  refBlocks: Map<string, { content: string; createdAt: number }> | undefined,
+  refBlocks: Map<string, { content: string; createdAt: number; foreignTitle?: string }> | undefined,
 ): string[] => {
   const time = formatPackTime(b.createdAt);
   const star = b.pinned ? PINNED_PREFIX : '';
@@ -198,7 +199,9 @@ const renderBlock = (
     const cited = refBlocks?.get(b.refBlockId);
     lines.push(
       cited
-        ? `${NOTE_INDENT}${REF_BLOCK_MARKER}[${formatPackTime(cited.createdAt)}] ${headAnchor(cited.content)}`
+        ? `${NOTE_INDENT}${REF_BLOCK_MARKER}[${formatPackTime(cited.createdAt)}] ${headAnchor(cited.content)}${
+            cited.foreignTitle ? `${REF_BLOCK_FROM}${cited.foreignTitle}` : ''
+          }`
         : `${NOTE_INDENT}${REF_BLOCK_MARKER}${REF_BLOCK_MISSING}`,
     );
   }

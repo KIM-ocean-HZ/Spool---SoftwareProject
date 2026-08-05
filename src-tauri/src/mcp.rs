@@ -161,6 +161,9 @@ const REF_MARKER: &str = "→ Referenced project: ";
 // v2.4 (§20.13 D2) — mirrors templates.ts REF_BLOCK_MARKER / REF_BLOCK_MISSING.
 const REF_BLOCK_MARKER: &str = "↩ cites: ";
 const REF_BLOCK_MISSING: &str = "(cited block no longer exists)";
+// R6 debt 3 — mirrors templates.ts REF_BLOCK_FROM. Only rendered for a cross-project
+// citation; the wording has to say the evidence is NOT in this pack.
+const REF_BLOCK_FROM: &str = " — in project: ";
 const ATTACHMENT_SEE_BELOW: &str = " — see Related Files & Links section below";
 
 const SECTION_PINNED: &str = "## Pinned Blocks";
@@ -272,7 +275,17 @@ pub struct BlockRow {
 }
 
 // v2.4 (D2): cited block id → (content, created_at) — mirrors assemble.ts refBlocks.
-pub type RefBlocks = std::collections::HashMap<String, (String, i64)>;
+// R6 (third-round debt 3): a cited block can live in ANOTHER project, and the ↩ cites:
+// line used to render both cases identically — so a cross-project citation read as if the
+// evidence sat in the pack the caller was holding, with no way to tell it needed a second
+// get_pack. `foreign_title` is Some ONLY when the cited block's project differs from the
+// pack being rendered; same-project citations stay byte-identical to before.
+pub struct RefBlock {
+    pub content: String,
+    pub created_at: i64,
+    pub foreign_title: Option<String>,
+}
+pub type RefBlocks = std::collections::HashMap<String, RefBlock>;
 
 pub struct AttachmentRow {
     pub block_id: String,
@@ -459,10 +472,14 @@ fn render_block(
     }
     if let Some(cited_id) = b.ref_block_id.as_deref() {
         lines.push(match ref_blocks.get(cited_id) {
-            Some((content, created_at)) => format!(
-                "{NOTE_INDENT}{REF_BLOCK_MARKER}[{}] {}",
-                format_pack_time(*created_at),
-                head_anchor(content)
+            Some(r) => format!(
+                "{NOTE_INDENT}{REF_BLOCK_MARKER}[{}] {}{}",
+                format_pack_time(r.created_at),
+                head_anchor(&r.content),
+                match r.foreign_title.as_deref() {
+                    Some(title) => format!("{REF_BLOCK_FROM}{title}"),
+                    None => String::new(),
+                }
             ),
             None => format!("{NOTE_INDENT}{REF_BLOCK_MARKER}{REF_BLOCK_MISSING}"),
         });
@@ -2497,14 +2514,33 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
             .collect();
         cited.sort_unstable();
         cited.dedup();
+        // The cited block's own project comes along so the renderer can name it when it
+        // is not this one. A cited block whose project was deleted counts as gone (same
+        // as a missing row) — the JOIN drops it and the renderer says so.
         let mut stmt = conn
-            .prepare("SELECT content, created_at FROM blocks WHERE id = ?1")
+            .prepare(
+                "SELECT b.content, b.created_at, b.thread_id, t.title
+                   FROM blocks b JOIN threads t ON t.id = b.thread_id
+                  WHERE b.id = ?1 AND t.deleted_at IS NULL",
+            )
             .map_err(|e| e.to_string())?;
         for id in cited {
-            if let Ok((content, created_at)) =
-                stmt.query_row([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-            {
-                ref_blocks.insert(id.to_string(), (content, created_at));
+            if let Ok((content, created_at, cited_thread, cited_title)) = stmt.query_row([id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            }) {
+                ref_blocks.insert(
+                    id.to_string(),
+                    RefBlock {
+                        content,
+                        created_at,
+                        foreign_title: (cited_thread != thread_id).then_some(cited_title),
+                    },
+                );
             }
         }
     }
@@ -5167,10 +5203,11 @@ mod tests {
             .map(|(k, val)| {
                 (
                     k.clone(),
-                    (
-                        val["content"].as_str().unwrap().to_string(),
-                        val["createdAt"].as_i64().unwrap(),
-                    ),
+                    RefBlock {
+                        content: val["content"].as_str().unwrap().to_string(),
+                        created_at: val["createdAt"].as_i64().unwrap(),
+                        foreign_title: val["foreignTitle"].as_str().map(String::from),
+                    },
                 )
             })
             .collect();
@@ -5345,6 +5382,48 @@ mod tests {
             .find(|b| b["content"] == "站在前一块上的新结论")
             .unwrap();
         assert!(citing_row["cited"].is_null(), "{citing_row}");
+
+        // R6 debt 3: a citation pointing OUT of this project says so; a same-project one
+        // is left alone. The fixture proves the renderer, this proves the derivation.
+        let other: Value =
+            serde_json::from_str(&create_thread_json(&conn, None, "另一个项目", None).unwrap())
+                .unwrap();
+        let other_tid = other["thread_id"].as_str().unwrap().to_string();
+        let far: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &other_tid, "别处的证据", None, None, None, false).unwrap(),
+        )
+        .unwrap();
+        let far_id = far["block_id"].as_str().unwrap().to_string();
+        add_block_json(&mut conn, &tid, "引用别处", None, None, Some(&far_id), false).unwrap();
+        let near: Value = serde_json::from_str(
+            &add_block_json(&mut conn, &tid, "本项目的证据", None, None, None, false).unwrap(),
+        )
+        .unwrap();
+        let near_id = near["block_id"].as_str().unwrap().to_string();
+        add_block_json(&mut conn, &tid, "引用本项目", None, None, Some(&near_id), false).unwrap();
+        let pack = build_pack(&conn, &tid, "all").unwrap().text;
+        // the ↩ cites: line sits directly beneath its block's header line
+        fn line_after(pack: &str, needle: &str) -> String {
+            let i = pack.lines().position(|l| l.contains(needle)).unwrap();
+            pack.lines().nth(i + 1).unwrap().to_string()
+        }
+        let foreign = line_after(&pack, "引用别处");
+        assert!(foreign.contains("别处的证据"), "{foreign}");
+        assert!(foreign.contains(" — in project: 另一个项目"), "{foreign}");
+        let local = line_after(&pack, "引用本项目");
+        assert!(local.contains("本项目的证据"), "{local}");
+        assert!(!local.contains("in project:"), "{local}");
+        // A cross-project citee whose project is soft-deleted counts as gone, not foreign.
+        conn.execute(
+            "UPDATE threads SET deleted_at = 1 WHERE id = ?1",
+            [&other_tid],
+        )
+        .unwrap();
+        let pack = build_pack(&conn, &tid, "all").unwrap().text;
+        assert!(
+            line_after(&pack, "引用别处").contains("(cited block no longer exists)"),
+            "{pack}"
+        );
     }
 
     // The GUI migration registry (client.ts SCHEMA_VERSION) and this binary must agree

@@ -1,5 +1,5 @@
 {
-  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling).",
+  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling). Also covers a cross-project citation (b8 → b-other, foreignTitle) vs the same-project one (b6 → b1).",
   "now": 1750000000000,
   "thread": {
     "id": "t1",
@@ -108,6 +108,19 @@
       "pinned": false,
       "createdAt": 1749998000000,
       "seq": 7
+    },
+    {
+      "id": "b8",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "跨项目引用:这条结论的证据在另一个项目里",
+      "annotation": null,
+      "refThreadId": null,
+      "refBlockId": "b-other",
+      "source": "Claude · MCP",
+      "pinned": false,
+      "createdAt": 1749999000000,
+      "seq": 8
     }
   ],
   "attachments": [
@@ -164,6 +177,11 @@
     "b1": {
       "content": "Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==",
       "createdAt": 1746540000000
+    },
+    "b-other": {
+      "content": "实验设计里的原始记录:baseline 复现用的是 seed=42",
+      "createdAt": 1746540000000,
+      "foreignTitle": "实验设计"
     }
   }
 }
