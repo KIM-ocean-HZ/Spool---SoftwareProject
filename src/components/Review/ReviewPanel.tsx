@@ -1,9 +1,9 @@
 import { Check, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import type { ProposalBatch } from '@/lib/db/proposals';
 import { useProposalsStore } from '@/stores/proposalsStore';
-import { selectAllThreadsFlat, useThreadsStore } from '@/stores/threadsStore';
+import { useThreadsStore } from '@/stores/threadsStore';
 
 // DESIGN_MCP_WRITE_ROLE §4.3 — the review screen.
 //
@@ -33,7 +33,13 @@ export default function ReviewPanel() {
   const approve = useProposalsStore((s) => s.approve);
   const reject = useProposalsStore((s) => s.reject);
   const clearExpired = useProposalsStore((s) => s.clearExpired);
-  const threads = useThreadsStore(selectAllThreadsFlat);
+  // Subscribe to the stored map, then flatten here. NOT useThreadsStore(selectAllThreadsFlat):
+  // that selector builds a fresh array on every call, so zustand's useSyncExternalStore sees
+  // a new snapshot each render and re-renders forever — React #185, which took the whole
+  // window down on 2026-08-05 because this component is mounted at the app root and its hooks
+  // run even while the screen is closed.
+  const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
+  const threads = useMemo(() => Object.values(threadsByWs).flat(), [threadsByWs]);
 
   useEffect(() => {
     if (!open) return;

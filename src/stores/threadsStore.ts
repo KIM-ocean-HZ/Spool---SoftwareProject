@@ -134,6 +134,12 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   select: (id) => set({ activeId: id }),
 }));
 
+// ⚠️ Imperative use only — `selectAllThreadsFlat(useThreadsStore.getState())`.
+// NEVER `useThreadsStore(selectAllThreadsFlat)`: it returns a fresh array every call, so
+// as a hook selector zustand's useSyncExternalStore compares two different objects on every
+// render and loops until React gives up (#185, "Maximum update depth exceeded"). A component
+// that wants this list subscribes to `threadsByWorkspace` and flattens it in a useMemo —
+// see ReviewPanel. (Cost 2026-08-05: a white window with only a minified error to go on.)
 export const selectAllThreadsFlat = (s: ThreadsState): Thread[] =>
   Object.values(s.threadsByWorkspace).flat();
 
