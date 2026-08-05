@@ -5,6 +5,7 @@ import { buildHitOffsets } from '@/lib/search/query';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useSearchStore } from '@/stores/searchStore';
 import InBlockNavigator from '../Search/InBlockNavigator';
+import AiActivity from './AiActivity';
 import BlockFeed from './BlockFeed';
 import Composer from './Composer';
 import MergeToolbar from './MergeToolbar';
@@ -80,6 +81,10 @@ export default function LogView({ threadId }: Props) {
           onDismiss={() => useSearchStore.getState().clearNavigation()}
         />
       )}
+      {/* DESIGN_AI_ENGINE M3: the "AI 活动" fold. Above the feed, outside the scroll
+          area, so it stays reachable while reading — and it renders nothing at all in a
+          thread no AI has touched. */}
+      <AiActivity threadId={threadId} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {/* scrollRef is forwarded so BlockFeed's §20.1 drag-marquee selection can
             auto-scroll near the top/bottom edges and resolve block positions against
