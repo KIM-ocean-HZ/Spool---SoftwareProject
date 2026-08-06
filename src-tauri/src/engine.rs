@@ -318,6 +318,26 @@ pub fn run_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> 
     ]
 }
 
+/// §2.2 minimal env for a run. Everything else is cleared; these three are each load-bearing:
+///
+/// * `PATH` — the CLI shells out (it re-launches itself as its own MCP client).
+/// * `HOME` — the CLI's config lives under it.
+/// * `USER` — the login token is a macOS Keychain generic password whose **account** is the
+///   username, and the CLI reads that name from `USER`. Without it the lookup misses, the
+///   CLI falls through to "no key configured", and every run comes back
+///   `Invalid API key · Please run /login` — which reads like the user is logged out when
+///   they are not. Cost us a session on 2026-08-06; bisected one variable at a time, and
+///   `LOGNAME` alone does **not** substitute.
+///
+/// Split out from spawning so the list is assertable without a live CLI (same reason as
+/// `run_args`) — nothing else fails this loudly for so small an omission.
+pub fn run_env() -> Vec<(&'static str, std::ffi::OsString)> {
+    ["PATH", "HOME", "USER"]
+        .into_iter()
+        .filter_map(|k| std::env::var_os(k).map(|v| (k, v)))
+        .collect()
+}
+
 /// `claude -p --output-format json` answers with an envelope carrying the final assistant
 /// text plus run metadata. Only two things matter to Spool: did it fail, and what did it
 /// say. Blocks it wrote are already in the database via MCP — this text is for the toast,
@@ -371,14 +391,9 @@ pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<Run
 
     let mut cmd = std::process::Command::new(bin);
     cmd.args(run_args(prompt, &cfg_path.to_string_lossy(), max_turns));
-    // §2.2 minimal env: PATH and HOME only. HOME is not optional — the CLI's login state
-    // lives under it, and without it every run fails as "not authenticated".
     cmd.env_clear();
-    if let Some(path) = std::env::var_os("PATH") {
-        cmd.env("PATH", path);
-    }
-    if let Some(home) = std::env::var_os("HOME") {
-        cmd.env("HOME", home);
+    for (k, v) in run_env() {
+        cmd.env(k, v);
     }
     // §2.2: its own process group, so a cancel or a timeout takes the CLI's children with
     // it. `claude` spawns MCP servers — one of them is another `spool --mcp` against the
@@ -431,6 +446,16 @@ mod tests {
         assert_eq!(parse_version("weird"), Some("weird".into()));
         assert_eq!(parse_version(""), None);
         assert_eq!(parse_version("   "), None);
+    }
+
+    // The env is cleared before the run, so anything missing from this list is missing at
+    // the CLI. `USER` looks droppable and is not — see `run_env`.
+    #[test]
+    fn run_env_carries_the_three_load_bearing_vars() {
+        let names: Vec<&str> = run_env().into_iter().map(|(k, _)| k).collect();
+        for k in ["PATH", "HOME", "USER"] {
+            assert!(names.contains(&k), "{k} must be handed to the CLI");
+        }
     }
 
     #[test]
