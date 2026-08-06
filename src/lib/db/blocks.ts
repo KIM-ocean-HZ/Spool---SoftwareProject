@@ -96,6 +96,22 @@ export const countMcpBlocks = async (): Promise<number> => {
   return rows[0]?.c ?? 0;
 };
 
+/** How many blocks each project holds, keyed by thread id.
+ *
+ *  DESIGN_WORKBENCH §9.4 — the project matrix shows 完成情况, and "how much is in it" is the
+ *  cheapest honest version of that. One grouped scan for the whole board rather than a query
+ *  per card: the board renders every project at once, so N queries would be N round-trips to
+ *  draw one screen. Threads with nothing in them are simply absent from the map. */
+export const countBlocksByThread = async (): Promise<Record<string, number>> => {
+  const db = await getDb();
+  const rows = await db.select<{ thread_id: string; c: number }[]>(
+    'SELECT thread_id, COUNT(*) AS c FROM blocks GROUP BY thread_id',
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.thread_id] = r.c;
+  return out;
+};
+
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();
   const rows = await db.select<Row[]>(

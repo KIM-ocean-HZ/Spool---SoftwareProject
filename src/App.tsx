@@ -7,6 +7,7 @@ import RightRail from '@/components/RightRail';
 import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
+import ProjectBoard from '@/components/ProjectBoard';
 import ThreadView from '@/components/ThreadView';
 import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
@@ -72,6 +73,7 @@ export default function App() {
   // Same shape, same reason (DESIGN_WORKBENCH §9.4): the project board can finish a project
   // that is not the one on screen, so the "这个项目结束了" panel is mounted once here and
   // addressed by thread id.
+  const boardOpen = useThreadsStore((s) => s.boardOpen);
   const completingId = useThreadsStore((s) => s.completingId);
   const completingThread = useThreadsStore(selectThreadById(completingId));
   const setCompleting = useThreadsStore((s) => s.setCompleting);
@@ -322,8 +324,11 @@ export default function App() {
             </>
           )}
 
+          {/* DESIGN_WORKBENCH §9.4 — 项目管理 is a pinned entry in the sidebar whose
+              "workspace" is the project matrix, so it takes the centre column the way a
+              project does. Selecting any project leaves it (threadsStore.select). */}
           <main className="min-w-0 flex-1 overflow-hidden">
-            <ThreadView />
+            {boardOpen ? <ProjectBoard /> : <ThreadView />}
           </main>
 
           {railCollapsed ? (
@@ -353,6 +358,7 @@ export default function App() {
               <div style={{ width: layout.rail }} className="flex-none">
                 <RightRail
                   thread={activeThread ?? null}
+                  boardOpen={boardOpen}
                   onCollapse={() => void updateSettings({ railCollapsed: true })}
                   onEditBrief={() => setBriefOpen(true)}
                 />

@@ -588,6 +588,14 @@ const EN: Record<string, string> = {
   '在网上搜': 'Searching the web',
   '在读一个网页': 'Reading a web page',
 
+  // 项目管理 — the pinned sidebar entry and its project matrix (§9.4).
+  '项目管理': 'Projects',
+  '{n} 块': '{n} blocks',
+  '今天到期': 'due today',
+  '还有 {n} 天': '{n}d left',
+  '{when} 完成': 'done {when}',
+  '还没有项目。按 ⌘N 新建一个。': 'No projects yet. Press ⌘N to make one.',
+
   // The project board (§9.4).
   '{n} 个项目在进行': '{n} projects in progress',
   '{n} 个快到期': '{n} due soon',

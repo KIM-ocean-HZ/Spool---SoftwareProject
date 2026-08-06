@@ -15,6 +15,15 @@ interface ThreadsState {
    *  the same reason `engineStore.briefOpen` is held there: two surfaces can now open it,
    *  and two local `useState`s would be two panels stacked on top of each other. */
   completingId: string | null;
+  /** Whether the 项目管理 view owns the main area (DESIGN_WORKBENCH §9.4, Ocean 2026-08-07:
+   *  「左侧边栏加入一个项目管理的一个总项目……它的工作区用来存放项目矩阵」).
+   *
+   *  ⚠️ A flag rather than a sentinel `activeId`. `loadAll` drops an activeId that no longer
+   *  matches a row — a fake id would be silently reset on every reload, and every consumer
+   *  of activeId (block loading, capture target, pack) would have to learn to skip it. The
+   *  selected project stays selected underneath, so leaving the board goes back where you
+   *  were. */
+  boardOpen: boolean;
   loading: boolean;
   error: string | null;
   loadAll: () => Promise<void>;
@@ -26,6 +35,7 @@ interface ThreadsState {
   remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
   setCompleting: (id: string | null) => void;
+  openBoard: () => void;
 }
 
 const groupByWorkspace = (threads: Thread[]): Record<string, Thread[]> => {
@@ -45,6 +55,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   activeId: null,
   captureTargetId: null,
   completingId: null,
+  boardOpen: false,
   loading: true,
   error: null,
 
@@ -140,9 +151,13 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
     await get().loadAll();
   },
 
-  select: (id) => set({ activeId: id }),
+  // Picking a project always leaves the board — that IS what clicking a card in the matrix
+  // means (§9.4: 「点击可以跳转到项目即可」).
+  select: (id) => set({ activeId: id, boardOpen: false }),
 
   setCompleting: (id) => set({ completingId: id }),
+
+  openBoard: () => set({ boardOpen: true }),
 }));
 
 // ⚠️ Imperative use only — `selectAllThreadsFlat(useThreadsStore.getState())`.

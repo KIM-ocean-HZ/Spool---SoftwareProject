@@ -1,4 +1,6 @@
-import { Inbox, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { Inbox, LayoutGrid, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { useMemo } from 'react';
+import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { useT } from '@/lib/i18n';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSearchStore } from '@/stores/searchStore';
@@ -20,6 +22,19 @@ export default function Sidebar({ onCollapse }: Props) {
   const createWorkspace = useWorkspacesStore((s) => s.create);
   const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
+  const boardOpen = useThreadsStore((s) => s.boardOpen);
+  const openBoard = useThreadsStore((s) => s.openBoard);
+  // ⚠️ Flattened in a useMemo off the map, never via selectAllThreadsFlat as a hook selector
+  // — that returns a fresh array each call and loops React until it gives up (threadsStore).
+  const dueSoon = useMemo(() => {
+    const now = Date.now();
+    return Object.values(threadsByWs)
+      .flat()
+      .filter((th) => {
+        const d = dueInDays(th, now);
+        return d !== null && d <= DUE_SOON_DAYS;
+      }).length;
+  }, [threadsByWs]);
   const openSearch = useSearchStore((s) => s.openSearch);
   const openSettings = useSettingsStore((s) => s.openPanel);
   // DESIGN_MCP_WRITE_ROLE §4.3: the only way in. A badge, in the footer, absent when the
@@ -47,6 +62,40 @@ export default function Sidebar({ onCollapse }: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
+        {/* DESIGN_WORKBENCH §9.4 — 项目管理, pinned above everything.
+            Ocean 2026-08-07: 「左侧边栏加入一个项目管理的一个总项目，显示方式和普通项目一样，
+            只是置顶，然后它的工作区用来存放项目矩阵」.
+
+            ⚠️ This replaces the folded 「N 个项目在进行」 strip that lived in the right rail —
+            his verdict on that one was 「没有占据位置，用户并不会使用」, and 「和每个项目共用
+            会有歧义」. Both faults are answered by moving it here: navigation is what the left
+            sidebar is FOR, so a row that jumps you somewhere belongs on this side, and the
+            right rail is left to mean one thing only (what the AI is doing).
+
+            It looks like a project row on purpose — same padding, same active mark — because
+            that is what it is to the user: the project whose contents are all the others. */}
+        <ul className="mb-1">
+          <li
+            onClick={openBoard}
+            className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
+              boardOpen ? 'bg-paper-2' : 'hover:bg-paper-2/60'
+            }`}
+          >
+            {boardOpen && (
+              <span className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-accent" />
+            )}
+            <div className="flex items-center gap-2">
+              <LayoutGrid size={12} className="flex-none text-muted" />
+              <span className="min-w-0 flex-1 truncate text-sm text-ink">{t('项目管理')}</span>
+              {/* The one number worth carrying at rest: how many are about to come due. */}
+              {dueSoon > 0 && (
+                <span className="flex-none text-[10px]" style={{ color: 'var(--status-parked)' }}>
+                  {t('{n} 个快到期', { n: dueSoon })}
+                </span>
+              )}
+            </div>
+          </li>
+        </ul>
         <RecentSection />
         <FocusSection />
         {workspaces.length === 0 ? (
