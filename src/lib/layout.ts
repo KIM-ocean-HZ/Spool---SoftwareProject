@@ -9,16 +9,25 @@
 // no visible handle to drag back.
 
 export const DEFAULT_SIDEBAR_WIDTH = 280;
-export const DEFAULT_RAIL_WIDTH = 320;
+/** §9.2 R1 — Ocean, after using it: 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」.
+ *  It shipped WIDER than the sidebar (320 against 280, floor 260 against 200), which is the
+ *  opposite of what the rail is for: the sidebar is how you navigate, the rail is commentary
+ *  on what is open. Both numbers are under their sidebar counterparts now, and the
+ *  `rail_is_narrower_than_the_sidebar` test is what keeps them there. */
+export const DEFAULT_RAIL_WIDTH = 250;
 
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 480;
-export const MIN_RAIL_WIDTH = 260;
-export const MAX_RAIL_WIDTH = 560;
+export const MIN_RAIL_WIDTH = 190;
+export const MAX_RAIL_WIDTH = 480;
 
 /** The reading column never goes below this, whatever the rails would like. It is what the
- *  product is for; the rails are commentary on it. */
-export const MIN_CENTRE_WIDTH = 360;
+ *  product is for; the rails are commentary on it.
+ *
+ *  Raised from 360 with R1 (§9.2 asks whether it is enough): 「让中间操作区更大」 is the
+ *  POINT of that change, not a side effect, so the floor that enforces it moves too. At 420
+ *  a block of prose still gets a readable measure once the 6px padding is off it. */
+export const MIN_CENTRE_WIDTH = 420;
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 

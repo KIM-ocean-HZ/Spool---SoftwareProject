@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import AdvancedConfig from './AdvancedConfig';
+import EngineConfig from './EngineConfig';
 import GeneralConfig from './GeneralConfig';
 import McpConfig from './McpConfig';
 import ShortcutConfig from './ShortcutConfig';
@@ -10,9 +11,10 @@ import { useT } from '@/lib/i18n';
 // Settings modal (PLAN_EN.md §9.12). Opened by the sidebar gear, ⌘, , or the tray
 // "设置" item. 任务三 #2 (2026-07-12): one long scroll became four tabs — MCP is the
 // product's core channel, so it sits second instead of mid-scroll; the five-browser
-// automation rows and clear-all-data live in 高级.
+// automation rows and clear-all-data live in 高级. Five tabs since §9.2 R5 split the local
+// AI engine out of the MCP page.
 
-type Tab = 'general' | 'mcp' | 'shortcuts' | 'advanced';
+type Tab = 'general' | 'mcp' | 'engine' | 'shortcuts' | 'advanced';
 
 export default function Settings() {
   const t = useT();
@@ -39,6 +41,9 @@ export default function Settings() {
   const TABS: { key: Tab; label: string }[] = [
     { key: 'general', label: t('通用') },
     { key: 'mcp', label: 'MCP' },
+    // DESIGN_WORKBENCH §9.2 R5 — its own item, next to MCP rather than inside it: one hands
+    // the library OUT to an AI you use elsewhere, the other lets a CLI here work FOR you.
+    { key: 'engine', label: t('AI 引擎') },
     { key: 'shortcuts', label: t('快捷键') },
     { key: 'advanced', label: t('高级') },
   ];
@@ -84,6 +89,7 @@ export default function Settings() {
         <div className="flex-1 overflow-y-auto px-5 py-2">
           {tab === 'general' && <GeneralConfig />}
           {tab === 'mcp' && <McpConfig />}
+          {tab === 'engine' && <EngineConfig />}
           {tab === 'shortcuts' && (
             <div className="py-2.5">
               <ShortcutConfig />

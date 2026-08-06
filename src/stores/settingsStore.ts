@@ -16,6 +16,7 @@ type PersistableKey =
   | 'aiEngineActionsEnabled'
   | 'aiEngineTimeoutSecs'
   | 'aiEngine'
+  | 'aiModelClaude'
   | 'language'
   | 'firstCaptureHintPending'
   | 'sidebarWidth'
@@ -52,6 +53,16 @@ interface SettingsState {
   // means anything when BOTH claude and codex are installed, and Rust falls back to
   // whatever it finds if this names one that is gone.
   aiEngine: 'claude' | 'codex' | null;
+  // DESIGN_WORKBENCH §9.3 #3 (W3-c) — which model the claude engine runs on. Null = the
+  // account's own default, and that is not the same as picking one: with no value the
+  // `--model` flag is not passed at all, so Spool never overrides a choice the user made
+  // elsewhere. One of engine.rs's CLAUDE_MODELS aliases otherwise; Rust drops anything else,
+  // because this file is hand-editable and a typo would fail the run with a flag error.
+  //
+  // ⚠️ claude only. Codex resolves its models from a server-fetched catalog and does not
+  // validate `-c` overrides locally (measured 2026-08-07), so a picker there would offer
+  // names that fail at the API rather than at the click. It waits on codex quota (2026-09-04).
+  aiModelClaude: string | null;
   // UI language. Defaults to the system locale (see detectSystemLanguage); 'en' vs 'zh'
   // switches every surface via the lib/i18n dictionary. Persisted only once the user
   // picks one by hand; other windows re-read on change.
@@ -149,6 +160,7 @@ const KEYS: PersistableKey[] = [
   'aiEngineActionsEnabled',
   'aiEngineTimeoutSecs',
   'aiEngine',
+  'aiModelClaude',
   'language',
   'firstCaptureHintPending',
   'sidebarWidth',
@@ -178,6 +190,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEngineActionsEnabled: true,
   aiEngineTimeoutSecs: 300,
   aiEngine: null,
+  aiModelClaude: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,

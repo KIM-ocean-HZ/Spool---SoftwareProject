@@ -8,6 +8,13 @@ interface ThreadsState {
   threadsByWorkspace: Record<string, Thread[]>;
   activeId: string | null;
   captureTargetId: string | null;
+  /** Which project the "这个项目结束了" panel is asking about, or null.
+   *
+   *  DESIGN_WORKBENCH §9.4 — the project board can finish a project that is not the one on
+   *  screen, so the panel cannot live in ThreadView's local state any more. Held here for
+   *  the same reason `engineStore.briefOpen` is held there: two surfaces can now open it,
+   *  and two local `useState`s would be two panels stacked on top of each other. */
+  completingId: string | null;
   loading: boolean;
   error: string | null;
   loadAll: () => Promise<void>;
@@ -18,6 +25,7 @@ interface ThreadsState {
   setCaptureTarget: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
+  setCompleting: (id: string | null) => void;
 }
 
 const groupByWorkspace = (threads: Thread[]): Record<string, Thread[]> => {
@@ -36,6 +44,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   threadsByWorkspace: {},
   activeId: null,
   captureTargetId: null,
+  completingId: null,
   loading: true,
   error: null,
 
@@ -132,6 +141,8 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   },
 
   select: (id) => set({ activeId: id }),
+
+  setCompleting: (id) => set({ completingId: id }),
 }));
 
 // ⚠️ Imperative use only — `selectAllThreadsFlat(useThreadsStore.getState())`.

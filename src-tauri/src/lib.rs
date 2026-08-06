@@ -54,12 +54,22 @@ struct EngineRunResult {
 // never a copy, so re-wording one reaches both surfaces.
 // Runs on a blocking thread: the CLI takes minutes, and the UI stays live throughout
 // (§1.2 — no modal, the user can keep working or switch away).
+/// DESIGN_WORKBENCH §9.3 #4 — what the rail shows while the run is still going.
+///
+/// One event name for the whole feature: the frontend appends deltas and swaps the caption
+/// on a tool. Emitted from the reader thread, so it arrives while the CLI is still typing —
+/// that is the entire difference from before, when the first thing the UI heard about a run
+/// was that it had finished.
+const PROGRESS_EVENT: &str = "engine:progress";
+
 #[tauri::command]
 async fn ai_engine_run(
+    app: tauri::AppHandle,
     action: String,
     project: String,
     timeout_secs: u64,
     engine: Option<String>,
+    model: Option<String>,
 ) -> Result<EngineRunResult, String> {
     // An unknown name is refused outright rather than falling through to a default: a
     // typo that silently ran a different action against the user's library would be worse
@@ -94,13 +104,20 @@ async fn ai_engine_run(
         // so there the timeout is the whole ceiling (§7.3).
         let max_turns = if web { 24 } else { 12 };
         let preferred = engine.as_deref().and_then(engine::EngineKind::parse);
-        engine::run_action(preferred, &prompt, timeout_secs, max_turns, web).map(|(kind, env)| {
-            EngineRunResult {
+        // W3-c: an unrecognised model name is dropped rather than passed on. This value
+        // crosses from settings.json, which the user edits by hand, and a typo reaching
+        // `--model` would fail the run with a CLI error about a flag they never typed.
+        let model = model.filter(|m| engine::CLAUDE_MODELS.contains(&m.as_str()));
+        let emit = std::sync::Arc::new(move |p: engine::Progress| {
+            use tauri::Emitter;
+            let _ = app.emit(PROGRESS_EVENT, p);
+        });
+        engine::run_action(preferred, &prompt, timeout_secs, max_turns, web, model.as_deref(), emit)
+            .map(|(kind, env)| EngineRunResult {
                 result: env.result,
                 engine: kind.as_str().to_string(),
                 usage: env.usage,
-            }
-        })
+            })
     })
     .await
     .map_err(|e| e.to_string())?

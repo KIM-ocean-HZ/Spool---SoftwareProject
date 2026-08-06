@@ -21,6 +21,14 @@ describe('resolveLayout', () => {
     railCollapsed: false,
   };
 
+  // §9.2 R1, and the reason it is a test rather than a comment: the rail shipped WIDER than
+  // the sidebar, and nothing caught it until Ocean had used it. Both numbers are read from
+  // settings.json at runtime, so this asserts the defaults the product ships with.
+  it('keeps the rail narrower than the sidebar', () => {
+    expect(DEFAULT_RAIL_WIDTH).toBeLessThan(DEFAULT_SIDEBAR_WIDTH);
+    expect(MIN_RAIL_WIDTH).toBeLessThan(MIN_SIDEBAR_WIDTH);
+  });
+
   it('leaves sane widths alone when there is room', () => {
     expect(resolveLayout(roomy)).toEqual({
       sidebar: DEFAULT_SIDEBAR_WIDTH,

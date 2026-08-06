@@ -4,7 +4,6 @@ import type { Attachment } from '@/lib/db/attachments';
 import { listBlocksByIds, type Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
-import CompleteThreadPanel from './CompleteThreadPanel';
 import DigestView from './DigestView';
 import LogView from './LogView';
 import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
@@ -37,13 +36,15 @@ export default function ThreadView() {
   }, [blocks, attachmentsByBlock]);
 
   const [packOpen, setPackOpen] = useState(false);
-  const [completeOpen, setCompleteOpen] = useState(false);
+  // DESIGN_WORKBENCH §9.4: the completion panel is owned by App now — the project board in
+  // the right rail can finish a project that is not the one on screen, so its open flag is a
+  // thread id in the store rather than a boolean here.
+  const setCompleting = useThreadsStore((s) => s.setCompleting);
   // For `done` threads the user can flip to LogView within a session; the override
   // resets to null on thread switch so reopens default back to DigestView (§9.9).
   const [viewOverride, setViewOverride] = useState<ThreadViewMode | null>(null);
   useEffect(() => {
     setViewOverride(null);
-    setCompleteOpen(false);
   }, [activeId]);
 
   // Pack uses ref blocks' refThreadId to look up the *current* title — that's the whole
@@ -118,7 +119,7 @@ export default function ThreadView() {
         thread={thread}
         blocks={blocks}
         onPack={() => setPackOpen(true)}
-        onComplete={() => setCompleteOpen(true)}
+        onComplete={() => setCompleting(thread.id)}
         onReopen={handleReopen}
         viewMode={viewMode}
         onSetViewMode={setViewOverride}
@@ -143,13 +144,6 @@ export default function ThreadView() {
           refTitles={refTitles}
           refBlocks={refBlocks}
           onClose={() => setPackOpen(false)}
-        />
-      )}
-
-      {completeOpen && (
-        <CompleteThreadPanel
-          thread={thread}
-          onClose={() => setCompleteOpen(false)}
         />
       )}
     </div>

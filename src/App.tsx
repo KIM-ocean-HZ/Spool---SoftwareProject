@@ -8,6 +8,7 @@ import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ThreadView from '@/components/ThreadView';
+import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
 import ResizeHandle from '@/components/ui/ResizeHandle';
 import ToastRack from '@/components/ui/Toast';
@@ -68,6 +69,12 @@ export default function App() {
   // would be two panels, and opening one from each would stack two modals.
   const briefOpen = useEngineStore((s) => s.briefOpen);
   const setBriefOpen = useEngineStore((s) => s.setBriefOpen);
+  // Same shape, same reason (DESIGN_WORKBENCH §9.4): the project board can finish a project
+  // that is not the one on screen, so the "这个项目结束了" panel is mounted once here and
+  // addressed by thread id.
+  const completingId = useThreadsStore((s) => s.completingId);
+  const completingThread = useThreadsStore(selectThreadById(completingId));
+  const setCompleting = useThreadsStore((s) => s.setCompleting);
 
   // Re-resolve on window resize: a stored width that fit the last screen may not fit this
   // one, and the clamp is what keeps the reading column from reaching zero.
@@ -358,6 +365,9 @@ export default function App() {
       <ReviewPanel />
       {briefOpen && activeThread && (
         <FollowUpPanel thread={activeThread} onClose={() => setBriefOpen(false)} />
+      )}
+      {completingThread && (
+        <CompleteThreadPanel thread={completingThread} onClose={() => setCompleting(null)} />
       )}
       <Settings />
       <ToastRack />

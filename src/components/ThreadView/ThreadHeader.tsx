@@ -1,23 +1,12 @@
-import {
-  CalendarDays,
-  CheckCircle2,
-  Globe,
-  MoreHorizontal,
-  Package,
-  Pin,
-  RotateCcw,
-  Sparkles,
-  X,
-} from 'lucide-react';
+import { CalendarDays, CheckCircle2, Package, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { isDormant } from '@/lib/threads/dormancy';
-import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
+import { ACTION_LABEL, useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -41,28 +30,18 @@ interface Props {
 // so the counter turns --status-parked and click opens PackDialog.
 const CONTENT_WARN_THRESHOLD = 20_000;
 
-// DESIGN_AI_ENGINE §1.1 — the three actions, in the design's own order and wording. Each
-// runs the MCP prompt of the same name through whichever engine CLI is selected; the hint
-// is what the user sees on hover, so it says what comes out, and names the engine because
-// after §7 that is no longer a constant — a hover that said "Claude Code" while the run
-// went to Codex would be the header lying about the user's own machine.
-const ENGINE_ACTIONS: { action: EngineAction; label: string; hint: string }[] = [
-  {
-    action: 'thread_health',
-    label: '去重',
-    hint: '让本机的 {engine} 查一遍重复块、失效引用，看摘要过没过期',
-  },
-  {
-    action: 'distill',
-    label: '压缩',
-    hint: '用本机的 {engine} 把这条脉络提炼成一块结论',
-  },
-  // ⚠️ 周回顾 used to be the third entry here, and that was wrong from the start —
-  // DESIGN_WORKBENCH §3.4, Ocean 2026-08-06: "周回顾类似周报，是面对所有项目的动作，
-  // 不允许和针对单个项目的动作放在一起". The code already knew: lib.rs passes `{}` for it
-  // because "passing a project would not narrow it, it would just be ignored". It lives in
-  // the right rail now, under the whole library, and files into its own 「回顾」 project.
-];
+// DESIGN_WORKBENCH §9.2 R3 — this header used to carry a ⋯ menu holding 完成/重开, the
+// capture-target switch, the three AI maintenance actions and the follow-up pair. Ocean,
+// after using it: 「主视图 ⋯ 菜单里还留着 ai 维护和 follow up，冗余……只留三个按钮:
+// 打包 / 捕捉 / 完成项目」.
+//
+// ⚠️ That **overturns §3.2's** 「保留 ⋯ 菜单入口，已经习惯的路不要断」. §9.5 decided it: he is
+// the person that rule was protecting, and he used both paths and called the second one
+// redundant. Everything AI now lives in the right rail and nowhere else.
+//
+// With the menu down to a single item, the menu itself went too — three plain buttons is
+// what he asked for, and it is one fewer click to each of them. The capture-target switch
+// was already a top-level button here; the menu's copy of it was the same redundancy.
 
 // Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
 // title is the one free-form header field. While the user is typing the local value
@@ -146,62 +125,17 @@ export default function ThreadHeader({
   // 任务三 #6 (2026-07-12): resting state shows the deadline as ISO text (the pack's
   // date format); the locale-formatted native picker appears only while editing.
   const [editingDeadline, setEditingDeadline] = useState(false);
-  // 任务三 #3: the ⋯ overflow menu hosting 完成/重开 and the capture-target switch.
-  const [menuOpen, setMenuOpen] = useState(false);
-  // DESIGN_FOLLOW_UP §3.2: the brief editor, opened from the ⋯ menu and from nowhere else.
-  // DESIGN_WORKBENCH §3.2: the brief editor is a single instance owned by App —
-  // the right rail can open the same one, and two local useStates would stack two modals.
-  const setFollowUpOpen = useEngineStore((s) => s.setBriefOpen);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent): void => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
   const summaryRef = useRef<HTMLTextAreaElement>(null);
   // Skips the trailing debounce when Esc abandons an edit.
   const summaryCanceledRef = useRef(false);
 
-  // DESIGN_AI_ENGINE §1.1 — the "让 AI 维护" group. Rendered only when the CLI is present
-  // AND both MCP switches are on; otherwise it is absent entirely (no greyed rows).
-  const engineStatus = useEngineStore((s) => s.status);
+  // The running pill is all that is left of the engine on this header (§9.2 R3 moved the
+  // actions out). It stays because the rail ships COLLAPSED by default: without it, a run
+  // the user started would be doing minutes of billed work behind a closed panel with no
+  // sign of it anywhere on screen. Clicking it opens the rail, where the live text is.
   const engineCurrent = useEngineStore((s) => s.current);
   const engineQueue = useEngineStore((s) => s.queue);
-  const enqueueEngine = useEngineStore((s) => s.enqueue);
-  const cancelEngine = useEngineStore((s) => s.cancel);
-  const probeEngine = useEngineStore((s) => s.probe);
-  const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
-  const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
-  const aiEngineActionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
-  const aiEngineTimeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
-  // Probe once per session — the answer changes only when the user installs something,
-  // and it costs two process spawns.
-  useEffect(() => {
-    if (engineStatus === null) void probeEngine();
-  }, [engineStatus, probeEngine]);
-  // §1.2: the lock is per thread. Another project's run is a reason to wait in line, not
-  // a reason this project's menu goes dead.
-  const busyOnThisThread =
-    engineCurrent?.threadId === thread.id || engineQueue.some((q) => q.threadId === thread.id);
-  const engineGate = {
-    cliAvailable: engineStatus?.available === true,
-    mcpEnabled,
-    mcpWriteEnabled,
-    actionsEnabled: aiEngineActionsEnabled,
-    busyOnThisThread,
-  };
-  const showEngineActions = canShowEngineActions(engineGate);
-  const engineBusy = engineActionsDisabled(engineGate);
+  const updateSettings = useSettingsStore((s) => s.update);
   const runningHere = engineCurrent?.threadId === thread.id;
 
   // Total character count of what a pack of this thread would carry (see
@@ -281,14 +215,13 @@ export default function ThreadHeader({
           <span>{t('打包')}</span>
         </button>
 
-        {/* DESIGN_AI_ENGINE §1.2 — the running pill. Same shape as 捕捉中 so the two read
-            as one system, and clicking it stops the run. It is the only control the
-            action has once started, so it also carries what is waiting behind it. Nothing
-            is undone by stopping (append-only); the toast says as much. */}
+        {/* The running pill. Same shape as 捕捉中 so the two read as one system. Ocean could
+            not tell it was the cancel button (#4) — so it is not one any more: it is a status
+            that OPENS THE RAIL, where the live text and the stop button now are. */}
         {runningHere && engineCurrent && (
           <button
-            onClick={() => void cancelEngine()}
-            title={t('点一下停下来（已经写进去的块会留着）')}
+            onClick={() => void updateSettings({ railCollapsed: false })}
+            title={t('点一下打开右边，看它在写什么')}
             className="flex flex-none items-center gap-1 rounded-full border border-accent/60 bg-accent-soft px-2.5 py-1 text-[11px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
           >
             <span>
@@ -322,135 +255,27 @@ export default function ThreadHeader({
             </button>
           ))}
 
-        {/* 任务三 #3 (2026-07-12): 打包 stays the header's only prominent action —
-            完成/重开 and the capture-target switch move into this ⋯ menu. The sidebar
-            row still carries the at-a-glance capture-target mark. */}
-        <div ref={menuRef} className="relative flex-none">
+        {/* §9.2 R3 — the third and last button. It used to be the only item worth keeping
+            in the ⋯ menu, and a menu holding one item is a click in front of a button. */}
+        {thread.status === 'done' ? (
           <button
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label={t('更多操作')}
-            title={t('更多操作')}
-            className="flex items-center rounded-full border border-line bg-paper p-1.5 text-muted transition-colors hover:border-line-strong hover:text-ink"
+            onClick={onReopen}
+            title={t('重新打开（清除完成时间和结论）')}
+            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
           >
-            <MoreHorizontal size={14} />
+            <RotateCcw size={12} />
+            <span>{t('重新打开')}</span>
           </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-toast)]">
-              {thread.status === 'done' ? (
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onReopen();
-                  }}
-                  title={t('重新打开（清除完成时间和结论）')}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
-                >
-                  <RotateCcw size={12} className="flex-none" />
-                  <span>{t('重新打开')}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onComplete();
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
-                >
-                  <CheckCircle2 size={12} className="flex-none" />
-                  <span>{t('完成项目')}</span>
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  void setCaptureTarget(thread.id);
-                }}
-                disabled={thread.isCaptureTarget}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
-              >
-                <Pin
-                  size={12}
-                  className={`flex-none ${thread.isCaptureTarget ? 'fill-current' : ''}`}
-                />
-                <span>{thread.isCaptureTarget ? t('当前捕捉目标') : t('设为捕捉目标')}</span>
-              </button>
-              {/* DESIGN_AI_ENGINE §1.1 「让 AI 维护」, all three actions (M2). Absent
-                  unless the CLI was detected and both MCP switches are on — no greyed-out
-                  rows (安静原则). Disabled only while THIS thread has a task; a run on
-                  another project just means this one queues behind it. */}
-              {showEngineActions && (
-                <>
-                  <div className="my-1 border-t border-line" />
-                  <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-muted">
-                    {t('让 AI 维护')}
-                  </div>
-                  {ENGINE_ACTIONS.map(({ action, label, hint }) => (
-                    <button
-                      key={action}
-                      onClick={() => {
-                        setMenuOpen(false);
-                        enqueueEngine(thread.id, thread.title, action, aiEngineTimeoutSecs);
-                      }}
-                      disabled={engineBusy}
-                      title={t(hint, { engine: ENGINE_LABEL[engineStatus?.selected ?? 'claude'] })}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
-                    >
-                      <Sparkles size={12} className="flex-none" />
-                      <span>{t(label)}</span>
-                    </button>
-                  ))}
-
-                  {/* DESIGN_FOLLOW_UP §3.3 — the one action that goes outside. Kept visually
-                      apart from the three above because it IS different in kind: those work
-                      off what is already in the library, this one goes out to the open web.
-                      Which entry appears depends on whether a brief has been settled (§6-2:
-                      nothing runs until a human has read the search rules). */}
-                  <div className="my-1 border-t border-line" />
-                  {thread.followUpBrief ? (
-                    <>
-                      <button
-                        onClick={() => {
-                          setMenuOpen(false);
-                          enqueueEngine(thread.id, thread.title, 'follow_up', aiEngineTimeoutSecs);
-                        }}
-                        disabled={engineBusy}
-                        title={t('照你定的那几行,让本机的 {engine} 出去查一遍有没有新进展', {
-                          engine: ENGINE_LABEL[engineStatus?.selected ?? 'claude'],
-                        })}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
-                      >
-                        <Globe size={12} className="flex-none" />
-                        <span>{t('跟进')}</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setMenuOpen(false);
-                          setFollowUpOpen(true);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-                      >
-                        <Globe size={12} className="flex-none opacity-0" />
-                        <span>{t('改要盯的东西')}</span>
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setFollowUpOpen(true);
-                      }}
-                      title={t('定几行「要盯什么」，之后才能让 AI 出去查')}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
-                    >
-                      <Globe size={12} className="flex-none" />
-                      <span>{t('联网跟进…')}</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        ) : (
+          <button
+            onClick={onComplete}
+            title={t('完成项目')}
+            className="flex flex-none items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+          >
+            <CheckCircle2 size={12} />
+            <span>{t('完成项目')}</span>
+          </button>
+        )}
       </div>
 
       {/* Status summary — visually subordinate/optional (§9.11). Click to edit; a quiet

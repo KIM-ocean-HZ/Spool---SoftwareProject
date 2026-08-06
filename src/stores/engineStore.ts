@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { create } from 'zustand';
 import { countMcpBlocks } from '@/lib/db/blocks';
 import {
@@ -10,6 +11,7 @@ import {
   type RunUsage,
 } from '@/lib/db/engineRuns';
 import { countPending } from '@/lib/db/proposals';
+import { toolCaption } from '@/lib/engine/progress';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
 import { useProposalsStore } from './proposalsStore';
@@ -98,10 +100,30 @@ interface EngineRunResult {
   usage: RunUsage;
 }
 
+/** DESIGN_WORKBENCH §9.3 #4 — what the rail shows WHILE a run is going.
+ *
+ *  Ocean's second-round verdict put this at the centre of the UI ("以 ai 的流式进度…为主体"),
+ *  and it is the one thing the old shape could not do at all: the run handed back a single
+ *  string when the process exited, so there was nothing to show in between. */
+export interface RunProgress {
+  /** Everything the model has typed this run, tail-trimmed (see PROGRESS_TAIL_CHARS). */
+  text: string;
+  /** The tool it reached for most recently, already in the user's words. Null before the
+   *  first one — a run that is still thinking has nothing honest to caption. */
+  caption: string | null;
+}
+
+/** The typed text is a live view, not a record: the run's real answer arrives at the end and
+ *  goes to the database. Keeping the whole transcript would grow without limit on a long
+ *  agentic run, so only the tail is held — that is what a "currently typing" panel shows. */
+const PROGRESS_TAIL_CHARS = 4_000;
+
 interface EngineState {
   status: EngineStatus | null;
   /** The run in flight, or null. §1.2: the head pill reads this. */
   current: EngineTask | null;
+  /** Live output of `current`, or null when nothing is running. */
+  progress: RunProgress | null;
   /** Waiting their turn, in order. */
   queue: EngineTask[];
   /** Finished runs, newest first — read from `engine_runs`, not held in memory.
@@ -154,7 +176,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
     if (get().current) return;
     const [next, ...rest] = get().queue;
     if (!next) return;
-    set({ current: next, queue: rest });
+    // Cleared here rather than when the last run finished: the panel keeps the previous
+    // run's words up until there is something new to put there.
+    set({ current: next, queue: rest, progress: { text: '', caption: null } });
     const timeoutSecs = timeouts.get(next.id) ?? 300;
     timeouts.delete(next.id);
     const onResult = resultHandlers.get(next.id);
@@ -208,6 +232,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // Read at the moment the task starts, not when it was queued: a run that waited
         // out three others should use the engine the settings page says now.
         engine: useSettingsStore.getState().aiEngine,
+        // W3-c. Null means "the account's default" and Rust omits the flag entirely — it is
+        // claude's setting, so a codex run simply ignores it (DESIGN_WORKBENCH §9.3 #3).
+        model: useSettingsStore.getState().aiModelClaude,
       });
       resultText = answer.result;
       ranOn = answer.engine;
@@ -314,7 +341,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       }
     }
 
-    set({ current: null });
+    set({ current: null, progress: null });
     await get().loadRuns(useThreadsStore.getState().activeId);
     void pump();
   };
@@ -322,6 +349,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
   return {
     status: null,
     current: null,
+    progress: null,
     queue: [],
     runs: [],
     briefOpen: false,
@@ -396,7 +424,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       // empty queue is what stops it from starting the next one.
       timeouts.clear();
       resultHandlers.clear();
-      set({ queue: [] });
+      set({ queue: [], progress: null });
       try {
         await invoke<boolean>('ai_engine_cancel');
       } catch (e) {
@@ -404,4 +432,27 @@ export const useEngineStore = create<EngineState>((set, get) => {
       }
     },
   };
+});
+
+/** What Rust sends on `engine:progress` — engine.rs's `Progress`, over the wire. */
+type ProgressEvent = { kind: 'delta'; text: string } | { kind: 'tool'; text: string };
+
+// W4. The reader thread in Rust emits these while the CLI is still talking, which is the
+// whole feature: before this, the first thing the UI heard about a run was that it had
+// finished.
+//
+// Module scope, like the settings listener below it: the store is a singleton per window, so
+// this is too. Events that arrive between runs are dropped — `progress` is null then, and a
+// straggler from a run that just ended must not reopen the panel.
+void listen<ProgressEvent>('engine:progress', ({ payload }) => {
+  const { progress } = useEngineStore.getState();
+  if (!progress) return;
+  if (payload.kind === 'tool') {
+    useEngineStore.setState({ progress: { ...progress, caption: toolCaption(payload.text) } });
+    return;
+  }
+  const text = (progress.text + payload.text).slice(-PROGRESS_TAIL_CHARS);
+  useEngineStore.setState({ progress: { ...progress, text } });
+}).catch(() => {
+  // Non-Tauri context (tests): no event system, so a run simply shows no live text.
 });

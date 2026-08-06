@@ -2,7 +2,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
-import { ENGINE_LABEL, useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
 
@@ -34,17 +33,15 @@ const MCP_CLIENTS: { key: McpClient; label: string }[] = [
 // client's MCP config. Read-only access, local only. Split out of GeneralConfig into
 // its own settings tab (任务三 #2, 2026-07-12): MCP is the product's core channel and
 // was buried mid-scroll.
+//
+// ⚠️ DESIGN_WORKBENCH §9.2 R5: this page is ONE job — 接出去, handing the library to an AI
+// client you use elsewhere. The local-CLI engine (请进来) moved to its own tab; Ocean could
+// not tell the two apart while they shared a page, and 「加了 gemini cli 会更乱」.
 export default function McpConfig() {
   const t = useT();
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
   const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
-  const aiEngineActionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
-  const aiEngineTimeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
   const update = useSettingsStore((s) => s.update);
-  // DESIGN_AI_ENGINE §1.4: null = still probing. Detection is a Rust round-trip, so it
-  // lands a beat after the panel opens.
-  const engineStatus = useEngineStore((s) => s.status);
-  const probeEngine = useEngineStore((s) => s.probe);
   // §20.12: the client-config snippet points at the running binary so dev builds and
   // the installed .app both show a path that works. Resolved once, on demand.
   const [exePath, setExePath] = useState<string | null>(null);
@@ -72,9 +69,7 @@ export default function McpConfig() {
         .then((s) => setClientStatus((prev) => ({ ...prev, [key]: s })))
         .catch((e) => console.warn('[settings] mcp_client_status failed', e));
     }
-    // §2.1: re-probe each time the panel opens — the user may have just installed it.
-    void probeEngine();
-  }, [probeEngine]);
+  }, []);
 
   // One click does everything (§20.12 revision): flips the toggle on if needed, then
   // writes the client's config entry (Rust backs the file up to .bak first).
@@ -308,126 +303,6 @@ export default function McpConfig() {
           </pre>
         </div>
       )}
-      {/* DESIGN_AI_ENGINE §1.4 「本机 AI 引擎」. Detection status is shown whether or not
-          the CLI is present — this is the one place the user can find out why the thread
-          menu has no AI actions. Nothing here turns on egress: the run happens inside the
-          user's own Claude Code process. */}
-      <div className="mt-3 border-t border-line pt-2.5">
-        <div className="text-sm text-ink">{t('本机 AI 引擎')}</div>
-        <div className="mt-0.5 text-xs text-muted">
-          {t('检测到你装了 Claude Code 或 Codex 时，项目菜单里会多出「让 AI 维护」——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。')}
-        </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-          {engineStatus === null ? (
-            <span className="text-muted">{t('检测中…')}</span>
-          ) : engineStatus.available ? (
-            <span style={{ color: 'var(--status-active)' }}>
-              {t('✓ 已检测到')}{' '}
-              {engineStatus.engines
-                .map((e) => `${e.kind} ${e.version ?? ''}`.trim())
-                .join(t('、'))}
-            </span>
-          ) : (
-            <>
-              <span className="text-muted">{t('没检测到 Claude Code，也没检测到 Codex')}</span>
-              {/* §7.4: when nothing is installed, BOTH routes are shown — this line is the
-                  only place a user without a Claude subscription finds out the slot exists
-                  at all. Neither is presented as free: 2026-08-06 measured Codex's free
-                  tier running out and locking the account for a month. */}
-              {(['claude-code', 'codex'] as const).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() =>
-                    void invoke('open_mcp_client_page', { client: c }).catch((e) =>
-                      console.warn('[settings] open install page failed', e),
-                    )
-                  }
-                  className="text-accent underline-offset-2 hover:underline"
-                >
-                  {c === 'codex' ? t('装 Codex') : t('装 Claude Code')}
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-        {engineStatus?.available && (
-          <>
-            {/* §7.4: a picker only when there is something to pick. One engine installed
-                means there is no decision to put in front of the user. */}
-            {engineStatus.engines.length > 1 && (
-              <div className="mt-2 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-sm text-ink">{t('用哪个引擎')}</div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {t('两个都装了。跑的是哪个，用的就是那个账号的额度。')}
-                  </div>
-                </div>
-                <select
-                  value={engineStatus.selected ?? ''}
-                  onChange={(e) =>
-                    void update({ aiEngine: e.target.value as 'claude' | 'codex' }).then(
-                      // The status line, the caveat below and the gate all read `selected`,
-                      // which only Rust resolves — so the pick has to go back through it.
-                      probeEngine,
-                    )
-                  }
-                  className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-xs text-ink outline-none focus:border-accent"
-                >
-                  {/* ENGINE_LABEL, not e.kind: the raw wire names (`claude` / `codex`) were
-                      what the user saw here, and they are not what the products are called. */}
-                  {engineStatus.engines.map((e) => (
-                    <option key={e.kind} value={e.kind}>
-                      {ENGINE_LABEL[e.kind]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {/* §7.3 asked for the degradation to be stated plainly rather than papered
-                over. Measured against codex-cli 0.146.1: its shell tool cannot be switched
-                off (there is no config key for it), where claude's whitelist denies Bash
-                outright. Read-only sandboxing is the lever that does exist, and it is
-                passed on every run. */}
-            {engineStatus.selected === 'codex' && (
-              <div className="mt-2 rounded border border-line bg-paper-2/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted">
-                {t('Codex 这条路有一处关不掉：它自带的终端工具没法摘掉（Claude Code 那边可以）。Spool 能做的是把它锁成只读——它读得到东西，但改不了你机器上的文件。')}
-              </div>
-            )}
-            <div className="mt-2 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-sm text-ink">{t('在项目菜单里显示 AI 维护动作')}</div>
-                <div className="mt-0.5 text-xs text-muted">
-                  {t('需要上面两个开关都打开——AI 维护的产出是写回一块，读权限不够用。')}
-                </div>
-              </div>
-              <Toggle
-                checked={aiEngineActionsEnabled}
-                onChange={(v) => void update({ aiEngineActionsEnabled: v })}
-              />
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-sm text-ink">{t('单次最长运行时间')}</div>
-                <div className="mt-0.5 text-xs text-muted">
-                  {t('超过就停下（已经写进去的块会留着——Spool 只追加，不回滚）。上限 10 分钟。')}
-                </div>
-              </div>
-              <select
-                value={aiEngineTimeoutSecs}
-                onChange={(e) => void update({ aiEngineTimeoutSecs: Number(e.target.value) })}
-                className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-xs text-ink outline-none focus:border-accent"
-              >
-                {[60, 180, 300, 600].map((s) => (
-                  <option key={s} value={s}>
-                    {s / 60} {t('分钟')}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        )}
-      </div>
     </div>
   );
 }

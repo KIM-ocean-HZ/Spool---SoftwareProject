@@ -545,4 +545,114 @@ const EN: Record<string, string> = {
     'The first capture from a browser makes macOS ask for Automation access. When granted, captures show the tab title as their source; otherwise just the browser name. Click "Test" to re-trigger the prompt.',
   '测试中…': 'Testing…',
   '测试': 'Test',
+
+  // ---------------------------------------------------------------------------------------
+  // DESIGN_WORKBENCH — the two rails (§3) and their rebuild (§9).
+  //
+  // ⚠️ This whole block was missing until 2026-08-07. English is the DEFAULT language
+  // (memory `ui-language-follows-system`), so every string the right rail shipped with was
+  // rendering as Chinese to the default user. Rule 12 is not a formality — an untranslated
+  // string does not look untranslated, it looks like a broken build.
+  // ---------------------------------------------------------------------------------------
+  '展开项目列表': 'Show projects',
+  '拖动改变项目列表宽度': 'Drag to resize the project list',
+  '展开 AI 面板': 'Show the AI panel',
+  '拖动改变 AI 面板宽度': 'Drag to resize the AI panel',
+
+  // The engine bar (§9.3 #3).
+  '没检测到引擎': 'No engine found',
+  'Spool 自己跑的这些运行，近 7 天一共花了这么多。剩多少额度 Spool 看不到。':
+    'What Spool’s own runs have cost over the last 7 days. How much of your plan is left is something Spool cannot see.',
+  '用哪个': 'Engine',
+  '用哪个模型': 'Model',
+  '默认': 'Default',
+  'Codex 的模型要等它的额度恢复（9/4）才能测出来，先不给选，免得给你一个跑不通的名字。':
+    'Codex’s model names cannot be verified until its quota comes back (Sep 4), so there is no picker yet — better none than one that hands you a name the run rejects.',
+  '花的是你自己那个 CLI 账号的额度。上面只写花了多少——还剩多少，两个 CLI 都不告诉外面。':
+    'This spends your own CLI account’s allowance. The figure above is what was spent — how much is left is something neither CLI reports.',
+
+  // The live run (§9.3 #4).
+  '停下': 'Stop',
+  '正在想…': 'Thinking…',
+  '还排着 {n} 个': '{n} more queued',
+  '{action} · {project}': '{action} · {project}',
+  '点一下打开右边，看它在写什么': 'Click to open the panel and watch it write',
+  '在读这个项目': 'Reading this project',
+  '在看所有项目': 'Looking across your projects',
+  '在库里找': 'Searching your library',
+  '在盘点': 'Taking stock',
+  '在存一块': 'Storing a block',
+  '在排队等你过目': 'Queuing something for you to review',
+  '在新建项目': 'Creating a project',
+  '在写摘要': 'Writing a summary',
+  '在网上搜': 'Searching the web',
+  '在读一个网页': 'Reading a web page',
+
+  // The project board (§9.4).
+  '{n} 个项目在进行': '{n} projects in progress',
+  '{n} 个快到期': '{n} due soon',
+  '全部项目': 'All projects',
+  '按截止日期': 'By deadline',
+  '按新建时间': 'By date created',
+  '迟 {n} 天': '{n}d late',
+  '{n} 天': '{n}d',
+  '把这个项目压成一条结论': 'Compress this project into one conclusion',
+  '回顾最近一周——跨所有项目，存进「回顾」项目':
+    'Review the past week across every project — filed into a “Review” project',
+  '自动维护': 'Maintain automatically',
+  '项目有新内容、放了一阵子之后，自动压一次。每个项目一天最多一次，周回顾一周一次。':
+    'When a project has new material and has settled for a while, compress it once. At most once a day per project; the weekly review at most once a week.',
+
+  // Run cards (§3.1) and the inbox (§3.3 / §9.2 R2).
+  '提了 {n} 条待你过目': 'proposed {n} item(s) for you to review',
+  '写好了，等你过目': 'written, waiting for you',
+  '这次没有新东西': 'nothing new this time',
+  '花费未知': 'cost unknown',
+  '存成一块': 'Store as a block',
+  '留着记录，不存进库': 'Keep the record, do not store it in the library',
+  '不用了': 'No thanks',
+  '回顾': 'Review',
+  '存好了': 'Stored',
+  '{action} · {engine}': '{action} · {engine}',
+  '{n} 条待你过目': '{n} waiting for you',
+  '没有待过目的': 'Nothing waiting for you',
+  '这里会留下每次 AI 干活的结果，跑一次就知道了。':
+    'What the AI produces shows up here. Run one and you will see.',
+  '装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。':
+    'This fills up once Claude Code or Codex is installed and “Let AI write” is on.',
+  '这个项目里有 {n} 块是 AI 写的': '{n} block(s) here were written by an AI',
+
+  // Follow-up, first level (§9.3 #2).
+  '在盯什么': 'Watching for',
+  '改': 'Edit',
+  '定一个': 'Set one',
+  '还没定。定几行「要盯什么」，之后才能让 AI 出去查。':
+    'Not set yet. Write a few lines of what to watch for, and the AI can go and look.',
+  '照你定的那几行出去查一遍': 'Go and check, following the lines you wrote',
+  // The brief editor's placeholder. Replaced 2026-08-06 (Ocean #10: the CMU example was too
+  // niche) and never translated — the shape is the point, so the English keeps it concrete
+  // enough to act as a search rule rather than becoming an abstraction.
+  '一行一件事。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
+    'One thing per line. For example: whether the tool I use has shipped a new version, and whether anything breaks.',
+
+  // The maintenance actions, folded away last (§9.3 #1).
+  '让 AI 维护这个项目': 'Let AI maintain this project',
+  '这个项目：已关掉自动维护（点一下打开）':
+    'This project: automatic maintenance is off (click to turn it on)',
+  '这个项目：跟着总开关走（点一下单独关掉）':
+    'This project: follows the switch above (click to turn it off just here)',
+  '{action}：AI 写好了，在右边等你过目':
+    '{action}: the AI wrote it — it is on the right, waiting for you',
+
+  // The AI engine settings tab (§9.2 R5).
+  'AI 引擎': 'AI engine',
+  '装了 Claude Code 或 Codex 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
+    'With Claude Code or Codex installed, the right panel can have it tidy up a project for you — running through the CLI you are already logged into. Spool stores no API key and never goes online itself.',
+  '用哪个引擎、用哪个模型、这周花了多少——都在右侧栏最上面那一行，就在动作旁边。':
+    'Which engine, which model and what this week cost are all on the top line of the right panel, next to the actions themselves.',
+  '显示 AI 维护动作': 'Show the AI maintenance actions',
+  '需要 MCP 那一页的两个开关都打开——AI 维护的产出是写回一块，读权限不够用。':
+    'Both switches on the MCP tab must be on — AI maintenance produces a block, and read access is not enough for that.',
+  '现在还不会出现：MCP 那一页的「MCP 服务」和「允许 AI 写入」要都打开。':
+    'Not showing yet: “MCP service” and “Let AI write” on the MCP tab both need to be on.',
 };

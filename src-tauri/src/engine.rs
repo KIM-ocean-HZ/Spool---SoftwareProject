@@ -31,6 +31,7 @@
 
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -244,19 +245,17 @@ fn kill_group(pgid: i32) {
     }
 }
 
-// A child process that must not outlive its budget. `Command::output()` blocks with no
-// timeout of its own, so probes go through here: spawn, wait with a deadline, kill on
-// expiry. Polling rather than a thread per call — these are sub-second in practice, and
-// the settings page calls them on every refresh.
+// A probe that must not outlive its budget. `Command::output()` blocks with no timeout of
+// its own, so `which` and `--version` go through here: spawn, wait with a deadline, kill on
+// expiry. Polling rather than a thread per call — these are sub-second in practice, and the
+// settings page calls them on every refresh.
 //
-// `cancellable` is what separates the two kinds of caller. A version probe is a 5-second
-// affair nobody asks to stop; a run is minutes long, and while it is up its process group
-// is published so request_cancel can reach it. Probes must NOT publish theirs — a probe
-// racing a run would otherwise overwrite the pid the cancel button aims at.
+// ⚠️ A probe never publishes its process group. It used to take a `cancellable` flag and
+// serve both callers; runs go through `stream_with_timeout` now, and keeping the flag would
+// leave a probe able to overwrite the pid the cancel button aims at.
 fn output_with_timeout(
     mut cmd: std::process::Command,
     budget: Duration,
-    cancellable: bool,
 ) -> Result<std::process::Output, String> {
     let mut child = cmd
         .stdin(Stdio::null())
@@ -264,56 +263,135 @@ fn output_with_timeout(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    if cancellable {
-        CANCELLED.store(false, Ordering::SeqCst);
-        RUNNING_PGID.store(child.id() as i32, Ordering::SeqCst);
-    }
-    // Whatever happens below — normal exit, timeout, cancel, an error reading the pipe —
-    // the published pid has to go. A stale one aims the next cancel at a pid the OS may
-    // have handed to something else entirely.
-    let clear = || {
-        if cancellable {
-            RUNNING_PGID.store(0, Ordering::SeqCst);
-        }
-    };
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
-            Err(e) => {
-                clear();
-                return Err(e.to_string());
-            }
-            Ok(Some(_)) => {
-                clear();
-                // A cancelled child usually exits before this poll notices, so the flag —
-                // not the exit status — is what decides the message.
-                if cancellable && CANCELLED.swap(false, Ordering::SeqCst) {
-                    let _ = child.wait_with_output();
-                    return Err(CANCELLED_MARKER.to_string());
-                }
-                return child.wait_with_output().map_err(|e| e.to_string());
-            }
+            Err(e) => return Err(e.to_string()),
+            Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
             Ok(None) => {
-                if cancellable && CANCELLED.load(Ordering::SeqCst) {
-                    kill_group(child.id() as i32);
-                    let _ = child.wait();
-                    clear();
-                    CANCELLED.store(false, Ordering::SeqCst);
-                    return Err(CANCELLED_MARKER.to_string());
-                }
                 if start.elapsed() >= budget {
-                    if cancellable {
-                        kill_group(child.id() as i32);
-                    }
                     let _ = child.kill();
                     let _ = child.wait();
-                    clear();
                     return Err(format!("timed out after {}s", budget.as_secs()));
                 }
                 std::thread::sleep(Duration::from_millis(25));
             }
         }
     }
+}
+
+/// What one finished child said. Not `std::process::Output`: an `ExitStatus` cannot be
+/// constructed portably, and by this point the bytes have already been decoded once by the
+/// line reader anyway.
+struct RunOutput {
+    success: bool,
+    stdout: String,
+    stderr: String,
+}
+
+/// One long-running child, read **line by line while it runs**.
+///
+/// DESIGN_WORKBENCH §3.6 / §9.3 #4 — Ocean, having watched a run: 「等待中界面毫无变化」,
+/// and then 「像 vscode 的 ai 插件，正在打字的效果」. That was structurally impossible before:
+/// the old path handed the command to `Command::output()`, which returns when the process
+/// is *done*, so there was nothing to show mid-run even in principle.
+///
+/// Both CLIs emit newline-delimited JSON, so both get progress from the same reader; what
+/// differs is only how a line is read (see the two `parse_*_stream_line` functions).
+///
+/// Three things that look incidental and are not:
+///   * **stderr is drained on its own thread.** A child whose stderr pipe fills blocks
+///     forever, and `claude --verbose` is chatty. Draining stdout alone would deadlock the
+///     very runs this is meant to make visible.
+///   * **The full stdout is still accumulated.** The progress lines decorate the UI; the
+///     answer is parsed from the accumulated text at the end, by the same parser as before.
+///     That is the fallback §9.3 #4 asked for — if nothing recognisable streamed past, the
+///     run is read exactly as it was read yesterday.
+///   * **This is the one caller that publishes the process group**, so the cancel button
+///     has something to aim at.
+fn stream_with_timeout(
+    mut cmd: std::process::Command,
+    budget: Duration,
+    on_line: Arc<dyn Fn(&str) + Send + Sync>,
+) -> Result<RunOutput, String> {
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    CANCELLED.store(false, Ordering::SeqCst);
+    RUNNING_PGID.store(child.id() as i32, Ordering::SeqCst);
+
+    let stdout = child.stdout.take().ok_or("no stdout pipe")?;
+    let stderr = child.stderr.take().ok_or("no stderr pipe")?;
+    let out_buf = Arc::new(Mutex::new(String::new()));
+    let err_buf = Arc::new(Mutex::new(String::new()));
+
+    let reader_buf = Arc::clone(&out_buf);
+    let reader = std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            on_line(&line);
+            if let Ok(mut b) = reader_buf.lock() {
+                b.push_str(&line);
+                b.push('\n');
+            }
+        }
+    });
+    let drain_buf = Arc::clone(&err_buf);
+    let drain = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut s = String::new();
+        let _ = std::io::BufReader::new(stderr).read_to_string(&mut s);
+        if let Ok(mut b) = drain_buf.lock() {
+            *b = s;
+        }
+    });
+
+    let start = std::time::Instant::now();
+    let verdict = loop {
+        match child.try_wait() {
+            Err(e) => break Err(e.to_string()),
+            Ok(Some(status)) => {
+                // A cancelled child usually exits before this poll notices, so the flag —
+                // not the exit status — is what decides the message.
+                break if CANCELLED.load(Ordering::SeqCst) {
+                    Err(CANCELLED_MARKER.to_string())
+                } else {
+                    Ok(status.success())
+                };
+            }
+            Ok(None) => {
+                if CANCELLED.load(Ordering::SeqCst) {
+                    kill_group(child.id() as i32);
+                    let _ = child.wait();
+                    break Err(CANCELLED_MARKER.to_string());
+                }
+                if start.elapsed() >= budget {
+                    kill_group(child.id() as i32);
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err(format!("timed out after {}s", budget.as_secs()));
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+    };
+    // The published pid has to go down every path. A stale one aims the next cancel at a pid
+    // the OS may since have handed to something else entirely.
+    RUNNING_PGID.store(0, Ordering::SeqCst);
+    CANCELLED.store(false, Ordering::SeqCst);
+    // The pipes are closed now (the child is gone), so both readers are at EOF and joining
+    // cannot hang. Joining rather than detaching is what makes the buffers safe to read.
+    let _ = reader.join();
+    let _ = drain.join();
+
+    let success = verdict?;
+    let stdout = out_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    let stderr = err_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    Ok(RunOutput { success, stdout, stderr })
 }
 
 /// The frontend distinguishes "the user stopped it" from "it broke" by this exact string;
@@ -363,7 +441,7 @@ fn detect_one(kind: EngineKind) -> Option<DetectedEngine> {
     let mut tried: Vec<String> = Vec::new();
     let mut which = std::process::Command::new("/usr/bin/which");
     which.arg(kind.binary());
-    if let Ok(out) = output_with_timeout(which, PROBE_TIMEOUT, false) {
+    if let Ok(out) = output_with_timeout(which, PROBE_TIMEOUT) {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !p.is_empty() {
@@ -379,7 +457,7 @@ fn detect_one(kind: EngineKind) -> Option<DetectedEngine> {
     for path in tried {
         let mut cmd = std::process::Command::new(&path);
         cmd.arg("--version");
-        if let Ok(out) = output_with_timeout(cmd, PROBE_TIMEOUT, false) {
+        if let Ok(out) = output_with_timeout(cmd, PROBE_TIMEOUT) {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout).into_owned();
                 return Some(DetectedEngine { kind, version: parse_version(&text), path });
@@ -425,22 +503,73 @@ pub fn mcp_config_json(exe: &str) -> String {
     .to_string()
 }
 
+/// The models the user may pick, per engine (DESIGN_WORKBENCH §9.3 #3 — W3-c, promoted from
+/// "可做" to "必做" by Ocean's 「切换模型没有选择权」).
+///
+/// ⚠️ **claude only, and that is a measurement, not an oversight.** §9.3 says in as many
+/// words: 模型名要真机确认，别硬编码猜的.
+///   * **claude** — `claude --help` documents the aliases itself ("Provide an alias for the
+///     latest model (e.g. 'sonnet' or 'opus')"), and `--model haiku` was run for real on
+///     2026-08-07: the envelope came back keyed `claude-haiku-4-5-20251001`. Aliases rather
+///     than pinned ids on purpose — an alias follows the account's current model, a pinned
+///     id rots the day Anthropic retires it.
+///   * **codex** — deliberately absent. Its model list is a *server-fetched catalog*
+///     (`model_catalog_json` / `supportedReasoningEfforts` in the 0.146.1 binary), and the
+///     CLI does **not** validate `-c` values locally: a run with
+///     `model_reasoning_effort="bogus-effort"` was accepted and echoed back in the banner
+///     (probed 2026-08-07). So a guessed name would not fail fast — it would fail at the API
+///     after the user waited. Filling this in needs one completing codex run, and that
+///     account's quota is out until 2026-09-04.
+pub const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
+
 /// The argv for one headless `claude` run, minus the binary itself. Split out from spawning
 /// so the permission-critical parts (§2.4 probe 2: no tool outside the Spool whitelist can
 /// be reached) are assertable in a unit test without a live CLI.
-pub fn claude_args(prompt: &str, config_path: &str, max_turns: u32, web: bool) -> Vec<String> {
-    vec![
+///
+/// `model` is `None` for "whatever the account defaults to" — the flag is omitted entirely
+/// rather than passed with a default of Spool's choosing.
+///
+/// The output format is `stream-json` rather than `json`, and that is a smaller change than
+/// §9.3 #4 feared: the two formats end with the **same** `result` object (measured), so the
+/// answer is still read by the parser that was already verified. What is new is only the
+/// lines before it, which decorate the panel.
+pub fn claude_args(
+    prompt: &str,
+    config_path: &str,
+    max_turns: u32,
+    web: bool,
+    model: Option<&str>,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
         "-p".into(),
         prompt.into(),
         "--mcp-config".into(),
         config_path.into(),
+        // ⚠️ Without this, the run ALSO loads every MCP server in the user's own
+        // ~/.claude config — verified 2026-08-07, where a probe run's `system/init` line
+        // listed a second Spool library's tools that Spool never asked for. The whitelist
+        // still denies them, so this was never a hole; it was a pile of tool definitions in
+        // the context window of every run, billed to the user. codex has had the equivalent
+        // (`--ignore-user-config`) since §7.3; this is claude's.
+        "--strict-mcp-config".into(),
         "--allowedTools".into(),
         allowed_tools(web),
         "--output-format".into(),
-        "json".into(),
+        "stream-json".into(),
+        // Not optional in the "nice to have" sense: `--print` with
+        // `--output-format=stream-json` is refused outright without it ("requires
+        // --verbose", measured 2026-08-07).
+        "--verbose".into(),
+        // Token-level deltas, i.e. the typing effect itself.
+        "--include-partial-messages".into(),
         "--max-turns".into(),
         max_turns.to_string(),
-    ]
+    ];
+    if let Some(m) = model {
+        args.push("--model".into());
+        args.push(m.into());
+    }
+    args
 }
 
 // §7.3 said this cell was "to be measured". Measured on 2026-08-06 against codex-cli
@@ -587,9 +716,11 @@ pub struct RunUsage {
     pub output_tokens: Option<u64>,
 }
 
-/// `claude -p --output-format json` answers with an envelope carrying the final assistant
-/// text plus run metadata. Blocks it wrote are already in the database via MCP — this text
-/// is never a second write path; it is what the user reads on the run card.
+/// The `{"type":"result",…}` object a `claude -p` run ends with, carrying the final assistant
+/// text plus run metadata. Identical under `--output-format json` and `stream-json` — in the
+/// first it is the entire output, in the second it is the last line. Blocks the run wrote are
+/// already in the database via MCP; this text is never a second write path, it is what the
+/// user reads on the run card.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RunEnvelope {
     #[serde(default)]
@@ -606,13 +737,14 @@ pub struct RunEnvelope {
 
 /// Pull cost and model out of claude's envelope.
 ///
-/// ⚠️ **Measured only as far as "the field names exist".** `total_cost_usd`, `modelUsage`
-/// and `cache_read_input_tokens` are all present as strings in the claude 2.0.50 binary
-/// (checked 2026-08-06 without spending a model call), but the exact nesting has NOT been
-/// confirmed against a live envelope — that costs a run, and DESIGN_AI_ENGINE §7.2 says a
-/// table cell is not filled in until it has been. Hence: every lookup is a miss-tolerant
-/// `Option`, and a shape we do not recognise yields `None` rather than an error. Confirm
-/// against one real run before showing these numbers as authoritative.
+/// ✅ **Confirmed against a live envelope on 2026-08-07** (a ~$0.02 haiku run — the open item
+/// DESIGN_WORKBENCH §5 left for the next window). The nesting this function guessed at was
+/// right: `total_cost_usd` sits at the top level, the three input counters under `usage`,
+/// and `modelUsage` is keyed by the model id (`claude-haiku-4-5-20251001`).
+///
+/// Every lookup stays miss-tolerant anyway. The envelope's field names belong to the CLI,
+/// and a rename must degrade a card to "花费未知", never turn a successful run into a failed
+/// one.
 fn parse_usage(v: &serde_json::Value) -> RunUsage {
     let u = v.get("usage");
     // Input arrives split across fresh / cache-write / cache-read; the sum is what the run
@@ -635,13 +767,98 @@ fn parse_usage(v: &serde_json::Value) -> RunUsage {
     }
 }
 
-pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
-    let value = serde_json::from_str::<serde_json::Value>(stdout.trim())
-        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
+fn envelope_from_value(value: serde_json::Value) -> Result<RunEnvelope, String> {
     let mut env = serde_json::from_value::<RunEnvelope>(value.clone())
         .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
     env.usage = parse_usage(&value);
     Ok(env)
+}
+
+/// What the UI shows while a run is still going (DESIGN_WORKBENCH §9.3 #4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Progress {
+    /// Words the model is typing, as they arrive. This is the 「正在打字」 Ocean asked for.
+    Delta { text: String },
+    /// It reached for a tool. Named, because "reading the project" and "searching the web"
+    /// are the two things a user most wants to know a run is doing.
+    Tool { text: String },
+}
+
+/// One line of `claude --output-format stream-json`, read for what to show the user.
+///
+/// Line shapes below are verbatim from a real run on 2026-08-07 (haiku, no MCP, ~$0.02) —
+/// §6.2-ter's rule is that a subprocess's shape does not count until it has been seen.
+///   * `{"type":"stream_event","event":{"type":"content_block_delta",
+///      "delta":{"type":"text_delta","text":"…"}}}`
+///   * `{"type":"stream_event","event":{"type":"content_block_start",
+///      "content_block":{"type":"tool_use","name":"…"}}}`
+///
+/// Anything else yields `None`. That is the whole error policy: this decorates a panel, and
+/// a schema that grows a field must never be able to fail a run that is otherwise fine.
+pub fn parse_claude_stream_line(line: &str) -> Option<Progress> {
+    let v = serde_json::from_str::<serde_json::Value>(line.trim()).ok()?;
+    if v.get("type")?.as_str()? != "stream_event" {
+        return None;
+    }
+    let event = v.get("event")?;
+    match event.get("type")?.as_str()? {
+        "content_block_delta" => {
+            let text = event.pointer("/delta/text")?.as_str()?;
+            (!text.is_empty()).then(|| Progress::Delta { text: text.to_string() })
+        }
+        "content_block_start" => {
+            let block = event.get("content_block")?;
+            if block.get("type")?.as_str()? != "tool_use" {
+                return None;
+            }
+            Some(Progress::Tool { text: block.get("name")?.as_str()?.to_string() })
+        }
+        _ => None,
+    }
+}
+
+/// The answer, out of a streamed run.
+///
+/// The last `{"type":"result",…}` line is byte-for-byte the object `--output-format json`
+/// returns on its own — measured, not assumed — so the verified parser reads it unchanged.
+///
+/// ⚠️ **And when it is not there, this retreats instead of failing.** §9.3 #4: 做成能回退的,
+/// 解析失败退回今天的「攒完再读」, 别让一次运行整个失败. A run that produced words and then
+/// tripped over its own envelope has still done the work the user paid for, so the assistant
+/// text is stitched back together and handed over with no usage numbers rather than being
+/// reported as a failure.
+pub fn parse_claude_stream(stdout: &str) -> Result<RunEnvelope, String> {
+    let mut fallback = String::new();
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        match v.get("type").and_then(|t| t.as_str()) {
+            // Keep going rather than returning: the last result line is the run's, and a
+            // sub-agent's would come earlier.
+            Some("result") => return envelope_from_value(v),
+            Some("assistant") => {
+                if let Some(blocks) = v.pointer("/message/content").and_then(|c| c.as_array()) {
+                    for b in blocks {
+                        if let Some(t) = b.get("text").and_then(|t| t.as_str()) {
+                            fallback.push_str(t);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if fallback.trim().is_empty() {
+        return Err("could not read the CLI's JSON output: no result line".into());
+    }
+    Ok(RunEnvelope {
+        is_error: false,
+        result: fallback,
+        num_turns: None,
+        usage: RunUsage::default(),
+    })
 }
 
 /// `codex exec --json` answers with one JSON object per line, not one envelope. Only the
@@ -687,12 +904,19 @@ pub fn parse_codex_error(stdout: &str) -> Option<String> {
 /// Returns which engine ran alongside the envelope: the caller stores it on the run record
 /// (DESIGN_WORKBENCH §4.1), and the answer is resolved HERE — a preference naming an engine
 /// that is not installed falls back (§7.4), so what JS asked for is not what ran.
+///
+/// `on_progress` is called from the reader thread as the CLI talks (§9.3 #4). It fires only
+/// for claude today: codex's success event names have never been seen on a completing run
+/// (its quota is out until 2026-09-04), and inventing them would put a made-up caption under
+/// a real run.
 pub fn run_action(
     preferred: Option<EngineKind>,
     prompt: &str,
     timeout_secs: u64,
     max_turns: u32,
     web: bool,
+    model: Option<&str>,
+    on_progress: Arc<dyn Fn(Progress) + Send + Sync>,
 ) -> Result<(EngineKind, RunEnvelope), String> {
     // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
     // one window's JS; a second window, or a hand-issued invoke, would otherwise start a
@@ -721,7 +945,7 @@ pub fn run_action(
         EngineKind::Claude => {
             std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
                 .map_err(|e| format!("could not write the MCP config: {e}"))?;
-            cmd.args(claude_args(prompt, &cfg_path.to_string_lossy(), max_turns, web));
+            cmd.args(claude_args(prompt, &cfg_path.to_string_lossy(), max_turns, web, model));
         }
         EngineKind::Codex => {
             // A leftover from a killed run would otherwise be read back as this run's
@@ -751,20 +975,30 @@ pub fn run_action(
             });
         }
     }
+    // Only claude streams anything readable today, so only claude's lines are parsed. The
+    // reader runs regardless — that is what keeps stderr drained and the answer accumulated.
+    let watch: Arc<dyn Fn(&str) + Send + Sync> = match kind {
+        EngineKind::Claude => Arc::new(move |line: &str| {
+            if let Some(p) = parse_claude_stream_line(line) {
+                on_progress(p);
+            }
+        }),
+        EngineKind::Codex => Arc::new(|_: &str| {}),
+    };
     let result =
-        output_with_timeout(cmd, Duration::from_secs(clamp_timeout_secs(timeout_secs)), true);
+        stream_with_timeout(cmd, Duration::from_secs(clamp_timeout_secs(timeout_secs)), watch);
     // Delete the config before returning down either path — it names an executable, and
     // leaving it in /tmp serves nothing.
     let _ = std::fs::remove_file(&cfg_path);
 
     let out = result?;
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let stdout = out.stdout;
+    let stderr = out.stderr.trim().to_string();
     let finish = |r: Result<(EngineKind, RunEnvelope), String>| {
         let _ = std::fs::remove_file(&msg_path);
         r
     };
-    if !out.status.success() {
+    if !out.success {
         // §2.3: the CLI's own words are the most useful thing here (not logged in, over
         // quota, …), so pass them through instead of inventing a message. For codex those
         // words are in the event stream, not on stderr — stderr carries log noise.
@@ -778,7 +1012,7 @@ pub fn run_action(
     }
     match kind {
         EngineKind::Claude => {
-            let env = parse_run_output(&stdout)?;
+            let env = parse_claude_stream(&stdout)?;
             if env.is_error {
                 return Err(if env.result.is_empty() {
                     "the CLI reported a failure".into()
@@ -816,6 +1050,17 @@ pub fn run_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `stream_with_timeout` publishes RUNNING_PGID — one global, because one machine runs
+    /// one maintenance run at a time (run_action refuses a second outright). Test threads do
+    /// not go through that guard, so two streaming tests in parallel clobber each other's
+    /// pid and the cancel test finds nothing to cancel. Serialise them here rather than
+    /// weakening the production invariant to suit the test runner.
+    static STREAM_TESTS: Mutex<()> = Mutex::new(());
+    fn one_run_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        // A panicking test poisons the lock; the next one still deserves to run.
+        STREAM_TESTS.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn version_parsing_keeps_the_number_and_tolerates_noise() {
@@ -903,7 +1148,7 @@ mod tests {
     // would hand a subprocess Bash on the user's machine.
     #[test]
     fn run_args_only_ever_allow_spool_tools() {
-        let args = claude_args("提炼一下", "/tmp/cfg.json", 12, false);
+        let args = claude_args("提炼一下", "/tmp/cfg.json", 12, false, None);
         let pos = |flag: &str| args.iter().position(|a| a == flag).expect(flag);
         let whitelist = &args[pos("--allowedTools") + 1];
         // ⚠️ No wildcard: claude 2.0.50 does not expand one, and a `*` here means every
@@ -917,10 +1162,26 @@ mod tests {
             assert!(ALLOWED_TOOL_NAMES.contains(&bare), "{bare} is not a Spool tool");
         }
         assert!(listed.contains(&"mcp__spool__distill"));
-        assert_eq!(args[pos("--output-format") + 1], "json");
+        assert_eq!(args[pos("--output-format") + 1], "stream-json");
+        // stream-json is REFUSED under --print without this (measured 2026-08-07), so a
+        // silent drop here would break every claude run.
+        assert!(args.iter().any(|a| a == "--verbose"));
+        assert!(args.iter().any(|a| a == "--include-partial-messages"));
+        // Without this the run also loads the user's own MCP servers — billed context for
+        // tools the whitelist then denies. codex's equivalent is --ignore-user-config.
+        assert!(args.iter().any(|a| a == "--strict-mcp-config"));
         assert_eq!(args[pos("--max-turns") + 1], "12");
         assert_eq!(args[pos("--mcp-config") + 1], "/tmp/cfg.json");
         assert_eq!(args[pos("-p") + 1], "提炼一下");
+        // W3-c. No pick means no flag at all — never a default of Spool's choosing, which
+        // would silently override whatever the user's account is set to.
+        assert!(!args.iter().any(|a| a == "--model"));
+        let picked = claude_args("提炼一下", "/tmp/cfg.json", 12, false, Some("haiku"));
+        assert_eq!(picked[picked.iter().position(|a| a == "--model").unwrap() + 1], "haiku");
+        // The offered aliases, and only aliases: a pinned id rots when the model retires.
+        for m in CLAUDE_MODELS {
+            assert!(!m.contains('-'), "{m} looks like a pinned model id, not an alias");
+        }
         // The escape hatches must never appear, whatever else gets added later.
         for forbidden in [
             "--dangerously-skip-permissions",
@@ -1033,18 +1294,102 @@ mod tests {
 
     #[test]
     fn run_output_parsing_reports_success_and_failure() {
-        let ok = parse_run_output(r#"{"is_error":false,"result":"归档了 1 块","num_turns":3}"#)
-            .unwrap();
+        let ok = parse_claude_stream(
+            r#"{"type":"result","is_error":false,"result":"归档了 1 块","num_turns":3}"#,
+        )
+        .unwrap();
         assert!(!ok.is_error);
         assert_eq!(ok.result, "归档了 1 块");
         assert_eq!(ok.num_turns, Some(3));
         // Missing fields default rather than failing — the envelope's shape is the CLI's
         // to change, and a partial answer still tells us whether it errored.
-        let sparse = parse_run_output(r#"{"result":"done"}"#).unwrap();
+        let sparse = parse_claude_stream(r#"{"type":"result","result":"done"}"#).unwrap();
         assert!(!sparse.is_error);
         // Garbage is a reported failure (§2.3 "输出解析失败"), never a silent success.
-        assert!(parse_run_output("not json at all").is_err());
-        assert!(parse_run_output("").is_err());
+        assert!(parse_claude_stream("not json at all").is_err());
+        assert!(parse_claude_stream("").is_err());
+    }
+
+    // W4 / §9.3 #4. Every line below is verbatim from a real `--output-format stream-json
+    // --include-partial-messages` run on 2026-08-07 — §6.2-ter: a subprocess's shape does
+    // not count until it has been seen.
+    #[test]
+    fn stream_lines_become_typing_and_tool_captions() {
+        let delta = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"1\n2"}},"session_id":"63d3"}"#;
+        assert_eq!(
+            parse_claude_stream_line(delta),
+            Some(Progress::Delta { text: "1\n2".into() })
+        );
+        let tool = r#"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_1","name":"mcp__spool__get_pack"}}}"#;
+        assert_eq!(
+            parse_claude_stream_line(tool),
+            Some(Progress::Tool { text: "mcp__spool__get_pack".into() })
+        );
+        // A text block opening is not a tool, and neither is thinking — the caption would
+        // read as an action the run never took.
+        let text_start = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"#;
+        assert_eq!(parse_claude_stream_line(text_start), None);
+        // Everything else is silence, including shapes that do not exist yet. This decorates
+        // a panel; it must never be able to fail a run.
+        for line in [
+            r#"{"type":"system","subtype":"init","tools":[]}"#,
+            r#"{"type":"stream_event","event":{"type":"message_stop"}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}}"#,
+            "half a line {",
+            "",
+        ] {
+            assert_eq!(parse_claude_stream_line(line), None, "{line}");
+        }
+    }
+
+    // The JS side reads these off a Tauri event, so the tag and field names are a wire
+    // contract between two languages — exactly like EngineKind's lowercase name above, and
+    // it fails the same silent way: a rename here does not break the build, it just makes
+    // the panel stop typing.
+    #[test]
+    fn progress_crosses_to_js_as_a_tagged_object() {
+        assert_eq!(
+            serde_json::to_string(&Progress::Delta { text: "到今天".into() }).unwrap(),
+            r#"{"kind":"delta","text":"到今天"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Progress::Tool { text: "mcp__spool__get_pack".into() }).unwrap(),
+            r#"{"kind":"tool","text":"mcp__spool__get_pack"}"#
+        );
+    }
+
+    // The measured shape: the LAST line of a streamed run is the same envelope
+    // `--output-format json` returns on its own, cost and model included.
+    #[test]
+    fn a_streamed_run_is_read_from_its_result_line() {
+        let stream = concat!(
+            r#"{"type":"system","subtype":"init","session_id":"a"}"#,
+            "\n",
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}"#,
+            "\n",
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"OK","total_cost_usd":0.01897925,"usage":{"input_tokens":3,"cache_creation_input_tokens":15165,"cache_read_input_tokens":0,"output_tokens":4},"modelUsage":{"claude-haiku-4-5-20251001":{"costUSD":0.01897925}}}"#,
+            "\n",
+        );
+        let env = parse_claude_stream(stream).unwrap();
+        assert_eq!(env.result, "OK");
+        assert_eq!(env.usage.cost_usd, Some(0.01897925));
+        assert_eq!(env.usage.model.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert_eq!(env.usage.input_tokens, Some(15_168));
+
+        // ⚠️ The retreat §9.3 #4 asked for. A run whose envelope never arrived (killed
+        // mid-write, a schema that moved) still did the work the user paid for, so its words
+        // come back with the numbers unknown — NOT as a failed run.
+        let truncated = concat!(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"到今天为止，"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"这个项目定下来的是……"}]}}"#,
+            "\n",
+        );
+        let salvaged = parse_claude_stream(truncated).unwrap();
+        assert_eq!(salvaged.result, "到今天为止，这个项目定下来的是……");
+        assert_eq!(salvaged.usage, RunUsage::default());
     }
 
     // DESIGN_WORKBENCH §5. Ocean 2026-08-06: "对使用了什么模型花了多少额度毫不知情".
@@ -1053,11 +1398,10 @@ mod tests {
     // drops them degrades to "unknown" instead of failing an otherwise successful run.
     #[test]
     fn usage_is_read_off_the_envelope_and_missing_fields_degrade_to_unknown() {
-        let env = parse_run_output(
-            r#"{"is_error":false,"result":"ok","total_cost_usd":0.0312,
-                "usage":{"input_tokens":4,"cache_creation_input_tokens":12000,
-                         "cache_read_input_tokens":3000,"output_tokens":517},
-                "modelUsage":{"claude-opus-4-6":{"costUSD":0.0312}}}"#,
+        // One line, because that is how it arrives: the envelope is the last LINE of the
+        // stream, and a pretty-printed one would never be seen.
+        let env = parse_claude_stream(
+            r#"{"type":"result","is_error":false,"result":"ok","total_cost_usd":0.0312,"usage":{"input_tokens":4,"cache_creation_input_tokens":12000,"cache_read_input_tokens":3000,"output_tokens":517},"modelUsage":{"claude-opus-4-6":{"costUSD":0.0312}}}"#,
         )
         .unwrap();
         assert_eq!(env.usage.cost_usd, Some(0.0312));
@@ -1068,16 +1412,16 @@ mod tests {
         assert_eq!(env.usage.output_tokens, Some(517));
 
         // An envelope with none of it is still a good run; the card shows "—".
-        let bare = parse_run_output(r#"{"is_error":false,"result":"ok"}"#).unwrap();
+        let bare = parse_claude_stream(r#"{"type":"result","is_error":false,"result":"ok"}"#).unwrap();
         assert_eq!(bare.usage, RunUsage::default());
         assert_eq!(bare.result, "ok");
 
-        // ⚠️ The exact nesting above is NOT confirmed against a live envelope (see
-        // parse_usage). A partially-recognised shape must therefore yield what it can and
-        // None for the rest, never an error.
-        let partial =
-            parse_run_output(r#"{"result":"ok","usage":{"output_tokens":7},"modelUsage":{}}"#)
-                .unwrap();
+        // A partially-recognised shape yields what it can and None for the rest, never an
+        // error — the envelope's fields belong to the CLI and may move.
+        let partial = parse_claude_stream(
+            r#"{"type":"result","result":"ok","usage":{"output_tokens":7},"modelUsage":{}}"#,
+        )
+        .unwrap();
         assert_eq!(partial.usage.output_tokens, Some(7));
         assert_eq!(partial.usage.input_tokens, None);
         assert_eq!(partial.usage.model, None);
@@ -1095,13 +1439,54 @@ mod tests {
         assert_eq!(clamp_timeout_secs(MAX_TIMEOUT_SECS), MAX_TIMEOUT_SECS);
     }
 
+    // W4's whole point: lines have to arrive WHILE the child is alive. If they only landed
+    // at exit this would compile, pass a shape test, and still leave the user staring at a
+    // frozen panel for five minutes — 「等待中界面毫无变化」, unchanged.
+    #[test]
+    fn a_run_is_read_line_by_line_while_it_is_still_going() {
+        let _serial = one_run_at_a_time();
+        let seen: Arc<Mutex<Vec<(String, Duration)>>> = Arc::new(Mutex::new(Vec::new()));
+        let started = std::time::Instant::now();
+        let sink = Arc::clone(&seen);
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.args(["-c", "echo first; sleep 1; echo second"]);
+        let out = stream_with_timeout(
+            cmd,
+            Duration::from_secs(10),
+            Arc::new(move |line: &str| {
+                sink.lock().unwrap().push((line.to_string(), started.elapsed()));
+            }),
+        )
+        .unwrap();
+        let lines = seen.lock().unwrap().clone();
+        assert_eq!(lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["first", "second"]);
+        assert!(lines[0].1 < Duration::from_millis(700), "the first line waited for exit");
+        assert!(started.elapsed() >= Duration::from_secs(1), "the child did not actually run on");
+        // Accumulated as well as streamed — the answer is still parsed from the whole text.
+        assert_eq!(out.stdout, "first\nsecond\n");
+        assert!(out.success);
+    }
+
+    // A child whose stderr pipe fills blocks forever, and `claude --verbose` is chatty. The
+    // 200KB below is well past the 64KB pipe buffer: without a second draining thread this
+    // test hangs rather than fails, which is what it would do to a real run.
+    #[test]
+    fn a_noisy_stderr_cannot_wedge_the_run() {
+        let _serial = one_run_at_a_time();
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.args(["-c", "head -c 200000 /dev/zero | tr '\\0' 'x' >&2; echo done"]);
+        let out = stream_with_timeout(cmd, Duration::from_secs(20), Arc::new(|_: &str| {})).unwrap();
+        assert_eq!(out.stdout.trim(), "done");
+        assert_eq!(out.stderr.len(), 200_000);
+    }
+
     // A probe that never returns must not wedge the settings page.
     #[test]
     fn output_with_timeout_kills_a_hung_child() {
         let mut cmd = std::process::Command::new("/bin/sh");
         cmd.args(["-c", "sleep 30"]);
         let started = std::time::Instant::now();
-        let err = output_with_timeout(cmd, Duration::from_millis(300), false).unwrap_err();
+        let err = output_with_timeout(cmd, Duration::from_millis(300)).unwrap_err();
         assert!(err.contains("timed out"), "{err}");
         assert!(started.elapsed() < Duration::from_secs(5), "the child was not killed promptly");
     }
@@ -1113,6 +1498,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn a_run_can_be_cancelled_and_takes_its_children_with_it() {
+        let _serial = one_run_at_a_time();
         use std::os::unix::process::CommandExt;
         let marker = std::env::temp_dir()
             .join(format!("spool-cancel-probe-{}-{:?}", std::process::id(), std::thread::current().id()));
@@ -1141,7 +1527,9 @@ mod tests {
             assert!(request_cancel(), "there was a run to cancel");
         });
         let started = std::time::Instant::now();
-        let err = output_with_timeout(cmd, Duration::from_secs(20), true).unwrap_err();
+        let err = stream_with_timeout(cmd, Duration::from_secs(20), Arc::new(|_: &str| {}))
+            .err()
+            .expect("a cancelled run must not report success");
         stopper.join().unwrap();
         assert_eq!(err, CANCELLED_MARKER, "a cancel is not a failure to apologise for");
         assert!(started.elapsed() < Duration::from_secs(5), "the cancel did not take effect");

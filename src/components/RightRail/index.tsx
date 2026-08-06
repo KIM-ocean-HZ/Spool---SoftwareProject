@@ -1,14 +1,18 @@
-import { CalendarRange, Globe, Inbox, PanelRightClose, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Bot, ChevronDown, ChevronRight, Globe, Inbox, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import EngineBar from './EngineBar';
+import LiveRun from './LiveRun';
+import ProjectBoard from './ProjectBoard';
 import RunCard from './RunCard';
 import { createBlock } from '@/lib/db/blocks';
 import type { EngineRun } from '@/lib/db/engineRuns';
 import { spendSince } from '@/lib/db/engineRuns';
+import { groupAiActivity } from '@/lib/engine/activity';
 import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
-import { useT } from '@/lib/i18n';
+import { dateLocale, useT } from '@/lib/i18n';
 import { findOrCreateReviewThread, setAutoMaintain, type Thread } from '@/lib/db/threads';
-import Toggle from '@/components/ui/Toggle';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useSearchStore } from '@/stores/searchStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import {
@@ -22,24 +26,23 @@ import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { toast } from '@/stores/toastStore';
 
-// DESIGN_WORKBENCH §3 — the right rail.
+// DESIGN_WORKBENCH §9 — the right rail, rebuilt.
 //
-// Ocean 2026-08-06, having finally used the engine slot: "很多交互方面的问题出在 spool 的
-// 界面少了". He was right, and more structurally than it sounds. Everything to do with the
-// engine had no home, so it went wherever there was a gap — the actions into a ⋯ overflow
-// menu, the output into a toast that vanishes, the review queue into an 11px badge in the
-// footer, the follow-up brief into a modal. Five surfaces, none of which can show you what
-// the AI is doing or has done.
+// §3 gave everything to do with the engine a home here, and that part was right. What was
+// wrong is what Ocean said after living with it: 「目前的 ui 被无用的按钮堆砌满了」. Five
+// cells, four of them controls. This version inverts the ratio (§9.1):
 //
-// This rail is that home. VS Code is the reference Ocean named, and the reason it works is
-// the one already written down in HANDOFF §4.7: VS Code lets extensions touch your code
-// because the Source Control panel shows you what they touched.
+//   主体 — the run that is going (LiveRun), what is waiting for your eyes, what changed.
+//   附属 — engine, model, the maintenance buttons, the automation switch: one line each,
+//          folded, and never above the thing they operate on.
 //
-// Scoped to the open project, with one exception: 周回顾 reads the whole library and
-// belongs to no project (§3.4), so its cards show wherever you are.
+// Order top to bottom: engine bar → project board (全部项目, §9.4) → live run → your inbox
+// → follow-up → the two maintenance buttons, folded away last because they are the least of
+// it. The rail is scoped to the open project, with the whole-library half deliberately
+// separated into the board rather than mixed in (§3.4).
 
 const ENGINE_ACTIONS: { action: EngineAction; hint: string }[] = [
-  { action: 'distill', hint: '把这个项目提炼成一块结论' },
+  { action: 'distill', hint: '把这个项目压成一条结论' },
   { action: 'thread_health', hint: '查一遍重复块、失效引用，看摘要过没过期' },
 ];
 
@@ -56,7 +59,6 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const current = useEngineStore((s) => s.current);
   const queue = useEngineStore((s) => s.queue);
   const enqueue = useEngineStore((s) => s.enqueue);
-  const cancel = useEngineStore((s) => s.cancel);
   const probe = useEngineStore((s) => s.probe);
   const loadRuns = useEngineStore((s) => s.loadRuns);
   const dismissRun = useEngineStore((s) => s.dismissRun);
@@ -65,23 +67,15 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
   const actionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
   const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
-  const update = useSettingsStore((s) => s.update);
 
   const pending = useProposalsStore((s) => s.pendingCount);
   const openReview = useProposalsStore((s) => s.open);
+  const highlight = useSearchStore((s) => s.highlight);
 
-  const autoMaintain = useSettingsStore((s) => s.aiAutoMaintain);
-
-  const [spend, setSpend] = useState<{ costUsd: number; runs: number } | null>(null);
+  const [spend, setSpend] = useState<number | null>(null);
   const [storing, setStoring] = useState<string | null>(null);
-
-  // §4.3 — the per-project opt-out. Back to `null` rather than `true`, so a project the
-  // user un-mutes goes back to following the master switch instead of being pinned on.
-  const toggleThreadAuto = async (): Promise<void> => {
-    if (!thread) return;
-    await setAutoMaintain(thread.id, thread.autoMaintain === false ? null : false);
-    await useThreadsStore.getState().loadAll();
-  };
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (status === null) void probe();
@@ -95,7 +89,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   // the number changes — nothing else in the app spends money.
   useEffect(() => {
     void spendSince(Date.now() - 7 * 86_400_000)
-      .then(setSpend)
+      .then((s) => setSpend(s.costUsd))
       .catch((e) => console.warn('[rail] spend query failed', e));
   }, [runs]);
 
@@ -109,12 +103,18 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
     busyOnThisThread,
   };
   // Two gates, because the rail hosts two kinds of action. Per-project ones need a project
-  // open; 周回顾 reads the whole library and must stay reachable with nothing selected
-  // (§3.4 — putting it behind a project selection is the mistake this release corrects).
+  // open; the board's reach the whole library and stay usable with nothing selected.
   const engineReady = canShowEngineActions(gate);
   const showActions = engineReady && thread !== null;
   const disabled = engineActionsDisabled(gate);
-  const engineName = status?.selected ? ENGINE_LABEL[status.selected] : null;
+
+  // §4.3 — the per-project opt-out. Back to `null` rather than `true`, so a project the
+  // user un-mutes goes back to following the master switch instead of being pinned on.
+  const toggleThreadAuto = async (): Promise<void> => {
+    if (!thread) return;
+    await setAutoMaintain(thread.id, thread.autoMaintain === false ? null : false);
+    await useThreadsStore.getState().loadAll();
+  };
 
   // §3.1 — this is the "user agrees" the prompts have always asked for. The block goes in
   // through the ordinary insert path with a source label, exactly like an MCP write: what
@@ -157,172 +157,29 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const visibleRuns = runs.filter(
     (r) => r.threadId === null || (thread !== null && r.threadId === thread.id),
   );
+  // R2: the "AI 活动" fold used to be a strip inside the thread view. It is the durable half
+  // of the same question the cards above answer — what did the AI put in my library — so it
+  // moved in beside them. ⚠️ Unlike the cards, this does NOT go away when answered: a block
+  // an AI wrote stays a block an AI wrote.
+  const blocks = useBlocksStore((s) => (thread ? s.byThread[thread.id] : undefined));
+  const written = useMemo(() => groupAiActivity(blocks ?? []), [blocks]);
+  const writtenCount = written.reduce((n, g) => n + g.blocks.length, 0);
+  const when = (ms: number): string =>
+    new Date(ms).toLocaleString(dateLocale(), {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper-2/40">
-      <header className="flex flex-none items-center justify-between gap-2 border-b border-line px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="text-xs text-ink">{t('AI')}</div>
-          <div className="mt-0.5 truncate text-[10px] text-muted">
-            {engineName ?? t('没检测到引擎')}
-            {/* §5: spend, never a balance. Neither CLI reports remaining quota. */}
-            {spend && spend.costUsd > 0 && ` · ${t('近 7 天')} $${spend.costUsd.toFixed(2)}`}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onCollapse}
-          title={t('收起')}
-          aria-label={t('收起')}
-          className="flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-        >
-          <PanelRightClose size={14} />
-        </button>
-      </header>
-
-      {/* §7.4 — the picker, out of the settings page's basement and next to the thing it
-          governs. Ocean could not find it there ("引擎无法切换"), and it showed the wire
-          names `claude` / `codex` rather than the product names. */}
-      {status && status.engines.length > 1 && (
-        <div className="flex flex-none items-center justify-between gap-2 border-b border-line px-3 py-1.5">
-          <span className="text-[10px] text-muted">{t('用哪个')}</span>
-          <select
-            value={status.selected ?? ''}
-            onChange={(e) =>
-              void update({ aiEngine: e.target.value as EngineKind }).then(probe)
-            }
-            className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
-          >
-            {status.engines.map((e) => (
-              <option key={e.kind} value={e.kind}>
-                {ENGINE_LABEL[e.kind]}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <EngineBar onCollapse={onCollapse} spendUsd={spend} />
+      <ProjectBoard engineReady={engineReady} busy={current !== null} />
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2.5">
-        {/* §3.2 — the actions, out of the ⋯ menu. A menu closes on click, and these run for
-            minutes, queue, and can be cancelled; they need somewhere that stays put. */}
-        {showActions && (
-          <div className="space-y-1">
-            {ENGINE_ACTIONS.map(({ action, hint }) => (
-              <button
-                key={action}
-                type="button"
-                disabled={disabled}
-                title={t(hint)}
-                onClick={() => enqueue(thread.id, thread.title, action, timeoutSecs)}
-                className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1.5 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-              >
-                <Sparkles size={11} className="flex-none" />
-                {t(ACTION_LABEL[action])}
-              </button>
-            ))}
-            {/* The one action that goes outside, kept visually apart because it IS different
-                in kind (DESIGN_FOLLOW_UP §3.3). Which entry shows depends on whether a brief
-                has been settled — §6-2: nothing reaches the web until a human read the rules. */}
-            <button
-              type="button"
-              disabled={disabled && thread.followUpBrief !== null}
-              onClick={() =>
-                thread.followUpBrief
-                  ? enqueue(thread.id, thread.title, 'follow_up', timeoutSecs)
-                  : onEditBrief()
-              }
-              title={
-                thread.followUpBrief
-                  ? t('照你定的那几行出去查一遍')
-                  : t('定几行「要盯什么」，之后才能让 AI 出去查')
-              }
-              className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1.5 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-            >
-              <Globe size={11} className="flex-none" />
-              {thread.followUpBrief ? t('跟进') : t('联网跟进…')}
-            </button>
-            {thread.followUpBrief && (
-              <button
-                type="button"
-                onClick={onEditBrief}
-                className="w-full px-2 text-left text-[10px] text-muted transition-colors hover:text-accent"
-              >
-                {t('改要盯的东西')}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* §3.4 — the whole-library half, kept visually apart from the per-project actions
-            above. Ocean: "周回顾类似周报，是面对所有项目的动作，不允许和针对单个项目的动作
-            放在一起". It files into a project of its own, created the first time one is
-            actually stored. */}
-        {engineReady && (
-          <div className="space-y-1 border-t border-line pt-2">
-            <div className="px-0.5 text-[10px] uppercase tracking-wide text-muted">
-              {t('全部项目')}
-            </div>
-            <button
-              type="button"
-              disabled={current !== null}
-              title={t('回顾最近一周——跨所有项目，存进「回顾」项目')}
-              onClick={() => enqueue('', '', 'weekly_review', timeoutSecs)}
-              className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1.5 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-            >
-              <CalendarRange size={11} className="flex-none" />
-              {t(ACTION_LABEL.weekly_review)}
-            </button>
-
-            {/* §4.3 — the automation switch, where the runs it produces will appear rather
-                than buried in settings. Default OFF: it spends real money on a subscription
-                without asking again, and Ocean asked for 「让用户放心」 in the same breath
-                as he asked for automation. */}
-            <div className="flex items-start justify-between gap-2 pt-1">
-              <div className="min-w-0">
-                <div className="text-[11px] text-ink-2">{t('自动维护')}</div>
-                <div className="mt-0.5 text-[10px] leading-relaxed text-muted">
-                  {t('项目有新内容、放了一阵子之后，自动提炼一次。每个项目一天最多一次，周回顾一周一次。')}
-                </div>
-              </div>
-              <Toggle
-                checked={autoMaintain}
-                onChange={(v) => void update({ aiAutoMaintain: v })}
-              />
-            </div>
-            {autoMaintain && thread && (
-              <button
-                type="button"
-                onClick={() => void toggleThreadAuto()}
-                className="w-full px-0.5 text-left text-[10px] text-muted transition-colors hover:text-accent"
-              >
-                {thread.autoMaintain === false
-                  ? t('这个项目：已关掉自动维护（点一下打开）')
-                  : t('这个项目：跟着上面走（点一下单独关掉）')}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* The running pill, where the actions are rather than in the title bar — Ocean
-            could not tell that the header pill was the cancel button (#4). */}
-        {current && (
-          <button
-            type="button"
-            onClick={() => void cancel()}
-            title={t('点一下停下来（已经写进去的块会留着）')}
-            className="flex w-full items-center justify-between gap-2 rounded border border-accent/60 bg-accent-soft px-2 py-1.5 text-[11px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
-          >
-            <span className="truncate">
-              {queue.length > 0
-                ? t('{action}中 · 还排着 {n} 个', {
-                    action: t(ACTION_LABEL[current.action]),
-                    n: queue.length,
-                  })
-                : t('{action}中', { action: t(ACTION_LABEL[current.action]) })}
-            </span>
-            <span className="flex-none">{t('停下')}</span>
-          </button>
-        )}
+        {/* §9.1 主体, in order of how much it wants you right now. */}
+        <LiveRun />
 
         {/* §3.3 — the review queue, always shown rather than appearing only when non-empty.
             ⚠️ It does NOT pop or steal focus: memory `capture-note-first` — the main window
@@ -341,9 +198,10 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
           {pending > 0 ? t('{n} 条待你过目', { n: pending }) : t('没有待过目的')}
         </button>
 
-        {/* §3.1 — what the AI said. The reason this rail exists. */}
-        {visibleRuns.length === 0 ? (
-          <p className="px-1 pt-2 text-[10px] leading-relaxed text-muted">
+        {/* §3.1 — what the AI said. The reason this rail exists at all (§1.1: the text used
+            to be thrown away and reported as "跑完了，没有新增块"). */}
+        {visibleRuns.length === 0 && !current ? (
+          <p className="px-1 pt-1 text-[10px] leading-relaxed text-muted">
             {showActions
               ? t('这里会留下每次 AI 干活的结果，跑一次就知道了。')
               : t('装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。')}
@@ -358,6 +216,156 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               onStore={run.action === 'follow_up' ? undefined : (r) => void store(r)}
             />
           ))
+        )}
+
+        {/* R2's durable half. Folded, and absent entirely in a project no AI has touched
+            (§2.5 安静原则 — a thread the user keeps to themselves grows no AI panel). */}
+        {writtenCount > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 text-left text-[10px] text-muted transition-colors hover:text-ink-2"
+            >
+              {historyOpen ? (
+                <ChevronDown size={10} className="flex-none" />
+              ) : (
+                <ChevronRight size={10} className="flex-none" />
+              )}
+              <Bot size={10} className="flex-none" />
+              <span className="truncate">
+                {t('这个项目里有 {n} 块是 AI 写的', { n: writtenCount })}
+              </span>
+            </button>
+            {historyOpen && (
+              <div className="mt-1 space-y-1.5">
+                {written.map((g) => (
+                  <div key={`${g.source}-${g.at}`}>
+                    <div className="text-[10px] text-muted">
+                      {t('{source} · {when} · {n} 块', {
+                        source: g.source,
+                        when: when(g.at),
+                        n: g.blocks.length,
+                      })}
+                    </div>
+                    <ul className="mt-0.5 space-y-0.5">
+                      {g.blocks.map((b) => (
+                        <li key={b.id}>
+                          {/* Clicking scrolls to it and flashes it — the same path a search
+                              result takes, so "go look and change your mind" is one click
+                              from the audit line. */}
+                          <button
+                            type="button"
+                            onClick={() => highlight(b.id)}
+                            title={t('跳到这一块')}
+                            className="flex w-full items-baseline gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-paper-2"
+                          >
+                            {b.seq !== null && (
+                              <span className="flex-none font-mono text-[10px] text-muted">
+                                #{b.seq}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1 truncate text-[10px] text-ink-2">
+                              {b.content}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* §9.3 #2 — 新进展. Ocean named three faults in the old row: the edit control was
+            unclear, what it MEANT was unclear, and it was redundant at the top level. So the
+            first level shows the target itself — a read-only line of what this project is
+            watching, permanently visible rather than only inside the editor — and 「改」 is a
+            quiet link into the second level. */}
+        {showActions && (
+          <div className="space-y-1 border-t border-line pt-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-muted">
+                {t('在盯什么')}
+              </span>
+              <button
+                type="button"
+                onClick={onEditBrief}
+                className="flex-none text-[10px] text-muted transition-colors hover:text-accent"
+              >
+                {thread.followUpBrief ? t('改') : t('定一个')}
+              </button>
+            </div>
+            <p className="whitespace-pre-wrap text-[10px] leading-relaxed text-ink-2">
+              {thread.followUpBrief ? (
+                thread.followUpBrief
+              ) : (
+                <span className="text-muted">
+                  {t('还没定。定几行「要盯什么」，之后才能让 AI 出去查。')}
+                </span>
+              )}
+            </p>
+            {thread.followUpBrief && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => enqueue(thread.id, thread.title, 'follow_up', timeoutSecs)}
+                title={t('照你定的那几行出去查一遍')}
+                className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+              >
+                <Globe size={11} className="flex-none" />
+                {t(ACTION_LABEL.follow_up)}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* §9.3 #1 — 「不要太显眼」. These are the附属 layer, so they sit last and folded.
+            Two of them: 周回顾 is a whole-library action and lives in the board (§9.5). */}
+        {showActions && (
+          <div className="border-t border-line pt-2">
+            <button
+              type="button"
+              onClick={() => setActionsOpen((v) => !v)}
+              className="flex w-full items-center gap-1.5 text-left text-[10px] text-muted transition-colors hover:text-ink-2"
+            >
+              {actionsOpen ? (
+                <ChevronDown size={10} className="flex-none" />
+              ) : (
+                <ChevronRight size={10} className="flex-none" />
+              )}
+              <Sparkles size={10} className="flex-none" />
+              {t('让 AI 维护这个项目')}
+            </button>
+            {actionsOpen && (
+              <div className="mt-1 space-y-1">
+                {ENGINE_ACTIONS.map(({ action, hint }) => (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={disabled}
+                    title={t(hint)}
+                    onClick={() => enqueue(thread.id, thread.title, action, timeoutSecs)}
+                    className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+                  >
+                    <Sparkles size={11} className="flex-none" />
+                    {t(ACTION_LABEL[action])}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void toggleThreadAuto()}
+                  className="w-full px-0.5 text-left text-[10px] text-muted transition-colors hover:text-accent"
+                >
+                  {thread.autoMaintain === false
+                    ? t('这个项目：已关掉自动维护（点一下打开）')
+                    : t('这个项目：跟着总开关走（点一下单独关掉）')}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </aside>
