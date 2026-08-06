@@ -15,20 +15,37 @@
 
 **第一梯队(`DESIGN_WORKBENCH.md` §9 的右侧栏重构)全部落地:R1–R5 + W3-c + W4。
 隔离验证过、真机跑过一次流式运行、本机残留 Spool 已清理。
-新版**已构建、未安装** —— 等 Ocean 验收。**
+✅ **已换装**(2026-08-07,Ocean 明示)。**
 
 基线:`npx tsc --noEmit` 干净 / `npx vitest run` **213**(原 210)/ `cargo test` **44**(原 39)。
 
-### 0.1 ⏸ 等 Ocean 的两件
+### 0.1 ✅ 已换装(Ocean 明示)
 
-1. **换装**:新版在 `src-tauri/target/release/bundle/macos/Spool.app`,**没装**。
-   要装照 memory `isolated-verify-workflow` §21 走(先 `VACUUM INTO` 备份真库 →
-   核签名身份 → 停旧进程 → 旧版 `mv` 到桌面备份 → `ditto` 进 `/Applications`)。
-   ⚠️ **schema 没动,还是 v12,这次不迁移。**
-2. **右侧栏默认还是收起的**(`railCollapsed` 默认 true)。入口是主窗右上角那个 ⊳。
-   要改成默认展开是 `settingsStore.ts` 一行 —— 等他说。
+走的 memory `isolated-verify-workflow` §21:
+`VACUUM INTO` 备份真库 → **核签名身份**(装着的是 `Spool Dev` 自签,所以直接用默认构建)
+→ 核 identifier + `codesign --verify --deep --strict` → 按 pid 停 GUI 进程
+→ 旧版 `mv` 到 `~/Desktop/Spool-旧版备份-2026-08-06T21-22-07/`(**没删**)
+→ `ditto` 新版进 `/Applications` → `open --stdout/--stderr` 抓日志 → 行数逐项核对 → MCP 烟雾测试。
 
-### 0.2 ⚠️ 08-07 这台机器死机过一次(原因没查出来)
+结果:
+- **schema 没动(v12→v12,不迁移)**,workspaces 1 / threads 3 / blocks 20 /
+  attachments 0 / engine_runs 1 / proposals 0 **逐项一致**,`engine_runs` 16 列还在
+- ✅ **`[double-tap] installed at HID/active`** —— **输入监听/辅助功能授权活下来了**。
+  这就是「必须先看装着的那版是什么签名身份、再用同一个身份构建」的全部意义(memory §21 ②)
+- MCP:**14 个工具**,`list_threads` 正常返回
+- ⚠️ **这次没杀 `spool --mcp` 子进程**,schema 没变所以旧进程照样能用 ——
+  **Ocean 不需要重开 MCP 客户端**(上一次换装升了 schema 才必须重开)
+
+⚠️ **主窗没截到图**:Spool 是托盘应用,启动后主窗**不跳前**(memory §24),
+所以换装后拿不到窗口 bounds。**但前端产物跟隔离验证那次是同一份**,
+那次按 pid 截过图、**没白屏**(§6.2-bis)。要眼见为实只能 Ocean 自己点托盘图标。
+
+### 0.2 ⏸ 等 Ocean 的一件
+
+**右侧栏默认还是收起的**(`railCollapsed` 默认 true)。入口是主窗右上角那个 ⊳。
+要改成默认展开是 `settingsStore.ts` 一行 —— 等他说。
+
+### 0.3 ⚠️ 08-07 这台机器死机过一次(原因没查出来)
 
 Ocean 报的,发生在隔离验证跑到一半的时候。**没有 kernel panic 日志,也没有 Spool 的崩溃报告**
 —— 说明是硬挂起后强制重启,没留下痕迹,**所以我不能说是什么造成的**。
