@@ -73,12 +73,12 @@ async fn ai_engine_run(
     // DESIGN_FOLLOW_UP §2.5-3: reaching the open web is granted to ONE action and nothing
     // else. Decided HERE, from the action name, rather than passed in from JS — a caller
     // that could ask for web access would be a caller that could ask for it while running
-    // 整理去重. Note that drafting the brief does NOT get it: that job is "read this project
+    // 去重. Note that drafting the brief does NOT get it: that job is "read this project
     // and say what about it needs outside evidence", which is answerable from the library
     // alone.
     let web = action == "follow_up";
     tauri::async_runtime::spawn_blocking(move || {
-        // 生成周回顾 is the one action that is not about the thread it was started from —
+        // 周回顾 is the one action that is not about the thread it was started from —
         // it reads the whole library's digest (§1.1). Passing a project would not narrow
         // it, it would just be ignored, so it is not passed.
         let args = if action == "weekly_review" {

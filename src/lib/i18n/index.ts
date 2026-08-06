@@ -388,9 +388,14 @@ const EN: Record<string, string> = {
     'Stops when it runs over. Blocks already written stay — Spool only ever appends, it never rolls back. 10 minutes maximum.',
   '分钟': 'min',
   '让 AI 维护': 'Let AI maintain',
-  '提炼结论': 'Distil a conclusion',
-  '整理去重': 'Tidy up duplicates',
-  '生成周回顾': 'Write a weekly review',
+  // Ocean 2026-08-06 深夜: 「让所有功能变得精明扼要」— the action names are one word each
+  // now. They also read correctly inside the running pill ('{action}中' → 「压缩中」).
+  // ⚠️ These are LABELS only. The MCP tool / prompt names (distill, thread_health,
+  // weekly_review) and the `engine_runs.action` values are unchanged — those are contracts
+  // other clients read, not words the user picked the action by.
+  '压缩': 'Compress',
+  '去重': 'Dedupe',
+  '周回顾': 'Weekly review',
   'AI 整理中…': 'AI working…',
   '用本机的 {engine} 把这条脉络提炼成一块结论':
     'Use the {engine} on this machine to distil this thread into one conclusion block',
@@ -400,7 +405,7 @@ const EN: Record<string, string> = {
     'Have the {engine} on this machine look back over the past week — across every project, not just this one',
   // DESIGN_FOLLOW_UP §3.2/§3.3 — the follow-up brief and the one action that goes outside.
   '联网跟进…': 'Follow up on the web…',
-  '找找新进展': 'Look for news',
+  '跟进': 'Follow up',
   '改要盯的东西': 'Change what to watch',
   '起草跟进目标': 'Draft what to watch',
   '定几行「要盯什么」，之后才能让 AI 出去查':
@@ -408,8 +413,8 @@ const EN: Record<string, string> = {
   '照你定的那几行,让本机的 {engine} 出去查一遍有没有新进展':
     'Have the {engine} on this machine go and check for news, against the lines you set',
   '这个项目要盯什么': 'What should this project watch?',
-  '写清楚要盯的几件事。以后每次「找找新进展」，AI 就照这几行出去查——它只找这几行说的东西。':
-    'Name the things worth watching. Every "Look for news" run works from these lines — and looks for nothing else.',
+  '写清楚要盯的几件事。以后每次「跟进」，AI 就照这几行出去查——它只找这几行说的东西。':
+    'Name the things worth watching. Every "Follow up" run works from these lines — and looks for nothing else.',
   '一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。':
     'One per line. For example: whether CMU’s application deadline or GRE requirements have changed.',
   '让 AI 起个草': 'Let the AI draft it',
@@ -421,8 +426,8 @@ const EN: Record<string, string> = {
   '跟进目标已定好': 'Saved — this is what it will watch',
   '已关掉这个项目的跟进': 'Follow-up is off for this project',
   '存不下来：{msg}': 'Could not save: {msg}',
-  '找找新进展：提了 {n} 条待你过目': 'Look for news: {n} item(s) waiting for you',
-  '找找新进展：这次没有新东西': 'Look for news: nothing new this time',
+  '跟进：提了 {n} 条待你过目': 'Follow up: {n} item(s) waiting for you',
+  '跟进：这次没有新东西': 'Follow up: nothing new this time',
 
   // M2 §1.2 — the running pill, and what the queue behind it says.
   '{action}中': '{action} running',

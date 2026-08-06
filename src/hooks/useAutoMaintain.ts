@@ -17,7 +17,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 //    bills for a half-written project and is stale by the time it returns.
 //  * COOLDOWN — a hard per-project ceiling. Whatever else happens, one project cannot cost
 //    more than one automatic run a day.
-//  * WEEKLY — 生成周回顾 is a weekly thing; it says so in its name.
+//  * WEEKLY — 周回顾 is a weekly thing; it says so in its name.
 //  * TICK — how often this even looks. The check is two indexed queries against SQLite, so
 //    the cost of looking is nothing; the cost of ACTING is what the three above bound.
 //

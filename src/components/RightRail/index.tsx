@@ -35,7 +35,7 @@ import { toast } from '@/stores/toastStore';
 // the one already written down in HANDOFF §4.7: VS Code lets extensions touch your code
 // because the Source Control panel shows you what they touched.
 //
-// Scoped to the open project, with one exception: 生成周回顾 reads the whole library and
+// Scoped to the open project, with one exception: 周回顾 reads the whole library and
 // belongs to no project (§3.4), so its cards show wherever you are.
 
 const ENGINE_ACTIONS: { action: EngineAction; hint: string }[] = [
@@ -109,7 +109,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
     busyOnThisThread,
   };
   // Two gates, because the rail hosts two kinds of action. Per-project ones need a project
-  // open; 生成周回顾 reads the whole library and must stay reachable with nothing selected
+  // open; 周回顾 reads the whole library and must stay reachable with nothing selected
   // (§3.4 — putting it behind a project selection is the mistake this release corrects).
   const engineReady = canShowEngineActions(gate);
   const showActions = engineReady && thread !== null;
@@ -239,7 +239,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               className="flex w-full items-center gap-1.5 rounded border border-line bg-paper px-2 py-1.5 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
             >
               <Globe size={11} className="flex-none" />
-              {thread.followUpBrief ? t('找找新进展') : t('联网跟进…')}
+              {thread.followUpBrief ? t('跟进') : t('联网跟进…')}
             </button>
             {thread.followUpBrief && (
               <button

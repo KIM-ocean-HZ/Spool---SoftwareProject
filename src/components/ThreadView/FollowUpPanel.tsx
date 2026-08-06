@@ -81,7 +81,7 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
               {t('这个项目要盯什么')}
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              {t('写清楚要盯的几件事。以后每次「找找新进展」，AI 就照这几行出去查——它只找这几行说的东西。')}
+              {t('写清楚要盯的几件事。以后每次「跟进」，AI 就照这几行出去查——它只找这几行说的东西。')}
             </p>
           </div>
           <button

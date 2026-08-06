@@ -191,7 +191,7 @@ export const setAutoMaintain = async (id: string, on: boolean | null): Promise<v
 };
 
 /**
- * DESIGN_WORKBENCH §3.4 — where 生成周回顾 files its output.
+ * DESIGN_WORKBENCH §3.4 — where 周回顾 files its output.
  *
  * Ocean 2026-08-06: 周回顾 是面向所有项目的动作, and its product should stand on its own.
  * So it gets a project of its own, created the first time a review is actually produced.

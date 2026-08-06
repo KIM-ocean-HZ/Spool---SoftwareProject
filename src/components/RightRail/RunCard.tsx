@@ -20,7 +20,7 @@ interface Props {
   run: EngineRun;
   onDismiss: (id: string) => void;
   /** Store the AI's text as a block. Absent for runs whose product was never prose
-   *  (找找新进展 files proposals; a failed run has nothing to store). */
+   *  (跟进 files proposals; a failed run has nothing to store). */
   onStore?: (run: EngineRun) => void;
   busy?: boolean;
 }

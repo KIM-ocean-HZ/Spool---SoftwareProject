@@ -43,7 +43,7 @@ export interface RunUsage {
 export interface EngineRun {
   id: string;
   action: RunAction;
-  /** NULL for 生成周回顾: it reads the whole library, and putting it under one project was
+  /** NULL for 周回顾: it reads the whole library, and putting it under one project was
    *  the mistake §3.4 corrects. */
   threadId: string | null;
   engine: string;
@@ -133,7 +133,7 @@ export const recordRun = async (run: NewEngineRun): Promise<EngineRun> => {
   return { ...run, id, reviewedAt: null };
 };
 
-/** The right rail follows the open project, so this is its main read. 生成周回顾 rows have
+/** The right rail follows the open project, so this is its main read. 周回顾 rows have
  *  no thread and are fetched by `listRecentRuns` instead — they belong to the library, and
  *  showing them under whichever project happened to be open is the confusion §3.4 removes. */
 export const listRunsForThread = async (threadId: string, limit = 20): Promise<EngineRun[]> => {

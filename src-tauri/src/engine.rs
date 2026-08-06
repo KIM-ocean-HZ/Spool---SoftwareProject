@@ -86,7 +86,7 @@ const ALLOWED_TOOL_NAMES: [&str; 14] = [
 
 // DESIGN_FOLLOW_UP §2.5-3: the ONE thing the follow-up run needs that the maintenance
 // actions must never get. Reading the open web is granted per action, not once and for
-// all: 整理去重 / 提炼结论 / 生成周回顾 work entirely off what is already in the library,
+// all: 去重 / 压缩 / 周回顾 work entirely off what is already in the library,
 // and a tidy-up run with a browser attached is a strictly larger attack surface for
 // nothing in return.
 //

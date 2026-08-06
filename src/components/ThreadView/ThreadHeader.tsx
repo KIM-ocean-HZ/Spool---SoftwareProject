@@ -49,15 +49,15 @@ const CONTENT_WARN_THRESHOLD = 20_000;
 const ENGINE_ACTIONS: { action: EngineAction; label: string; hint: string }[] = [
   {
     action: 'thread_health',
-    label: '整理去重',
+    label: '去重',
     hint: '让本机的 {engine} 查一遍重复块、失效引用，看摘要过没过期',
   },
   {
     action: 'distill',
-    label: '提炼结论',
+    label: '压缩',
     hint: '用本机的 {engine} 把这条脉络提炼成一块结论',
   },
-  // ⚠️ 生成周回顾 used to be the third entry here, and that was wrong from the start —
+  // ⚠️ 周回顾 used to be the third entry here, and that was wrong from the start —
   // DESIGN_WORKBENCH §3.4, Ocean 2026-08-06: "周回顾类似周报，是面对所有项目的动作，
   // 不允许和针对单个项目的动作放在一起". The code already knew: lib.rs passes `{}` for it
   // because "passing a project would not narrow it, it would just be ignored". It lives in
@@ -420,7 +420,7 @@ export default function ThreadHeader({
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
                       >
                         <Globe size={12} className="flex-none" />
-                        <span>{t('找找新进展')}</span>
+                        <span>{t('跟进')}</span>
                       </button>
                       <button
                         onClick={() => {

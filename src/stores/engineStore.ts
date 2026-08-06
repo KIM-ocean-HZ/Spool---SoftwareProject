@@ -41,11 +41,11 @@ export type EngineAction =
 // The name the user picked it by. Kept beside the action so a finished run can be
 // reported in the words of the menu entry rather than of the MCP tool.
 export const ACTION_LABEL: Record<EngineAction, string> = {
-  distill: '提炼结论',
-  thread_health: '整理去重',
-  weekly_review: '生成周回顾',
+  distill: '压缩',
+  thread_health: '去重',
+  weekly_review: '周回顾',
   follow_up_brief: '起草跟进目标',
-  follow_up: '找找新进展',
+  follow_up: '跟进',
 };
 
 /** §7: which CLI is behind the engine slot. The wire names match Rust's EngineKind. */
@@ -112,7 +112,7 @@ interface EngineState {
   runs: EngineRun[];
   probe: () => Promise<void>;
   /** Load the runs the right rail shows: this project's, plus the library-wide ones
-   *  (生成周回顾 belongs to no project — §3.4). */
+   *  (周回顾 belongs to no project — §3.4). */
   loadRuns: (threadId: string | null) => Promise<void>;
   /** The user answered a run card. The row stays either way — what the AI said and what it
    *  cost is the audit trail, and dropping it on dismissal would make the total lie. */
@@ -162,7 +162,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
 
     // Counted before and after, because "AI 归档了 N 块" has to be true. The blocks are
     // written by a different process through MCP, and they may land in projects other
-    // than this one (生成周回顾 files wherever the user's review belongs) — so the count
+    // than this one (周回顾 files wherever the user's review belongs) — so the count
     // is library-wide, but narrowed to MCP-labelled rows so a capture the user made during
     // those same minutes is not reported back to them as the AI's work.
     let before = 0;
@@ -253,12 +253,12 @@ export const useEngineStore = create<EngineState>((set, get) => {
       // weeks when the world genuinely did not move.
       toast.notice(
         queued > 0
-          ? t('找找新进展：提了 {n} 条待你过目', { n: queued })
-          : t('找找新进展：这次没有新东西'),
+          ? t('跟进：提了 {n} 条待你过目', { n: queued })
+          : t('跟进：这次没有新东西'),
       );
     } else if (outcome === 'ok') {
-      // DESIGN_WORKBENCH §1.1 — the sentence this replaces was the whole bug. 提炼结论 and
-      // 整理去重 are told to say their conclusion and store it only once the user agrees;
+      // DESIGN_WORKBENCH §1.1 — the sentence this replaces was the whole bug. 压缩 and
+      // 去重 are told to say their conclusion and store it only once the user agrees;
       // headless, nobody can agree, so writing nothing is CORRECT and "没有新增块" described
       // it as if the AI had idled. What it produced is on the run card now, so point there.
       toast.notice(
@@ -295,7 +295,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       try {
         await recordRun({
           action: next.action,
-          // 生成周回顾 reads the whole library, so it belongs to no project (§3.4).
+          // 周回顾 reads the whole library, so it belongs to no project (§3.4).
           threadId: next.action === 'weekly_review' ? null : next.threadId,
           engine: ranOn,
           outcome,
@@ -329,7 +329,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
 
     loadRuns: async (threadId) => {
       try {
-        // Two reads, merged: this project's runs, and the library-wide ones (生成周回顾 has
+        // Two reads, merged: this project's runs, and the library-wide ones (周回顾 has
         // no project). De-duplicated by id because the recent feed also carries this
         // project's rows when they are among the newest in the library.
         const [mine, recent] = await Promise.all([
