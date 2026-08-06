@@ -90,7 +90,7 @@ generic password,它的 **account 就是用户名**,而 CLI 从 **`USER`** 读�
 
 ### 3.1 顺带查清的两件
 
-- **默认语言已经是跟随系统的,不用改。** UI 走 `navigator.language`
+-* UI  **默认语言已经是跟随系统的,不用改。*走 `navigator.language`
   ([settingsStore.ts:74](../src/stores/settingsStore.ts#L74));开机教程在**播种那一刻**
   定语言([App.tsx:54](../src/App.tsx#L54) 的硬顺序);MCP 侧通过 `resolvedLanguage`
   镜像键跟随。详见 memory `ui-language-follows-system`。

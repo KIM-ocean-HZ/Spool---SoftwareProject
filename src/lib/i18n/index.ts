@@ -398,6 +398,32 @@ const EN: Record<string, string> = {
     'Have the {engine} on this machine look for duplicate blocks and dead citations, and judge whether the summary has gone stale',
   '让本机的 {engine} 回顾最近一周——跨所有项目，不只这一个':
     'Have the {engine} on this machine look back over the past week — across every project, not just this one',
+  // DESIGN_FOLLOW_UP §3.2/§3.3 — the follow-up brief and the one action that goes outside.
+  '联网跟进…': 'Follow up on the web…',
+  '找找新进展': 'Look for news',
+  '改要盯的东西': 'Change what to watch',
+  '起草跟进目标': 'Draft what to watch',
+  '定几行「要盯什么」，之后才能让 AI 出去查':
+    'Set a few lines of "what to watch" before the AI can go looking',
+  '照你定的那几行,让本机的 {engine} 出去查一遍有没有新进展':
+    'Have the {engine} on this machine go and check for news, against the lines you set',
+  '这个项目要盯什么': 'What should this project watch?',
+  '写清楚要盯的几件事。以后每次「找找新进展」，AI 就照这几行出去查——它只找这几行说的东西。':
+    'Name the things worth watching. Every "Look for news" run works from these lines — and looks for nothing else.',
+  '一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。':
+    'One per line. For example: whether CMU’s application deadline or GRE requirements have changed.',
+  '让 AI 起个草': 'Let the AI draft it',
+  'AI 在读这个项目…': 'The AI is reading this project…',
+  '起草只读你库里的东西，不联网。': 'Drafting only reads your library. It does not go online.',
+  '就按这个找': 'Use this',
+  '关掉跟进': 'Turn it off',
+  '清空就等于关掉跟进': 'Clearing the text turns follow-up off',
+  '跟进目标已定好': 'Saved — this is what it will watch',
+  '已关掉这个项目的跟进': 'Follow-up is off for this project',
+  '存不下来：{msg}': 'Could not save: {msg}',
+  '找找新进展：提了 {n} 条待你过目': 'Look for news: {n} item(s) waiting for you',
+  '找找新进展：这次没有新东西': 'Look for news: nothing new this time',
+
   // M2 §1.2 — the running pill, and what the queue behind it says.
   '{action}中': '{action} running',
   '{action}中 · 还排着 {n} 个': '{action} running · {n} waiting',

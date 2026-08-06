@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS threads (
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL,
   completed_at       INTEGER,                     -- time status became done
-  deleted_at         INTEGER
+  deleted_at         INTEGER,
+  -- v11 (DESIGN_FOLLOW_UP §3.2): what this project wants watched on the open web, and
+  -- what the last run already saw. NULL brief = follow-up is off for this project, which
+  -- is why there is no separate on/off column.
+  follow_up_brief    TEXT,
+  follow_up_state    TEXT                         -- JSON: last run time + URLs/fingerprints already proposed
 );
 
 CREATE INDEX IF NOT EXISTS idx_threads_workspace

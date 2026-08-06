@@ -32,7 +32,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
 // and attachments), the v10 review queue, then attachments → blocks → threads →
@@ -325,6 +325,24 @@ const MIGRATIONS: Migration[] = [
       await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_proposals_batch ON proposals(batch_id, sort_order ASC)',
       );
+    },
+  },
+  {
+    // v11 (DESIGN_FOLLOW_UP §3.2): two nullable columns on `threads`, nothing else. Both
+    // default to NULL on every existing row, and NULL brief means follow-up is off — so a
+    // database that walks this step comes out behaving exactly as it did before, which is
+    // the property that makes an interrupted run harmless.
+    from: 10,
+    to: 11,
+    name: 'add-follow-up-brief',
+    run: async (db) => {
+      for (const col of ['follow_up_brief TEXT', 'follow_up_state TEXT']) {
+        try {
+          await db.execute(`ALTER TABLE threads ADD COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] ${col}: not added (likely exists)`, e);
+        }
+      }
     },
   },
 ];

@@ -15,6 +15,10 @@ export interface Thread {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  /** DESIGN_FOLLOW_UP §3.2: what this project wants watched on the open web. NULL is the
+   *  off switch — there is no separate enabled column, because a follow-up with nothing to
+   *  look for is not a thing that can run. */
+  followUpBrief: string | null;
 }
 
 export type ThreadPatch = Partial<
@@ -42,6 +46,7 @@ interface Row {
   created_at: number;
   updated_at: number;
   completed_at: number | null;
+  follow_up_brief: string | null;
 }
 
 const fromRow = (r: Row): Thread => ({
@@ -56,10 +61,14 @@ const fromRow = (r: Row): Thread => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   completedAt: r.completed_at,
+  followUpBrief: r.follow_up_brief,
 });
 
+// follow_up_state is deliberately NOT here: it is bookkeeping for the next run (§2.4's
+// "what did I already propose"), never something a view renders, and it can hold a long
+// list of URLs. The one reader loads it on its own.
 const SELECT_COLS =
-  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at';
+  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at, follow_up_brief';
 
 export const listAllThreads = async (): Promise<Thread[]> => {
   const db = await getDb();
@@ -98,6 +107,7 @@ export const createThread = async (workspaceId: string, title: string = ''): Pro
     deadline: null,
     status: 'active',
     isCaptureTarget: false,
+    followUpBrief: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -143,6 +153,40 @@ export const updateThread = async (id: string, patch: ThreadPatch): Promise<numb
   values.push(id);
   await db.execute(`UPDATE threads SET ${sets.join(', ')} WHERE id = $${i}`, values);
   return now;
+};
+
+// DESIGN_FOLLOW_UP §3.2 — the follow-up brief, kept off ThreadPatch on purpose.
+//
+// ThreadPatch is what the ordinary editing surfaces send, and every one of its fields is
+// content. This is a standing instruction to go out to the open web on this project's
+// behalf, and the decision 拍板过的 on 2026-08-06 is that the user must have read it before
+// it can run (§6-2). Giving it its own function is what keeps "the user approved this
+// brief" from becoming a field somebody sets in passing.
+//
+// Passing null turns follow-up off — that is the whole off switch (§3.2).
+export const setFollowUpBrief = async (id: string, brief: string | null): Promise<void> => {
+  const db = await getDb();
+  const trimmed = brief?.trim();
+  await db.execute('UPDATE threads SET follow_up_brief = $1 WHERE id = $2', [
+    trimmed && trimmed.length > 0 ? trimmed : null,
+    id,
+  ]);
+};
+
+/** §2.4's comparison material: what the last run already saw, so the next one can stay
+ *  quiet about it. Opaque JSON to this layer — only the follow-up run reads its shape. */
+export const getFollowUpState = async (id: string): Promise<string | null> => {
+  const db = await getDb();
+  const rows = await db.select<{ follow_up_state: string | null }[]>(
+    'SELECT follow_up_state FROM threads WHERE id = $1',
+    [id],
+  );
+  return rows[0]?.follow_up_state ?? null;
+};
+
+export const setFollowUpState = async (id: string, state: string | null): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE threads SET follow_up_state = $1 WHERE id = $2', [state, id]);
 };
 
 // Single atomic UPDATE instead of BEGIN/UPDATE/UPDATE/COMMIT. tauri-plugin-sql is backed

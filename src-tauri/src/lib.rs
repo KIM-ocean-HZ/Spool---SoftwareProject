@@ -45,9 +45,19 @@ async fn ai_engine_run(
     // An unknown name is refused outright rather than falling through to a default: a
     // typo that silently ran a different action against the user's library would be worse
     // than an error nobody sees.
-    if !matches!(action.as_str(), "distill" | "thread_health" | "weekly_review") {
+    if !matches!(
+        action.as_str(),
+        "distill" | "thread_health" | "weekly_review" | "follow_up_brief" | "follow_up"
+    ) {
         return Err(format!("unsupported action: {action}"));
     }
+    // DESIGN_FOLLOW_UP §2.5-3: reaching the open web is granted to ONE action and nothing
+    // else. Decided HERE, from the action name, rather than passed in from JS — a caller
+    // that could ask for web access would be a caller that could ask for it while running
+    // 整理去重. Note that drafting the brief does NOT get it: that job is "read this project
+    // and say what about it needs outside evidence", which is answerable from the library
+    // alone.
+    let web = action == "follow_up";
     tauri::async_runtime::spawn_blocking(move || {
         // 生成周回顾 is the one action that is not about the thread it was started from —
         // it reads the whole library's digest (§1.1). Passing a project would not narrow
@@ -59,10 +69,13 @@ async fn ai_engine_run(
         };
         let prompt = mcp::guidance_text(&action, &args)?;
         // max_turns: the agentic loop needs a few turns (read the material, then write one
-        // block); 12 is generous for that and still a hard stop. It reaches claude only —
-        // codex has no equivalent flag, so there the timeout is the whole ceiling (§7.3).
+        // block); 12 is generous for that and still a hard stop. A follow-up spends turns
+        // searching before it has anything to propose, so it gets more — still a ceiling,
+        // just one that fits the job. Reaches claude only: codex has no equivalent flag,
+        // so there the timeout is the whole ceiling (§7.3).
+        let max_turns = if web { 24 } else { 12 };
         let preferred = engine.as_deref().and_then(engine::EngineKind::parse);
-        engine::run_action(preferred, &prompt, timeout_secs, 12).map(|env| env.result)
+        engine::run_action(preferred, &prompt, timeout_secs, max_turns, web).map(|env| env.result)
     })
     .await
     .map_err(|e| e.to_string())?

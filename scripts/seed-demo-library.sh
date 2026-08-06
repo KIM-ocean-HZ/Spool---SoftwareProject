@@ -23,8 +23,14 @@ JSON
 
 sqlite3 "$DIR/spool.db" < "$SCHEMA"
 
+# The version is READ from client.ts, never typed here — a hard-coded number left behind
+# by a schema bump makes the app walk migrations against a database that already has the
+# new shape (2026-08-06: both demo seeds were still stamping 8 at schema v11).
+SCHEMA_VERSION="$(sed -n 's/^const SCHEMA_VERSION = \([0-9]*\);.*/\1/p' "$(cd "$(dirname "$0")/.." && pwd)/src/lib/db/client.ts")"
+[ -n "$SCHEMA_VERSION" ] || { echo "读不出 client.ts 的 SCHEMA_VERSION,停下" >&2; exit 1; }
+sqlite3 "$DIR/spool.db" "PRAGMA user_version = $SCHEMA_VERSION;"
+
 sqlite3 "$DIR/spool.db" <<'SQL'
-PRAGMA user_version = 8;
 
 -- ms-epoch for a local wall-clock time N days ago
 -- CAST(strftime('%s', date('now','localtime','-N days') || ' HH:MM:00', 'utc')*1000 AS INTEGER)

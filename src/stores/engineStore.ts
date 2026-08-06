@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 import { countMcpBlocks } from '@/lib/db/blocks';
+import { countPending } from '@/lib/db/proposals';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
 import { useProposalsStore } from './proposalsStore';
@@ -22,7 +23,12 @@ import { toast } from './toastStore';
 // Detection is cached rather than re-probed per menu open: `which` + `--version` is two
 // process spawns, and the answer only changes when the user installs something.
 
-export type EngineAction = 'distill' | 'thread_health' | 'weekly_review';
+export type EngineAction =
+  | 'distill'
+  | 'thread_health'
+  | 'weekly_review'
+  | 'follow_up_brief'
+  | 'follow_up';
 
 // The name the user picked it by. Kept beside the action so a finished run can be
 // reported in the words of the menu entry rather than of the MCP tool.
@@ -30,6 +36,8 @@ export const ACTION_LABEL: Record<EngineAction, string> = {
   distill: '提炼结论',
   thread_health: '整理去重',
   weekly_review: '生成周回顾',
+  follow_up_brief: '起草跟进目标',
+  follow_up: '找找新进展',
 };
 
 /** §7: which CLI is behind the engine slot. The wire names match Rust's EngineKind. */
@@ -65,6 +73,12 @@ export interface EngineTask {
   action: EngineAction;
 }
 
+/** DESIGN_FOLLOW_UP §3.2: 起草跟进目标 is the one action whose OUTPUT is the point — the
+ *  draft brief comes back as text for the user to read and edit, and nothing is stored
+ *  until they say so. Every other action's product is blocks or proposals, which the run
+ *  has already put in the database by the time it returns. */
+type ResultHandler = (result: string) => void;
+
 /** DESIGN_AI_ENGINE §5 M3 — one finished run, for the "AI 活动" fold. Session-only on
  *  purpose: the durable trace of a run is the blocks it wrote, which are in the database
  *  with their source labels and timestamps. This just names the action that caused them
@@ -87,8 +101,15 @@ interface EngineState {
   queue: EngineTask[];
   runs: EngineRun[];
   probe: () => Promise<void>;
-  /** Queue one action. Returns false when it was refused (already queued for this thread). */
-  enqueue: (threadId: string, threadTitle: string, action: EngineAction, timeoutSecs: number) => boolean;
+  /** Queue one action. Returns false when it was refused (already queued for this thread).
+   *  `onResult` runs only when the action finishes cleanly — see ResultHandler. */
+  enqueue: (
+    threadId: string,
+    threadTitle: string,
+    action: EngineAction,
+    timeoutSecs: number,
+    onResult?: ResultHandler,
+  ) => boolean;
   /** Stop the running task and drop everything still waiting (§1.2 — the pill is one
    *  control, and a user stopping "the AI" does not mean "and then start the next one"). */
   cancel: () => Promise<void>;
@@ -99,8 +120,10 @@ interface EngineState {
 const CANCELLED_MARKER = 'spool:cancelled';
 
 let nextTaskId = 1;
-// Held outside the store: it is one number per queued task, not state anything renders.
+// Held outside the store: one number and one callback per queued task, neither of which is
+// state anything renders.
 const timeouts = new Map<number, number>();
+const resultHandlers = new Map<number, ResultHandler>();
 
 export const useEngineStore = create<EngineState>((set, get) => {
   // Drain the queue one task at a time. Re-entrant by construction: it returns
@@ -112,6 +135,8 @@ export const useEngineStore = create<EngineState>((set, get) => {
     set({ current: next, queue: rest });
     const timeoutSecs = timeouts.get(next.id) ?? 300;
     timeouts.delete(next.id);
+    const onResult = resultHandlers.get(next.id);
+    resultHandlers.delete(next.id);
 
     // Counted before and after, because "AI 归档了 N 块" has to be true. The blocks are
     // written by a different process through MCP, and they may land in projects other
@@ -125,10 +150,24 @@ export const useEngineStore = create<EngineState>((set, get) => {
       before = -1; // unknown; reported as a plain "finished" below
     }
 
+    // A follow-up files proposals, not blocks, so the block count it moves is zero and
+    // "finished, nothing new" would be the wrong thing to tell the user about a run that
+    // just queued five items for review (§3.4).
+    const isFollowUp = next.action === 'follow_up';
+    let proposalsBefore = 0;
+    if (isFollowUp) {
+      try {
+        proposalsBefore = await countPending(Date.now());
+      } catch {
+        proposalsBefore = -1;
+      }
+    }
+
     let outcome: EngineRun['outcome'] = 'ok';
     let detail: string | null = null;
+    let resultText = '';
     try {
-      await invoke<string>('ai_engine_run', {
+      resultText = await invoke<string>('ai_engine_run', {
         action: next.action,
         project: next.threadTitle,
         timeoutSecs,
@@ -160,7 +199,27 @@ export const useEngineStore = create<EngineState>((set, get) => {
     }
 
     const label = t(ACTION_LABEL[next.action]);
-    if (outcome === 'ok') {
+    if (outcome === 'ok' && next.action === 'follow_up_brief') {
+      // Nothing was stored and nothing should be announced: the draft goes to the panel
+      // the user is looking at, and they decide whether it becomes the brief (§6-2).
+      onResult?.(resultText);
+    } else if (outcome === 'ok' && isFollowUp) {
+      let queued = 0;
+      try {
+        const after = await countPending(Date.now());
+        queued = proposalsBefore < 0 ? 0 : Math.max(0, after - proposalsBefore);
+      } catch (e) {
+        console.warn('[engine] proposal count failed', e);
+      }
+      // §2.4: "nothing new" is a legitimate, quiet result — not a failure and not an
+      // apology. Saying it plainly is what keeps the feature from feeling broken on the
+      // weeks when the world genuinely did not move.
+      toast.notice(
+        queued > 0
+          ? t('找找新进展：提了 {n} 条待你过目', { n: queued })
+          : t('找找新进展：这次没有新东西'),
+      );
+    } else if (outcome === 'ok') {
       toast.notice(
         written > 0
           ? t('{action}：AI 归档了 {n} 块', { action: label, n: written })
@@ -223,7 +282,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       }
     },
 
-    enqueue: (threadId, threadTitle, action, timeoutSecs) => {
+    enqueue: (threadId, threadTitle, action, timeoutSecs, onResult) => {
       const { current, queue } = get();
       // Same thread twice would distil the same material into two blocks. Same action on
       // a different thread is fine — it just waits.
@@ -235,6 +294,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       }
       const task: EngineTask = { id: nextTaskId++, threadId, threadTitle, action };
       timeouts.set(task.id, timeoutSecs);
+      if (onResult) resultHandlers.set(task.id, onResult);
       set({ queue: [...queue, task] });
       void pump();
       return true;
@@ -244,6 +304,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       // Drop the waiting tasks first: if the kill lands while pump is between tasks, an
       // empty queue is what stops it from starting the next one.
       timeouts.clear();
+      resultHandlers.clear();
       set({ queue: [] });
       try {
         await invoke<boolean>('ai_engine_cancel');

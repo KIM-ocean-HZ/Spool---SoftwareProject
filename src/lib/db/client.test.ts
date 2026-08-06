@@ -37,8 +37,18 @@ const userVersion = (handle: Sqlite): number =>
 const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
+// Rewind past v11: threads had no follow-up brief yet.
+const downgradeToV10 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE threads DROP COLUMN follow_up_brief;
+    ALTER TABLE threads DROP COLUMN follow_up_state;
+    PRAGMA user_version = 10;
+  `);
+};
+
 // Rewind past v10: the review queue's two tables did not exist yet.
 const downgradeToV9 = (handle: Sqlite): void => {
+  downgradeToV10(handle);
   handle.exec(`
     DROP TABLE IF EXISTS proposals;
     DROP TABLE IF EXISTS proposal_batches;
@@ -118,7 +128,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -152,7 +162,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -172,7 +182,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -190,7 +200,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -212,7 +222,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -243,7 +253,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -297,7 +307,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -312,15 +322,43 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
   });
 
+  it('v10 → v11 adds the follow-up brief columns and turns nothing on', async () => {
+    applySchema(handle);
+    downgradeToV10(handle);
+    seedUserData(handle);
+    const threadsBefore = handle.prepare('SELECT * FROM threads').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(11);
+    const cols = columnNames(handle, 'threads');
+    expect(cols).toContain('follow_up_brief');
+    expect(cols).toContain('follow_up_state');
+    // DESIGN_FOLLOW_UP §3.2: a NULL brief IS the off switch, so every existing project
+    // comes out of this migration with follow-up off. A migration that silently armed a
+    // feature that goes out to the open web would be the worst possible default.
+    const rows = handle.prepare('SELECT follow_up_brief, follow_up_state FROM threads').all();
+    expect(rows).toEqual([{ follow_up_brief: null, follow_up_state: null }]);
+    // Nothing else about the row moved.
+    expect(
+      (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
+        const { follow_up_brief, follow_up_state, ...rest } = r;
+        void follow_up_brief;
+        void follow_up_state;
+        return rest;
+      }),
+    ).toEqual(threadsBefore);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 10');
+    handle.exec('PRAGMA user_version = 11');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -340,7 +378,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(10);
+    expect(userVersion(handle)).toBe(11);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;
@@ -366,7 +404,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
   it('seeds the tutorial + MCP scenario threads (fresh install only)', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 10');
+    handle.exec('PRAGMA user_version = 11');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', '收件箱', 0, 1, 1);
@@ -408,7 +446,7 @@ describe('migrateSchema registry (§19.3)', () => {
   // later language switch re-translates them.
   it('seeds the tutorial in English when the install starts in en', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 10');
+    handle.exec('PRAGMA user_version = 11');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', 'Inbox', 0, 1, 1);
@@ -452,7 +490,7 @@ describe('retranslateTutorial', () => {
     db = makeAdapter(handle);
     __setTestDb(db);
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 10');
+    handle.exec('PRAGMA user_version = 11');
     handle.exec(`
       INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
         VALUES ('w1', 'Inbox', 0, 1, 1);

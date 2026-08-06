@@ -84,12 +84,25 @@ const ALLOWED_TOOL_NAMES: [&str; 14] = [
     "weekly_review",
 ];
 
-fn allowed_tools() -> String {
-    ALLOWED_TOOL_NAMES
+// DESIGN_FOLLOW_UP §2.5-3: the ONE thing the follow-up run needs that the maintenance
+// actions must never get. Reading the open web is granted per action, not once and for
+// all: 整理去重 / 提炼结论 / 生成周回顾 work entirely off what is already in the library,
+// and a tidy-up run with a browser attached is a strictly larger attack surface for
+// nothing in return.
+//
+// Verified against claude 2.0.50 on 2026-08-06: these are the exact tool names (a run
+// with them allowed searched the web and came back with `permission_denials: []`).
+const WEB_TOOL_NAMES: [&str; 2] = ["WebSearch", "WebFetch"];
+
+fn allowed_tools(web: bool) -> String {
+    let mut names: Vec<String> = ALLOWED_TOOL_NAMES
         .iter()
         .map(|t| format!("mcp__{MCP_SERVER_NAME}__{t}"))
-        .collect::<Vec<_>>()
-        .join(",")
+        .collect();
+    if web {
+        names.extend(WEB_TOOL_NAMES.iter().map(|t| (*t).to_string()));
+    }
+    names.join(",")
 }
 
 /// §7.2: an ENUMERATION, never "type your own command line". Two reasons, both load-bearing.
@@ -415,14 +428,14 @@ pub fn mcp_config_json(exe: &str) -> String {
 /// The argv for one headless `claude` run, minus the binary itself. Split out from spawning
 /// so the permission-critical parts (§2.4 probe 2: no tool outside the Spool whitelist can
 /// be reached) are assertable in a unit test without a live CLI.
-pub fn claude_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> {
+pub fn claude_args(prompt: &str, config_path: &str, max_turns: u32, web: bool) -> Vec<String> {
     vec![
         "-p".into(),
         prompt.into(),
         "--mcp-config".into(),
         config_path.into(),
         "--allowedTools".into(),
-        allowed_tools(),
+        allowed_tools(web),
         "--output-format".into(),
         "json".into(),
         "--max-turns".into(),
@@ -453,7 +466,7 @@ pub fn claude_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<Strin
 //     closed — the settings page says it.
 //   * **No `--max-turns` equivalent.** The run's only ceiling is the timeout, which is
 //     enforced here anyway (clamp_timeout_secs + the kill).
-fn codex_config_overrides(exe: &str) -> Vec<String> {
+fn codex_config_overrides(exe: &str, web: bool) -> Vec<String> {
     // TOML values, since `-c` parses the right-hand side as TOML. The tool list is the same
     // constant as claude's whitelist, spelled with bare names because that is what codex's
     // per-server `enabled_tools` takes (confirmed with `codex mcp get spool`, which echoed
@@ -467,6 +480,9 @@ fn codex_config_overrides(exe: &str) -> Vec<String> {
         // Headless means nobody is there to answer a prompt; without this the run can sit
         // waiting for an approval that will never come, inside a budget that is billing.
         "approval_policy=\"never\"".into(),
+        // Stated either way rather than left to the CLI's default: whether this run can
+        // reach the open web is Spool's decision to make, not a default's to drift.
+        format!("tools.web_search={web}"),
         format!("mcp_servers.{MCP_SERVER_NAME}.command={}", toml_string(exe)),
         format!("mcp_servers.{MCP_SERVER_NAME}.args=[\"--mcp\"]"),
         format!("mcp_servers.{MCP_SERVER_NAME}.enabled_tools=[{tools}]"),
@@ -483,7 +499,7 @@ fn toml_string(s: &str) -> String {
 
 /// The argv for one headless `codex` run. `exe` is Spool's own binary — codex takes its MCP
 /// servers as config overrides, so there is no temp file on this path.
-pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str) -> Vec<String> {
+pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str, web: bool) -> Vec<String> {
     let mut args: Vec<String> = vec![
         "exec".into(),
         // Do not load ~/.codex/config.toml: the user's own MCP servers, plugins and model
@@ -507,7 +523,7 @@ pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str) -> Vec<Strin
         "-o".into(),
         last_message_path.into(),
     ];
-    for c in codex_config_overrides(exe) {
+    for c in codex_config_overrides(exe, web) {
         args.push("-c".into());
         args.push(c);
     }
@@ -607,6 +623,7 @@ pub fn run_action(
     prompt: &str,
     timeout_secs: u64,
     max_turns: u32,
+    web: bool,
 ) -> Result<RunEnvelope, String> {
     // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
     // one window's JS; a second window, or a hand-issued invoke, would otherwise start a
@@ -635,13 +652,13 @@ pub fn run_action(
         EngineKind::Claude => {
             std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
                 .map_err(|e| format!("could not write the MCP config: {e}"))?;
-            cmd.args(claude_args(prompt, &cfg_path.to_string_lossy(), max_turns));
+            cmd.args(claude_args(prompt, &cfg_path.to_string_lossy(), max_turns, web));
         }
         EngineKind::Codex => {
             // A leftover from a killed run would otherwise be read back as this run's
             // answer — the file is only written when the CLI has something to say.
             let _ = std::fs::remove_file(&msg_path);
-            cmd.args(codex_args(prompt, &exe.to_string_lossy(), &msg_path.to_string_lossy()));
+            cmd.args(codex_args(prompt, &exe.to_string_lossy(), &msg_path.to_string_lossy(), web));
         }
     }
     cmd.env_clear();
@@ -808,7 +825,7 @@ mod tests {
     // would hand a subprocess Bash on the user's machine.
     #[test]
     fn run_args_only_ever_allow_spool_tools() {
-        let args = claude_args("提炼一下", "/tmp/cfg.json", 12);
+        let args = claude_args("提炼一下", "/tmp/cfg.json", 12, false);
         let pos = |flag: &str| args.iter().position(|a| a == flag).expect(flag);
         let whitelist = &args[pos("--allowedTools") + 1];
         // ⚠️ No wildcard: claude 2.0.50 does not expand one, and a `*` here means every
@@ -843,7 +860,7 @@ mod tests {
     // config keys, so the overrides below are known-good rather than plausible.
     #[test]
     fn codex_args_isolate_the_run_from_the_users_own_config() {
-        let args = codex_args("提炼一下", "/Applications/Spool.app/Contents/MacOS/spool", "/tmp/m.txt");
+        let args = codex_args("提炼一下", "/Applications/Spool.app/Contents/MacOS/spool", "/tmp/m.txt", false);
         assert_eq!(args[0], "exec");
         // The prompt is positional and must stay last — anything after it would be read as
         // a subcommand, not a flag.

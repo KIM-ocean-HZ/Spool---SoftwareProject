@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   CheckCircle2,
+  Globe,
   MoreHorizontal,
   Package,
   Pin,
@@ -18,6 +19,7 @@ import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import FollowUpPanel from './FollowUpPanel';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 export type ThreadViewMode = 'log' | 'digest';
@@ -147,6 +149,8 @@ export default function ThreadHeader({
   const [editingDeadline, setEditingDeadline] = useState(false);
   // 任务三 #3: the ⋯ overflow menu hosting 完成/重开 and the capture-target switch.
   const [menuOpen, setMenuOpen] = useState(false);
+  // DESIGN_FOLLOW_UP §3.2: the brief editor, opened from the ⋯ menu and from nowhere else.
+  const [followUpOpen, setFollowUpOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -394,6 +398,53 @@ export default function ThreadHeader({
                       <span>{t(label)}</span>
                     </button>
                   ))}
+
+                  {/* DESIGN_FOLLOW_UP §3.3 — the one action that goes outside. Kept visually
+                      apart from the three above because it IS different in kind: those work
+                      off what is already in the library, this one goes out to the open web.
+                      Which entry appears depends on whether a brief has been settled (§6-2:
+                      nothing runs until a human has read the search rules). */}
+                  <div className="my-1 border-t border-line" />
+                  {thread.followUpBrief ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          enqueueEngine(thread.id, thread.title, 'follow_up', aiEngineTimeoutSecs);
+                        }}
+                        disabled={engineBusy}
+                        title={t('照你定的那几行,让本机的 {engine} 出去查一遍有没有新进展', {
+                          engine: ENGINE_LABEL[engineStatus?.selected ?? 'claude'],
+                        })}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
+                      >
+                        <Globe size={12} className="flex-none" />
+                        <span>{t('找找新进展')}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setFollowUpOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+                      >
+                        <Globe size={12} className="flex-none opacity-0" />
+                        <span>{t('改要盯的东西')}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setFollowUpOpen(true);
+                      }}
+                      title={t('定几行「要盯什么」，之后才能让 AI 出去查')}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                    >
+                      <Globe size={12} className="flex-none" />
+                      <span>{t('联网跟进…')}</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -541,6 +592,8 @@ export default function ThreadHeader({
             </span>
           ))}
       </div>
+
+      {followUpOpen && <FollowUpPanel thread={thread} onClose={() => setFollowUpOpen(false)} />}
     </header>
   );
 }
