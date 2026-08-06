@@ -14,6 +14,7 @@ type PersistableKey =
   | 'mcpWriteEnabled'
   | 'aiEngineActionsEnabled'
   | 'aiEngineTimeoutSecs'
+  | 'aiEngine'
   | 'language'
   | 'firstCaptureHintPending';
 
@@ -41,6 +42,10 @@ interface SettingsState {
   // §1.4: per-run budget in seconds. Default 5 minutes, and Rust clamps to 10 whatever
   // arrives here — an agentic loop with no ceiling is a runaway subscription bill.
   aiEngineTimeoutSecs: number;
+  // §7.4: which CLI runs the actions. Null = no pick, which is the normal state: it only
+  // means anything when BOTH claude and codex are installed, and Rust falls back to
+  // whatever it finds if this names one that is gone.
+  aiEngine: 'claude' | 'codex' | null;
   // UI language. Defaults to the system locale (see detectSystemLanguage); 'en' vs 'zh'
   // switches every surface via the lib/i18n dictionary. Persisted only once the user
   // picks one by hand; other windows re-read on change.
@@ -116,6 +121,7 @@ const KEYS: PersistableKey[] = [
   'mcpWriteEnabled',
   'aiEngineActionsEnabled',
   'aiEngineTimeoutSecs',
+  'aiEngine',
   'language',
   'firstCaptureHintPending',
 ];
@@ -139,6 +145,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   mcpWriteEnabled: false,
   aiEngineActionsEnabled: true,
   aiEngineTimeoutSecs: 300,
+  aiEngine: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
   loaded: false,

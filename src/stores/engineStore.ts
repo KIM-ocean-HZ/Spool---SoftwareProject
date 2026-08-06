@@ -4,6 +4,7 @@ import { countMcpBlocks } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
 import { useProposalsStore } from './proposalsStore';
+import { useSettingsStore } from './settingsStore';
 import { useThreadsStore } from './threadsStore';
 import { toast } from './toastStore';
 
@@ -31,10 +32,30 @@ export const ACTION_LABEL: Record<EngineAction, string> = {
   weekly_review: '生成周回顾',
 };
 
+/** §7: which CLI is behind the engine slot. The wire names match Rust's EngineKind. */
+export type EngineKind = 'claude' | 'codex';
+
+/** How each engine is written where the user reads it. Product names, so never translated
+ *  — the same reason the source badge shows "Claude · MCP" in both languages. */
+export const ENGINE_LABEL: Record<EngineKind, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+};
+
+export interface DetectedEngine {
+  kind: EngineKind;
+  version: string | null;
+  path: string;
+}
+
 interface EngineStatus {
   available: boolean;
+  /** The engine a run would use right now — the user's pick, or the only one installed. */
+  selected: EngineKind | null;
   version: string | null;
   path: string | null;
+  /** Every engine found. §7.4: the settings page offers a choice only when this has two. */
+  engines: DetectedEngine[];
 }
 
 export interface EngineTask {
@@ -111,6 +132,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
         action: next.action,
         project: next.threadTitle,
         timeoutSecs,
+        // Read at the moment the task starts, not when it was queued: a run that waited
+        // out three others should use the engine the settings page says now.
+        engine: useSettingsStore.getState().aiEngine,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -187,12 +211,15 @@ export const useEngineStore = create<EngineState>((set, get) => {
 
     probe: async () => {
       try {
-        set({ status: await invoke<EngineStatus>('ai_engine_status') });
+        // The preference only decides anything when both CLIs are installed; Rust falls
+        // back on its own when it names one that is not there (§7.4).
+        const preferred = useSettingsStore.getState().aiEngine;
+        set({ status: await invoke<EngineStatus>('ai_engine_status', { preferred }) });
       } catch (e) {
         // A failed probe is "no CLI", not an error to surface: §0 says absence is the
         // default state, and the menu group simply stays hidden.
         console.warn('[engine] status probe failed', e);
-        set({ status: { available: false, version: null, path: null } });
+        set({ status: { available: false, selected: null, version: null, path: null, engines: [] } });
       }
     },
 

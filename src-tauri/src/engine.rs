@@ -1,16 +1,23 @@
-//! DESIGN_AI_ENGINE — the Claude Code engine slot (target v0.4.0, M1).
+//! DESIGN_AI_ENGINE — the local AI engine slot (target v0.4.0, M1–M3 + §7).
 //!
-//! One sentence: when the user already has the Claude Code CLI installed, Spool offers
-//! "let AI maintain this thread"; behind it, `claude -p` runs headless with Spool's own
-//! MCP server attached. The GUI curates, the CLI is the engine, MCP is the bus. Cost
-//! rides on the user's existing Claude subscription — Spool never holds an API key.
+//! One sentence: when the user already has an agent CLI installed, Spool offers "let AI
+//! maintain this thread"; behind it that CLI runs headless with Spool's own MCP server
+//! attached. The GUI curates, the CLI is the engine, MCP is the bus. Cost rides on the
+//! subscription the user already has — Spool never holds an API key.
+//!
+//! §7 (2026-08-06) widened "the CLI" from one to an enumerated two — `claude` and
+//! `codex` — because a user without a Claude subscription had no engine slot at all: the
+//! menu group simply never rendered and they never learned it existed. Everything above
+//! this layer is untouched by that widening (same three actions, same prompts, same
+//! serial queue, same cancel, same activity fold); what varies is only how the process is
+//! started and how its output is read.
 //!
 //! The three premises this module must not weaken (design §0):
-//!   * **Zero AI in the product itself.** If `claude` is absent, every entry point stops
+//!   * **Zero AI in the product itself.** If no engine is present, every entry point stops
 //!     rendering and Spool is complete without it. Detection failure is not an error
 //!     state; it is the default state.
-//!   * **Spool itself never goes online.** Egress happens inside the Claude Code process
-//!     — a tool the user installed, logged into and trusts. The webview's CSP is not
+//!   * **Spool itself never goes online.** Egress happens inside the engine's process —
+//!     a tool the user installed, logged into and trusts. The webview's CSP is not
 //!     loosened; nothing here opens a socket.
 //!   * **Constitution 5 holds.** Anything the AI writes goes through the EXISTING MCP
 //!     write surface: source-labelled, append-only, and unable to touch what the user
@@ -85,34 +92,103 @@ fn allowed_tools() -> String {
         .join(",")
 }
 
+/// §7.2: an ENUMERATION, never "type your own command line". Two reasons, both load-bearing.
+/// One, there is nothing to abstract — the flag names, the way MCP servers are handed over
+/// and the shape of the output differ per CLI (see the two arg builders below), so a free
+/// text box would hand the user the failure mode "you mistyped a flag and it silently ran
+/// with no tools". Two, and worse: the tool whitelist below is enforced by the arguments
+/// *we* assemble. A command line the user typed has no whitelist in it, and the whole
+/// security story of this module is gone. Adding a third engine means writing code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EngineKind {
+    Claude,
+    Codex,
+}
+
+impl EngineKind {
+    /// Preference order when both are installed (§7.4): `claude` first — more capable, and
+    /// the users who already have an engine slot today are on it.
+    pub const ALL: [EngineKind; 2] = [EngineKind::Claude, EngineKind::Codex];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EngineKind::Claude => "claude",
+            EngineKind::Codex => "codex",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "claude" => Some(EngineKind::Claude),
+            "codex" => Some(EngineKind::Codex),
+            _ => None,
+        }
+    }
+
+    /// The executable's name on PATH, which is also what the candidate paths end in.
+    fn binary(self) -> &'static str {
+        self.as_str()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EngineStatus {
-    /// Whether a usable `claude` was found. The GUI renders the maintenance actions only
-    /// when this is true AND both MCP switches are on (§1.1).
-    pub available: bool,
+pub struct DetectedEngine {
+    pub kind: EngineKind,
     /// Version string as the CLI reported it, for the settings status line.
     pub version: Option<String>,
     /// Absolute path we resolved, so the settings page can show what it actually found.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EngineStatus {
+    /// Whether the SELECTED engine is usable. The GUI renders the maintenance actions only
+    /// when this is true AND both MCP switches are on (§1.1).
+    pub available: bool,
+    /// Which engine a run would use right now — the user's pick when both are installed,
+    /// otherwise whichever one was found.
+    pub selected: Option<EngineKind>,
+    /// The selected engine's version / path, kept flat because that is what the status
+    /// line renders.
+    pub version: Option<String>,
     pub path: Option<String>,
+    /// Everything found on this machine. §7.4: the settings page offers a choice only when
+    /// this holds more than one — a picker with a single option is a decision nobody asked
+    /// the user to make.
+    pub engines: Vec<DetectedEngine>,
 }
 
 impl EngineStatus {
     fn missing() -> Self {
-        Self { available: false, version: None, path: None }
+        Self { available: false, selected: None, version: None, path: None, engines: Vec::new() }
     }
 }
 
-// `claude --version` prints something like "2.0.50 (Claude Code)". Keep the leading
-// version token and drop the rest — the status line wants `claude 2.0.50 ✓`, and the
-// parenthetical is noise. Deliberately lenient: an unparseable line still counts as
-// available (the binary answered), because the version is cosmetic here. §2.1 leaves the
-// minimum version to be set from real-world testing, so nothing is gated on it yet.
+// `claude --version` prints "2.0.50 (Claude Code)"; `codex --version` prints
+// "codex-cli 0.146.1". Keep the number and drop the rest — the status line wants
+// `codex 0.146.1 ✓`, and the product name is already the word next to it.
+//
+// So: the first token that STARTS WITH A DIGIT, falling back to the first token when
+// there is none. Taking token one unconditionally was right until 2026-08-06, when the
+// real codex binary made the settings page read "codex codex-cli".
+//
+// Deliberately lenient: an unparseable line still counts as available (the binary
+// answered), because the version is cosmetic here. §2.1 leaves the minimum version to be
+// set from real-world testing, so nothing is gated on it yet.
 fn parse_version(out: &str) -> Option<String> {
     let first = out.lines().next()?.trim();
     if first.is_empty() {
         return None;
     }
-    Some(first.split_whitespace().next().unwrap_or(first).to_string())
+    let mut tokens = first.split_whitespace();
+    let head = tokens.clone().next().unwrap_or(first);
+    Some(
+        tokens
+            .find(|t| t.starts_with(|c: char| c.is_ascii_digit()))
+            .unwrap_or(head)
+            .to_string(),
+    )
 }
 
 // §1.2 cancel. The run is a Tauri command answering on a blocking thread, so the click
@@ -232,19 +308,34 @@ fn output_with_timeout(
 /// marker between two layers of Spool, never shown to anyone.
 pub const CANCELLED_MARKER: &str = "spool:cancelled";
 
-// The PATH a GUI app inherits on macOS is the launchd one, not the shell's — a `claude`
+// The PATH a GUI app inherits on macOS is the launchd one, not the shell's — a CLI
 // installed by npm/homebrew into ~/.local/bin or /opt/homebrew/bin is on the user's shell
 // PATH and invisible here. So the probe checks the usual install locations directly as
 // well, and reports the path it actually resolved (§1.4 shows it in the status line).
-fn candidate_paths() -> Vec<std::path::PathBuf> {
+fn candidate_paths(kind: EngineKind) -> Vec<std::path::PathBuf> {
+    let bin = kind.binary();
     let mut out = Vec::new();
     if let Some(home) = dirs_home() {
-        for rel in [".claude/local/claude", ".local/bin/claude", ".npm-global/bin/claude", "bin/claude"] {
-            out.push(home.join(rel));
+        if kind == EngineKind::Claude {
+            out.push(home.join(".claude/local/claude"));
+        }
+        for rel in [".local/bin", ".npm-global/bin", "bin", ".bun/bin", ".volta/bin"] {
+            out.push(home.join(rel).join(bin));
+        }
+        // ⚠️ nvm keeps one bin directory PER INSTALLED NODE VERSION, so there is no fixed
+        // path to list — and this is not a corner case: on 2026-08-06 `npm i -g
+        // @openai/codex` on the author's own machine landed in
+        // ~/.nvm/versions/node/v24.11.0/bin/codex, which neither `which` (launchd PATH)
+        // nor any static entry above would ever have found. Detection would have reported
+        // "not installed" on the very machine it had just been installed on.
+        if let Ok(entries) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+            for e in entries.flatten() {
+                out.push(e.path().join("bin").join(bin));
+            }
         }
     }
-    for abs in ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude"] {
-        out.push(std::path::PathBuf::from(abs));
+    for abs in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+        out.push(std::path::PathBuf::from(abs).join(bin));
     }
     out
 }
@@ -253,12 +344,12 @@ fn dirs_home() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
-/// §2.1: `which claude` first (honours a PATH the user did set for us), then the known
-/// install locations. The first candidate that answers `--version` wins.
-pub fn detect() -> EngineStatus {
+/// §2.1, per engine: `which <bin>` first (honours a PATH the user did set for us), then the
+/// known install locations. The first candidate that answers `--version` wins.
+fn detect_one(kind: EngineKind) -> Option<DetectedEngine> {
     let mut tried: Vec<String> = Vec::new();
     let mut which = std::process::Command::new("/usr/bin/which");
-    which.arg("claude");
+    which.arg(kind.binary());
     if let Ok(out) = output_with_timeout(which, PROBE_TIMEOUT, false) {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -267,7 +358,7 @@ pub fn detect() -> EngineStatus {
             }
         }
     }
-    for p in candidate_paths() {
+    for p in candidate_paths(kind) {
         if p.is_file() {
             tried.push(p.to_string_lossy().into_owned());
         }
@@ -278,15 +369,36 @@ pub fn detect() -> EngineStatus {
         if let Ok(out) = output_with_timeout(cmd, PROBE_TIMEOUT, false) {
             if out.status.success() {
                 let text = String::from_utf8_lossy(&out.stdout).into_owned();
-                return EngineStatus {
-                    available: true,
-                    version: parse_version(&text),
-                    path: Some(path),
-                };
+                return Some(DetectedEngine { kind, version: parse_version(&text), path });
             }
         }
     }
-    EngineStatus::missing()
+    None
+}
+
+/// §7.4: which engine a run uses. One found → that one, no question asked. Both found →
+/// the user's pick from settings, defaulting to `claude`. A preference naming an engine
+/// that is not installed falls back rather than failing: the user may have uninstalled it,
+/// and refusing to run because a stale setting names a missing binary would be a dead end
+/// with no way out except finding that setting.
+pub fn select(engines: &[DetectedEngine], preferred: Option<EngineKind>) -> Option<&DetectedEngine> {
+    preferred
+        .and_then(|p| engines.iter().find(|e| e.kind == p))
+        .or_else(|| EngineKind::ALL.iter().find_map(|k| engines.iter().find(|e| e.kind == *k)))
+}
+
+pub fn detect(preferred: Option<EngineKind>) -> EngineStatus {
+    let engines: Vec<DetectedEngine> = EngineKind::ALL.iter().filter_map(|k| detect_one(*k)).collect();
+    let Some(sel) = select(&engines, preferred) else {
+        return EngineStatus::missing();
+    };
+    EngineStatus {
+        available: true,
+        selected: Some(sel.kind),
+        version: sel.version.clone(),
+        path: Some(sel.path.clone()),
+        engines,
+    }
 }
 
 // §2.2: the temporary --mcp-config. It registers Spool's own executable with `--mcp`,
@@ -300,10 +412,10 @@ pub fn mcp_config_json(exe: &str) -> String {
     .to_string()
 }
 
-/// The argv for one headless run, minus the binary itself. Split out from spawning so the
-/// permission-critical parts (§2.4 probe 2: no tool outside the Spool whitelist can be
-/// reached) are assertable in a unit test without a live CLI.
-pub fn run_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> {
+/// The argv for one headless `claude` run, minus the binary itself. Split out from spawning
+/// so the permission-critical parts (§2.4 probe 2: no tool outside the Spool whitelist can
+/// be reached) are assertable in a unit test without a live CLI.
+pub fn claude_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> {
     vec![
         "-p".into(),
         prompt.into(),
@@ -318,6 +430,92 @@ pub fn run_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> 
     ]
 }
 
+// §7.3 said this cell was "to be measured". Measured on 2026-08-06 against codex-cli
+// 0.146.1, and the answer is better than the design feared.
+//
+// The worry was that codex reads a PERSISTENT config (~/.codex/config.toml) rather than a
+// throwaway one, so pointing it at Spool's MCP server would also hand the run every other
+// server the user has — on the author's own machine that meant a browser driver, a
+// computer-use client and a node REPL. `--ignore-user-config` closes exactly that hole,
+// and its help text is explicit that it is only the config that is skipped: "auth still
+// uses CODEX_HOME". Verified both halves: a run with this flag never loaded the user's
+// servers (the spool server was spawned with the argv and env WE passed, nothing else was),
+// and it still authenticated far enough to reach OpenAI and come back with an
+// account-level answer. So the boundary a temp `--mcp-config` gives claude is available
+// here too; it is just spelled with `-c` overrides instead of a file.
+//
+// Two honest gaps to say out loud rather than paper over:
+//   * **The shell tool cannot be removed.** `tools.shell` is not a config key (probed with
+//     `--strict-config`, which rejects unknown fields). claude's `--allowedTools` denies
+//     Bash outright; codex has no equivalent. The lever that does exist is
+//     `--sandbox read-only`, which is passed below: model-run commands cannot write to the
+//     user's disk. §7.3 asked for the degradation to be stated plainly if it could not be
+//     closed — the settings page says it.
+//   * **No `--max-turns` equivalent.** The run's only ceiling is the timeout, which is
+//     enforced here anyway (clamp_timeout_secs + the kill).
+fn codex_config_overrides(exe: &str) -> Vec<String> {
+    // TOML values, since `-c` parses the right-hand side as TOML. The tool list is the same
+    // constant as claude's whitelist, spelled with bare names because that is what codex's
+    // per-server `enabled_tools` takes (confirmed with `codex mcp get spool`, which echoed
+    // the list back).
+    let tools = ALLOWED_TOOL_NAMES
+        .iter()
+        .map(|t| format!("\"{t}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    vec![
+        // Headless means nobody is there to answer a prompt; without this the run can sit
+        // waiting for an approval that will never come, inside a budget that is billing.
+        "approval_policy=\"never\"".into(),
+        format!("mcp_servers.{MCP_SERVER_NAME}.command={}", toml_string(exe)),
+        format!("mcp_servers.{MCP_SERVER_NAME}.args=[\"--mcp\"]"),
+        format!("mcp_servers.{MCP_SERVER_NAME}.enabled_tools=[{tools}]"),
+    ]
+}
+
+/// A TOML basic string. Paths come from `current_exe()` so quotes and backslashes are not
+/// expected, but a mis-escaped value here would silently become a DIFFERENT command for the
+/// agent to run, which is not a thing to leave to expectation.
+fn toml_string(s: &str) -> String {
+    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+/// The argv for one headless `codex` run. `exe` is Spool's own binary — codex takes its MCP
+/// servers as config overrides, so there is no temp file on this path.
+pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "exec".into(),
+        // Do not load ~/.codex/config.toml: the user's own MCP servers, plugins and model
+        // choice stay out of this run. Auth is unaffected (see the note above).
+        "--ignore-user-config".into(),
+        // Spool runs from wherever the app was launched, which is not a git repo. Without
+        // this codex refuses to start.
+        "--skip-git-repo-check".into(),
+        // The only sandbox lever codex offers, and the reason the missing shell whitelist
+        // is a degradation rather than a hole: whatever the model runs cannot write.
+        "--sandbox".into(),
+        "read-only".into(),
+        // Events as JSONL. The failure path is read from these — a `turn.failed` carries
+        // the CLI's own words, which is what the toast should show ("you've hit your usage
+        // limit", "not logged in") rather than something Spool invented.
+        "--json".into(),
+        // The final message goes to a file rather than being dug out of the event stream.
+        // Deliberate: the failure shape is verified (a real run produced it), the success
+        // shape is not, and guessing at an event schema to recover a string that only
+        // decorates a toast would be the fragile half of this parser.
+        "-o".into(),
+        last_message_path.into(),
+    ];
+    for c in codex_config_overrides(exe) {
+        args.push("-c".into());
+        args.push(c);
+    }
+    // Positional, and last: everything above is a flag.
+    args.push(prompt.into());
+    args
+}
+
 /// §2.2 minimal env for a run. Everything else is cleared; these three are each load-bearing:
 ///
 /// * `PATH` — the CLI shells out (it re-launches itself as its own MCP client).
@@ -329,11 +527,19 @@ pub fn run_args(prompt: &str, config_path: &str, max_turns: u32) -> Vec<String> 
 ///   they are not. Cost us a session on 2026-08-06; bisected one variable at a time, and
 ///   `LOGNAME` alone does **not** substitute.
 ///
-/// Split out from spawning so the list is assertable without a live CLI (same reason as
-/// `run_args`) — nothing else fails this loudly for so small an omission.
-pub fn run_env() -> Vec<(&'static str, std::ffi::OsString)> {
-    ["PATH", "HOME", "USER"]
-        .into_iter()
+/// `CODEX_HOME` joins them for codex: its credentials live in `$CODEX_HOME/auth.json`
+/// (default `~/.codex`), so a user who moved it would be logged out here and nowhere else —
+/// the same shape of bug `USER` just cost us, and one line to prevent. It is passed only
+/// when the user actually set it; an empty default would point codex at nothing.
+///
+/// Split out from spawning so the list is assertable without a live CLI (same reason as the
+/// arg builders) — nothing else fails this loudly for so small an omission.
+pub fn run_env(kind: EngineKind) -> Vec<(&'static str, std::ffi::OsString)> {
+    let mut keys: Vec<&'static str> = vec!["PATH", "HOME", "USER"];
+    if kind == EngineKind::Codex {
+        keys.push("CODEX_HOME");
+    }
+    keys.into_iter()
         .filter_map(|k| std::env::var_os(k).map(|v| (k, v)))
         .collect()
 }
@@ -357,6 +563,35 @@ pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
         .map_err(|e| format!("could not read the CLI's JSON output: {e}"))
 }
 
+/// `codex exec --json` answers with one JSON object per line, not one envelope. Only the
+/// failure carries anything Spool must read: `{"type":"error","message":…}` and
+/// `{"type":"turn.failed","error":{"message":…}}` — verified against a real run on
+/// 2026-08-06, where the pair reported "You've hit your usage limit … try again at Sep 4th".
+/// That sentence is the single most useful thing a failed run can hand the user, and it is
+/// the CLI's to word, never ours.
+///
+/// The success text is NOT dug out of here (see `codex_args`): it is read from the
+/// `-o` file. Lines that do not parse are skipped rather than failing the run — the event
+/// schema belongs to codex and may grow, while what this function needs from it is one
+/// error string.
+pub fn parse_codex_error(stdout: &str) -> Option<String> {
+    let mut last = None;
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        let msg = match v.get("type").and_then(|t| t.as_str()) {
+            Some("error") => v.get("message").and_then(|m| m.as_str()),
+            Some("turn.failed") => v.pointer("/error/message").and_then(|m| m.as_str()),
+            _ => None,
+        };
+        if let Some(m) = msg.map(str::trim).filter(|m| !m.is_empty()) {
+            last = Some(m.to_string());
+        }
+    }
+    last
+}
+
 /// One headless run, start to finish.
 ///
 /// The prompt is not built here — it comes from mcp.rs, the same constant source the MCP
@@ -367,7 +602,12 @@ pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
 /// Blocks the AI writes land through MCP while this runs; there is no rollback and none is
 /// wanted (append-only, §2.3). A timeout or a cancel therefore means "stopped", not
 /// "undone" — the caller says so in the toast.
-pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<RunEnvelope, String> {
+pub fn run_action(
+    preferred: Option<EngineKind>,
+    prompt: &str,
+    timeout_secs: u64,
+    max_turns: u32,
+) -> Result<RunEnvelope, String> {
     // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
     // one window's JS; a second window, or a hand-issued invoke, would otherwise start a
     // second run — and RUNNING_PGID holds exactly one process group, so the cancel button
@@ -376,23 +616,36 @@ pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<Run
     if RUNNING_PGID.load(Ordering::SeqCst) != 0 {
         return Err("a maintenance run is already in flight".into());
     }
-    let status = detect();
-    let (Some(bin), true) = (status.path.as_deref(), status.available) else {
-        return Err("Claude Code CLI not found".into());
+    let status = detect(preferred);
+    let (Some(bin), Some(kind)) = (status.path.as_deref(), status.selected) else {
+        return Err("no AI engine CLI found".into());
     };
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let cfg_dir = std::env::temp_dir();
-    // One file per process, which is also one per run given the guard above. It is
-    // rewritten at the start of every run and deleted at the end, so a stale copy left by
-    // a killed run is overwritten rather than inherited.
-    let cfg_path = cfg_dir.join(format!("spool-mcp-{}.json", std::process::id()));
-    std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
-        .map_err(|e| format!("could not write the MCP config: {e}"))?;
+    let tmp = std::env::temp_dir();
+    // One file per process, which is also one per run given the guard above. Rewritten at
+    // the start of every run and deleted at the end, so a stale copy left by a killed run
+    // is overwritten rather than inherited.
+    let cfg_path = tmp.join(format!("spool-mcp-{}.json", std::process::id()));
+    // codex writes its final message here instead of Spool parsing it out of the event
+    // stream; claude never touches it.
+    let msg_path = tmp.join(format!("spool-engine-msg-{}.txt", std::process::id()));
 
     let mut cmd = std::process::Command::new(bin);
-    cmd.args(run_args(prompt, &cfg_path.to_string_lossy(), max_turns));
+    match kind {
+        EngineKind::Claude => {
+            std::fs::write(&cfg_path, mcp_config_json(&exe.to_string_lossy()))
+                .map_err(|e| format!("could not write the MCP config: {e}"))?;
+            cmd.args(claude_args(prompt, &cfg_path.to_string_lossy(), max_turns));
+        }
+        EngineKind::Codex => {
+            // A leftover from a killed run would otherwise be read back as this run's
+            // answer — the file is only written when the CLI has something to say.
+            let _ = std::fs::remove_file(&msg_path);
+            cmd.args(codex_args(prompt, &exe.to_string_lossy(), &msg_path.to_string_lossy()));
+        }
+    }
     cmd.env_clear();
-    for (k, v) in run_env() {
+    for (k, v) in run_env(kind) {
         cmd.env(k, v);
     }
     // §2.2: its own process group, so a cancel or a timeout takes the CLI's children with
@@ -420,17 +673,49 @@ pub fn run_action(prompt: &str, timeout_secs: u64, max_turns: u32) -> Result<Run
 
     let out = result?;
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    let finish = |r: Result<RunEnvelope, String>| {
+        let _ = std::fs::remove_file(&msg_path);
+        r
+    };
     if !out.status.success() {
         // §2.3: the CLI's own words are the most useful thing here (not logged in, over
-        // quota, …), so pass them through instead of inventing a message.
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if stderr.is_empty() { stdout.trim().to_string() } else { stderr });
+        // quota, …), so pass them through instead of inventing a message. For codex those
+        // words are in the event stream, not on stderr — stderr carries log noise.
+        let said = match kind {
+            EngineKind::Codex => parse_codex_error(&stdout),
+            EngineKind::Claude => None,
+        };
+        return finish(Err(said.unwrap_or_else(|| {
+            if stderr.is_empty() { stdout.trim().to_string() } else { stderr }
+        })));
     }
-    let env = parse_run_output(&stdout)?;
-    if env.is_error {
-        return Err(if env.result.is_empty() { "the CLI reported a failure".into() } else { env.result });
+    match kind {
+        EngineKind::Claude => {
+            let env = parse_run_output(&stdout)?;
+            if env.is_error {
+                return Err(if env.result.is_empty() {
+                    "the CLI reported a failure".into()
+                } else {
+                    env.result
+                });
+            }
+            Ok(env)
+        }
+        EngineKind::Codex => {
+            // A zero exit that still reported an error in the stream is a failure — trust
+            // what it said over what it returned.
+            if let Some(said) = parse_codex_error(&stdout) {
+                return finish(Err(said));
+            }
+            // The text is for the toast only; blocks the run wrote are already in the
+            // database through MCP. An unwritten or empty file is therefore not an error —
+            // "finished, nothing new" is a legitimate outcome and the caller counts the
+            // blocks itself rather than believing this string.
+            let result = std::fs::read_to_string(&msg_path).unwrap_or_default().trim().to_string();
+            finish(Ok(RunEnvelope { is_error: false, result, num_turns: None }))
+        }
     }
-    Ok(env)
 }
 
 #[cfg(test)]
@@ -441,6 +726,9 @@ mod tests {
     fn version_parsing_keeps_the_number_and_tolerates_noise() {
         assert_eq!(parse_version("2.0.50 (Claude Code)"), Some("2.0.50".into()));
         assert_eq!(parse_version("  2.1.0\n"), Some("2.1.0".into()));
+        // Real output of codex-cli 0.146.1 — the number is the SECOND token here, which is
+        // why "take token one" is not enough.
+        assert_eq!(parse_version("codex-cli 0.146.1"), Some("0.146.1".into()));
         // Unparseable but non-empty still yields something — availability is decided by
         // the binary answering, not by the shape of this string.
         assert_eq!(parse_version("weird"), Some("weird".into()));
@@ -452,9 +740,11 @@ mod tests {
     // the CLI. `USER` looks droppable and is not — see `run_env`.
     #[test]
     fn run_env_carries_the_three_load_bearing_vars() {
-        let names: Vec<&str> = run_env().into_iter().map(|(k, _)| k).collect();
-        for k in ["PATH", "HOME", "USER"] {
-            assert!(names.contains(&k), "{k} must be handed to the CLI");
+        for kind in EngineKind::ALL {
+            let names: Vec<&str> = run_env(kind).into_iter().map(|(k, _)| k).collect();
+            for k in ["PATH", "HOME", "USER"] {
+                assert!(names.contains(&k), "{k} must be handed to {}", kind.as_str());
+            }
         }
     }
 
@@ -462,7 +752,55 @@ mod tests {
     fn missing_status_renders_nothing() {
         let s = EngineStatus::missing();
         assert!(!s.available);
-        assert!(s.version.is_none() && s.path.is_none());
+        assert!(s.version.is_none() && s.path.is_none() && s.selected.is_none());
+        assert!(s.engines.is_empty());
+    }
+
+    // §7.4. The interesting case is the last one: a preference naming an engine that is not
+    // installed must fall back, not dead-end — the user may have uninstalled it, and the
+    // setting that names it is not something they would think to go and change.
+    #[test]
+    fn engine_selection_follows_the_user_then_the_default_order() {
+        let claude =
+            DetectedEngine { kind: EngineKind::Claude, version: None, path: "/c".into() };
+        let codex = DetectedEngine { kind: EngineKind::Codex, version: None, path: "/x".into() };
+        let both = vec![claude.clone(), codex.clone()];
+        assert_eq!(select(&both, None).unwrap().kind, EngineKind::Claude);
+        assert_eq!(select(&both, Some(EngineKind::Codex)).unwrap().kind, EngineKind::Codex);
+        // Only one installed: it is used whatever the setting says.
+        let only_codex = vec![codex];
+        assert_eq!(select(&only_codex, None).unwrap().kind, EngineKind::Codex);
+        assert_eq!(select(&only_codex, Some(EngineKind::Claude)).unwrap().kind, EngineKind::Codex);
+        assert!(select(&[], Some(EngineKind::Claude)).is_none());
+    }
+
+    #[test]
+    fn engine_kind_round_trips_through_the_wire_name() {
+        for kind in EngineKind::ALL {
+            assert_eq!(EngineKind::parse(kind.as_str()), Some(kind));
+            // The name crosses to JS as a bare lowercase string; a rename on either side
+            // would silently become "preference not recognised, fall back to claude".
+            assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{}\"", kind.as_str()));
+        }
+        assert_eq!(EngineKind::parse("gemini"), None);
+        assert_eq!(EngineKind::parse(""), None);
+    }
+
+    // The engine slot is invisible unless the CLI is found, so detection failing is the
+    // same thing as the feature not existing. nvm is the case that broke: it keeps a bin
+    // directory per node version, and `npm i -g` on this machine put codex inside one.
+    #[test]
+    fn candidate_paths_cover_the_version_managed_install_dirs() {
+        let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+        for kind in EngineKind::ALL {
+            let paths = candidate_paths(kind);
+            assert!(
+                paths.iter().all(|p| p.file_name().unwrap() == kind.binary()),
+                "every candidate must end in the binary's own name"
+            );
+            assert!(paths.iter().any(|p| p.starts_with(home.join(".local/bin"))));
+            assert!(paths.iter().any(|p| p.starts_with("/opt/homebrew/bin")));
+        }
     }
 
     // §2.2 / §2.4 probe 2: the whitelist is the whole security story of this module, so
@@ -470,7 +808,7 @@ mod tests {
     // would hand a subprocess Bash on the user's machine.
     #[test]
     fn run_args_only_ever_allow_spool_tools() {
-        let args = run_args("提炼一下", "/tmp/cfg.json", 12);
+        let args = claude_args("提炼一下", "/tmp/cfg.json", 12);
         let pos = |flag: &str| args.iter().position(|a| a == flag).expect(flag);
         let whitelist = &args[pos("--allowedTools") + 1];
         // ⚠️ No wildcard: claude 2.0.50 does not expand one, and a `*` here means every
@@ -498,6 +836,92 @@ mod tests {
         }
         // Exactly one whitelist flag — a second one would silently widen the first.
         assert_eq!(args.iter().filter(|a| *a == "--allowedTools").count(), 1);
+    }
+
+    // §7.3, and the same job the test above does for claude. Every flag asserted here was
+    // run against codex-cli 0.146.1 on 2026-08-06 — `--strict-config` rejects unknown
+    // config keys, so the overrides below are known-good rather than plausible.
+    #[test]
+    fn codex_args_isolate_the_run_from_the_users_own_config() {
+        let args = codex_args("提炼一下", "/Applications/Spool.app/Contents/MacOS/spool", "/tmp/m.txt");
+        assert_eq!(args[0], "exec");
+        // The prompt is positional and must stay last — anything after it would be read as
+        // a subcommand, not a flag.
+        assert_eq!(args.last().unwrap(), "提炼一下");
+        let has = |f: &str| args.iter().any(|a| a == f);
+        // THE boundary flag: without it the run inherits every MCP server, plugin and
+        // browser driver in ~/.codex/config.toml. Auth survives it (verified).
+        assert!(has("--ignore-user-config"), "the user's own config must not load");
+        assert!(has("--skip-git-repo-check"), "Spool does not run from a git repo");
+        // The only lever codex offers in place of a tool whitelist.
+        let sandbox = args.iter().position(|a| a == "--sandbox").expect("--sandbox");
+        assert_eq!(args[sandbox + 1], "read-only");
+        assert!(has("--json"));
+        let out = args.iter().position(|a| a == "-o").expect("-o");
+        assert_eq!(args[out + 1], "/tmp/m.txt");
+
+        let overrides: Vec<&String> = args
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i > 0 && args[i - 1] == "-c")
+            .map(|(_, a)| a)
+            .collect();
+        assert!(overrides.iter().any(|o| o.as_str() == "approval_policy=\"never\""),
+            "a headless run must never wait for an approval nobody can give");
+        assert!(overrides
+            .iter()
+            .any(|o| o.starts_with("mcp_servers.spool.command=\"/Applications/Spool.app")));
+        assert!(overrides.iter().any(|o| o.as_str() == "mcp_servers.spool.args=[\"--mcp\"]"));
+        // The whitelist, same constant as claude's — a tool absent from it cannot be
+        // reached, and one added to mcp.rs without being added there simply will not work.
+        let tools = overrides
+            .iter()
+            .find(|o| o.starts_with("mcp_servers.spool.enabled_tools="))
+            .expect("the tool allow list must be passed");
+        for t in ALLOWED_TOOL_NAMES {
+            assert!(tools.contains(&format!("\"{t}\"")), "{t} missing from enabled_tools");
+        }
+        assert_eq!(tools.matches('"').count(), ALLOWED_TOOL_NAMES.len() * 2);
+        // The escape hatches, in this CLI's spelling.
+        for forbidden in [
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--dangerously-bypass-hook-trust",
+            "--full-auto",
+            "danger-full-access",
+            "workspace-write",
+        ] {
+            assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must never be passed");
+        }
+    }
+
+    // A path is interpolated into a TOML value, so it has to survive being one.
+    #[test]
+    fn codex_config_quotes_a_path_as_toml() {
+        assert_eq!(toml_string("/Applications/Spool.app/x"), "\"/Applications/Spool.app/x\"");
+        assert_eq!(toml_string(r#"/tmp/we"ird\path"#), r#""/tmp/we\"ird\\path""#);
+    }
+
+    // Verbatim from a real failed run on 2026-08-06 (the account was out of Codex quota).
+    // The user reading that toast needs the CLI's sentence, not a Spool paraphrase.
+    #[test]
+    fn codex_failure_is_read_out_of_the_event_stream() {
+        let stream = concat!(
+            r#"{"type":"thread.started","thread_id":"019fd4c5"}"#,
+            "\n",
+            r#"{"type":"turn.started"}"#,
+            "\n",
+            r#"{"type":"error","message":"You've hit your usage limit."}"#,
+            "\n",
+            r#"{"type":"turn.failed","error":{"message":"You've hit your usage limit."}}"#,
+            "\n",
+        );
+        assert_eq!(parse_codex_error(stream).as_deref(), Some("You've hit your usage limit."));
+        // A run that said nothing wrong reports nothing wrong.
+        assert_eq!(parse_codex_error(r#"{"type":"turn.started"}"#), None);
+        // Half a line, or a schema that grew a field, must not fail the run: the success
+        // text does not come from here.
+        assert_eq!(parse_codex_error("not json\n{\"type\":\"turn.completed\"}"), None);
+        assert_eq!(parse_codex_error(""), None);
     }
 
     // The config names Spool's own binary as the server. If this ever pointed elsewhere,
@@ -597,4 +1021,3 @@ mod tests {
         let _ = std::fs::remove_file(&marker);
     }
 }
-

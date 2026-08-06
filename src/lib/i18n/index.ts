@@ -364,13 +364,21 @@ const EN: Record<string, string> = {
   '语言 / Language': 'Language / 语言',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
-  // DESIGN_AI_ENGINE §1.4 / §3 — the Claude Code engine slot.
+  // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).
   '本机 AI 引擎': 'On-machine AI engine',
-  '检测到你已安装 Claude Code 时，项目菜单里会多出「让 AI 维护」——用你自己的 Claude 订阅跑，Spool 不存任何 API key，也不联网。':
-    'When Claude Code is detected on this machine, a "Let AI maintain" group appears in the project menu. It runs on your own Claude subscription — Spool stores no API key and still never goes online.',
+  '检测到你装了 Claude Code 或 Codex 时，项目菜单里会多出「让 AI 维护」——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
+    'When Claude Code or Codex is detected on this machine, a "Let AI maintain" group appears in the project menu. It runs through the CLI you are already logged into — Spool stores no API key and still never goes online.',
   '检测中…': 'Checking…',
   '✓ 已检测到': '✓ Found',
-  '未检测到 Claude Code': 'Claude Code not found',
+  '没检测到 Claude Code，也没检测到 Codex': 'Neither Claude Code nor Codex found',
+  '装 Claude Code': 'Get Claude Code',
+  '装 Codex': 'Get Codex',
+  '、': ', ',
+  '用哪个引擎': 'Engine to use',
+  '两个都装了。跑的是哪个，用的就是那个账号的额度。':
+    'Both are installed. Whichever runs is the account whose allowance gets spent.',
+  'Codex 这条路有一处关不掉：它自带的终端工具没法摘掉（Claude Code 那边可以）。Spool 能做的是把它锁成只读——它读得到东西，但改不了你机器上的文件。':
+    'One thing cannot be switched off on the Codex route: its built-in terminal tool has no off switch (Claude Code does). What Spool can do is lock it to read-only — it can look at things, but it cannot change files on your machine.',
   '安装方法': 'How to install',
   '在项目菜单里显示 AI 维护动作': 'Show AI maintenance actions in the project menu',
   '需要上面两个开关都打开——AI 维护的产出是写回一块，读权限不够用。':
@@ -384,12 +392,12 @@ const EN: Record<string, string> = {
   '整理去重': 'Tidy up duplicates',
   '生成周回顾': 'Write a weekly review',
   'AI 整理中…': 'AI working…',
-  '用本机的 Claude Code 把这条脉络提炼成一块结论':
-    'Use the Claude Code on this machine to distil this thread into one conclusion block',
-  '让本机的 Claude Code 查一遍重复块、失效引用，看摘要过没过期':
-    'Have the Claude Code on this machine look for duplicate blocks and dead citations, and judge whether the summary has gone stale',
-  '让本机的 Claude Code 回顾最近一周——跨所有项目，不只这一个':
-    'Have the Claude Code on this machine look back over the past week — across every project, not just this one',
+  '用本机的 {engine} 把这条脉络提炼成一块结论':
+    'Use the {engine} on this machine to distil this thread into one conclusion block',
+  '让本机的 {engine} 查一遍重复块、失效引用，看摘要过没过期':
+    'Have the {engine} on this machine look for duplicate blocks and dead citations, and judge whether the summary has gone stale',
+  '让本机的 {engine} 回顾最近一周——跨所有项目，不只这一个':
+    'Have the {engine} on this machine look back over the past week — across every project, not just this one',
   // M2 §1.2 — the running pill, and what the queue behind it says.
   '{action}中': '{action} running',
   '{action}中 · 还排着 {n} 个': '{action} running · {n} waiting',

@@ -16,7 +16,7 @@ import type { Thread } from '@/lib/db/threads';
 import { isDormant } from '@/lib/threads/dormancy';
 import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { ACTION_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
+import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -41,23 +41,25 @@ interface Props {
 const CONTENT_WARN_THRESHOLD = 20_000;
 
 // DESIGN_AI_ENGINE §1.1 — the three actions, in the design's own order and wording. Each
-// runs the MCP prompt of the same name through the local `claude`; the hint is what the
-// user sees on hover, so it says what comes out, not which tool it calls.
+// runs the MCP prompt of the same name through whichever engine CLI is selected; the hint
+// is what the user sees on hover, so it says what comes out, and names the engine because
+// after §7 that is no longer a constant — a hover that said "Claude Code" while the run
+// went to Codex would be the header lying about the user's own machine.
 const ENGINE_ACTIONS: { action: EngineAction; label: string; hint: string }[] = [
   {
     action: 'thread_health',
     label: '整理去重',
-    hint: '让本机的 Claude Code 查一遍重复块、失效引用，看摘要过没过期',
+    hint: '让本机的 {engine} 查一遍重复块、失效引用，看摘要过没过期',
   },
   {
     action: 'distill',
     label: '提炼结论',
-    hint: '用本机的 Claude Code 把这条脉络提炼成一块结论',
+    hint: '用本机的 {engine} 把这条脉络提炼成一块结论',
   },
   {
     action: 'weekly_review',
     label: '生成周回顾',
-    hint: '让本机的 Claude Code 回顾最近一周——跨所有项目，不只这一个',
+    hint: '让本机的 {engine} 回顾最近一周——跨所有项目，不只这一个',
   },
 ];
 
@@ -385,7 +387,7 @@ export default function ThreadHeader({
                         enqueueEngine(thread.id, thread.title, action, aiEngineTimeoutSecs);
                       }}
                       disabled={engineBusy}
-                      title={t(hint)}
+                      title={t(hint, { engine: ENGINE_LABEL[engineStatus?.selected ?? 'claude'] })}
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink disabled:cursor-default disabled:text-muted disabled:hover:bg-transparent"
                     >
                       <Sparkles size={12} className="flex-none" />

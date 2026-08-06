@@ -315,34 +315,83 @@ export default function McpConfig() {
       <div className="mt-3 border-t border-line pt-2.5">
         <div className="text-sm text-ink">{t('本机 AI 引擎')}</div>
         <div className="mt-0.5 text-xs text-muted">
-          {t('检测到你已安装 Claude Code 时，项目菜单里会多出「让 AI 维护」——用你自己的 Claude 订阅跑，Spool 不存任何 API key，也不联网。')}
+          {t('检测到你装了 Claude Code 或 Codex 时，项目菜单里会多出「让 AI 维护」——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。')}
         </div>
-        <div className="mt-1.5 flex items-center gap-2 text-xs">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           {engineStatus === null ? (
             <span className="text-muted">{t('检测中…')}</span>
           ) : engineStatus.available ? (
             <span style={{ color: 'var(--status-active)' }}>
-              {t('✓ 已检测到')} claude {engineStatus.version ?? ''}
+              {t('✓ 已检测到')}{' '}
+              {engineStatus.engines
+                .map((e) => `${e.kind} ${e.version ?? ''}`.trim())
+                .join(t('、'))}
             </span>
           ) : (
             <>
-              <span className="text-muted">{t('未检测到 Claude Code')}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  void invoke('open_mcp_client_page', { client: 'claude-code' }).catch((e) =>
-                    console.warn('[settings] open claude-code page failed', e),
-                  )
-                }
-                className="text-accent underline-offset-2 hover:underline"
-              >
-                {t('安装方法')}
-              </button>
+              <span className="text-muted">{t('没检测到 Claude Code，也没检测到 Codex')}</span>
+              {/* §7.4: when nothing is installed, BOTH routes are shown — this line is the
+                  only place a user without a Claude subscription finds out the slot exists
+                  at all. Neither is presented as free: 2026-08-06 measured Codex's free
+                  tier running out and locking the account for a month. */}
+              {(['claude-code', 'codex'] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() =>
+                    void invoke('open_mcp_client_page', { client: c }).catch((e) =>
+                      console.warn('[settings] open install page failed', e),
+                    )
+                  }
+                  className="text-accent underline-offset-2 hover:underline"
+                >
+                  {c === 'codex' ? t('装 Codex') : t('装 Claude Code')}
+                </button>
+              ))}
             </>
           )}
         </div>
         {engineStatus?.available && (
           <>
+            {/* §7.4: a picker only when there is something to pick. One engine installed
+                means there is no decision to put in front of the user. */}
+            {engineStatus.engines.length > 1 && (
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-sm text-ink">{t('用哪个引擎')}</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    {t('两个都装了。跑的是哪个，用的就是那个账号的额度。')}
+                  </div>
+                </div>
+                <select
+                  value={engineStatus.selected ?? ''}
+                  onChange={(e) =>
+                    void update({ aiEngine: e.target.value as 'claude' | 'codex' }).then(
+                      // The status line, the caveat below and the gate all read `selected`,
+                      // which only Rust resolves — so the pick has to go back through it.
+                      probeEngine,
+                    )
+                  }
+                  className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-xs text-ink outline-none focus:border-accent"
+                >
+                  {engineStatus.engines.map((e) => (
+                    <option key={e.kind} value={e.kind}>
+                      {e.kind}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* §7.3 asked for the degradation to be stated plainly rather than papered
+                over. Measured against codex-cli 0.146.1: its shell tool cannot be switched
+                off (there is no config key for it), where claude's whitelist denies Bash
+                outright. Read-only sandboxing is the lever that does exist, and it is
+                passed on every run. */}
+            {engineStatus.selected === 'codex' && (
+              <div className="mt-2 rounded border border-line bg-paper-2/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted">
+                {t('Codex 这条路有一处关不掉：它自带的终端工具没法摘掉（Claude Code 那边可以）。Spool 能做的是把它锁成只读——它读得到东西，但改不了你机器上的文件。')}
+              </div>
+            )}
             <div className="mt-2 flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="text-sm text-ink">{t('在项目菜单里显示 AI 维护动作')}</div>

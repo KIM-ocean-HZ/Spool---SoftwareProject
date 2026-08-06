@@ -20,9 +20,14 @@ fn mcp_exe_path() -> Result<String, String> {
 // DESIGN_AI_ENGINE §1.4 / §2.1: the settings status line and the render gate for the
 // "let AI maintain" actions. Absent CLI is the default state, not an error — the caller
 // simply renders nothing (§0).
+//
+// §7.4: `preferred` is the user's engine pick from settings, and it matters only when both
+// CLIs are installed. An unrecognised name is treated as "no preference" rather than
+// refused: this value crosses from JS, and the cost of being strict about it is a settings
+// page that says no engine is available while one sits installed on the machine.
 #[tauri::command]
-fn ai_engine_status() -> engine::EngineStatus {
-    engine::detect()
+fn ai_engine_status(preferred: Option<String>) -> engine::EngineStatus {
+    engine::detect(preferred.as_deref().and_then(engine::EngineKind::parse))
 }
 
 // DESIGN_AI_ENGINE §5 M2: all three actions. The prompt comes from mcp.rs's
@@ -35,6 +40,7 @@ async fn ai_engine_run(
     action: String,
     project: String,
     timeout_secs: u64,
+    engine: Option<String>,
 ) -> Result<String, String> {
     // An unknown name is refused outright rather than falling through to a default: a
     // typo that silently ran a different action against the user's library would be worse
@@ -53,8 +59,10 @@ async fn ai_engine_run(
         };
         let prompt = mcp::guidance_text(&action, &args)?;
         // max_turns: the agentic loop needs a few turns (read the material, then write one
-        // block); 12 is generous for that and still a hard stop.
-        engine::run_action(&prompt, timeout_secs, 12).map(|env| env.result)
+        // block); 12 is generous for that and still a hard stop. It reaches claude only —
+        // codex has no equivalent flag, so there the timeout is the whole ceiling (§7.3).
+        let preferred = engine.as_deref().and_then(engine::EngineKind::parse);
+        engine::run_action(preferred, &prompt, timeout_secs, 12).map(|env| env.result)
     })
     .await
     .map_err(|e| e.to_string())?
