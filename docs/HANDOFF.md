@@ -19,18 +19,37 @@
 
 基线全绿:`npx tsc --noEmit` / `npx vitest run`(**210**,原 193)/ `cargo test`(**39**,原 38)。
 
-### 0.1 ⚠️⚠️ 三条会咬人的,先看
+### 0.1 ✅ 已换装(2026-08-06 16:07,Ocean 明示)
 
-1. **schema 升到 v12 了,而 `/Applications/Spool.app` 还是 v11 的构建。**
-   Ocean 的真库现在**还是 v11,没被碰过**(本窗核对过)。
-   **但只要有人拿新代码跑一次 GUI,他的真库就会迁到 v12,那一刻装着的那版 app 就读不动了**
-   (`mcp.rs` 有版本守卫)。**下一窗要么别动 GUI,要么一次做完「构建 + 换装」。**
-2. **`src-tauri/target/release/bundle/macos/Spool.app` 现在是 `com.oceanjin.spool.wb` 的隔离构建**
-   (本窗验证用的,identifier 已复位但产物没重建)。
-   **直接拿它换装 = 指向空数据目录 = 看起来「数据全没了」**(memory §21 ①)。
-   换装前必须 `plutil -extract CFBundleIdentifier raw <app>/Contents/Info.plist` 核一遍。
-3. **本窗新增的界面 Ocean 还没看过。** 我自己拿隔离构建看过窗口了(§2.6,没白屏、右侧栏正常),
-   但那是**空库**;他真库里有数据、有待审提案的样子没人见过。
+`/Applications/Spool.app` **已经是新版**,真库**已迁到 v12**。
+
+走的流程(memory `isolated-verify-workflow` §21):
+`VACUUM INTO` 备份真库 → 核对**装着的那版是什么签名身份** → 用**同一个身份**构建
+→ 核 identifier + `codesign --verify --deep --strict` → 按 pid 停掉旧进程
+→ 旧版 `mv` 到 `~/Desktop/Spool-旧版备份-2026-08-06T16-07-53/`(**没删**)
+→ `ditto` 新版进 `/Applications` → `open --stdout/--stderr` 抓日志
+→ **行数逐项核对** → 截图看主窗 → MCP 烟雾测试。
+
+结果:
+- **v11 → v12,workspaces 1 / threads 3 / blocks 20 / attachments 0 逐项一致**
+- `engine_runs` 16 列在,`threads.auto_maintain` 在且**全为 NULL**(没有项目被自动打开)
+- 日志无报错,主窗渲染正常(真库内容,不是空库)
+- MCP:**14 个工具**,`list_threads` 正常返回,版本守卫没报错
+- ✅ **`[double-tap] installed at HID/active`** —— **输入监听/辅助功能授权活下来了**。
+  这就是「必须用同一个签名身份构建」的全部意义(memory §21 ②)
+
+⚠️ **换装时把 Ocean 的两个 `spool --mcp` 子进程一起停了**(它们是旧二进制,
+迁到 v12 之后写不进去)。**他要重开一次 MCP 客户端**(Claude Desktop / Claude Code 等),
+否则那边连的是已经没了的进程。
+
+### 0.2 ⚠️ 还剩两条
+
+1. **右侧栏在他机器上默认是收起的**(`railCollapsed` 默认 true,他的 settings.json
+   还没有这个键)。**入口是主窗右上角那个 ⊳ 图标**,点一下就展开,之后会记住。
+   要改成默认展开就是 `settingsStore.ts` 一行 —— 等他说。
+2. **`src-tauri/target/release/bundle` 里现在是正式 identifier 的产物**(这次换装用的),
+   不再是 `.wb`。但**下次隔离验证之后又会变**,换装前永远先
+   `plutil -extract CFBundleIdentifier raw` 核一遍(memory §21 ①)。
 
 ---
 
