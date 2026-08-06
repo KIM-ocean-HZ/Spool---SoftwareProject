@@ -560,11 +560,37 @@ pub fn run_env(kind: EngineKind) -> Vec<(&'static str, std::ffi::OsString)> {
         .collect()
 }
 
+/// DESIGN_WORKBENCH §5 — what a run cost and which model spent it.
+///
+/// Ocean, 2026-08-06: "我在使用过程中对使用了什么模型花了多少额度毫不知情，但这不是免费的".
+/// He was right, and the awkward part is that claude has been reporting all of it in the
+/// same envelope Spool already parses — `RunEnvelope` simply named three fields, and serde
+/// dropped the rest without a word.
+///
+/// ⚠️ **What is NOT here, and cannot be:** how much of the user's plan is left. Neither CLI
+/// reports account-level remaining quota headlessly (claude's `/usage` is interactive). So
+/// Spool can say "this run cost $0.03" and total up its own runs; it must never render
+/// anything that reads as "you have N left".
+///
+/// Every field is optional and every parse is lenient by design: this decorates a card, and
+/// a CLI that renames a field must not turn a successful run into a failed one.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunUsage {
+    /// The model the CLI actually used — not the one we asked for, which may have been
+    /// overridden by a fallback.
+    pub model: Option<String>,
+    pub cost_usd: Option<f64>,
+    /// Everything the run read, cache included. `usage.input_tokens` alone is the
+    /// *uncached* remainder and reads as absurdly small (single digits against a 15k-token
+    /// pack), which would be a more misleading number than none at all.
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+}
+
 /// `claude -p --output-format json` answers with an envelope carrying the final assistant
-/// text plus run metadata. Only two things matter to Spool: did it fail, and what did it
-/// say. Blocks it wrote are already in the database via MCP — this text is for the toast,
-/// never a second write path.
-#[derive(Debug, Clone, Deserialize)]
+/// text plus run metadata. Blocks it wrote are already in the database via MCP — this text
+/// is never a second write path; it is what the user reads on the run card.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct RunEnvelope {
     #[serde(default)]
     pub is_error: bool,
@@ -572,11 +598,50 @@ pub struct RunEnvelope {
     pub result: String,
     #[serde(default)]
     pub num_turns: Option<u32>,
+    /// Filled by `parse_usage` after the envelope is read, not by serde — the fields it
+    /// comes from are spread across the envelope's top level and its `usage` object.
+    #[serde(skip)]
+    pub usage: RunUsage,
+}
+
+/// Pull cost and model out of claude's envelope.
+///
+/// ⚠️ **Measured only as far as "the field names exist".** `total_cost_usd`, `modelUsage`
+/// and `cache_read_input_tokens` are all present as strings in the claude 2.0.50 binary
+/// (checked 2026-08-06 without spending a model call), but the exact nesting has NOT been
+/// confirmed against a live envelope — that costs a run, and DESIGN_AI_ENGINE §7.2 says a
+/// table cell is not filled in until it has been. Hence: every lookup is a miss-tolerant
+/// `Option`, and a shape we do not recognise yields `None` rather than an error. Confirm
+/// against one real run before showing these numbers as authoritative.
+fn parse_usage(v: &serde_json::Value) -> RunUsage {
+    let u = v.get("usage");
+    // Input arrives split across fresh / cache-write / cache-read; the sum is what the run
+    // actually read. Absent fields contribute nothing rather than zeroing the total.
+    let input = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+        .iter()
+        .filter_map(|k| u?.get(k)?.as_u64())
+        .reduce(|a, b| a + b);
+    RunUsage {
+        // modelUsage is keyed BY model name, so the key is the answer. One run, one model
+        // in the ordinary case; a fallback would add a second and the first is still the
+        // one that did the work.
+        model: v
+            .get("modelUsage")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|m| m.keys().next().cloned()),
+        cost_usd: v.get("total_cost_usd").and_then(serde_json::Value::as_f64),
+        input_tokens: input,
+        output_tokens: u.and_then(|u| u.get("output_tokens")?.as_u64()),
+    }
 }
 
 pub fn parse_run_output(stdout: &str) -> Result<RunEnvelope, String> {
-    serde_json::from_str::<RunEnvelope>(stdout.trim())
-        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))
+    let value = serde_json::from_str::<serde_json::Value>(stdout.trim())
+        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
+    let mut env = serde_json::from_value::<RunEnvelope>(value.clone())
+        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
+    env.usage = parse_usage(&value);
+    Ok(env)
 }
 
 /// `codex exec --json` answers with one JSON object per line, not one envelope. Only the
@@ -618,13 +683,17 @@ pub fn parse_codex_error(stdout: &str) -> Option<String> {
 /// Blocks the AI writes land through MCP while this runs; there is no rollback and none is
 /// wanted (append-only, §2.3). A timeout or a cancel therefore means "stopped", not
 /// "undone" — the caller says so in the toast.
+///
+/// Returns which engine ran alongside the envelope: the caller stores it on the run record
+/// (DESIGN_WORKBENCH §4.1), and the answer is resolved HERE — a preference naming an engine
+/// that is not installed falls back (§7.4), so what JS asked for is not what ran.
 pub fn run_action(
     preferred: Option<EngineKind>,
     prompt: &str,
     timeout_secs: u64,
     max_turns: u32,
     web: bool,
-) -> Result<RunEnvelope, String> {
+) -> Result<(EngineKind, RunEnvelope), String> {
     // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
     // one window's JS; a second window, or a hand-issued invoke, would otherwise start a
     // second run — and RUNNING_PGID holds exactly one process group, so the cancel button
@@ -691,7 +760,7 @@ pub fn run_action(
     let out = result?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    let finish = |r: Result<RunEnvelope, String>| {
+    let finish = |r: Result<(EngineKind, RunEnvelope), String>| {
         let _ = std::fs::remove_file(&msg_path);
         r
     };
@@ -717,7 +786,7 @@ pub fn run_action(
                     env.result
                 });
             }
-            Ok(env)
+            Ok((kind, env))
         }
         EngineKind::Codex => {
             // A zero exit that still reported an error in the stream is a failure — trust
@@ -729,8 +798,17 @@ pub fn run_action(
             // database through MCP. An unwritten or empty file is therefore not an error —
             // "finished, nothing new" is a legitimate outcome and the caller counts the
             // blocks itself rather than believing this string.
+            //
+            // ⚠️ Usage is left empty here on purpose. Where codex reports cost in its event
+            // stream — or whether it does — has NOT been measured, and inventing a field
+            // name would put a fabricated number in front of the user. Finding out needs one
+            // run that completes, and this account's codex quota is out until 2026-09-04
+            // (DESIGN_WORKBENCH §5). Until then the card shows "—" for a codex run.
             let result = std::fs::read_to_string(&msg_path).unwrap_or_default().trim().to_string();
-            finish(Ok(RunEnvelope { is_error: false, result, num_turns: None }))
+            finish(Ok((
+                kind,
+                RunEnvelope { is_error: false, result, num_turns: None, usage: RunUsage::default() },
+            )))
         }
     }
 }
@@ -967,6 +1045,43 @@ mod tests {
         // Garbage is a reported failure (§2.3 "输出解析失败"), never a silent success.
         assert!(parse_run_output("not json at all").is_err());
         assert!(parse_run_output("").is_err());
+    }
+
+    // DESIGN_WORKBENCH §5. Ocean 2026-08-06: "对使用了什么模型花了多少额度毫不知情".
+    // The numbers were already arriving and being dropped by a struct that named three
+    // fields — so the thing to assert is that they survive, and that a CLI which renames or
+    // drops them degrades to "unknown" instead of failing an otherwise successful run.
+    #[test]
+    fn usage_is_read_off_the_envelope_and_missing_fields_degrade_to_unknown() {
+        let env = parse_run_output(
+            r#"{"is_error":false,"result":"ok","total_cost_usd":0.0312,
+                "usage":{"input_tokens":4,"cache_creation_input_tokens":12000,
+                         "cache_read_input_tokens":3000,"output_tokens":517},
+                "modelUsage":{"claude-opus-4-6":{"costUSD":0.0312}}}"#,
+        )
+        .unwrap();
+        assert_eq!(env.usage.cost_usd, Some(0.0312));
+        assert_eq!(env.usage.model.as_deref(), Some("claude-opus-4-6"));
+        // Fresh + cache-write + cache-read. `input_tokens` alone would say 4, against a pack
+        // of thousands — a number worse than none.
+        assert_eq!(env.usage.input_tokens, Some(15_004));
+        assert_eq!(env.usage.output_tokens, Some(517));
+
+        // An envelope with none of it is still a good run; the card shows "—".
+        let bare = parse_run_output(r#"{"is_error":false,"result":"ok"}"#).unwrap();
+        assert_eq!(bare.usage, RunUsage::default());
+        assert_eq!(bare.result, "ok");
+
+        // ⚠️ The exact nesting above is NOT confirmed against a live envelope (see
+        // parse_usage). A partially-recognised shape must therefore yield what it can and
+        // None for the rest, never an error.
+        let partial =
+            parse_run_output(r#"{"result":"ok","usage":{"output_tokens":7},"modelUsage":{}}"#)
+                .unwrap();
+        assert_eq!(partial.usage.output_tokens, Some(7));
+        assert_eq!(partial.usage.input_tokens, None);
+        assert_eq!(partial.usage.model, None);
+        assert_eq!(partial.usage.cost_usd, None);
     }
 
     // §1.4: the ceiling exists so an agentic loop cannot run unbounded on the user's

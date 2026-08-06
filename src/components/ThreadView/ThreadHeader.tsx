@@ -19,7 +19,6 @@ import { canShowEngineActions, engineActionsDisabled } from '@/lib/engine/gate';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineAction } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import FollowUpPanel from './FollowUpPanel';
 import { useThreadsStore } from '@/stores/threadsStore';
 
 export type ThreadViewMode = 'log' | 'digest';
@@ -58,11 +57,11 @@ const ENGINE_ACTIONS: { action: EngineAction; label: string; hint: string }[] = 
     label: '提炼结论',
     hint: '用本机的 {engine} 把这条脉络提炼成一块结论',
   },
-  {
-    action: 'weekly_review',
-    label: '生成周回顾',
-    hint: '让本机的 {engine} 回顾最近一周——跨所有项目，不只这一个',
-  },
+  // ⚠️ 生成周回顾 used to be the third entry here, and that was wrong from the start —
+  // DESIGN_WORKBENCH §3.4, Ocean 2026-08-06: "周回顾类似周报，是面对所有项目的动作，
+  // 不允许和针对单个项目的动作放在一起". The code already knew: lib.rs passes `{}` for it
+  // because "passing a project would not narrow it, it would just be ignored". It lives in
+  // the right rail now, under the whole library, and files into its own 「回顾」 project.
 ];
 
 // Local-state mirror of the thread title with a 200ms debounced write-back (§8.3) — the
@@ -150,7 +149,9 @@ export default function ThreadHeader({
   // 任务三 #3: the ⋯ overflow menu hosting 完成/重开 and the capture-target switch.
   const [menuOpen, setMenuOpen] = useState(false);
   // DESIGN_FOLLOW_UP §3.2: the brief editor, opened from the ⋯ menu and from nowhere else.
-  const [followUpOpen, setFollowUpOpen] = useState(false);
+  // DESIGN_WORKBENCH §3.2: the brief editor is a single instance owned by App —
+  // the right rail can open the same one, and two local useStates would stack two modals.
+  const setFollowUpOpen = useEngineStore((s) => s.setBriefOpen);
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -593,7 +594,6 @@ export default function ThreadHeader({
           ))}
       </div>
 
-      {followUpOpen && <FollowUpPanel thread={thread} onClose={() => setFollowUpOpen(false)} />}
     </header>
   );
 }

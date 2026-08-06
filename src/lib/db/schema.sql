@@ -31,7 +31,12 @@ CREATE TABLE IF NOT EXISTS threads (
   -- what the last run already saw. NULL brief = follow-up is off for this project, which
   -- is why there is no separate on/off column.
   follow_up_brief    TEXT,
-  follow_up_state    TEXT                         -- JSON: last run time + URLs/fingerprints already proposed
+  follow_up_state    TEXT,                        -- JSON: last run time + URLs/fingerprints already proposed
+  -- v12 (DESIGN_WORKBENCH §4.3): per-project opt-out for automatic maintenance.
+  -- NULL = follow the master switch; 0 = never touch this project automatically.
+  -- Deliberately not a boolean defaulting to 1: "the user has not said" and "the user said
+  -- yes" are different states, and only the first should follow a switch flipped later.
+  auto_maintain      INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_threads_workspace
@@ -174,3 +179,45 @@ CREATE TABLE IF NOT EXISTS proposals (
 
 CREATE INDEX IF NOT EXISTS idx_proposals_batch
   ON proposals(batch_id, sort_order ASC);
+
+-- v12 (DESIGN_WORKBENCH §4.1): what the AI actually said.
+--
+-- This table exists because of a real bug, not a feature request. The three maintenance
+-- prompts all tell the model "say the conclusion to the user first, and store it only
+-- once they agree" — written for a chat client, where a human IS there to agree. Spool's
+-- engine slot runs `claude -p` headless, where nobody can, so the model correctly wrote
+-- the whole answer into its final message and stored nothing. That message reached the
+-- frontend, was assigned to a local variable, and was dropped on the floor; the user got
+-- "跑完了，没有新增块" and reasonably concluded the AI had done nothing.
+--
+-- So: unlike follow-up state (HANDOFF §3.5, "derived view, no table"), this is NOT
+-- derivable from anything. The AI's prose has exactly one copy and it lives here — which
+-- is also what finally gives "say it to the user first, they agree, then it is stored"
+-- somewhere to happen. The prompts stay word for word as they are.
+--
+-- Written only by the app (engineStore), never by the MCP subprocess: one writer, so no
+-- cross-process coordination is needed. Nothing in `blocks` / packs / digests reads it —
+-- a run is not library content until the user presses 存成一块.
+CREATE TABLE IF NOT EXISTS engine_runs (
+  id               TEXT PRIMARY KEY,
+  action           TEXT NOT NULL,             -- distill / thread_health / weekly_review / follow_up_brief / follow_up
+  thread_id        TEXT,                      -- NULL for weekly_review: it is a whole-library action (§3.4)
+  engine           TEXT NOT NULL,             -- claude / codex
+  model            TEXT,                      -- what the CLI reported using; NULL when it did not say
+  outcome          TEXT NOT NULL,             -- ok / failed / cancelled
+  result_text      TEXT,                      -- THE thing that used to be thrown away
+  detail           TEXT,                      -- the CLI's own words on a failure (never a Spool paraphrase)
+  blocks_written   INTEGER NOT NULL DEFAULT 0,
+  proposals_queued INTEGER NOT NULL DEFAULT 0,
+  cost_usd         REAL,                      -- NULL when the CLI did not report it (codex today, §5)
+  input_tokens     INTEGER,
+  output_tokens    INTEGER,
+  started_at       INTEGER NOT NULL,
+  finished_at      INTEGER NOT NULL,
+  reviewed_at      INTEGER                    -- when the user acted on the card; NULL = still waiting on them
+);
+
+-- The two reads this table has: one project's runs (the right rail follows the open
+-- project), and the library-wide feed (weekly reviews, cost totals).
+CREATE INDEX IF NOT EXISTS idx_engine_runs_thread ON engine_runs(thread_id, finished_at DESC);
+CREATE INDEX IF NOT EXISTS idx_engine_runs_time ON engine_runs(finished_at DESC);

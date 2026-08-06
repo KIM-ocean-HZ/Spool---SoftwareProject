@@ -32,7 +32,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
 // and attachments), the v10 review queue, then attachments → blocks → threads →
@@ -342,6 +342,51 @@ const MIGRATIONS: Migration[] = [
         } catch (e) {
           console.info(`[db] ${col}: not added (likely exists)`, e);
         }
+      }
+    },
+  },
+  {
+    // v12 (DESIGN_WORKBENCH §4.1): one brand-new table, and not one column of an existing
+    // table moves — so a database that walks this step comes out behaving exactly as it
+    // did before, and an interrupted run leaves every block, thread and workspace as it
+    // was. CREATE ... IF NOT EXISTS is each step's own guard.
+    from: 11,
+    to: 12,
+    name: 'add-engine-runs',
+    run: async (db) => {
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS engine_runs (
+           id               TEXT PRIMARY KEY,
+           action           TEXT NOT NULL,
+           thread_id        TEXT,
+           engine           TEXT NOT NULL,
+           model            TEXT,
+           outcome          TEXT NOT NULL,
+           result_text      TEXT,
+           detail           TEXT,
+           blocks_written   INTEGER NOT NULL DEFAULT 0,
+           proposals_queued INTEGER NOT NULL DEFAULT 0,
+           cost_usd         REAL,
+           input_tokens     INTEGER,
+           output_tokens    INTEGER,
+           started_at       INTEGER NOT NULL,
+           finished_at      INTEGER NOT NULL,
+           reviewed_at      INTEGER
+         )`,
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_engine_runs_thread ON engine_runs(thread_id, finished_at DESC)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_engine_runs_time ON engine_runs(finished_at DESC)',
+      );
+      // DESIGN_WORKBENCH §4.3 — the per-project opt-out for automatic maintenance. NULL on
+      // every existing row, and NULL means "follow the master switch", which is off by
+      // default: this migration cannot start anything spending money on its own.
+      try {
+        await db.execute('ALTER TABLE threads ADD COLUMN auto_maintain INTEGER');
+      } catch (e) {
+        console.info('[db] auto_maintain: not added (likely exists)', e);
       }
     },
   },

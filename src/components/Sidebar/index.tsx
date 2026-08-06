@@ -1,4 +1,4 @@
-import { Inbox, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { Inbox, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSearchStore } from '@/stores/searchStore';
@@ -9,7 +9,12 @@ import FocusSection from './FocusSection';
 import RecentSection from './RecentSection';
 import WorkspaceGroup from './WorkspaceGroup';
 
-export default function Sidebar() {
+interface Props {
+  /** DESIGN_WORKBENCH §3: both rails collapse, so the sidebar grew a way to close itself. */
+  onCollapse: () => void;
+}
+
+export default function Sidebar({ onCollapse }: Props) {
   const t = useT();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const createWorkspace = useWorkspacesStore((s) => s.create);
@@ -24,12 +29,21 @@ export default function Sidebar() {
   const openReview = useProposalsStore((s) => s.open);
 
   return (
-    <aside className="flex h-full w-[280px] flex-none flex-col border-r border-line bg-paper-2/40">
-      <header className="px-5 pb-3 pt-5">
-        <h1 className="font-serif text-2xl tracking-tight text-ink">
+    <aside className="flex h-full w-full flex-col border-r border-line bg-paper-2/40">
+      <header className="flex items-start justify-between gap-2 px-5 pb-3 pt-5">
+        <h1 className="min-w-0 font-serif text-2xl tracking-tight text-ink">
           Spool
           <span className="ml-2 font-serif text-base italic text-muted">思簿</span>
         </h1>
+        <button
+          type="button"
+          onClick={onCollapse}
+          title={t('收起')}
+          aria-label={t('收起')}
+          className="mt-1.5 flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+        >
+          <PanelLeftClose size={14} />
+        </button>
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">

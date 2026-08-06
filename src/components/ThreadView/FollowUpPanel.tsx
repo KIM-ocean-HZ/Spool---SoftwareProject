@@ -98,7 +98,7 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
-            placeholder={t('一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。')}
+            placeholder={t('一行一件事。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。')}
             className="w-full resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 text-xs leading-relaxed text-ink outline-none focus:border-accent"
           />
           <div className="mt-2 flex items-center gap-2">

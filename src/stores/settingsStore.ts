@@ -3,6 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
+import { DEFAULT_RAIL_WIDTH, DEFAULT_SIDEBAR_WIDTH } from '@/lib/layout';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts).
@@ -16,7 +17,12 @@ type PersistableKey =
   | 'aiEngineTimeoutSecs'
   | 'aiEngine'
   | 'language'
-  | 'firstCaptureHintPending';
+  | 'firstCaptureHintPending'
+  | 'sidebarWidth'
+  | 'railWidth'
+  | 'sidebarCollapsed'
+  | 'railCollapsed'
+  | 'aiAutoMaintain';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -55,6 +61,27 @@ interface SettingsState {
   // keeps the one-time closing line away from existing libraries, which never had the
   // key written. Default false, so "no key" means "don't show it".
   firstCaptureHintPending: boolean;
+  // DESIGN_WORKBENCH §3 — the two rails. Ocean 2026-08-06: "左右两侧边栏都可以拖移或者隐藏".
+  // Widths are persisted because a dragged rail that forgets is worse than one that
+  // cannot be dragged; both are clamped on read (lib/layout.ts) so a hand-edited
+  // settings.json cannot leave the user with a 6000px sidebar and no way back.
+  sidebarWidth: number;
+  railWidth: number;
+  sidebarCollapsed: boolean;
+  // The right rail starts collapsed: it is about the engine, and a user with no CLI
+  // installed has nothing to put in it (DESIGN_AI_ENGINE §0 — absence is the default
+  // state, and the product is complete without it).
+  railCollapsed: boolean;
+  // DESIGN_WORKBENCH §4.3 — automatic maintenance, the thing Ocean asked for on
+  // 2026-08-06 ("我倾向于ai维护自动化…让用户放心并且有开关").
+  //
+  // ⚠️ Default OFF, and that is a deliberate reading of a request that pulled two ways.
+  // He asked for automation AND for 「必须节约token」 and 「让用户放心」 in the same
+  // breath — and this switch spends real money on a subscription without being asked
+  // again. A feature that starts billing on upgrade is the opposite of 放心, so the
+  // default is off and the switch sits in the rail where the runs appear, not buried in
+  // settings. Flipping this default is a one-line change if he wants it the other way.
+  aiAutoMaintain: boolean;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // Reflects the OS launch-agent registration; the OS is the source of truth, so
@@ -124,6 +151,11 @@ const KEYS: PersistableKey[] = [
   'aiEngine',
   'language',
   'firstCaptureHintPending',
+  'sidebarWidth',
+  'railWidth',
+  'sidebarCollapsed',
+  'railCollapsed',
+  'aiAutoMaintain',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -148,6 +180,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEngine: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+  railWidth: DEFAULT_RAIL_WIDTH,
+  sidebarCollapsed: false,
+  railCollapsed: true,
+  aiAutoMaintain: false,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

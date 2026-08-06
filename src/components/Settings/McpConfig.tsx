@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
-import { useEngineStore } from '@/stores/engineStore';
+import { ENGINE_LABEL, useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
 
@@ -374,9 +374,11 @@ export default function McpConfig() {
                   }
                   className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-xs text-ink outline-none focus:border-accent"
                 >
+                  {/* ENGINE_LABEL, not e.kind: the raw wire names (`claude` / `codex`) were
+                      what the user saw here, and they are not what the products are called. */}
                   {engineStatus.engines.map((e) => (
                     <option key={e.kind} value={e.kind}>
-                      {e.kind}
+                      {ENGINE_LABEL[e.kind]}
                     </option>
                   ))}
                 </select>

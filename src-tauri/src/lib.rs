@@ -30,6 +30,25 @@ fn ai_engine_status(preferred: Option<String>) -> engine::EngineStatus {
     engine::detect(preferred.as_deref().and_then(engine::EngineKind::parse))
 }
 
+/// What one finished run hands back to the GUI (DESIGN_WORKBENCH §4.1).
+///
+/// It used to be a bare `String`, and the frontend threw that string away for every action
+/// but one — so a weekly review the AI had fully written was reported to the user as
+/// "跑完了，没有新增块" (§1.1: the prompts say "say it to the user and store it only once
+/// they agree", and nobody is there to agree in a headless run). The text is the product of
+/// two of the three maintenance actions, so it travels as a named field now, beside what it
+/// cost and which model spent it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineRunResult {
+    /// The AI's final message — a conclusion, a review, a checkup report.
+    result: String,
+    /// Which engine actually ran. Resolved in Rust, because a preference naming an
+    /// uninstalled engine falls back (DESIGN_AI_ENGINE §7.4).
+    engine: String,
+    usage: engine::RunUsage,
+}
+
 // DESIGN_AI_ENGINE §5 M2: all three actions. The prompt comes from mcp.rs's
 // guidance_text — the same constant source as the MCP prompts of the same names (§2.2),
 // never a copy, so re-wording one reaches both surfaces.
@@ -41,7 +60,7 @@ async fn ai_engine_run(
     project: String,
     timeout_secs: u64,
     engine: Option<String>,
-) -> Result<String, String> {
+) -> Result<EngineRunResult, String> {
     // An unknown name is refused outright rather than falling through to a default: a
     // typo that silently ran a different action against the user's library would be worse
     // than an error nobody sees.
@@ -75,7 +94,13 @@ async fn ai_engine_run(
         // so there the timeout is the whole ceiling (§7.3).
         let max_turns = if web { 24 } else { 12 };
         let preferred = engine.as_deref().and_then(engine::EngineKind::parse);
-        engine::run_action(preferred, &prompt, timeout_secs, max_turns, web).map(|env| env.result)
+        engine::run_action(preferred, &prompt, timeout_secs, max_turns, web).map(|(kind, env)| {
+            EngineRunResult {
+                result: env.result,
+                engine: kind.as_str().to_string(),
+                usage: env.usage,
+            }
+        })
     })
     .await
     .map_err(|e| e.to_string())?

@@ -1,6 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { create } from 'zustand';
 import { countMcpBlocks } from '@/lib/db/blocks';
+import {
+  listRecentRuns,
+  listRunsForThread,
+  markReviewed,
+  recordRun,
+  type EngineRun,
+  type RunUsage,
+} from '@/lib/db/engineRuns';
 import { countPending } from '@/lib/db/proposals';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
@@ -79,18 +87,15 @@ export interface EngineTask {
  *  has already put in the database by the time it returns. */
 type ResultHandler = (result: string) => void;
 
-/** DESIGN_AI_ENGINE §5 M3 — one finished run, for the "AI 活动" fold. Session-only on
- *  purpose: the durable trace of a run is the blocks it wrote, which are in the database
- *  with their source labels and timestamps. This just names the action that caused them
- *  while the user is still in the session where they pressed it. */
-export interface EngineRun {
-  id: number;
-  threadId: string;
-  action: EngineAction;
-  outcome: 'ok' | 'failed' | 'cancelled';
-  /** How many blocks landed in the library across the whole run — counted, not claimed. */
-  blocksWritten: number;
-  finishedAt: number;
+/** What one run hands back. DESIGN_WORKBENCH §4.1: this used to be a bare string, and the
+ *  string was thrown away for every action but 起草跟进目标 — which is why a weekly review
+ *  the AI had fully written came back to the user as "跑完了，没有新增块" (§1.1). */
+interface EngineRunResult {
+  result: string;
+  /** Which engine actually ran — resolved in Rust, since a preference naming an
+   *  uninstalled engine falls back (§7.4). */
+  engine: string;
+  usage: RunUsage;
 }
 
 interface EngineState {
@@ -99,8 +104,19 @@ interface EngineState {
   current: EngineTask | null;
   /** Waiting their turn, in order. */
   queue: EngineTask[];
+  /** Finished runs, newest first — read from `engine_runs`, not held in memory.
+   *  DESIGN_WORKBENCH §4.1: these used to be session-only, on the reasoning that "the
+   *  durable trace of a run is the blocks it wrote". That reasoning only held for runs that
+   *  wrote blocks; two of the three actions produce a paragraph and nothing else, and
+   *  closing the window threw away a review that had cost real money to produce. */
   runs: EngineRun[];
   probe: () => Promise<void>;
+  /** Load the runs the right rail shows: this project's, plus the library-wide ones
+   *  (生成周回顾 belongs to no project — §3.4). */
+  loadRuns: (threadId: string | null) => Promise<void>;
+  /** The user answered a run card. The row stays either way — what the AI said and what it
+   *  cost is the audit trail, and dropping it on dismissal would make the total lie. */
+  dismissRun: (id: string) => Promise<void>;
   /** Queue one action. Returns false when it was refused (already queued for this thread).
    *  `onResult` runs only when the action finishes cleanly — see ResultHandler. */
   enqueue: (
@@ -113,6 +129,12 @@ interface EngineState {
   /** Stop the running task and drop everything still waiting (§1.2 — the pill is one
    *  control, and a user stopping "the AI" does not mean "and then start the next one"). */
   cancel: () => Promise<void>;
+  /** Whether the follow-up brief editor is open. Held here rather than in each caller
+   *  because DESIGN_WORKBENCH §3.2 kept the ⋯ menu entry alive alongside the new one in
+   *  the right rail — two local `useState`s would be two independent panels, and opening
+   *  one from each surface would stack two modals on top of each other. */
+  briefOpen: boolean;
+  setBriefOpen: (open: boolean) => void;
 }
 
 // The Rust side returns this exact string when the user stopped the run. A cancel is not
@@ -163,11 +185,23 @@ export const useEngineStore = create<EngineState>((set, get) => {
       }
     }
 
+    const startedAt = Date.now();
     let outcome: EngineRun['outcome'] = 'ok';
     let detail: string | null = null;
     let resultText = '';
+    // What the engine slot resolved to. Only Rust knows for sure — a preference naming an
+    // uninstalled engine falls back (§7.4) — so this is what ran, not what was asked for.
+    // Typed as a plain string, not EngineKind: it is stored verbatim, and the third engine
+    // (DESIGN_AI_ENGINE §7.7) will arrive here before this side has a name for it.
+    let ranOn: string = useSettingsStore.getState().aiEngine ?? 'claude';
+    let usage: RunUsage = {
+      model: null,
+      costUsd: null,
+      inputTokens: null,
+      outputTokens: null,
+    };
     try {
-      resultText = await invoke<string>('ai_engine_run', {
+      const answer = await invoke<EngineRunResult>('ai_engine_run', {
         action: next.action,
         project: next.threadTitle,
         timeoutSecs,
@@ -175,6 +209,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // out three others should use the engine the settings page says now.
         engine: useSettingsStore.getState().aiEngine,
       });
+      resultText = answer.result;
+      ranOn = answer.engine;
+      usage = answer.usage;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       outcome = message.includes(CANCELLED_MARKER) ? 'cancelled' : 'failed';
@@ -199,12 +236,12 @@ export const useEngineStore = create<EngineState>((set, get) => {
     }
 
     const label = t(ACTION_LABEL[next.action]);
+    let queued = 0;
     if (outcome === 'ok' && next.action === 'follow_up_brief') {
       // Nothing was stored and nothing should be announced: the draft goes to the panel
       // the user is looking at, and they decide whether it becomes the brief (§6-2).
       onResult?.(resultText);
     } else if (outcome === 'ok' && isFollowUp) {
-      let queued = 0;
       try {
         const after = await countPending(Date.now());
         queued = proposalsBefore < 0 ? 0 : Math.max(0, after - proposalsBefore);
@@ -220,10 +257,16 @@ export const useEngineStore = create<EngineState>((set, get) => {
           : t('找找新进展：这次没有新东西'),
       );
     } else if (outcome === 'ok') {
+      // DESIGN_WORKBENCH §1.1 — the sentence this replaces was the whole bug. 提炼结论 and
+      // 整理去重 are told to say their conclusion and store it only once the user agrees;
+      // headless, nobody can agree, so writing nothing is CORRECT and "没有新增块" described
+      // it as if the AI had idled. What it produced is on the run card now, so point there.
       toast.notice(
         written > 0
           ? t('{action}：AI 归档了 {n} 块', { action: label, n: written })
-          : t('{action}：跑完了，没有新增块', { action: label }),
+          : resultText.trim()
+            ? t('{action}：AI 写好了，在右边等你过目', { action: label })
+            : t('{action}：跑完了，没有新增块', { action: label }),
       );
     } else if (outcome === 'cancelled') {
       // Stopping is not undoing. If something already landed, say so — the user will
@@ -245,20 +288,34 @@ export const useEngineStore = create<EngineState>((set, get) => {
       );
     }
 
-    set((s) => ({
-      current: null,
-      runs: [
-        {
-          id: next.id,
-          threadId: next.threadId,
+    // The run goes to the database before the queue moves on. 起草跟进目标 is the one
+    // exception: its draft is already in the panel the user is staring at, and it is not a
+    // finding — storing every discarded draft would bury the cards that do want an answer.
+    if (next.action !== 'follow_up_brief') {
+      try {
+        await recordRun({
           action: next.action,
+          // 生成周回顾 reads the whole library, so it belongs to no project (§3.4).
+          threadId: next.action === 'weekly_review' ? null : next.threadId,
+          engine: ranOn,
           outcome,
+          resultText: resultText.trim() || null,
+          detail,
           blocksWritten: written,
+          proposalsQueued: queued,
+          usage,
+          startedAt,
           finishedAt: Date.now(),
-        },
-        ...s.runs,
-      ].slice(0, 20),
-    }));
+        });
+      } catch (e) {
+        // A run that finished but could not be filed is still a run that happened; the
+        // toast above already said so. Losing the card is bad, losing the queue is worse.
+        console.error('[engine] could not record the run', e);
+      }
+    }
+
+    set({ current: null });
+    await get().loadRuns(useThreadsStore.getState().activeId);
     void pump();
   };
 
@@ -267,6 +324,40 @@ export const useEngineStore = create<EngineState>((set, get) => {
     current: null,
     queue: [],
     runs: [],
+    briefOpen: false,
+    setBriefOpen: (open) => set({ briefOpen: open }),
+
+    loadRuns: async (threadId) => {
+      try {
+        // Two reads, merged: this project's runs, and the library-wide ones (生成周回顾 has
+        // no project). De-duplicated by id because the recent feed also carries this
+        // project's rows when they are among the newest in the library.
+        const [mine, recent] = await Promise.all([
+          threadId ? listRunsForThread(threadId) : Promise.resolve([]),
+          listRecentRuns(),
+        ]);
+        const byId = new Map<string, EngineRun>();
+        for (const r of [...mine, ...recent.filter((r) => r.threadId === null)]) {
+          byId.set(r.id, r);
+        }
+        set({
+          runs: [...byId.values()].sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 20),
+        });
+      } catch (e) {
+        console.warn('[engine] loading runs failed', e);
+      }
+    },
+
+    dismissRun: async (id) => {
+      try {
+        await markReviewed(id, Date.now());
+      } catch (e) {
+        console.warn('[engine] marking a run reviewed failed', e);
+      }
+      set((s) => ({
+        runs: s.runs.map((r) => (r.id === id ? { ...r, reviewedAt: Date.now() } : r)),
+      }));
+    },
 
     probe: async () => {
       try {

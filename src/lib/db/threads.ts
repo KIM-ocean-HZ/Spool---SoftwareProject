@@ -19,6 +19,9 @@ export interface Thread {
    *  off switch — there is no separate enabled column, because a follow-up with nothing to
    *  look for is not a thing that can run. */
   followUpBrief: string | null;
+  /** DESIGN_WORKBENCH §4.3: null = the user has not said, so the master switch decides;
+   *  false = never maintain this project automatically, whatever the switch says. */
+  autoMaintain: boolean | null;
 }
 
 export type ThreadPatch = Partial<
@@ -47,6 +50,7 @@ interface Row {
   updated_at: number;
   completed_at: number | null;
   follow_up_brief: string | null;
+  auto_maintain: number | null;
 }
 
 const fromRow = (r: Row): Thread => ({
@@ -62,13 +66,14 @@ const fromRow = (r: Row): Thread => ({
   updatedAt: r.updated_at,
   completedAt: r.completed_at,
   followUpBrief: r.follow_up_brief,
+  autoMaintain: r.auto_maintain === null ? null : r.auto_maintain === 1,
 });
 
 // follow_up_state is deliberately NOT here: it is bookkeeping for the next run (§2.4's
 // "what did I already propose"), never something a view renders, and it can hold a long
 // list of URLs. The one reader loads it on its own.
 const SELECT_COLS =
-  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at, follow_up_brief';
+  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at, follow_up_brief, auto_maintain';
 
 export const listAllThreads = async (): Promise<Thread[]> => {
   const db = await getDb();
@@ -108,6 +113,7 @@ export const createThread = async (workspaceId: string, title: string = ''): Pro
     status: 'active',
     isCaptureTarget: false,
     followUpBrief: null,
+    autoMaintain: null,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -171,6 +177,51 @@ export const setFollowUpBrief = async (id: string, brief: string | null): Promis
     trimmed && trimmed.length > 0 ? trimmed : null,
     id,
   ]);
+};
+
+/** DESIGN_WORKBENCH §4.3 — the per-project opt-out. `null` puts the project back under the
+ *  master switch rather than pinning it on; "the user has not said" is a state worth
+ *  keeping, because a switch flipped later should reach the projects nobody ruled on. */
+export const setAutoMaintain = async (id: string, on: boolean | null): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE threads SET auto_maintain = $1 WHERE id = $2', [
+    on === null ? null : on ? 1 : 0,
+    id,
+  ]);
+};
+
+/**
+ * DESIGN_WORKBENCH §3.4 — where 生成周回顾 files its output.
+ *
+ * Ocean 2026-08-06: 周回顾 是面向所有项目的动作, and its product should stand on its own.
+ * So it gets a project of its own, created the first time a review is actually produced.
+ *
+ * ⚠️ **Created here, on a real user-visible outcome — never at startup and never from a
+ * seed path.** memory `spool-db-wipe-incident`: anything that runs at launch and touches
+ * threads is the shape of bug that cost this project a library once. A find-or-create
+ * driven by "a review just came back" cannot fire on an empty launch.
+ *
+ * Matched by title, because that is what the user sees and renames. A renamed review
+ * project simply gets a new one next to it — annoying, but the alternative is a hidden
+ * marker column that makes a project the user cannot tell apart from their own.
+ */
+export const findOrCreateReviewThread = async (
+  workspaceId: string,
+  title: string,
+): Promise<Thread> => {
+  const db = await getDb();
+  const rows = await db.select<Row[]>(
+    `SELECT ${SELECT_COLS} FROM threads
+      WHERE title = $1 AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
+    [title],
+  );
+  if (rows[0]) return fromRow(rows[0]);
+  const created = await createThread(workspaceId, title);
+  // A review project is never the capture target and never maintained automatically — it
+  // is the output of maintenance, and distilling the distillations is a loop nobody asked
+  // for (and one that would spend money every week for it).
+  await setAutoMaintain(created.id, false);
+  return { ...created, autoMaintain: false };
 };
 
 /** §2.4's comparison material: what the last run already saw, so the next one can stay
