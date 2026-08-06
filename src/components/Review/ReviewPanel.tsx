@@ -1,7 +1,7 @@
 import { Check, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n';
-import type { ProposalBatch } from '@/lib/db/proposals';
+import { passageSource, type ProposalBatch } from '@/lib/db/proposals';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -168,15 +168,17 @@ function BatchCard({
         </span>
       </div>
 
-      {/* §4.4 A. The passage lands as the user's OWN block — sourceless, which in a pack
-          reads as 💭 the user's own words, the highest-authority category there is. That
-          makes it the one thing on this screen that must be shown whole and said plainly,
-          rather than folded away behind a "show original". */}
+      {/* §4.4 A. The passage is the longest thing that lands and the only one whose text
+          the AI handed over verbatim, so it is shown whole and said plainly rather than
+          folded away behind a "show original". §4.4-bis: the label it will carry is spelled
+          out here — it is the answer to "whose words are these", which is the one question
+          this block raises and the items below do not. */}
       {batch.sourceText && batch.sourceThreadId && (
         <div className="mt-2 rounded border border-line bg-paper px-2.5 py-2">
           <div className="text-[10px] uppercase tracking-wide text-muted">
-            {t('原文 — 会以你自己的名义存进〈{title}〉', {
+            {t('原文 — 会存进〈{title}〉，来源标着「{source}」', {
               title: titleOf(batch.sourceThreadId),
+              source: passageSource(batch.client),
             })}
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink-2">

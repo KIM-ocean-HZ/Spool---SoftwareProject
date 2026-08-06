@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { t } from '@/lib/i18n';
 import { createBlock } from './blocks';
 import { getDb } from './client';
 
@@ -37,6 +38,23 @@ export interface ProposalBatch {
   expiresAt: number;
   items: Proposal[];
 }
+
+/**
+ * §4.4-bis (Ocean, 2026-08-05 evening): the label the original passage carries once it is
+ * approved. It used to be sourceless, and that was a hole: a pack reads a block with no
+ * source as 💭 Personal — the user's own intent, the highest-signal category there is — so
+ * anything an AI put in `source_text` could take the library's most authoritative identity
+ * under the user's name. The one defence was the user reading this screen, and the default
+ * button says "store all of it".
+ *
+ * Both halves are load-bearing. `· MCP` (inherited from the client label) is what
+ * isMcpSource() matches on, so the badge shows the robot icon and the AI-activity panel
+ * counts it. `用户原文` is for the model reading the pack: an AI source label alone would
+ * file this as 🧩 Synthesis = "somebody else's framing, not fact", and this passage is in
+ * fact the user's own words — swapping "held too high" for "held too low". The wording is
+ * what lets the model see through the label, so it cannot be dropped.
+ */
+export const passageSource = (client: string): string => `${client || 'MCP'} — ${t('用户原文')}`;
 
 interface BatchRow {
   id: string;
@@ -151,9 +169,9 @@ export const purgeExpired = async (now: number): Promise<number> => {
  * default action is the whole batch, because the judgement triage asks for is "was this
  * split right", not "is item 3 right").
  *
- * Order matters. §4.4 A stores the original passage FIRST, as the user's own block —
- * they wrote it; the AI only decided where the pieces go — and every approved item then
- * cites it. That citation is the whole reason the passage is kept: a piece read three
+ * Order matters. §4.4 A stores the original passage FIRST — carrying the label of the AI
+ * that handed it over (§4.4-bis, passageSource) — and every approved item then cites it.
+ * That citation is the whole reason the passage is kept: a piece read three
  * weeks from now can be checked against the context it was cut out of, and being cut out
  * of context is the only mistake a split actually makes. An item that came with its own
  * ref_block_id keeps it; the passage is a fallback, not an override.
@@ -199,10 +217,10 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       const origin = await createBlock({
         threadId: batch.source_thread_id,
         content: batch.source_text,
-        // Sourceless on purpose (§4.4 A): the passage is the user's own words, handed to
-        // the AI and approved by the user. A source label would file it as somebody's
-        // quoted material, which is the one thing it is not.
-        source: null,
+        // Labelled, not sourceless (§4.4-bis) — see passageSource above. The passage is
+        // the user's own words, but it did not come from the user's own hand: an AI
+        // passed it through, and that is exactly what a source label records.
+        source: passageSource(batch.client),
       });
       // Hand the citation to the rows themselves and drop the passage from the batch. That
       // is what makes a retry safe: the passage cannot be written twice, and the items that

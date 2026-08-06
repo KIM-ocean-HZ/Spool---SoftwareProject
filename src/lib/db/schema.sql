@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS proposal_batches (
   client           TEXT NOT NULL DEFAULT '',  -- source label the approved blocks will carry
   note             TEXT,                      -- one line from the AI: what this batch is
   source_text      TEXT,                      -- §4.4 A: the whole passage the split came from
-  source_thread_id TEXT,                      -- where that passage lands, as the user's own block
+  source_thread_id TEXT,                      -- where that passage lands, labelled "<client> — user's own passage"
   created_at       INTEGER NOT NULL,
   expires_at       INTEGER NOT NULL           -- §4.2-3: 7 days, then the batch is void
 );

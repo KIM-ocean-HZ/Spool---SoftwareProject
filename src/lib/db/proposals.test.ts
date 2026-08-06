@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isMcpSource } from '@/lib/blocks/sourceIcon';
+import { t } from '@/lib/i18n';
 import { createBlock, listBlocksByThread } from './blocks';
 import { __setTestDb } from './client';
 import {
@@ -94,9 +96,14 @@ describe('proposal queue (DESIGN_MCP_WRITE_ROLE §4 M1)', () => {
 
     const origin = await listBlocksByThread(inboxId);
     expect(origin).toHaveLength(1);
-    // §4.4 A: the passage is the user's own words, so it carries no source label — that
-    // is what makes it read as theirs in a pack rather than as quoted material.
-    expect(origin[0]!.source).toBeNull();
+    // §4.4-bis: the passage is NOT sourceless. Sourceless reads as 💭 Personal in a pack —
+    // the highest-authority category — which would let anything the AI put in `source_text`
+    // wear the user's name. It carries the proposing client's label, plus the half that
+    // says these are still the user's own words.
+    expect(origin[0]!.source).toBe(`Claude · MCP — ${t('用户原文')}`);
+    // And it must stay recognisable as MCP-written: the badge icon and the AI-activity
+    // count both key off this predicate.
+    expect(isMcpSource(origin[0]!.source)).toBe(true);
 
     const ml = await listBlocksByThread(mlId);
     expect(ml).toHaveLength(1);

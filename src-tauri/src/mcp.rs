@@ -3324,10 +3324,10 @@ fn propose_blocks_json(
     }
 
     // §4.4 A: the passage the split came FROM, kept whole so a block read three weeks later
-    // can still be checked against its context. It lands as the user's own block (they
-    // wrote it — the AI only decided where the pieces go), and every item in the batch
-    // cites it. Without a target project there is nowhere to put it, so the pair travels
-    // together or not at all.
+    // can still be checked against its context. It lands carrying this client's source label
+    // (§4.4-bis — the user wrote the words, but an AI passed them through), and every item
+    // in the batch cites it. Without a target project there is nowhere to put it, so the
+    // pair travels together or not at all.
     let source_text = source_text.map(str::trim).filter(|s| !s.is_empty());
     let source_thread_id = source_thread_id.map(str::trim).filter(|s| !s.is_empty());
     let source_thread_title = match (source_text, source_thread_id) {
@@ -4032,7 +4032,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "propose_blocks",
-            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. Use it for exactly one job: the user hands you a passage that belongs in several different projects and you split it up. Anything smaller — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as the user's own block and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. Use it for exactly one job: the user hands you a passage that belongs in several different projects and you split it up. Anything smaller — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -4052,7 +4052,7 @@ fn tools_descriptor() -> Value {
                             "additionalProperties": false
                         }
                     },
-                    "source_text": { "type": "string", "description": "The whole passage these items were cut from, verbatim. Stored as the user's OWN block on approval (they wrote it; you only decided where the pieces go), and cited by every item. Needs source_thread_id." },
+                    "source_text": { "type": "string", "description": "The whole passage these items were cut from, verbatim — their words, not yours: never put your own writing here. On approval it is stored as a block sourced to you and marked as the user's own passage, and cited by every item. Needs source_thread_id." },
                     "source_thread_id": { "type": "string", "description": "Project id for the original passage — ask the user which project, or use their inbox-shaped one. Required with source_text." },
                     "note": { "type": "string", "description": "One line for the top of the review screen: where this batch came from and how you split it. Max 200 characters." }
                 },
@@ -4478,11 +4478,11 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             // same class of mis-sentence this headline exists to prevent, one step later.
             let passage = match v.get("source_text_project").and_then(Value::as_str) {
                 Some(p) => t!(
-                    "另外,你传的那整段原文会以用户自己的名义存进〈{p}〉,并被每一条引用 —— \
-                     所以他点头之后落库的是 {} 块。把这句也说给他听。",
-                    " The passage you passed is stored under the user's OWN name in \
-                     \u{2039}{p}\u{203a} and cited by every item, so approving stores {} blocks in \
-                     all. Tell them that too.",
+                    "另外,你传的那整段原文会存进〈{p}〉——来源标着「经你转来的用户原话」——\
+                     并被每一条引用,所以他点头之后落库的是 {} 块。把这句也说给他听。",
+                    " The passage you passed is stored in \u{2039}{p}\u{203a} — labelled as the \
+                     user's own words, passed on by you — and cited by every item, so approving \
+                     stores {} blocks in all. Tell them that too.",
                     n("blocks_on_approval")
                 ),
                 None => String::new(),

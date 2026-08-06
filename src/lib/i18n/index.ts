@@ -429,8 +429,11 @@ const EN: Record<string, string> = {
   '没有待你过目的。': 'Nothing waiting for you.',
   '{client} 提了 {n} 条': '{client} proposed {n} item(s)',
   '{n} 天后作废': 'void in {n}d',
-  '原文 — 会以你自己的名义存进〈{title}〉':
-    'Original passage — stored under your own name in ‹{title}›',
+  '原文 — 会存进〈{title}〉，来源标着「{source}」':
+    'Original passage — stored in ‹{title}›, labelled “{source}”',
+  // §4.4-bis: the second half of the passage block's source label. Not decoration — it is
+  // what tells a model reading the pack that these are the user's words, not the AI's.
+  '用户原文': "user's own passage",
   '下面每条都会标注「出自这段」。这段本身也算一块。':
     'Each item below will cite this passage. The passage itself counts as one block too.',
   '进〈{title}〉': 'into ‹{title}›',
