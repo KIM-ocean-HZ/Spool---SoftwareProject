@@ -33,7 +33,7 @@
 <main class="wrap article measure" style="margin: 0 auto;" data-zh-body="privacy">
 
 <h1>Privacy Policy</h1>
-<p class="lede">Last updated: 2026-07-29. This English translation is provided for convenience;
+<p class="lede">Last updated: 2026-08-09 (Spool v0.4.0). This English translation is provided for convenience;
 the <a href="zh/privacy.html" hreflang="zh-Hans" lang="zh">Chinese original</a> is authoritative.</p>
 
 <h2>The one-sentence version</h2>
@@ -64,21 +64,37 @@ your content.</p>
 inside the app does the same.</p>
 
 <h2>When data can leave your computer</h2>
-<p>In exactly one situation, which is <strong>off by default and requires you to enable it
-yourself</strong>:</p>
+<p><strong>Spool itself never goes online.</strong> Two features can let content leave this
+machine. Both are <strong>off by default and require you to enable them yourself</strong>, and in
+both it is <strong>a program you installed and logged into yourself</strong> that reaches the
+network — not Spool:</p>
 <table>
   <tr><th>Feature</th><th>Where data goes</th><th>Notes</th></tr>
   <tr>
-    <td>MCP service (Settings → General, off by default)</td>
-    <td>The AI client you installed and configured yourself (Claude Desktop, Cursor, …)</td>
+    <td>MCP service (Settings → MCP, off by default)</td>
+    <td>The AI client you installed and configured yourself (Claude Desktop, the ChatGPT
+        desktop app, Cursor, …)</td>
     <td>Your AI client reads project content over local inter-process communication; Spool
         listens on no network port. Where those clients send content is governed by that
         client and your agreement with its provider.</td>
   </tr>
+  <tr>
+    <td>AI maintenance actions (Settings → Engine, off by default)</td>
+    <td>The command-line AI you installed and logged into yourself (Claude Code / Codex CLI)</td>
+    <td>When you run Distill, Dedupe, Follow up or Weekly review, Spool starts that CLI as a
+        local subprocess and hands it the relevant blocks. <strong>The network request happens
+        inside that subprocess</strong>, on your own subscription's quota — Spool stores no API
+        key and makes no HTTP request of its own. This switch also requires both MCP switches
+        to be on.</td>
+  </tr>
 </table>
-<p>In other words: Spool never sends data anywhere on its own. When you connect an AI client
-to Spool, it is <em>that client</em> reading content under your authorization — and “allow AI
-writes” is a second, separate switch.</p>
+<p>⚠️ <strong>Follow up is the one action that deliberately searches the web.</strong> It takes
+the lines you wrote yourself describing what to watch for, and asks that CLI to go look for
+news — so those lines and the context it needs reach the CLI's provider. The other three
+actions only read your own library, with web tools switched off.</p>
+<p>In other words: Spool never sends data anywhere on its own. The only way content leaves this
+machine is <em>an AI program you installed</em> reading it under your authorization — and “allow
+AI writes” is a second, separate switch.</p>
 
 <h2>System permissions</h2>
 <table>

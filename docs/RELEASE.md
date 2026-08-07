@@ -3,6 +3,36 @@
 路线：**Developer ID 签名 + Apple 公证 + .dmg 直发**（不上 Mac App Store——沙盒与
 CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-07-06 决策）。
 
+## 0.0 当前版本状态
+
+| 项 | 值 |
+|---|---|
+| 版本号 | **v0.4.0**（三处已同步：`package.json` / `tauri.conf.json` / `Cargo.toml`，2026-08-09） |
+| schema | **v14** |
+| MCP 工具面 | **14 个** |
+| 基线 | tsc 干净 / vitest 268 / cargo 45 / i18n 干净 |
+| 本机安装 | ✅ **2026-08-09 已换装**（`Spool Dev` 开发证书，真库已迁到 v14，数据 5 项目 31 块未变） |
+| 正式发布 | ❌ **还没发**。§1 那四个 `APPLE_*` 环境变量只有 Ocean 有，公证必须他本人跑 |
+
+⚠️ **换装用的是开发证书，不是 Developer ID。** 想发布得按 §2 从头跑一遍（那一步会用
+环境变量覆盖 `tauri.conf.json` 里的 `Spool Dev`），并且按 §3 逐条验收。
+
+### 0.0.1 v0.4.0 相对 v0.3.0 新增了什么（发布说明的素材）
+
+| 面 | 内容 | 全稿 |
+|---|---|---|
+| **引擎位** | Claude Code / Codex CLI 当子进程跑四个动作（压缩 / 去重 / 跟进 / 周回顾）。**Spool 本体仍然零出网** | `DESIGN_AI_ENGINE.md` |
+| **工作台** | 右侧栏：流式进度 + AI 产出留痕；周回顾独立成项目；自动维护开关 | `DESIGN_WORKBENCH.md` |
+| **联网跟进** | 用户写几行「要盯什么」，引擎照那几行出去查，产出进待审面；没新东西就静默 | `DESIGN_FOLLOW_UP.md` |
+| **上下文卫生** | 作废（schema v13）+ 部分更正 + 批注作者列（v14）+ pack 表头加 `## Notation` | `DESIGN_CONTEXT_HYGIENE.md` |
+| **MCP 写入侧** | `propose_blocks` + 待审面；档③更正开给 MCP（走提案）；`ai note:` 不再冒充用户批注 | `DESIGN_MCP_WRITE_ROLE.md` |
+| **pack** | 剪贴板 pack 默认带表头；三个打包类型收成一个（纯上下文） | `DESIGN_CONTEXT_HYGIENE` §1.1-ter |
+
+⚠️ **隐私口径这一版变了，发布前确认三处都已更新**（2026-08-09 已改）：
+`docs/PRIVACY.md`、`site/privacy.html`、`scripts/site-zh-privacy.html`（改完要跑
+`node scripts/build-site-zh.mjs`）。**新增的那一行是引擎位** —— 出网发生在用户自己那个
+CLI 子进程里，Spool 本体一次都不出网，**但「只有 MCP 一条路」这个旧说法已经不成立了。**
+
 ## 0. 一次性准备（需要 Apple 开发者账号，$99/年）
 
 1. 注册 [Apple Developer Program](https://developer.apple.com/programs/)。
@@ -110,12 +140,23 @@ rm -f src-tauri/target/release/bundle/macos/rw.*.dmg
 - [ ] 中文输入法下 Composer 回车确认候选词不误发（2026-07 修复的回归项）
 - [ ] 旧版本数据库直接升级启动（迁移注册表自动走，升级前自动留快照）
 - [ ] README 的截图与当前 UI 一致（字体打包后外观有变，需重截）
+      ⚠️ **v0.4.0 这一项现在是不合格的** —— 块流(W7 批注当标题)、右侧栏、项目管理
+      三屏都换了样子，官网和 README 用的还是旧图。Ocean 已批的时机：**app 代码全部做完
+      之后，和演示视频一起重建**（多场景铁律见 memory `next-stage-goals-website-portfolio`）
+- [ ] **引擎位那一侧（v0.4.0 新增）**：一台**没装 claude / codex** 的机器上，
+      设置→引擎那一页说得清「没检测到」，四个动作不出现且不报错
+- [ ] **换装后所有 MCP 客户端要完全退出重开**（⌘Q，不是关窗口）。
+      schema 升级之后，还连着旧二进制的客户端会报「数据库比这个 MCP 服务新」——
+      那是**正确的保护**，不是坏了
 
 ## 4. 已知边界
 
 - **CSP**：`connect-src` 只放行 Tauri IPC（`'self' ipc: http://ipc.localhost`）——
   webview 层结构性无法发起任何外部网络请求（2026-07-09 MCP-first 决策的执行面）。
   未来若有功能需要出网，必须回到 §2.7 过滤器重新论证。
+  ⚠️ **v0.4.0 的引擎位没有破这条**：出网发生在 `claude` / `codex` 子进程里，
+  webview 和 Rust 本体一个 HTTP 请求都不发。**但对外说法要说全** ——
+  「内容离开这台电脑」现在有两条路（MCP 客户端 / 引擎子进程），不是一条。
 - **更新通道**：直发意味着没有自动更新。短期靠 GitHub Releases 页手动下载；
   若要应用内更新，需引入 `tauri-plugin-updater`（PLAN §4 规定新依赖需 Ocean 批准）。
 - **Windows 构建**：`targets: all` 下 Windows 产物未签名；Windows 分发另需

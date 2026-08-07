@@ -128,8 +128,10 @@ byte-identical output by golden tests.</p>
   <li><strong>The packer</strong> — the crown feature — is a pure function from project state to
       Markdown. No AI, no network: the same project packs to the same bytes on the same day.</li>
   <li><strong>MCP server</strong> — Spool exposes its library to AI clients over the Model
-      Context Protocol via stdio: ten tools for reading, searching, filing, and auditing. Every
-      AI write carries a source label; user-authored content is read-only to machines.</li>
+      Context Protocol via stdio: fourteen tools for reading, searching, filing, and auditing.
+      Every AI write carries a source label it cannot set itself; what the user wrote by hand is
+      read-only to machines, and anything an AI wants to change rather than append goes through a
+      queue the user approves.</li>
 </ul>
 
 <picture>
@@ -149,9 +151,10 @@ its citation line names the exact block it answers.</p>
   <li><strong>Migration lockstep.</strong> Schema migrations live in a registry with
       version constants asserted on both the TypeScript and Rust sides; the app snapshots the
       database automatically before any migration runs.</li>
-  <li><strong>~170 automated tests</strong> across Vitest and cargo, including digest
-      determinism and a read-only library audit tool (<code>check_library</code>) whose report
-      is itself byte-stable within a day.</li>
+  <li><strong>313 automated tests</strong> across Vitest and cargo, including digest
+      determinism, a read-only library audit tool (<code>check_library</code>) whose report
+      is itself byte-stable within a day, and a cross-language golden test that fails unless
+      the TypeScript and Rust pack renderers agree byte for byte.</li>
 </ul>
 <p>Beyond unit tests, each release batch went through an adversarial review loop with scored
 acceptance: 8.5 → 7.7 → 9.5 → 9.8 across four rounds. The dip to 7.7 was the process working —
@@ -177,10 +180,25 @@ policy structurally blocks all outbound network traffic — the privacy policy i
 the build, not by promises.</p>
 
 <h2 id="status">Where it stands</h2>
-<p>v0.3.0 is feature-complete and packaged for macOS: twelve implementation phases landed,
-from the data layer through capture hardening, full-text search, project digests,
-cross-project references, and the MCP surface. The logo — a spool seen from above, its thread
-pulling free — was designed in-house, down to the tray icon's alpha-channel template rendering.</p>
+<p>v0.4.0 is feature-complete and packaged for macOS. v0.3.0 closed the original twelve
+implementation phases, from the data layer through capture hardening, full-text search, project
+digests, cross-project references, and the MCP surface. The logo — a spool seen from above, its
+thread pulling free — was designed in-house, down to the tray icon's alpha-channel template
+rendering.</p>
+<p>v0.4.0 is about what happens to a memory once it is being written to. A context store that an
+AI can append to has two failure modes that do not exist in a notebook: facts going stale with
+nothing marking them, and machine-written text quietly acquiring the authority of hand-written
+text. Both got mechanisms rather than warnings. A block can be retired — it leaves the pack, stays
+in the library, stays searchable, and the pack states that it was left out. A newer block can point
+at the one sentence an older block got wrong, with the older block printed in full and still
+standing on everything else. An annotation records who wrote it, so a note an AI filed renders
+differently from one you wrote and can never be read as your judgement. Anything an AI wants to
+change rather than append arrives as a proposal you approve.</p>
+<p>The same release opens a second, narrower channel: if a coding CLI you already own is installed
+and logged in, Spool can run it locally to distill a project, flag duplicates, follow up on things
+you told it to watch, or write a weekly review. Spool still makes no network request itself and
+stores no key — the request leaves from that subprocess, on your own quota, and every run is
+watchable while it happens.</p>
 
 <picture>
   <source type="image/webp"
@@ -191,7 +209,7 @@ pulling free — was designed in-house, down to the tray icon's alpha-channel te
 <p class="shot-caption">The current build: one project holding five human-captured fragments and one
 conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</p>
 
-<p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.3.0 release and
+<p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.4.0 release and
 will be embedded here. Meanwhile, the <a href="./#demo">interactive demo</a> walks the same
 loop in your browser.</em></p>
 
