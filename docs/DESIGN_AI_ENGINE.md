@@ -174,18 +174,26 @@ ChatGPT 账号登录,引擎位就活了。
 
 所以是**枚举**:`Engine::Claude` / `Engine::Codex`,各自一份适配,加第三个要写代码。
 
-### 7.3 两个预设的差别(✅ 2026-08-06 实测完毕,codex-cli **0.146.1**)
+### 7.3 三个预设的差别(claude / codex ✅ 2026-08-06 实测,codex-cli **0.146.1**;
+### gemini ✅ 2026-08-10 实测,gemini-cli **0.54.4**)
 
-| | claude | codex |
-|---|---|---|
-| 无头子命令 | `claude -p "<prompt>"` | `codex exec "<prompt>"`(prompt 是位置参数,**必须放最后**) |
-| 输出 | `--output-format json` → **一个** JSON 信封,取 `result` / `is_error` | `--json` → 事件流;**成功的正文改从 `-o <文件>` 读**,见下 |
-| MCP 怎么喂 | `--mcp-config <临时文件>`,用后即删 | ✅ `-c mcp_servers.spool.command=…` 一组覆盖,**不写文件** |
-| 隔离 | 临时配置本身就是边界 | ✅ **`--ignore-user-config`** —— 不加载用户自己的 config.toml,**但登录照用**(它 help 原话:auth still uses CODEX_HOME) |
-| 工具白名单 | `--allowedTools "mcp__spool__…"` | ✅ `-c mcp_servers.spool.enabled_tools=[…]`(裸名,不带 `mcp__spool__` 前缀) |
-| 内置终端工具 | Bash 不在白名单 = 用不了 | ⚠️ **摘不掉**(没有 `tools.shell` 这个配置键)。只能 `--sandbox read-only` |
-| 轮数上限 | `--max-turns 12` | ⚠️ **没有对应参数**,唯一的天花板是超时 |
-| 登录态 | 钥匙串,账户名取自 `USER` | `~/.codex/auth.json` → 只要 `HOME`;`CODEX_HOME` 若用户设过要一起传 |
+| | claude | codex | **gemini** |
+|---|---|---|---|
+| 无头子命令 | `claude -p "<prompt>"` | `codex exec "<prompt>"`(prompt 是位置参数,**必须放最后**) | `gemini -p "<prompt>"` |
+| 输出 | `--output-format json` → **一个** JSON 信封,取 `result` / `is_error` | `--json` → 事件流;**成功的正文改从 `-o <文件>` 读**,见下 | ✅ `-o json` → **一个**信封 `{session_id, response, stats}`;也有 `-o stream-json` |
+| MCP 怎么喂 | `--mcp-config <临时文件>`,用后即删 | ✅ `-c mcp_servers.spool.command=…` 一组覆盖,**不写文件** | ⚠️ **只能写文件**:`<cwd>/.gemini/settings.json`(项目级)。**所以必须把 cwd 设成我们自己造的临时目录** —— 没有等价于 `--mcp-config` 的命令行开关 |
+| 隔离 | 临时配置本身就是边界 | ✅ **`--ignore-user-config`** —— 不加载用户自己的 config.toml,**但登录照用**(它 help 原话:auth still uses CODEX_HOME) | ⚠️⚠️ **没有等价开关。** 用户 `~/.gemini/settings.json` 里的 MCP 服务器**照样会被加载并真的起进程**(实测:塞一个 `intruder` 进去,`gemini mcp list` 显示它 Connected)。**能挡住的只有下一格** |
+| 工具白名单 | `--allowedTools "mcp__spool__…"` | ✅ `-c mcp_servers.spool.enabled_tools=[…]`(裸名,不带 `mcp__spool__` 前缀) | ✅ 两层:服务器上的 `includeTools`(裸名)+ **`--allowed-mcp-server-names spool`**。⚠️ 后者是挡住上一格那个洞的**唯一**东西 —— 实测 intruder 的工具**一个都没进模型的工具表**(spool 14 个全在) |
+| 内置终端工具 | Bash 不在白名单 = 用不了 | ⚠️ **摘不掉**(没有 `tools.shell` 这个配置键)。只能 `--sandbox read-only` | ✅ **摘得掉**,比 codex 强:`tools.exclude: [run_shell_command, write_file, replace, read_file, …]`。⚠️ **但这个键已被标记废弃**("will be removed in 1.0, migrate to Policy Engine"),**升级会炸** |
+| 轮数上限 | `--max-turns 12` | ⚠️ **没有对应参数**,唯一的天花板是超时 | ⚠️ **也没有**,同 codex |
+| 登录态 | 钥匙串,账户名取自 `USER` | `~/.codex/auth.json` → 只要 `HOME`;`CODEX_HOME` 若用户设过要一起传 | ✅ **`GEMINI_API_KEY` 环境变量**,不碰钥匙串、不碰 HOME |
+| 无头放行 | 靠白名单 | `approval_policy="never"` | `--approval-mode yolo` |
+| ⚠️ **工作区信任** | 无此概念 | 无此概念 | ⚠️⚠️ **必须 `GEMINI_CLI_TRUST_WORKSPACE=true`**,否则 **MCP 服务器被静默禁用**(`mcp list` 才会说出口:「configured but disabled because this folder is untrusted」)。⚠️ **`--skip-trust` 不管用** —— 实测加了它模型仍然答 `NO_MCP_TOOLS`。**这一格是整件事最大的坑,`--help` 里一个字都没有** |
+| 模型 | 别名 `opus/sonnet/haiku`,真跑确认过 | 目录 | ⚠️ **`-m` 不可靠**:传 `gemini-3.6-flash`,报错回来说的是 `model: gemini-3.5-flash`。**别把 `-m` 当成"钉住了"** |
+
+⚠️ **gemini 那一列的三格是"必须做对否则静默失败"**:工作区信任(不设 = 没有工具)、
+cwd(不设 = 读不到我们写的 MCP 配置)、`--allowed-mcp-server-names`(不设 = 用户自己的
+服务器混进来)。**三格都不会报错,只会安静地不是你以为的那样。**
 
 **怎么测出来的**(不花模型额度的办法,下次照做):
 
@@ -288,11 +296,96 @@ Ocean 当天的判断(实测撞上额度墙之后):**Codex 和 Claude Code 都�
   §0 的三条前提和 2026-07-09 的 MCP-first 决策全部原样成立。
 - **③ 选哪个 CLI 还没定死**,建议 gemini CLI(Gemini API 免费层 Flash 每天 1500 次,
   是这一档里唯一真的稳定的)。**动手前先重查 §7 那张表**,它会过期。
+  ⚠️⚠️ **「每天 1500 次」这个数 2026-08-10 实测已经不成立了 —— 真值是每天 20 次。
+  见 §7.8。这一节剩下的判断仍然成立,但「真的稳定够用」这半句必须删掉。**
 
 **落地时照 §7.2 的规矩**:加一个引擎 = 一个 `EngineKind` 枚举值 + 一份参数适配 +
 一份输出解析 + **一轮真机实测**(§7.3 那张表要长出第三列)。⚠️ 尤其是这三格:
 它有没有 `--ignore-user-config` 那种隔离手段、工具白名单怎么写、内置 shell 能不能关。
 ⚠️ 在真机实测之前**不要**把枚举值先加上占位 —— 没有"先占个位"这种中间状态。
+
+---
+
+## 7.8 ⭐⭐ 实测账:Gemini 免费档到底能不能当「默认维护工具」(2026-08-10)
+
+**Ocean 的原话**:「检测 gemini 免费 api 到底能不能作为 spool 的默认维护工具完成好所有任务」。
+**跑法**:他真库的**副本**(`sqlite3 .backup`,32 块 / 3 项目 / schema v14),
+隔离 HOME + 隔离 cwd,喂的是 `prompts/get` 和 `guidance_text()` 取出来的**真提示词**,
+不是手抄的。gemini-cli 0.54.4。
+
+### 7.8.1 一句话结论
+
+> **不能当默认档。** 轻的两个动作(压缩、体检)它做得**好**;
+> 重的两个(跟进、周回顾)**结构上跑不完** —— 不是答得差,是**额度在半路耗光**。
+> 免费层是**每个模型每天 20 次请求**,而一次跟进要烧掉的正好是这个数。
+
+### 7.8.2 逐条实测
+
+| 动作 | 模型 | 结果 | API 请求数 | 耗时 |
+|---|---|---|---|---|
+| **体检 thread_health** | gemini-3-flash-preview | ✅ **好** —— 认出摘要过期,给了新摘要建议,判据说得出来 | 2 | 39s |
+| **压缩 distill** | gemini-3-flash-preview | ✅ **好** —— 11 块真材料提炼成一块结论,分了「已定 / 未定 / 卡点」三段 | 2 | 28s |
+| 工具连通 | gemini-3.5-flash-lite | ✅ 14 个 Spool 工具全在,`list_threads` 答 3(对) | 2 | 3s |
+| **跟进 follow_up** | gemini-3-flash-preview | ❌ **跑不完** —— 前台撞 10 分钟超时,后台重跑**烧光当天 20 次额度后失败** | 20(封顶) | >10 min |
+| **周回顾 weekly_review** | 要 3.6-flash,**实际跑的是 3.5-flash** | ❌ 额度已空,直接失败 | — | — |
+| **对照:claude 跑同一份 distill** | haiku→sonnet | ✅ 同样的好,**同样一块没写** | 1 轮 | 28s · **$0.062** |
+
+### 7.8.3 ⚠️ 一条差点写成 bug 的观察(先记下来,免得下次又查一遍)
+
+**压缩和体检跑完,库里一块都没多**(32→32)。第一反应是「Gemini 不肯写」——**错的**。
+
+提示词自己写着:「先把这块念给用户听。**他同意之后**,用 add_block 存回」。
+**无头跑没人能点头,所以不写才是对的。** 拿 claude 跑同一份提示词,行为**一模一样**
+(它也问了「你同意这个方向吗?」),`engineStore.ts:336-345` 那段注释早就把这件事讲清楚了:
+
+> headless, nobody can agree, so writing nothing is **CORRECT**
+
+→ **这一条不是 Gemini 的短板,三个引擎在这里完全一致。** 别再当 bug 查。
+
+### 7.8.4 额度的真实形状(这才是拦路的那一格)
+
+- **免费层 = 每个模型每天 20 次请求。** 报错原文:
+  `Quota exceeded for metric: …/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash`
+- ⚠️ **是「天」不是「分钟」**:错误里写着 `Please retry in 23s`,**但等了 65 秒、又等了 25 分钟,照样拒**。
+  别被那句 retry 骗了。
+- ✅ **额度按模型分池**:3.5-flash 空了,3-flash-preview / flash-lite / flash-latest 还能用。
+  这是唯一的缓冲,**也是唯一能让这一档勉强活着的东西**。
+- ⚠️ **CLI 的重试会自己把额度烧光。** 一次撞限 → 它连着重试 → 20 次用完 →
+  它对用户说的是「**You have exhausted your daily quota on this model**」,
+  一句**每天只能跑一次半**的真相被说成了「你今天用完了」。
+- ⚠️ **单次开销大**:一句 "Reply with exactly: PONG" 也要 **15,502 tokens** ——
+  内置系统提示 + 工具定义就这么大。接上 14 个 Spool 工具之后,一次普通跑 25k–53k tokens。
+- ⚠️ **`-m` 钉不住模型**:传 `gemini-3.6-flash`,报错回来说的是 `gemini-3.5-flash`。
+  **所以「换个模型绕开额度」这条路也不牢靠。**
+
+### 7.8.5 那还做不做?怎么做
+
+**做,但定位要改** —— 不是「默认档」,是「**没有订阅的人的入门档**」。三条落地口径:
+
+1. ⚠️ **别把它设成默认。** §7.4 的选择顺序保持 `claude → codex → gemini`。
+   理由和 08-06 撤掉「codex 免费」那句话是同一条:**说了就是把用户往
+   「装完发现跑一次半就没了」上引。**
+2. ⚠️ **跟进这个动作,在 gemini 档上应当直接不给。** 它是唯一多轮 agentic 的动作,
+   实测就是它烧光额度的。给一个必然失败的按钮,比不给这个按钮更伤。
+   —— 这跟 §7.5「不为 codex 单独做一套动作」不冲突:那说的是**别做新动作**,
+   这说的是**已有动作按引擎能力关掉一个**,和「检测不到就整组不渲染」是同一个安静原则。
+3. **设置页那一行要说真话**:一句「免费层每个模型每天约 20 次请求,够压缩和体检,
+   不够联网跟进」。⚠️ 按 §7.4 已经定下的规矩,**一句「免费」都不能单独说**。
+
+### 7.8.6 安全上的一格意外收获,和一格必须说出口的退步
+
+- ✅ **比 codex 强的一格**:gemini 的内置 shell / 写文件工具**摘得掉**
+  (`tools.exclude`),codex 摘不掉。实测排除后,模型手上只剩 Spool 的 14 个工具
+  加几个无害的(`update_topic` / `enter_plan_mode`)。
+  ⚠️ **但这个键已被官方标记废弃,1.0 会删** —— 这是一个**有保质期的**安全保证。
+- ⚠️ **比两个都弱的一格**:用户自己 `~/.gemini/settings.json` 里的 MCP 服务器
+  **拦不住被加载、被起进程**(claude 有 `--strict-mcp-config`,codex 有
+  `--ignore-user-config`,gemini 没有对应开关)。
+  **能挡住的只是"它的工具进不了模型的工具表"**(`--allowed-mcp-server-names`)。
+  → **诚实的说法**:在 gemini 档上,"只有 Spool 的工具"仍然成立;
+  "只有 Spool 的进程"**不成立**。§7.3 那张表已经按这个口径改了。
+
+---
 
 ⚠️ **这一轮还欠着一件事:模型选择器要在这里装回来。**
 2026-08-07 晚 Ocean 拍板把右侧栏的模型选择器**整个撤掉**(`opus` 那个别名是坏的,
