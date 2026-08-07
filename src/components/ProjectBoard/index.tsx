@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  FolderInput,
   Package,
   RotateCcw,
   Trash2,
@@ -20,6 +21,7 @@ import { dateLocale, useT } from '@/lib/i18n';
 import { ACTION_LABEL, useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+import { useWorkspacesStore } from '@/stores/workspacesStore';
 
 // DESIGN_WORKBENCH §9.13 — 项目管理's workspace, second pass.
 //
@@ -48,6 +50,14 @@ import { useThreadsStore } from '@/stores/threadsStore';
 // (BoardRail, now deleted) and Ocean cut that: 「去掉项目汇总的右边栏」. 周回顾 reads every
 // project and the automation switch governs every project, so 项目管理 — the view that IS
 // every project — is where they belong.
+//
+// 2026-08-10 — 工作区 as a column (拍板第 7 条). Ocean's own model: 「工作区类似大文件夹，
+// 项目是按照工作区文件夹分类的」. The sidebar was built on that model; this board was built on
+// another one (every project in one flat table), so the dimension he sorts by simply was not
+// here. ⚠️ **A column, not grouping** — §9.13 had just finished making this screen lighter and
+// grouping would put the weight straight back. A column also lets the move happen in place:
+// the sidebar's 移动到工作区 menu is reused verbatim as a sixth row action, so there is one
+// menu and one behaviour, not two that drift.
 
 type Sort = 'deadline' | 'created';
 
@@ -61,6 +71,8 @@ export default function ProjectBoard() {
   const setPacking = useThreadsStore((s) => s.setPacking);
   const reopen = useThreadsStore((s) => s.reopen);
   const remove = useThreadsStore((s) => s.remove);
+  const patch = useThreadsStore((s) => s.patch);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
 
   const current = useEngineStore((s) => s.current);
   const enqueue = useEngineStore((s) => s.enqueue);
@@ -76,10 +88,26 @@ export default function ProjectBoard() {
   const [sort, setSort] = useState<Sort>('deadline');
   const [openId, setOpenId] = useState<string | null>(null);
   const [stats, setStats] = useState<Record<string, ThreadBlockStats>>({});
+  // Only the open row can show it, and only one row is open, so one flag is enough.
+  const [moveOpen, setMoveOpen] = useState(false);
 
   useEffect(() => {
     if (engineStatus === null) void probe();
   }, [engineStatus, probe]);
+
+  useEffect(() => {
+    if (!moveOpen) return;
+    const close = (): void => setMoveOpen(false);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMoveOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [moveOpen]);
 
   // One grouped scan for the whole board. Re-read when the project list changes, which is
   // also when a block was written by anything this window knows about.
@@ -95,6 +123,11 @@ export default function ProjectBoard() {
     mcpWriteEnabled,
     actionsEnabled,
   });
+
+  const wsTitleById = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.title.trim() || t('未命名')])),
+    [workspaces, t],
+  );
 
   const now = Date.now();
   // ⚠️ Subscribe to the map and flatten here — `selectAllThreadsFlat` as a hook selector
@@ -143,7 +176,10 @@ export default function ProjectBoard() {
       <li key={th.id} className={isDone ? 'opacity-70' : ''}>
         <button
           type="button"
-          onClick={() => setOpenId(open ? null : th.id)}
+          onClick={() => {
+            setMoveOpen(false);
+            setOpenId(open ? null : th.id);
+          }}
           className="flex w-full items-baseline gap-2 rounded px-2 py-2 text-left transition-colors hover:bg-paper-2/60"
         >
           <span className="flex-none text-muted">
@@ -159,6 +195,12 @@ export default function ProjectBoard() {
               and two-line rows in a long list read as a wall (§9.13 「没有空间呼吸感」). */}
           <span className="min-w-0 flex-1 truncate text-[11px] italic text-muted">
             {summary}
+          </span>
+          {/* 工作区, beside the other two per-project figures rather than next to the title:
+              a fixed-width column only reads as a column if its left edge lines up all the
+              way down the list, and title + 摘要 are the two things that never do. */}
+          <span className="w-24 flex-none truncate text-[11px] text-muted">
+            {wsTitleById.get(th.workspaceId) ?? ''}
           </span>
           <span className="flex-none font-mono text-[10px] text-muted">
             {t('{n} 块', { n: s.blocks })}
@@ -198,6 +240,43 @@ export default function ProjectBoard() {
               onClick={() => setPacking(th.id)}
             />
             <AskAiButton threadTitle={title} />
+            {/* Same menu as the sidebar's right-click one (Sidebar/ThreadListItem), same
+                patch call — moved here because a column you cannot act on just tells you
+                where the project is, and the complaint was that it was in the wrong place. */}
+            <span className="relative" onMouseDown={(e) => e.stopPropagation()}>
+              <RowAction
+                icon={<FolderInput size={12} />}
+                label={t('移动到工作区')}
+                onClick={() => setMoveOpen(!moveOpen)}
+              />
+              {moveOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-card)]"
+                >
+                  {workspaces.filter((w) => w.id !== th.workspaceId).length === 0 ? (
+                    <div className="px-3 py-1 text-xs text-muted">{t('没有其他工作区')}</div>
+                  ) : (
+                    workspaces
+                      .filter((w) => w.id !== th.workspaceId)
+                      .map((ws) => (
+                        <button
+                          key={ws.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            void patch(th.id, { workspaceId: ws.id });
+                            setMoveOpen(false);
+                          }}
+                          className="block w-full px-3 py-1 text-left text-xs text-ink hover:bg-paper-2"
+                        >
+                          {ws.title || t('未命名')}
+                        </button>
+                      ))
+                  )}
+                </div>
+              )}
+            </span>
             {isDone ? (
               <RowAction
                 icon={<RotateCcw size={12} />}
