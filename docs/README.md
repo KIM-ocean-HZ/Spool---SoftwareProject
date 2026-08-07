@@ -14,8 +14,9 @@
 | `DESIGN_FOLLOW_UP.md` | 联网跟进 | M1/M2/M3 已落地;**M4 定时要等两个条件** |
 | `DESIGN_MCP_WRITE_ROLE.md` | MCP 写入权限该干什么(角色定位 + 待审队列) | 已落地;**§9 记着外部客户端首次真跑的全程** |
 | `DESIGN_PROJECT_FILES.md` | 附件从块级搬到项目级 + MCP 申请访问文件 | ✅ 四件全拍完,**未开工**(schema v15) |
-| `DESIGN_CASE_STUDY.md` | 公开 case-study 的计划与理由 | ✅ 四件全拍完;**第一期已落地(§6)** |
+| `DESIGN_CASE_STUDY.md` | 公开 case-study 的计划与理由 | ✅ 四件全拍完;**第一、三期已落地(§6/§7)**;四五六期卡在「代码全做完之后」 |
 | `CASE_STUDY_LEDGER.md` | ⭐ **台账:每个可披露的数字 + 怎么复算 + 失败与修复**(英文) | **只增不改**;维护规矩在 `DESIGN_CASE_STUDY` §6.3 |
+| `CASE_STUDY_PAGE.md` | **给人读的那一版**:八栏正文,将来上官网(英文) | 会重写,**但不许出现台账查不到的数字** |
 | `DESIGN_WINDOWS_PORT.md` | Windows 版勘查 | 未开工,排在最后 |
 | `EVAL_M1_M2_M3.md` | 引擎位 + MCP 写入的自评 + 实机探针结果 | 留档 |
 | `MCP_LAB_PROMPT.md` | 隔离实验室的评审提示词 | 第三轮的,下轮要改 |
