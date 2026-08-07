@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import type { AnnotationAuthor } from '@/lib/blocks/annotationAuthor';
 import { joinSegments, type Segment } from '@/lib/blocks/segments';
 import { getDb } from './client';
 
@@ -19,7 +20,10 @@ export interface Block {
   threadId: string;
   kind: BlockKind;
   content: string;
-  annotation: string | null;   // the user's own note about this block
+  annotation: string | null;   // a note about this block — the user's, unless annotationBy says otherwise
+  /** v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): who wrote `annotation`. Null = a pre-v14 row;
+   *  read it through annotationIsAi(), which falls back to `source` for those. */
+  annotationBy: AnnotationAuthor | null;
   refThreadId: string | null;  // kind=ref
   refBlockId: string | null;   // v7 (§20.13 v2.4 D2): block-level citation, set by MCP writers
   source: string | null;       // provenance label, editable
@@ -41,6 +45,8 @@ export interface CreateBlockArgs {
   kind?: BlockKind;
   content: string;
   annotation?: string | null;
+  /** v14: omitted means the user wrote it — every caller of this function is a GUI path. */
+  annotationBy?: AnnotationAuthor | null;
   refThreadId?: string | null;
   refBlockId?: string | null;
   source?: string | null;
@@ -55,6 +61,7 @@ interface Row {
   kind: BlockKind;
   content: string;
   annotation: string | null;
+  annotation_by: AnnotationAuthor | null;
   ref_thread_id: string | null;
   ref_block_id: string | null;
   source: string | null;
@@ -71,6 +78,7 @@ const fromRow = (r: Row): Block => ({
   kind: r.kind,
   content: r.content,
   annotation: r.annotation,
+  annotationBy: r.annotation_by ?? null,
   refThreadId: r.ref_thread_id,
   refBlockId: r.ref_block_id,
   source: r.source,
@@ -82,7 +90,7 @@ const fromRow = (r: Row): Block => ({
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -185,6 +193,9 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     kind: args.kind ?? 'text',
     content: args.content,
     annotation: args.annotation ?? null,
+    // v14: every caller of createBlock is a GUI/capture path, so an annotation arriving
+    // here is the user's. The MCP server writes its own rows in Rust and stamps 'ai' there.
+    annotationBy: args.annotationBy ?? 'user',
     refThreadId: args.refThreadId ?? null,
     refBlockId: args.refBlockId ?? null,
     source: args.source ?? null,
@@ -200,15 +211,16 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
   // writers, so a single statement holding the write lock cannot lose the race against
   // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $10)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11)`,
     [
       b.id,
       b.threadId,
       b.kind,
       b.content,
       b.annotation,
+      b.annotationBy,
       b.refThreadId,
       b.refBlockId,
       b.source,
@@ -249,11 +261,11 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 13;
+  const COLS = 14;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11}, $${o + 12}, $${o + 13})`;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11}, $${o + 12}, $${o + 13}, $${o + 14})`;
     })
     .join(', ');
   const params = blocks.flatMap((b) => {
@@ -265,6 +277,7 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.kind,
       b.content,
       b.annotation,
+      b.annotationBy,
       b.refThreadId,
       b.refBlockId,
       b.source,
@@ -276,7 +289,7 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind) VALUES ${tuples}`,
     params,
   );
 };
@@ -307,12 +320,20 @@ export const updateBlockContent = async (id: string, content: string): Promise<v
   await db.execute('UPDATE blocks SET content = $1 WHERE id = $2', [content, id]);
 };
 
+// v14 (§9.3 拍板乙): this function is only ever reached from the GUI or the capture overlay,
+// so whatever it writes is the user's own sentence. Stamping 'user' here is what lets a note
+// the user adds to an AI-written block keep its 💭 Personal authority — the one case the
+// source-only proxy gets wrong, and the reason Ocean chose the recorded column over it.
+// It also retires the proxy for that row permanently, pre-v14 or not.
 export const updateBlockAnnotation = async (
   id: string,
   annotation: string | null,
 ): Promise<void> => {
   const db = await getDb();
-  await db.execute('UPDATE blocks SET annotation = $1 WHERE id = $2', [annotation, id]);
+  await db.execute(
+    "UPDATE blocks SET annotation = $1, annotation_by = 'user' WHERE id = $2",
+    [annotation, id],
+  );
 };
 
 export const togglePin = async (id: string): Promise<boolean> => {
@@ -341,14 +362,17 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
       block.id,
       block.threadId,
       block.kind,
       block.content,
       block.annotation,
+      // v14: an undone delete restores authorship with everything else — otherwise ⌘Z
+      // would launder an AI note into a user note.
+      block.annotationBy,
       block.refThreadId,
       block.refBlockId,
       block.source,

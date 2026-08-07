@@ -1,7 +1,9 @@
+import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import {
+  AI_NOTE_MARKER,
   ATTACHMENT_SEE_BELOW,
   CORRECTED_BY_PREFIX,
   DEFAULT_PACK_TEMPLATE,
@@ -40,6 +42,10 @@ import {
 export interface CitedBlock {
   content: string;
   annotation?: string | null;
+  /** v14 (§9.3 拍板乙): true when `annotation` was written by an AI — such a note may not
+   *  name the block. Callers resolve it with annotationIsAi(); omitted reads as the user's,
+   *  which is what every pre-v14 caller meant. */
+  annotationIsAi?: boolean;
   createdAt: number;
   foreignTitle?: string;
 }
@@ -237,14 +243,17 @@ const renderBlock = (
   }
 
   if (b.annotation?.trim()) {
-    lines.push(`${NOTE_INDENT}${NOTE_MARKER}${oneLine(b.annotation)}`);
+    // v14 (§9.3 拍板乙): which marker decides how much authority the next model gives this
+    // sentence — the whole point of recording who wrote it.
+    const noteMarker = annotationIsAi(b.annotationBy, b.source) ? AI_NOTE_MARKER : NOTE_MARKER;
+    lines.push(`${NOTE_INDENT}${noteMarker}${oneLine(b.annotation)}`);
   }
   if (b.refBlockId) {
     const cited = refBlocks?.get(b.refBlockId);
     const marker = refBlockMarker(b.refKind);
     lines.push(
       cited
-        ? `${NOTE_INDENT}${marker}[${formatPackTime(cited.createdAt)}] ${blockLabel(cited.content, cited.annotation)}${
+        ? `${NOTE_INDENT}${marker}[${formatPackTime(cited.createdAt)}] ${blockLabel(cited.content, cited.annotation, cited.annotationIsAi)}${
             cited.foreignTitle ? `${REF_BLOCK_FROM}${cited.foreignTitle}` : ''
           }`
         : `${NOTE_INDENT}${marker}${REF_BLOCK_MISSING}`,
@@ -314,9 +323,20 @@ export const headAnchor = (content: string): string => {
 // ⚠️ Applies only where the block's own body is absent or elsewhere: the pinned
 // placeholder, `↩ cites:`, and the over-budget catalogue. NOT to mcp.rs's Block IDs table,
 // which is a lookup keyed by the body text the reader just saw. Mirrored in mcp.rs.
-export const blockLabel = (content: string, annotation?: string | null): string => {
+//
+// v14 (§9.3 拍板乙): `noteIsAi` is required, not optional, and that is deliberate. W7 is what
+// turned the annotation hole from "one extra line" into "the AI names the block", so every
+// call site has to answer the question rather than inherit a permissive default — a new
+// caller that forgets would silently reopen the hole. An AI-written note falls straight
+// through to the body anchor: it is still printed under the block as `ai note:`, it just
+// never gets to speak for the block.
+export const blockLabel = (
+  content: string,
+  annotation: string | null | undefined,
+  noteIsAi: boolean | undefined,
+): string => {
   const body = headAnchor(content);
-  const note = annotation?.trim();
+  const note = noteIsAi ? undefined : annotation?.trim();
   const bodyFitsWhole = body === oneLine(content);
   return note && note.length > 0 && !bodyFitsWhole ? headAnchor(note) : body;
 };
@@ -325,7 +345,7 @@ const renderPinnedPlaceholder = (b: Block): string => {
   const time = formatPackTime(b.createdAt);
   const bracket =
     b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
-  const head = blockLabel(b.content, b.annotation);
+  const head = blockLabel(b.content, b.annotation, annotationIsAi(b.annotationBy, b.source));
   const anchor = head.length > 0 ? `${head} ` : '';
   return `${PINNED_PREFIX}${seqMarker(b)}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
 };

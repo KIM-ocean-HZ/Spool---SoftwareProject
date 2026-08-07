@@ -34,14 +34,15 @@ const applySchema = (handle: Sqlite): void => {
 const userVersion = (handle: Sqlite): number =>
   Number((handle.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
 
-// Blocks as an older step left them: v13's two columns come off, because a database that
-// starts below v12 walks all the way to 13 in one pass and picks them up on the way. They
-// are v13's business and are asserted in v13's own test.
+// Blocks as an older step left them: the columns added by v13 and v14 come off, because a
+// database that starts below v12 walks all the way to the head in one pass and picks them
+// up on the way. Each is asserted in its own step's test.
 const blocksSansV13 = (handle: Sqlite): Record<string, unknown>[] =>
   (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map((r) => {
-    const { stale_at, ref_kind, ...rest } = r;
+    const { stale_at, ref_kind, annotation_by, ...rest } = r;
     void stale_at;
     void ref_kind;
+    void annotation_by;
     return rest;
   });
 
@@ -50,10 +51,21 @@ const columnNames = (handle: Sqlite, table: string): string[] =>
 
 // Rewind past v13: blocks had no way to say a conclusion had stopped holding.
 const downgradeToV12 = (handle: Sqlite): void => {
+  downgradeToV13(handle);
   handle.exec(`
     ALTER TABLE blocks DROP COLUMN stale_at;
     ALTER TABLE blocks DROP COLUMN ref_kind;
     PRAGMA user_version = 12;
+  `);
+};
+
+// Rewind past v14: nothing recorded WHO wrote an annotation, and a proposal could not carry
+// the correction relation it wanted the approved block to have.
+const downgradeToV13 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE blocks DROP COLUMN annotation_by;
+    ALTER TABLE proposals DROP COLUMN ref_kind;
+    PRAGMA user_version = 13;
   `);
 };
 
@@ -161,7 +173,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -195,7 +207,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -215,7 +227,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -233,7 +245,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -255,7 +267,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -286,7 +298,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -340,7 +352,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -363,7 +375,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     const cols = columnNames(handle, 'threads');
     expect(cols).toContain('follow_up_brief');
     expect(cols).toContain('follow_up_state');
@@ -395,7 +407,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     // The column the whole table exists for (DESIGN_WORKBENCH §1.1: the AI's prose had
     // nowhere to live, so it was thrown away and the user was told "没有新增块").
     const cols = columnNames(handle, 'engine_runs');
@@ -432,7 +444,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     const cols = columnNames(handle, 'blocks');
     expect(cols).toContain('stale_at');
     expect(cols).toContain('ref_kind');
@@ -448,15 +460,44 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(blocksSansV13(handle)).toEqual(blocksBefore);
   });
 
+  it('v13 → v14 records annotation authorship without deciding any existing row', async () => {
+    applySchema(handle);
+    downgradeToV13(handle);
+    seedUserData(handle);
+    const blocksBefore = handle.prepare('SELECT * FROM blocks').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(14);
+    expect(columnNames(handle, 'blocks')).toContain('annotation_by');
+    expect(columnNames(handle, 'proposals')).toContain('ref_kind');
+    // ⚠️ The property this step lives or dies by (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): it
+    // writes NO user data. NULL is "unknown", not "the user" — readers resolve it through
+    // the block's own source, so a database that walks half this step renders exactly what
+    // one that walked none of it renders. A backfill would have been the 2026-05-29 shape:
+    // a migration rewriting rows it only guessed at.
+    expect(handle.prepare('SELECT annotation_by FROM blocks').all()).toEqual([
+      { annotation_by: null },
+    ]);
+    // Only this step's own column comes off here — a v13 database already had the rest.
+    expect(
+      (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map((r) => {
+        const { annotation_by, ...rest } = r;
+        void annotation_by;
+        return rest;
+      }),
+    ).toEqual(blocksBefore);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 13');
+    handle.exec('PRAGMA user_version = 14');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -476,7 +517,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(13);
+    expect(userVersion(handle)).toBe(14);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

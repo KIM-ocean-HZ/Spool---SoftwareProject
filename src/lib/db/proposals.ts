@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { t } from '@/lib/i18n';
-import { createBlock } from './blocks';
+import { createBlock, setBlockSupersession, type RefKind } from './blocks';
 import { getDb } from './client';
 
 // DESIGN_MCP_WRITE_ROLE §4 (M1) — the read/approve half of the triage queue. The MCP
@@ -22,6 +22,12 @@ export interface Proposal {
   /** An explicit citation the AI passed. Approval fills this in from the batch's own
    *  original passage when the AI left it empty (§4.4 A). */
   refBlockId: string | null;
+  /** v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板甲): 'corrects' when the AI is saying one point in
+   *  the cited block no longer holds. Null is a plain citation — every pre-v14 proposal, and
+   *  every item the batch's own passage is cited by. Only 'corrects' can ever arrive here:
+   *  the server refuses 'supersedes' outright, because ①② remove the old block from every
+   *  future pack and that stays the user's call (§3.1 «谁能用»). */
+  refKind: Extract<RefKind, 'corrects'> | null;
 }
 
 export interface ProposalBatch {
@@ -73,6 +79,7 @@ interface ItemRow {
   content: string;
   annotation: string | null;
   ref_block_id: string | null;
+  ref_kind: 'corrects' | null;
 }
 
 // Pending = still inside its 7-day window. Everything else is void and shows as one
@@ -99,6 +106,7 @@ export const listPendingBatches = async (now: number): Promise<ProposalBatch[]> 
       content: r.content,
       annotation: r.annotation,
       refBlockId: r.ref_block_id,
+      refKind: r.ref_kind,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -179,6 +187,7 @@ export const listBatchesCreatedSince = async (since: number): Promise<ProposalBa
       content: r.content,
       annotation: r.annotation,
       refBlockId: r.ref_block_id,
+      refKind: r.ref_kind,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -312,13 +321,24 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       [r.thread_id],
     );
     if (live.length === 0) continue;
-    await createBlock({
+    const created = await createBlock({
       threadId: r.thread_id,
       content: r.content,
       annotation: r.annotation,
+      // v14 (§9.3 拍板乙): the queue's only writer is the MCP server, so every proposal's
+      // annotation is an AI's sentence. Approving it means the user accepted the block —
+      // not that they wrote the note — and the pack has to keep saying which.
+      annotationBy: 'ai',
       source: batch.client || 'MCP',
       refBlockId: r.ref_block_id,
     });
+    // v14 (§9.3 拍板甲): the correction relation is applied on APPROVAL, never at propose
+    // time — until the user clicks, nothing about the corrected block has changed. Only
+    // 'corrects' can reach here (the server refuses 'supersedes'), so this can never set a
+    // stale_at: ①② stay the user's alone.
+    if (r.ref_kind === 'corrects' && r.ref_block_id) {
+      await setBlockSupersession(created.id, r.ref_block_id, 'corrects', Date.now());
+    }
     await db.execute('DELETE FROM proposals WHERE id = $1', [r.id]);
     written += 1;
   }
@@ -329,7 +349,9 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
 // Test-only seam: the queue's only writer is the Rust server, so a TS test has no way to
 // get a batch in front of the approve path without one. Never called by the app.
 export const __insertBatchForTest = async (
-  batch: Omit<ProposalBatch, 'items'> & { items: Omit<Proposal, 'id'>[] },
+  batch: Omit<ProposalBatch, 'items'> & {
+    items: (Omit<Proposal, 'id' | 'refKind'> & { refKind?: Proposal['refKind'] })[];
+  },
 ): Promise<void> => {
   const db = await getDb();
   await db.execute(
@@ -348,9 +370,18 @@ export const __insertBatchForTest = async (
   for (let i = 0; i < batch.items.length; i++) {
     const it = batch.items[i]!;
     await db.execute(
-      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [nanoid(), batch.id, it.threadId, it.content, it.annotation, it.refBlockId, i],
+      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        nanoid(),
+        batch.id,
+        it.threadId,
+        it.content,
+        it.annotation,
+        it.refBlockId,
+        it.refKind ?? null,
+        i,
+      ],
     );
   }
 };

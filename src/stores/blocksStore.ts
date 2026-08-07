@@ -510,6 +510,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           kind: src.kind,
           content: src.content,
           annotation: src.annotation,
+          // v14: authorship copies with the note. A copy that forgot it would launder an
+          // AI's sentence into the user's own on arrival in the destination project.
+          annotationBy: src.annotationBy,
           refThreadId: src.refThreadId,
           refBlockId: src.refBlockId,
           source: src.source,

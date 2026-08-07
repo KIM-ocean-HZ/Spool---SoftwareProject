@@ -130,6 +130,10 @@ const EN: Record<string, string> = {
   '完成': 'Done',
   '双击编辑（含批注）': 'Double-click to edit (incl. note)',
   '双击编辑批注': 'Double-click to edit note',
+  // v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): the badge on a note an AI wrote. The pack's
+  // own `ai note:` marker stays English in every locale — it is a contract with the
+  // receiving model (交接 §6.4) — but this one is read by the user, so it follows the app.
+  'AI 批注': 'AI note',
   '标为重点?': 'Highlight?',
   '取消重点?': 'Remove highlight?',
   '取消选择': 'Deselect',
@@ -503,6 +507,10 @@ const EN: Record<string, string> = {
   '下面每条都会标注「出自这段」。这段本身也算一块。':
     'Each item below will cite this passage. The passage itself counts as one block too.',
   '进〈{title}〉': 'into ‹{title}›',
+  // v14 (§9.3 拍板甲): approving this item also marks one point in an existing block as
+  // corrected. The old block keeps its text and stays in every pack — but the user is
+  // agreeing to something beyond "store this", so the screen has to say so.
+  '更正已有的一块': 'corrects an existing block',
   '都存进去（{n} 块）': 'Store all {n} blocks',
   '存这 {n} 块': 'Store these {n} blocks',
   '都不要': 'No thanks',

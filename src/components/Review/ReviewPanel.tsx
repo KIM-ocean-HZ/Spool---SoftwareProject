@@ -212,6 +212,14 @@ function BatchCard({
                 <span className={`min-w-0 flex-1 ${on ? '' : 'opacity-40'}`}>
                   <span className="block text-[10px] text-accent">
                     {t('进〈{title}〉', { title: titleOf(item.threadId) })}
+                    {/* v14 (§9.3 拍板甲): a correction does more than land a block — it hangs
+                        a line under an existing one. Approving it without being told that
+                        would be approving a change to a block the user is not looking at. */}
+                    {item.refKind === 'corrects' && (
+                      <span className="ml-1.5 rounded border border-line px-1 text-muted">
+                        {t('更正已有的一块')}
+                      </span>
+                    )}
                   </span>
                   <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-relaxed text-ink">
                     {item.content}

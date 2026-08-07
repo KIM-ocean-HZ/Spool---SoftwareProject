@@ -14,6 +14,13 @@ export const EXTRACT_CHAR_CAP = 8000; // max extracted chars inlined per attachm
 // --- Inline markers ---------------------------------------------------------------------
 export const SOURCE_MARKER = ' · from ';
 export const NOTE_MARKER = 'note: ';
+// v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): the same slot when an AI wrote the annotation
+// rather than the user. `note:` is documented in the Notation section as 💭 Personal — the
+// highest authority the pack grants — and both MCP write tools accept an `annotation`, so
+// without a second marker an AI's sentence wore the user's authority. English like every
+// other marker: 硬规则 12's exception covers what is a contract with the receiving model
+// (交接 §6.4), and this is that.
+export const AI_NOTE_MARKER = 'ai note: ';
 export const FILE_MARKER = '↳ attached file: ';
 export const FOLDER_MARKER = '↳ attached folder: ';
 export const URL_MARKER = '↳ attached URL: ';
@@ -178,6 +185,10 @@ Indented under a block:
 - \`note:\` — the user's own annotation. Their words, not the source's: weigh it as
   💭 Personal even when the block itself is 📖 Reference. Where a block is named by a
   short preview rather than printed in full, that preview is its note when it has one.
+- \`ai note:\` — the same slot, written by an AI through Spool's write tools instead of by
+  the user. Weigh it as 🧩 Synthesis: another model's framing of the block, useful but not
+  guaranteed correct, and never evidence of what the user thinks. It is never used to name
+  a block, and it never outranks the block's own source.
 - \`↩ cites:\` — this block builds on the older block previewed after the marker.
 - \`↩ replaces (that block no longer holds):\` — the user has retired the older block.
   It is history: do not use it, and do not go looking for it in this pack.

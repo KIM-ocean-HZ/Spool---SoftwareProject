@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { getBlockById, type RefKind } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
 import { blockLabel } from '@/lib/pack/assemble';
@@ -23,7 +24,7 @@ export default function CitationLine({ refBlockId, refKind }: Props) {
   const [cited, setCited] = useState<
     | { state: 'loading' }
     | { state: 'missing' }
-    | { state: 'found'; anchor: string; createdAt: number }
+    | { state: 'found'; anchor: string; createdAt: number; seq: number | null }
   >({ state: 'loading' });
 
   useEffect(() => {
@@ -36,8 +37,12 @@ export default function CitationLine({ refBlockId, refKind }: Props) {
               state: 'found',
               // Same label ladder the pack's ↩ cites: line uses — one truncation semantic
               // across pack and GUI (DESIGN_CONTEXT_HYGIENE §3.2).
-              anchor: blockLabel(b.content, b.annotation),
+              // v14 (§9.3 拍板乙): an AI-written note may not name the block here either.
+              // DESIGN_MCP_WRITE_ROLE §9.5 caught this line doing exactly that in the real
+              // library — GPT's own sentence was naming #4 under #10 and #11.
+              anchor: blockLabel(b.content, b.annotation, annotationIsAi(b.annotationBy, b.source)),
               createdAt: b.createdAt,
+              seq: b.seq,
             }
           : { state: 'missing' },
       );
@@ -62,6 +67,11 @@ export default function CitationLine({ refBlockId, refKind }: Props) {
       {verb && <span className="shrink-0">{verb}</span>}
       {cited.state === 'found' ? (
         <span className="min-w-0 truncate">
+          {/* DESIGN_MCP_WRITE_ROLE §9.5-3: the number was the one thing missing. Ocean hit
+              this line in the real library and could not tell WHICH block it pointed at —
+              the preview truncates, and #4 is how Spool, the pack, and every MCP client
+              already name a block. Null seq (pre-v9 rows) simply has no number to show. */}
+          {cited.seq != null && <span className="font-mono">#{cited.seq}</span>}{' '}
           <time className="font-mono">{formatBlockTime(cited.createdAt)}</time>{' '}
           {cited.anchor}
         </span>

@@ -77,7 +77,23 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- that block is wrong; the old block is NOT touched and keeps rendering in full, which is
   -- the §3.1.1 answer to «替代信息大多是大段文字里的一句话» — correcting a sentence must not
   -- cost a re-paste of the other 1,900 characters.
-  ref_kind      TEXT
+  ref_kind      TEXT,
+  -- v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): WHO wrote `annotation`. The pack's Notation
+  -- section tells every receiving AI that `note:` is the user's own words and to weigh it as
+  -- 💭 Personal even on a 📖 Reference block — and `add_block` / `propose_blocks` both let an
+  -- AI supply `annotation`. So an AI-written sentence could take the highest authority the
+  -- pack has, and after W7 (§3.2, annotation-as-title) it could take the block's NAME too.
+  -- Nothing recorded the difference, because before MCP could write there was none.
+  --
+  -- NULL = unknown: every row written before v14. Readers fall back to the block's `source`
+  -- for those (an MCP-labelled block's note was written by that client) — the same proxy the
+  -- cheap version of this fix would have used everywhere, but confined to rows that predate
+  -- the column. 'user' / 'ai' are explicit and always win over the proxy.
+  --
+  -- ⚠️ The proxy is why this is not a backfill: the migration writes no user data at all
+  -- (2026-05-29 wipe class), and the first time the user edits any note the row self-heals
+  -- to an explicit 'user' — which is exactly the case the proxy gets wrong.
+  annotation_by TEXT
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
@@ -196,6 +212,17 @@ CREATE TABLE IF NOT EXISTS proposals (
   content      TEXT NOT NULL,
   annotation   TEXT,
   ref_block_id TEXT,                          -- an explicit citation; §4.4 A fills it in on approval
+  -- v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板甲): what the approved block's ref_block_id will
+  -- MEAN. Only 'corrects' may ever appear here, and NULL is everything else. §3.1's ban on
+  -- AI-declared supersession is unchanged for ①②: those REMOVE the old block from every
+  -- future pack, and a wrong guess silently deletes a correct conclusion. ③ removes nothing
+  -- — the corrected block still renders in full — so its worst case is one visible extra
+  -- line the user can see and undo, which is the risk level of a mis-written citation, and
+  -- that has been allowed since v7.
+  --
+  -- ⚠️ It is a proposal, never a direct write: this column is on `proposals`, not written
+  -- by the MCP server into `blocks`. The user approves it in Spool or it expires in 7 days.
+  ref_kind     TEXT,
   sort_order   INTEGER NOT NULL
 );
 

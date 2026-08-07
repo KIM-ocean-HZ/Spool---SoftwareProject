@@ -32,7 +32,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
 // and attachments), the v10 review queue, then attachments → blocks → threads →
@@ -406,6 +406,30 @@ const MIGRATIONS: Migration[] = [
         } catch (e) {
           console.info(`[db] ${col}: not added (likely exists)`, e);
         }
+      }
+    },
+  },
+  {
+    // v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): who wrote a block's annotation. One nullable
+    // column, no row rewritten — and deliberately NO backfill: NULL means "unknown", which
+    // readers resolve through the block's own `source`, so an interrupted run and a complete
+    // one behave identically and no user data is touched (2026-05-29 wipe class).
+    from: 13,
+    to: 14,
+    name: 'add-annotation-author',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE blocks ADD COLUMN annotation_by TEXT');
+      } catch (e) {
+        console.info('[db] annotation_by: not added (likely exists)', e);
+      }
+      // 拍板甲 (§9.3): a proposal may now carry the correction relation it wants the
+      // approved block to have. NULL on every existing row = a plain citation, which is
+      // what every queued proposal already meant.
+      try {
+        await db.execute('ALTER TABLE proposals ADD COLUMN ref_kind TEXT');
+      } catch (e) {
+        console.info('[db] proposals.ref_kind: not added (likely exists)', e);
       }
     },
   },

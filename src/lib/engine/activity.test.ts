@@ -8,6 +8,7 @@ const block = (id: string, createdAt: number, source: string | null): Block => (
   kind: 'text',
   content: id,
   annotation: null,
+  annotationBy: null,
   refThreadId: null,
   refBlockId: null,
   source,

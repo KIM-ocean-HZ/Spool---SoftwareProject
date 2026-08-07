@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import type { Block } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
 import { blockLabel } from '@/lib/pack/assemble';
@@ -69,7 +70,11 @@ export default function SupersedePicker({ block, blocks, onPick, onCancel }: Pro
             {pickedBlock.seq != null && (
               <span className="mr-1.5 font-mono text-muted">#{pickedBlock.seq}</span>
             )}
-            {blockLabel(pickedBlock.content, pickedBlock.annotation)}
+            {blockLabel(
+              pickedBlock.content,
+              pickedBlock.annotation,
+              annotationIsAi(pickedBlock.annotationBy, pickedBlock.source),
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <button
@@ -132,7 +137,7 @@ export default function SupersedePicker({ block, blocks, onPick, onCancel }: Pro
                       <span className="shrink-0 font-mono text-[10px] text-muted">#{b.seq}</span>
                     )}
                     <span className="min-w-0 truncate">
-                      {blockLabel(b.content, b.annotation)}
+                      {blockLabel(b.content, b.annotation, annotationIsAi(b.annotationBy, b.source))}
                     </span>
                   </button>
                 </li>

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
+import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
 import {
   isCurrentlyHighlighted,
@@ -654,7 +655,14 @@ function TextBlockItem({
   // user's own note is titled by that note. Only while it is not being edited — the editor
   // keeps the source layout (content first, note below), the same principle as showing raw
   // `==` markers in the content textarea.
-  const annotationAsTitle = !!block.annotation?.trim() && !editingAnnotation;
+  //
+  // v14 (§9.3 拍板乙): an AI-written note does not get the title slot. W7 gives the note the
+  // block's voice, and that voice belongs to whoever actually wrote it. The note is still
+  // shown — demoted below the content and labelled — so the user can see what the AI said
+  // about their block; hiding it would trade one misrepresentation for a blind spot.
+  const hasNote = !!block.annotation?.trim() && !editingAnnotation;
+  const noteIsAi = annotationIsAi(block.annotationBy, block.source);
+  const annotationAsTitle = hasNote && !noteIsAi;
   const annotationView = (
     <div
       // Double-click the annotation itself to edit just the annotation in place
@@ -678,6 +686,34 @@ function TextBlockItem({
         hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
         activeHitIndex={navHitIndex}
       />
+    </div>
+  );
+  // The demoted twin. Same double-click target on purpose: the user editing this note is
+  // exactly the moment it becomes theirs, and updateBlockAnnotation stamps 'user' — after
+  // which it takes the title slot like any other note they wrote.
+  const aiAnnotationView = (
+    <div
+      onDoubleClick={
+        readOnly
+          ? undefined
+          : () => {
+              setActive(block.id);
+              enterEditMode(() => setEditingAnnotation(true));
+            }
+      }
+      title={readOnly ? undefined : t('双击编辑批注')}
+      className="mt-1.5 flex items-baseline gap-1.5 font-ui text-[12px] leading-[1.5] text-muted"
+    >
+      <span className="shrink-0 rounded border border-line px-1 text-[10px]">
+        {t('AI 批注')}
+      </span>
+      <span className="min-w-0 italic">
+        <ContentRuns
+          content={block.annotation ?? ''}
+          hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
+          activeHitIndex={navHitIndex}
+        />
+      </span>
     </div>
   );
 
@@ -929,6 +965,10 @@ function TextBlockItem({
           )}
         </div>
       )}
+
+      {/* v14 (§9.3 拍板乙): an AI's note about this block, kept visible but kept in its
+          place — under the content, muted, and labelled as the AI's. */}
+      {hasNote && noteIsAi && aiAnnotationView}
 
       {/* The annotation EDITOR always sits below the content — editing returns to the
           source layout (same reason the content textarea keeps raw `==` markers). Quiet

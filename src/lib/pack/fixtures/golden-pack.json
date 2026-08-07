@@ -1,5 +1,5 @@
 {
-  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling). Also covers a cross-project citation (b8 → b-other, foreignTitle) vs the same-project one (b6 → b1). v13 (DESIGN_CONTEXT_HYGIENE): b9 is a PINNED block the user retired (staleAt) — it must leave both the Pinned Blocks section and the Full Record, taking its slot with it, and the closing [... 1 block ...] line must appear; b10 supersedes it (↩ replaces marker, preview resolved from refBlocks even though the citee is stale); b11 corrects b2, which stays in full and grows a ⚠️ line naming #11. The label ladder (§3.2 / W7) shows up twice: b1's pinned placeholder and b6's ↩ cites: line both name b1 by its ANNOTATION, not by its first 40 characters.",
+  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling). Also covers a cross-project citation (b8 → b-other, foreignTitle) vs the same-project one (b6 → b1). v13 (DESIGN_CONTEXT_HYGIENE): b9 is a PINNED block the user retired (staleAt) — it must leave both the Pinned Blocks section and the Full Record, taking its slot with it, and the closing [... 1 block ...] line must appear; b10 supersedes it (↩ replaces marker, preview resolved from refBlocks even though the citee is stale); b11 corrects b2, which stays in full and grows a ⚠️ line naming #11. The label ladder (§3.2 / W7) shows up twice: b1's pinned placeholder and b6's ↩ cites: line both name b1 by its ANNOTATION, not by its first 40 characters. v14 (§9.3 拍板乙): b6 is an MCP-written block with an annotation and NO annotationBy — the pre-v14 row, resolved through its source, so it must render `ai note:`. b12 and b13 pin the two directions the recorded column exists for, both on a `· MCP` source: b12 is annotationBy 'ai' (renders `ai note:`, and its pinned placeholder must name it by its BODY — an AI note never titles a block), b13 is annotationBy 'user' (renders `note:` and its placeholder DOES use the note, because the user wrote it on an AI-written block — the case the source-only proxy gets wrong).",
   "now": 1750000000000,
   "thread": {
     "id": "t1",
@@ -163,6 +163,34 @@
       "pinned": false,
       "createdAt": 1749999700000,
       "seq": 11
+    },
+    {
+      "id": "b12",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "MCP 写回的一条长结论:课程页面把先修要求改成了两门,原先只写一门,报名前要先把第二门补上",
+      "annotation": "这条最关键,先看它",
+      "annotationBy": "ai",
+      "refThreadId": null,
+      "refBlockId": null,
+      "source": "Codex · MCP",
+      "pinned": true,
+      "createdAt": 1749999800000,
+      "seq": 12
+    },
+    {
+      "id": "b13",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "另一条 MCP 写回的长结论:奖学金申请和入学申请是两套表,截止日期也不是同一天,别混着填",
+      "annotation": "我自己补一句:奖学金那套先做",
+      "annotationBy": "user",
+      "refThreadId": null,
+      "refBlockId": null,
+      "source": "Codex · MCP",
+      "pinned": true,
+      "createdAt": 1749999900000,
+      "seq": 13
     }
   ],
   "attachments": [

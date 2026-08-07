@@ -154,6 +154,11 @@ const EXTRACT_CHAR_CAP: usize = 8000;
 
 const SOURCE_MARKER: &str = " · from ";
 const NOTE_MARKER: &str = "note: ";
+// v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙) — mirrors templates.ts AI_NOTE_MARKER. The
+// Notation section grants `note:` 💭 Personal weight, and this server's own add_block /
+// propose_blocks accept an `annotation` — so without a second marker an AI could write
+// itself the highest authority in the pack.
+const AI_NOTE_MARKER: &str = "ai note: ";
 const FILE_MARKER: &str = "↳ attached file: ";
 const FOLDER_MARKER: &str = "↳ attached folder: ";
 const URL_MARKER: &str = "↳ attached URL: ";
@@ -266,6 +271,10 @@ Indented under a block:
 - `note:` — the user's own annotation. Their words, not the source's: weigh it as
   💭 Personal even when the block itself is 📖 Reference. Where a block is named by a
   short preview rather than printed in full, that preview is its note when it has one.
+- `ai note:` — the same slot, written by an AI through Spool's write tools instead of by
+  the user. Weigh it as 🧩 Synthesis: another model's framing of the block, useful but not
+  guaranteed correct, and never evidence of what the user thinks. It is never used to name
+  a block, and it never outranks the block's own source.
 - `↩ cites:` — this block builds on the older block previewed after the marker.
 - `↩ replaces (that block no longer holds):` — the user has retired the older block.
   It is history: do not use it, and do not go looking for it in this pack.
@@ -329,6 +338,10 @@ pub struct BlockRow {
     // renderer read it before v13.
     pub stale_at: Option<i64>,
     pub ref_kind: Option<String>,
+    // v14 (§9.3 拍板乙): who wrote `annotation` — "user", "ai", or None for a pre-v14 row.
+    // Read it through annotation_is_ai(), never directly: None is not "the user", it is
+    // "unknown", and the fallback lives in that one function.
+    pub annotation_by: Option<String>,
 }
 
 // v2.4 (D2): cited block id → (content, created_at) — mirrors assemble.ts refBlocks.
@@ -342,6 +355,10 @@ pub struct BlockRow {
 pub struct RefBlock {
     pub content: String,
     pub annotation: Option<String>,
+    /// v14 (§9.3 拍板乙): resolved at load time by the query that builds the map, so the
+    /// renderer applies the same rule here as on the block itself — an AI-written note
+    /// never names a block, not even the one being cited.
+    pub annotation_is_ai: bool,
     pub created_at: i64,
     pub foreign_title: Option<String>,
 }
@@ -510,13 +527,31 @@ fn block_head_line(
     format!("{star}{n}[{bracket}] {body}")
 }
 
-// The `note:` sub-line under a block, shared by both renderers.
+// v14 (§9.3 拍板乙) — mirrors lib/blocks/annotationAuthor.ts annotationIsAi, and
+// lib/blocks/sourceIcon.ts isMcpSource for the fallback clause. `annotation_by` wins when
+// set; None is every pre-v14 row and resolves through the block's source label, because an
+// MCP-labelled block's annotation arrived from that client in the call that created it.
+fn annotation_is_ai(annotation_by: Option<&str>, source: Option<&str>) -> bool {
+    match annotation_by {
+        Some(a) => a == "ai",
+        None => source.is_some_and(|s| s == "MCP" || s.starts_with("MCP — ") || s.contains(" · MCP")),
+    }
+}
+
+// The `note:` sub-line under a block, shared by both renderers. v14: which marker it uses
+// is the whole of 拍板乙 — the sentence is printed either way, but only the user's own note
+// is presented to the next model as 💭 Personal.
 fn block_note_line(b: &BlockRow) -> Option<String> {
     let note = b.annotation.as_deref()?;
     if note.trim().is_empty() {
         return None;
     }
-    Some(format!("{NOTE_INDENT}{NOTE_MARKER}{}", one_line(note)))
+    let marker = if annotation_is_ai(b.annotation_by.as_deref(), b.source.as_deref()) {
+        AI_NOTE_MARKER
+    } else {
+        NOTE_MARKER
+    };
+    Some(format!("{NOTE_INDENT}{marker}{}", one_line(note)))
 }
 
 // v13 — mirrors assemble.ts refBlockMarker. None reads as "cites", which is every row
@@ -565,7 +600,7 @@ fn render_block(
             Some(r) => format!(
                 "{NOTE_INDENT}{marker}[{}] {}{}",
                 format_pack_time(r.created_at),
-                block_label(&r.content, r.annotation.as_deref()),
+                block_label(&r.content, r.annotation.as_deref(), r.annotation_is_ai),
                 match r.foreign_title.as_deref() {
                     Some(title) => format!("{REF_BLOCK_FROM}{title}"),
                     None => String::new(),
@@ -622,10 +657,17 @@ fn head_anchor(content: &str) -> String {
 // ⚠️ Used only where the block's body is absent or printed elsewhere: the pinned
 // placeholder, `↩ cites:`, and the over-budget catalogue. NOT in pack_id_table, which is a
 // lookup keyed by the body text the reader just saw.
-fn block_label(content: &str, annotation: Option<&str>) -> String {
+//
+// v14 (§9.3 拍板乙): `note_is_ai` is a required parameter, not an Option with a permissive
+// default, for the same reason as the TS twin — W7 is what let an AI-written sentence
+// become the block's NAME, so every call site has to answer the question out loud. An
+// AI-written note falls through to the body anchor; it still prints under the block as
+// `ai note:`, it just never speaks for the block.
+fn block_label(content: &str, annotation: Option<&str>, note_is_ai: bool) -> String {
     let body = head_anchor(content);
     let fits_whole = body == one_line(content);
-    match annotation.map(str::trim).filter(|n| !n.is_empty()) {
+    let note = if note_is_ai { None } else { annotation };
+    match note.map(str::trim).filter(|n| !n.is_empty()) {
         Some(note) if !fits_whole => head_anchor(note),
         _ => body,
     }
@@ -646,7 +688,15 @@ fn render_catalog_line(b: &BlockRow) -> String {
         Some(src) if b.kind != "ref" => format!("{time}{SOURCE_MARKER}{src}"),
         _ => time,
     };
-    format!("{}[{bracket}] {}", seq_marker(b), block_label(&b.content, b.annotation.as_deref()))
+    format!(
+        "{}[{bracket}] {}",
+        seq_marker(b),
+        block_label(
+            &b.content,
+            b.annotation.as_deref(),
+            annotation_is_ai(b.annotation_by.as_deref(), b.source.as_deref())
+        )
+    )
 }
 
 fn render_pinned_placeholder(b: &BlockRow) -> String {
@@ -655,7 +705,11 @@ fn render_pinned_placeholder(b: &BlockRow) -> String {
         Some(src) if b.kind != "ref" => format!("{time}{SOURCE_MARKER}{src}"),
         _ => time,
     };
-    let head = block_label(&b.content, b.annotation.as_deref());
+    let head = block_label(
+        &b.content,
+        b.annotation.as_deref(),
+        annotation_is_ai(b.annotation_by.as_deref(), b.source.as_deref()),
+    );
     let anchor = if head.is_empty() { String::new() } else { format!("{head} ") };
     format!("{PINNED_PREFIX}{}[{bracket}] {anchor}{PINNED_SEE_ABOVE}", seq_marker(b))
 }
@@ -1178,8 +1232,12 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
 // search (src/lib/search/query.ts, §9.10) exactly: ≥3 codepoints → phrase-quoted
 // trigram FTS5 MATCH ranked by rank; 1–2 codepoints → LIKE scan ordered by recency
 // (trigram cannot match shorter queries). Soft-deleted threads/workspaces excluded.
+// v14 (§9.3 拍板乙): `annotation_by` rides along because a hit whose snippet came from the
+// annotation is prefixed with a marker, and which marker it is decides how the model reading
+// the hit list weighs that sentence — the same question the pack answers.
 const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created_at,
-                           t.title, w.title, b.source, b.pinned, b.seq, b.stale_at";
+                           t.title, w.title, b.source, b.pinned, b.seq, b.stale_at,
+                           b.annotation_by";
 const SEARCH_DEFAULT_LIMIT: i64 = 20;
 const SEARCH_MAX_LIMIT: i64 = 50;
 
@@ -1232,6 +1290,8 @@ fn search_blocks_json(
         // v2.4 (6b): the boundary filter already locates the hit — carry its snippet
         // instead of recomputing at render time.
         snippet: Option<String>,
+        // v14 (§9.3 拍板乙): who wrote `annotation`, for the snippet's marker.
+        annotation_by: Option<String>,
         // v13 (DESIGN_CONTEXT_HYGIENE §3.1): search deliberately still FINDS retired
         // blocks — "还能搜到、还能查我当初是怎么想的" is half of why retiring is not
         // deleting. But a hit that says nothing about it would hand a retracted conclusion
@@ -1252,7 +1312,19 @@ fn search_blocks_json(
             seq: r.get(9)?,
             snippet: None,
             stale_at: r.get(10)?,
+            annotation_by: r.get(11)?,
         })
+    };
+
+    // v14 (§9.3 拍板乙): the same choice block_note_line makes in the pack, on the same
+    // inputs — a search hit that quotes an annotation must not present an AI's sentence
+    // under the marker the Notation section reserves for the user's own words.
+    let note_marker_for = |c: &Cand| -> &'static str {
+        if annotation_is_ai(c.annotation_by.as_deref(), c.source.as_deref()) {
+            AI_NOTE_MARKER
+        } else {
+            NOTE_MARKER
+        }
     };
 
     // Shared word-boundary post-filter (6b keeps the located snippet on the candidate).
@@ -1261,11 +1333,12 @@ fn search_blocks_json(
             .filter_map(|mut c| {
                 // Same precedence as the render step: content hit first, else the
                 // annotation with the note: prefix.
+                let marker = note_marker_for(&c);
                 let snip = snippet_around(&c.content, query, true).or_else(|| {
                     c.annotation
                         .as_deref()
                         .and_then(|a| snippet_around(a, query, true))
-                        .map(|s| format!("{NOTE_MARKER}{s}"))
+                        .map(|s| format!("{marker}{s}"))
                 })?;
                 c.snippet = Some(snip);
                 Some(c)
@@ -1346,10 +1419,11 @@ fn search_blocks_json(
                 .clone()
                 .or_else(|| snippet_around(&c.content, query, boundary))
                 .or_else(|| {
+                    let marker = note_marker_for(c);
                     c.annotation
                         .as_deref()
                         .and_then(|a| snippet_around(a, query, boundary))
-                        .map(|s| format!("{NOTE_MARKER}{s}"))
+                        .map(|s| format!("{marker}{s}"))
                 })
                 .unwrap_or_else(|| head_snippet(&c.content));
             json!({
@@ -1938,7 +2012,8 @@ fn get_digest_json(
         // conclusion the user has retired is not part of the answer. Pinned ones included:
         // retirement is the later statement.
         "SELECT b.thread_id, b.id, b.kind, b.content, b.annotation, b.ref_thread_id,
-                b.ref_block_id, b.source, b.pinned, b.seq, b.created_at, b.stale_at, b.ref_kind
+                b.ref_block_id, b.source, b.pinned, b.seq, b.created_at, b.stale_at, b.ref_kind,
+                b.annotation_by
          FROM blocks b
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
@@ -1968,6 +2043,7 @@ fn get_digest_json(
                 created_at: r.get(10)?,
                 stale_at: r.get(11)?,
                 ref_kind: r.get(12)?,
+                annotation_by: r.get(13)?,
             },
         })
     };
@@ -2758,7 +2834,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
     let mut stmt = conn
         .prepare(
             "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
-                    pinned, seq, created_at, stale_at, ref_kind
+                    pinned, seq, created_at, stale_at, ref_kind, annotation_by
              FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -2780,6 +2856,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                 created_at: r.get(9)?,
                 stale_at: r.get(10)?,
                 ref_kind: r.get(11)?,
+                annotation_by: r.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -2801,13 +2878,14 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         // as a missing row) — the JOIN drops it and the renderer says so.
         let mut stmt = conn
             .prepare(
-                "SELECT b.content, b.annotation, b.created_at, b.thread_id, t.title
+                "SELECT b.content, b.annotation, b.created_at, b.thread_id, t.title,
+                        b.annotation_by, b.source
                    FROM blocks b JOIN threads t ON t.id = b.thread_id
                   WHERE b.id = ?1 AND t.deleted_at IS NULL",
             )
             .map_err(|e| e.to_string())?;
         for id in cited {
-            if let Ok((content, annotation, created_at, cited_thread, cited_title)) =
+            if let Ok((content, annotation, created_at, cited_thread, cited_title, by, src)) =
                 stmt.query_row([id], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
@@ -2815,6 +2893,8 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                         r.get::<_, i64>(2)?,
                         r.get::<_, String>(3)?,
                         r.get::<_, String>(4)?,
+                        r.get::<_, Option<String>>(5)?,
+                        r.get::<_, Option<String>>(6)?,
                     ))
                 })
             {
@@ -2823,6 +2903,8 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                     RefBlock {
                         content,
                         annotation,
+                        // v14: resolved here, where the row's own source is still in hand.
+                        annotation_is_ai: annotation_is_ai(by.as_deref(), src.as_deref()),
                         created_at,
                         foreign_title: (cited_thread != thread_id).then_some(cited_title),
                     },
@@ -2943,7 +3025,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 13;
+const EXPECTED_SCHEMA_VERSION: i64 = 14;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -3468,9 +3550,13 @@ fn add_block_json(
     tx.execute(
         // v9: seq is computed inside the statement — WAL serialises writers, so the GUI
         // inserting into the same project at the same moment cannot collide with this.
-        "INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_block_id, source,
-                             pinned, seq, created_at)
-         VALUES (?1, ?2, 'text', ?3, ?4, ?5, ?6, 0,
+        // v14 (§9.3 拍板乙): `annotation_by` is the literal 'ai', never a parameter. Whoever
+        // is calling this tool IS the AI, so there is no case where a block written here
+        // carries a note the user wrote — and making it a column the caller could set would
+        // hand back the exact authority this fix takes away.
+        "INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by,
+                             ref_block_id, source, pinned, seq, created_at)
+         VALUES (?1, ?2, 'text', ?3, ?4, 'ai', ?5, ?6, 0,
                  (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?2), ?7)",
         rusqlite::params![id, thread_id, content, annotation, ref_block_id, source, now],
     )
@@ -3545,6 +3631,9 @@ struct PendingProposal<'a> {
     content: &'a str,
     annotation: Option<&'a str>,
     ref_block_id: Option<&'a str>,
+    // v14 (§9.3 拍板甲): Some("corrects") when this piece says one point in the cited block
+    // is wrong. None is a plain citation — every proposal written before v14.
+    ref_kind: Option<&'a str>,
 }
 
 // A live project, by id, or the standard refusal. Shared by the item loop and the
@@ -3675,12 +3764,49 @@ fn propose_blocks_json(
                 ));
             }
         }
+        // v14 (§9.3 拍板甲): the ONE supersession flavour an AI may propose. The refusals
+        // below are deliberately specific — §3.1's ban on ①② is a safety rule, so a model
+        // that reaches for it has to be told what the rule is, not just that it failed.
+        let ref_kind = item
+            .get("ref_kind")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        match ref_kind {
+            None | Some("corrects") => {}
+            Some("supersedes") => {
+                return Err(t!(
+                    "第 {n} 条想用 ref_kind=\"supersedes\"。整条作废只有用户能定 —— 那会让旧块\
+                     从今后每一份 pack 里消失,判断错了就等于悄悄删掉一条正确的结论。\
+                     你能提的只有 \"corrects\":指出旧块里的某一处不成立,旧块原文照常保留。",
+                    "Proposal {n} asked for ref_kind=\"supersedes\". Retiring a block whole is the \
+                     user's call alone — it drops the old block out of every future pack, so a \
+                     wrong guess silently deletes a correct conclusion. What you may propose is \
+                     \"corrects\": one point in the older block is wrong, and it keeps rendering in full."
+                ))
+            }
+            Some(other) => {
+                return Err(t!(
+                    "第 {n} 条的 ref_kind 是 \"{other}\",不认识。这里只接受 \"corrects\"。",
+                    "Proposal {n} has ref_kind \"{other}\", which is not a thing. Only \"corrects\" is accepted here."
+                ))
+            }
+        }
+        // A correction has to name what it corrects; without a target it is just a block.
+        if ref_kind == Some("corrects") && ref_block_id.is_none() {
+            return Err(t!(
+                "第 {n} 条写了 ref_kind=\"corrects\" 却没给 ref_block_id —— 更正总得说清更正的是哪一块。",
+                "Proposal {n} set ref_kind=\"corrects\" with no ref_block_id — a correction has to \
+                 name the block it corrects."
+            ));
+        }
         pending.push(PendingProposal {
             thread_id,
             thread_title,
             content,
             annotation,
             ref_block_id,
+            ref_kind,
         });
     }
 
@@ -3723,8 +3849,8 @@ fn propose_blocks_json(
     for (i, p) in pending.iter().enumerate() {
         tx.execute(
             "INSERT INTO proposals (id, batch_id, thread_id, content, annotation,
-                                    ref_block_id, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                                    ref_block_id, ref_kind, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 new_id()?,
                 batch_id,
@@ -3732,6 +3858,7 @@ fn propose_blocks_json(
                 p.content,
                 p.annotation,
                 p.ref_block_id,
+                p.ref_kind,
                 i as i64
             ],
         )
@@ -4309,7 +4436,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "propose_blocks",
-            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. Use it for exactly one job: the user hands you a passage that belongs in several different projects and you split it up. Anything smaller — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. It has TWO jobs. FIRST: the user hands you a passage that belongs in several different projects and you split it up. SECOND: you have found that one point inside a block already in the library no longer holds — propose a block stating what is actually the case, with ref_block_id naming that block and ref_kind=\"corrects\". The old block is never edited and keeps rendering in full; your block simply hangs a line beneath it saying one point was corrected. Retiring a block as a whole is the user's decision alone — no tool here can do it, and you may not ask for it. Anything smaller than these — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -4323,7 +4450,8 @@ fn tools_descriptor() -> Value {
                                 "thread_id": { "type": "string", "description": "Project id (list_threads / search_blocks) this block would land in." },
                                 "content": { "type": "string", "description": "The block text — a piece of the original passage, not your summary of it." },
                                 "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
-                                "ref_block_id": { "type": "string", "description": "Optional citation to an existing block. Leave it out when you passed source_text — the original passage is cited automatically." }
+                                "ref_block_id": { "type": "string", "description": "Optional citation to an existing block. Leave it out when you passed source_text — the original passage is cited automatically. Required when ref_kind is \"corrects\": it names the block being corrected." },
+                                "ref_kind": { "type": "string", "enum": ["corrects"], "description": "Set to \"corrects\" when this block says one point inside the block named by ref_block_id is wrong. That block is left untouched and still renders in full — only a line is added under it pointing here. Omit for an ordinary citation. \"supersedes\" (retiring a block whole) is not available to you: it removes the old block from every future briefing, so only the user may decide it." }
                             },
                             "required": ["thread_id", "content"],
                             "additionalProperties": false
@@ -6063,6 +6191,7 @@ mod tests {
                 created_at: b["createdAt"].as_i64().unwrap(),
                 stale_at: b["staleAt"].as_i64(),
                 ref_kind: b["refKind"].as_str().map(String::from),
+                annotation_by: b["annotationBy"].as_str().map(String::from),
             })
             .collect();
         let attachments = v["attachments"]
@@ -6095,6 +6224,9 @@ mod tests {
                     RefBlock {
                         content: val["content"].as_str().unwrap().to_string(),
                         annotation: val["annotation"].as_str().map(String::from),
+                        // The TS twin's CitedBlock leaves this optional, and an absent
+                        // flag means the user's — same default on both sides.
+                        annotation_is_ai: val["annotationIsAi"].as_bool().unwrap_or(false),
                         created_at: val["createdAt"].as_i64().unwrap(),
                         foreign_title: val["foreignTitle"].as_str().map(String::from),
                     },
@@ -6661,6 +6793,18 @@ mod tests {
         assert_eq!(res["total"], 1);
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("note: "));
         assert!(res["hits"][0]["snippet"].as_str().unwrap().contains("**核对**"));
+        // v14 (§9.3 拍板乙): the same hit, once the note is recorded as an AI's, must come
+        // back under the other marker. A hit list is read by a model exactly like a pack is,
+        // so leaving `note:` here would have left the authority hole open on this surface.
+        conn.execute("UPDATE blocks SET annotation_by = 'ai' WHERE annotation = '再核对'", [])
+            .unwrap();
+        let res: Value =
+            serde_json::from_str(&search_blocks_json(&conn, "核对", None, None).unwrap()).unwrap();
+        let snip = res["hits"][0]["snippet"].as_str().unwrap().to_string();
+        assert!(snip.contains("ai note: "), "{snip}");
+        assert!(!snip.contains("] note: "), "the user's marker must be gone: {snip}");
+        conn.execute("UPDATE blocks SET annotation_by = NULL WHERE annotation = '再核对'", [])
+            .unwrap();
 
         // Short Latin query: word boundary required — "obtained" must not hit.
         let res: Value =
@@ -7534,6 +7678,56 @@ mod tests {
         assert_eq!(queued(&conn), 3 + PROPOSAL_MAX_ITEMS as i64);
         assert_eq!(blocks(&conn), before, "nothing along any path wrote a block");
 
+        // v14 (§9.3 拍板甲): ③ is open to an AI, ①② are not — and the whole safety argument
+        // rests on that line holding HERE, at the door, rather than being caught later.
+        let corrects = json!([{
+            "thread_id": "th1",
+            "content": "占分是 30% 不是 40%",
+            "ref_block_id": "blk_existing_00000000",
+            "ref_kind": "corrects",
+        }]);
+        assert!(
+            propose_blocks_json(&mut conn, corrects.as_array().unwrap(), None, None, None, now)
+                .is_ok()
+        );
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT ref_kind FROM proposals WHERE content = '占分是 30% 不是 40%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("corrects"));
+        // Retiring a block whole stays the user's alone (§3.1 «谁能用»): a wrong guess there
+        // drops a correct conclusion out of every future pack, and nothing on this side of
+        // the review screen can undo that for the user.
+        let supersedes = json!([{
+            "thread_id": "th1",
+            "content": "整条不作数了",
+            "ref_block_id": "blk_existing_00000000",
+            "ref_kind": "supersedes",
+        }]);
+        let err =
+            propose_blocks_json(&mut conn, supersedes.as_array().unwrap(), None, None, None, now)
+                .unwrap_err();
+        // The refusal has to TEACH, not just decline — the model has a legitimate next move.
+        assert!(err.contains("corrects"), "the refusal must name what IS allowed: {err}");
+        // A correction with nothing to correct is not a correction.
+        let dangling = json!([{
+            "thread_id": "th1", "content": "更正一处", "ref_kind": "corrects",
+        }]);
+        assert!(propose_blocks_json(
+            &mut conn,
+            dangling.as_array().unwrap(),
+            None,
+            None,
+            None,
+            now
+        )
+        .is_err());
+        assert_eq!(blocks(&conn), before, "no correction path may write a block");
+
+
         // Without a passage there is nothing extra to say, and the clause must not appear —
         // an over-eager headline would have the caller announce a block that is not coming.
         let plain = propose_blocks_json(
@@ -7915,6 +8109,7 @@ mod tests {
             created_at: 1_750_000_000_000 + i as i64 * 60_000,
             stale_at: None,
             ref_kind: None,
+            annotation_by: None,
         };
         let blocks: Vec<BlockRow> =
             (0..20).map(|i| mk_block(i, i == 0)).collect(); // oldest block pinned
@@ -8038,6 +8233,7 @@ mod tests {
             created_at: now - age_days * 86_400_000,
             stale_at: None,
             ref_kind: None,
+            annotation_by: None,
         };
         // Pinned, 40 days old, holding a 7800-char lecture extraction.
         let blocks = vec![mk_block("p", true, 40), mk_block("n", false, 1)];

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import PackDialog from './PackDialog';
+import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import type { Attachment } from '@/lib/db/attachments';
 import { listBlocksByIds, type Block } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
@@ -88,7 +89,14 @@ export default function PackHost() {
         new Map(
           rows.map((b) => [
             b.id,
-            { content: b.content, annotation: b.annotation, createdAt: b.createdAt },
+            {
+              content: b.content,
+              annotation: b.annotation,
+              // v14 (§9.3 拍板乙): carried so the ↩ preview applies the same rule the pack
+              // does — an AI-written note never names the block it sits on.
+              annotationIsAi: annotationIsAi(b.annotationBy, b.source),
+              createdAt: b.createdAt,
+            },
           ]),
         ),
       );
