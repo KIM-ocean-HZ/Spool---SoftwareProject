@@ -73,30 +73,51 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
           : 'border-accent/40 bg-accent-soft/40'
       }`}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={!hasText && !run.detail}
-        className="flex w-full items-start gap-1.5 text-left disabled:cursor-default"
-      >
-        <span className="mt-[3px] flex-none text-muted">
-          {hasText || run.detail ? (
-            open ? (
-              <ChevronDown size={11} />
+      <div className="flex items-start gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          disabled={!hasText && !run.detail}
+          className="flex min-w-0 flex-1 items-start gap-1.5 text-left disabled:cursor-default"
+        >
+          <span className="mt-[3px] flex-none text-muted">
+            {hasText || run.detail ? (
+              open ? (
+                <ChevronDown size={11} />
+              ) : (
+                <ChevronRight size={11} />
+              )
             ) : (
-              <ChevronRight size={11} />
-            )
-          ) : (
-            <span className="inline-block w-[11px]" />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs text-ink">{t(ACTION_LABEL[run.action])}</span>
-          <span className="mt-0.5 block text-[10px] text-muted">
-            {outcomeLine} · {when}
+              <span className="inline-block w-[11px]" />
+            )}
           </span>
-        </span>
-      </button>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs text-ink">{t(ACTION_LABEL[run.action])}</span>
+            <span className="mt-0.5 block text-[10px] text-muted">
+              {outcomeLine} · {when}
+            </span>
+          </span>
+        </button>
+
+        {/* ⚠️ Ocean 2026-08-07: 「跟进没法删除，也不会消失」. The dismiss control used to live
+            in the footer below, and that footer only rendered for `outcome === 'ok' &&
+            hasText` — so a 跟进 run (which files proposals and often returns no prose at
+            all) and every failed run had NO way to be got rid of. It is up here now, on
+            every card, unconditionally: closing a card is never a thing you cannot do.
+
+            "Dismiss" means gone from the rail, not gone from the database — the row is what
+            makes the 7-day spend total honest (engineRuns.markReviewed). */}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onDismiss(run.id)}
+          title={t('从这里去掉（记录和花费仍然留着）')}
+          aria-label={t('从这里去掉（记录和花费仍然留着）')}
+          className="-mr-1 flex-none rounded p-0.5 text-muted transition-colors enabled:hover:bg-paper-2 enabled:hover:text-ink disabled:opacity-40"
+        >
+          <X size={12} />
+        </button>
+      </div>
 
       {open && hasText && (
         <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 text-[11px] leading-relaxed text-ink-2">
@@ -120,30 +141,18 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
         <span>· {cost ?? t('花费未知')}</span>
       </div>
 
-      {!answered && run.outcome === 'ok' && hasText && (
-        <div className="mt-2 flex items-center gap-1.5">
-          {onStore && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStore(run)}
-              className="flex flex-1 items-center justify-center gap-1 rounded border border-accent/60 bg-accent-soft px-2 py-1 text-[11px] text-accent transition-colors enabled:hover:border-accent enabled:hover:bg-accent/15 disabled:opacity-40"
-            >
-              <Check size={11} />
-              {t('存成一块')}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onDismiss(run.id)}
-            title={t('留着记录，不存进库')}
-            className="flex flex-none items-center gap-1 rounded border border-line bg-paper px-2 py-1 text-[11px] text-muted transition-colors enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-40"
-          >
-            <X size={11} />
-            {t('不用了')}
-          </button>
-        </div>
+      {/* The one thing left worth a button: turning what it wrote into a block. Dismissal
+          moved to the ✕ above, so this is no longer a two-button footer. */}
+      {!answered && run.outcome === 'ok' && hasText && onStore && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onStore(run)}
+          className="mt-2 flex w-full items-center justify-center gap-1 rounded border border-accent/60 bg-accent-soft px-2 py-1 text-[11px] text-accent transition-colors enabled:hover:border-accent enabled:hover:bg-accent/15 disabled:opacity-40"
+        >
+          <Check size={11} />
+          {t('存成一块')}
+        </button>
       )}
     </div>
   );

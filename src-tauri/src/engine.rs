@@ -522,6 +522,42 @@ pub fn mcp_config_json(exe: &str) -> String {
 ///     account's quota is out until 2026-09-04.
 pub const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
+/// How hard the claude engine thinks — DESIGN_WORKBENCH §9.13 (Ocean 2026-08-07:
+/// 「Claude code 模型为什么没有 effort。加进去」).
+///
+/// ⚠️ **There is no `--effort` flag, and looking for one is why this looked impossible.**
+/// `claude --help` on 2.0.50 lists no such option. The control exists, it is just not on the
+/// command line — read out of the installed binary on 2026-08-07, the resolver is:
+///
+/// ```text
+/// let T = process.env.CLAUDE_CODE_EFFORT_LEVEL;
+/// if (T) { if (T === "unset") return; …; if (["low","medium","high"].includes(T)) return T }
+/// ```
+///
+/// So: an **environment variable**, accepting exactly these three words (it also takes an
+/// integer, which the same binary maps `low:45 / medium:75 / high:99` — the words are what
+/// the CLI's own settings file offers, so the words are what Spool offers).
+///
+/// ⚠️ Anything it does not recognise is **ignored**, not rejected. That cuts both ways: a
+/// typo cannot break a run, and a typo also cannot be detected — which is why the value is
+/// filtered against this list before it is ever set, rather than trusted from settings.json.
+///
+/// ⚠️ **claude only.** codex has a reasoning-effort knob of its own
+/// (`model_reasoning_effort`), and 2026-08-07 measured that it does *not* validate the value
+/// locally — `"bogus-effort"` was accepted and echoed back in the banner, then would fail at
+/// the API after the user had waited out a run. Same reason its model picker is absent.
+pub const CLAUDE_EFFORTS: [&str; 3] = ["low", "medium", "high"];
+
+/// The env var claude reads its effort level from, and the value to give it — or `None` when
+/// the user has not picked one, in which case the variable is not set at all and the CLI's
+/// own default stands. Split out from spawning so it is assertable without a live CLI.
+pub fn claude_effort_env(effort: Option<&str>) -> Option<(&'static str, String)> {
+    let e = effort?;
+    CLAUDE_EFFORTS
+        .contains(&e)
+        .then(|| ("CLAUDE_CODE_EFFORT_LEVEL", e.to_string()))
+}
+
 /// The argv for one headless `claude` run, minus the binary itself. Split out from spawning
 /// so the permission-critical parts (§2.4 probe 2: no tool outside the Spool whitelist can
 /// be reached) are assertable in a unit test without a live CLI.
@@ -916,6 +952,7 @@ pub fn run_action(
     max_turns: u32,
     web: bool,
     model: Option<&str>,
+    effort: Option<&str>,
     on_progress: Arc<dyn Fn(Progress) + Send + Sync>,
 ) -> Result<(EngineKind, RunEnvelope), String> {
     // Serial, enforced HERE and not only in the queue that calls it. The queue lives in
@@ -957,6 +994,14 @@ pub fn run_action(
     cmd.env_clear();
     for (k, v) in run_env(kind) {
         cmd.env(k, v);
+    }
+    // §9.13 — effort rides in the environment because that is the only door claude 2.0.50
+    // has for it (see CLAUDE_EFFORTS). Added AFTER run_env's minimal set on purpose: it is
+    // not load-bearing, and a run must never fail because this could not be resolved.
+    if kind == EngineKind::Claude {
+        if let Some((k, v)) = claude_effort_env(effort) {
+            cmd.env(k, v);
+        }
     }
     // §2.2: its own process group, so a cancel or a timeout takes the CLI's children with
     // it. `claude` spawns MCP servers — one of them is another `spool --mcp` against the
@@ -1085,6 +1130,31 @@ mod tests {
             for k in ["PATH", "HOME", "USER"] {
                 assert!(names.contains(&k), "{k} must be handed to {}", kind.as_str());
             }
+        }
+    }
+
+    // §9.13. The effort level is the one setting whose wrong value produces NO error at all:
+    // claude reads `CLAUDE_CODE_EFFORT_LEVEL`, accepts "low" / "medium" / "high", and
+    // silently ignores everything else — so a broken value here would look exactly like a
+    // working one, and only the bill would know. Hence a test on the filter rather than
+    // trust in the caller.
+    #[test]
+    fn effort_reaches_claude_as_an_env_var_and_only_when_it_is_one_of_the_three() {
+        for e in CLAUDE_EFFORTS {
+            assert_eq!(
+                claude_effort_env(Some(e)),
+                Some(("CLAUDE_CODE_EFFORT_LEVEL", e.to_string())),
+                "{e} is one of the CLI's own words and must be passed through",
+            );
+        }
+        // No pick = the variable is never set, so the account's own default stands. That is
+        // NOT the same as sending a default of Spool's choosing.
+        assert_eq!(claude_effort_env(None), None);
+        // Hand-edited settings.json, or a value from a future CLI we have not measured.
+        // "unset" is claude's own opt-out keyword, but Spool has a real "don't set it"
+        // (None), so passing the word through would be a second spelling of the same thing.
+        for bad in ["", "xhigh", "max", "HIGH", "unset", "99"] {
+            assert_eq!(claude_effort_env(Some(bad)), None, "{bad:?} must not be passed on");
         }
     }
 

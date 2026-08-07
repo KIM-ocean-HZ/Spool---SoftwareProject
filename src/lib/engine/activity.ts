@@ -64,3 +64,30 @@ export const groupAiActivity = (
 /** How many blocks in this thread an AI wrote — the number on the collapsed strip. */
 export const countAiBlocks = (blocks: readonly Block[]): number =>
   blocks.reduce((n, b) => (isMcpSource(b.source) ? n + 1 : n), 0);
+
+/**
+ * Which finished runs the right rail still shows — DESIGN_WORKBENCH §9.13.
+ *
+ * ⚠️ Two rules, and Ocean's 「跟进没法删除，也不会消失」 was the second one missing:
+ *
+ *   * **Answered runs are gone.** `reviewedAt` is set the moment the user stores or
+ *     dismisses a card. It used to only grey the card, so a rail you had dealt with
+ *     entirely still looked full — and the pile only ever grew. The DATABASE row stays
+ *     either way: it is what makes the 7-day spend figure true.
+ *   * **Only this project's, plus the ones that belong to no project.** A 周回顾 reads the
+ *     whole library (`threadId === null`), so it shows wherever you are; everything else
+ *     belongs to one project and must not appear under another (§3.4's ambiguity).
+ *
+ * A pure function rather than a filter inline in the component, because "the card went
+ * away when I dismissed it" is exactly the kind of thing no automated check in this project
+ * can see (HANDOFF §6.2-bis: synthetic clicks do not drive the webview).
+ */
+export const visibleRuns = <T extends { threadId: string | null; reviewedAt: number | null }>(
+  runs: readonly T[],
+  threadId: string | null,
+): T[] =>
+  runs.filter(
+    (r) =>
+      r.reviewedAt === null &&
+      (r.threadId === null || (threadId !== null && r.threadId === threadId)),
+  );

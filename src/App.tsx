@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import PackHost from '@/components/Pack/PackHost';
 import PermissionBanner from '@/components/PermissionBanner';
 import ReviewPanel from '@/components/Review/ReviewPanel';
 import RightRail from '@/components/RightRail';
@@ -331,7 +332,12 @@ export default function App() {
             {boardOpen ? <ProjectBoard /> : <ThreadView />}
           </main>
 
-          {railCollapsed ? (
+          {/* DESIGN_WORKBENCH §9.13 — **项目管理 has no right rail at all.** Ocean, twice:
+              「而不是在右侧边栏中和每个项目共用，这会有歧义」 and then 「去掉项目汇总的右边栏」.
+              So the rail is not merely emptied while the board is open, it is not mounted —
+              the board's own workspace holds 周回顾 and the automation switch, and the
+              centre column gets the whole width. */}
+          {boardOpen ? null : railCollapsed ? (
             <button
               type="button"
               onClick={() => void updateSettings({ railCollapsed: false })}
@@ -358,7 +364,6 @@ export default function App() {
               <div style={{ width: layout.rail }} className="flex-none">
                 <RightRail
                   thread={activeThread ?? null}
-                  boardOpen={boardOpen}
                   onCollapse={() => void updateSettings({ railCollapsed: true })}
                   onEditBrief={() => setBriefOpen(true)}
                 />
@@ -369,6 +374,7 @@ export default function App() {
       </div>
       <SearchOverlay />
       <ReviewPanel />
+      <PackHost />
       {briefOpen && activeThread && (
         <FollowUpPanel thread={activeThread} onClose={() => setBriefOpen(false)} />
       )}

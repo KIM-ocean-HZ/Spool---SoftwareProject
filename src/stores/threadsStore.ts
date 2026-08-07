@@ -15,6 +15,12 @@ interface ThreadsState {
    *  the same reason `engineStore.briefOpen` is held there: two surfaces can now open it,
    *  and two local `useState`s would be two panels stacked on top of each other. */
   completingId: string | null;
+  /** Which project the pack dialog is showing, or null.
+   *
+   *  DESIGN_WORKBENCH §9.13 — same reason as `completingId` above: 项目管理 can pack a
+   *  project that is not the one on screen (Ocean: 「点击项目管理需要展开显示 pack」), so the
+   *  dialog is mounted once in App (components/Pack/PackHost) and addressed by thread id. */
+  packingId: string | null;
   /** Whether the 项目管理 view owns the main area (DESIGN_WORKBENCH §9.4, Ocean 2026-08-07:
    *  「左侧边栏加入一个项目管理的一个总项目……它的工作区用来存放项目矩阵」).
    *
@@ -35,6 +41,13 @@ interface ThreadsState {
   remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
   setCompleting: (id: string | null) => void;
+  setPacking: (id: string | null) => void;
+  /** Undo a completion: back to active, and the completion's two artefacts cleared.
+   *
+   *  §9.13 — Ocean 2026-08-07: 「点击已完成也需要可以重新打开」. The header has had this
+   *  since §9.2 R3, but only for the project you are reading; the board lists finished
+   *  projects too, and a card you could finish but never un-finish was a one-way door. */
+  reopen: (id: string) => Promise<void>;
   openBoard: () => void;
 }
 
@@ -55,6 +68,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   activeId: null,
   captureTargetId: null,
   completingId: null,
+  packingId: null,
   boardOpen: false,
   loading: true,
   error: null,
@@ -156,6 +170,12 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   select: (id) => set({ activeId: id, boardOpen: false }),
 
   setCompleting: (id) => set({ completingId: id }),
+
+  setPacking: (id) => set({ packingId: id }),
+
+  reopen: async (id) => {
+    await get().patch(id, { status: 'active', completedAt: null, digest: null });
+  },
 
   openBoard: () => set({ boardOpen: true }),
 }));

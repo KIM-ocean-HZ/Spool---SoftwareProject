@@ -8,17 +8,22 @@
 // a stored 6000 on a 1280px display would otherwise leave the reading column at zero with
 // no visible handle to drag back.
 
-export const DEFAULT_SIDEBAR_WIDTH = 280;
+/** §9.13 — narrowed again with the window enlargement (Ocean 2026-08-07:
+ *  「默认窗口放大一些，然后左边栏右边栏都变窄，把位置阔给工作区」). 280 → 240. */
+export const DEFAULT_SIDEBAR_WIDTH = 240;
 /** §9.2 R1 — Ocean, after using it: 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」.
  *  It shipped WIDER than the sidebar (320 against 280, floor 260 against 200), which is the
  *  opposite of what the rail is for: the sidebar is how you navigate, the rail is commentary
  *  on what is open. Both numbers are under their sidebar counterparts now, and the
- *  `rail_is_narrower_than_the_sidebar` test is what keeps them there. */
-export const DEFAULT_RAIL_WIDTH = 250;
+ *  `rail_is_narrower_than_the_sidebar` test is what keeps them there.
+ *
+ *  §9.13: 250 → 210, in the same pass that took the sidebar to 240. The rail lost its
+ *  whole-library half (BoardRail is gone) and its folds, so it has less to hold. */
+export const DEFAULT_RAIL_WIDTH = 210;
 
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 480;
-export const MIN_RAIL_WIDTH = 190;
+export const MIN_RAIL_WIDTH = 180;
 export const MAX_RAIL_WIDTH = 480;
 
 /** The reading column never goes below this, whatever the rails would like. It is what the
@@ -26,8 +31,12 @@ export const MAX_RAIL_WIDTH = 480;
  *
  *  Raised from 360 with R1 (§9.2 asks whether it is enough): 「让中间操作区更大」 is the
  *  POINT of that change, not a side effect, so the floor that enforces it moves too. At 420
- *  a block of prose still gets a readable measure once the 6px padding is off it. */
-export const MIN_CENTRE_WIDTH = 420;
+ *  a block of prose still gets a readable measure once the 6px padding is off it.
+ *
+ *  §9.13: 420 → 520, because 「中间的工作区看起来还是太臃肿了」 was about the *measure*, not
+ *  the pixel count — a wider floor is what stops both rails from eating back into it on a
+ *  laptop screen. Below this the rails give, in the order resolveLayout defines. */
+export const MIN_CENTRE_WIDTH = 520;
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 

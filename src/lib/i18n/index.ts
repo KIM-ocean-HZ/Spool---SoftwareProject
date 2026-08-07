@@ -566,6 +566,10 @@ const EN: Record<string, string> = {
   '用哪个': 'Engine',
   '用哪个模型': 'Model',
   '默认': 'Default',
+  // §9.13 effort. Named 「想多久」 / "Thinking" rather than "effort": the word the CLI uses
+  // internally is not a word the user has any way to interpret.
+  '想多久': 'Thinking',
+  '想得越久越贵，也越慢': 'Thinking longer costs more, and takes longer',
   'Codex 的模型要等它的额度恢复（9/4）才能测出来，先不给选，免得给你一个跑不通的名字。':
     'Codex’s model names cannot be verified until its quota comes back (Sep 4), so there is no picker yet — better none than one that hands you a name the run rejects.',
   '花的是你自己那个 CLI 账号的额度。上面只写花了多少——还剩多少，两个 CLI 都不告诉外面。':
@@ -596,10 +600,9 @@ const EN: Record<string, string> = {
   '{when} 完成': 'done {when}',
   '还没有项目。按 ⌘N 新建一个。': 'No projects yet. Press ⌘N to make one.',
 
-  // The project board (§9.4).
+  // The project board (§9.4, rebuilt as expandable rows in §9.13).
   '{n} 个项目在进行': '{n} projects in progress',
   '{n} 个快到期': '{n} due soon',
-  '全部项目': 'All projects',
   '按截止日期': 'By deadline',
   '按新建时间': 'By date created',
   '迟 {n} 天': '{n}d late',
@@ -608,8 +611,33 @@ const EN: Record<string, string> = {
   '回顾最近一周——跨所有项目，存进「回顾」项目':
     'Review the past week across every project — filed into a “Review” project',
   '自动维护': 'Maintain automatically',
-  '项目有新内容、放了一阵子之后，自动压一次。每个项目一天最多一次，周回顾一周一次。':
-    'When a project has new material and has settled for a while, compress it once. At most once a day per project; the weekly review at most once a week.',
+  '放了一阵子又有新内容的项目，自动压一次；一天最多一次':
+    'Projects that have settled and then gained something new get compressed once — at most once a day',
+  '{n} 块 · {chars} 字': '{n} blocks · {chars} chars',
+  '跳转': 'Open',
+
+  // 「问 AI」 (§9.13) — the row's one-click question.
+  '问 AI': 'Ask AI',
+  '把这个项目的问题复制好，并跳到你的 AI 软件':
+    'Copy a question about this project and bring your AI app to the front',
+  '拿哪个问？': 'Ask in which app?',
+  '看看接了哪些…': 'Checking what is connected…',
+  '只复制': 'copy only',
+  '还没有接上的 AI 软件。去设置里一键接一个，这里就能用了。':
+    'No AI app is connected yet. Connect one in Settings and this starts working.',
+  'MCP 服务还没打开。去设置里打开并接一个 AI 软件，这里就能用了。':
+    'The MCP service is off. Turn it on in Settings and connect an AI app, and this starts working.',
+  '打开设置': 'Open Settings',
+  '问题已复制，{app} 已经在前面了——⌘V 回车就行':
+    'Question copied, and {app} is in front — just ⌘V and hit return',
+  '问题已复制——在你的终端里粘上就行':
+    'Question copied — paste it in your terminal',
+  '打不开 {app}：{msg}': 'Could not open {app}: {msg}',
+  // ⚠️ The prompt itself is translated, unlike the pack's authority header: this one is the
+  // USER speaking to their own AI, so it follows the app's language like every other line
+  // they read. Titles only, never ids (mcp.rs's naming rule).
+  '读一下我 Spool 里「{title}」这个项目的完整脉络，然后告诉我三件事：我卡在哪、已经定下来了什么、接下来该做什么。':
+    'Read the full thread of my Spool project “{title}”, then tell me three things: where I am stuck, what I have already settled, and what to do next.',
 
   // Run cards (§3.1) and the inbox (§3.3 / §9.2 R2).
   '提了 {n} 条待你过目': 'proposed {n} item(s) for you to review',
@@ -617,15 +645,14 @@ const EN: Record<string, string> = {
   '这次没有新东西': 'nothing new this time',
   '花费未知': 'cost unknown',
   '存成一块': 'Store as a block',
-  '留着记录，不存进库': 'Keep the record, do not store it in the library',
-  '不用了': 'No thanks',
+  '从这里去掉（记录和花费仍然留着）':
+    'Remove from here (the record and its cost stay)',
   '回顾': 'Review',
   '存好了': 'Stored',
   '{action} · {engine}': '{action} · {engine}',
   '{n} 条待你过目': '{n} waiting for you',
-  '没有待过目的': 'Nothing waiting for you',
-  '这里会留下每次 AI 干活的结果，跑一次就知道了。':
-    'What the AI produces shows up here. Run one and you will see.',
+  '跑一次，结果留在这里等你过目。':
+    'Run one — the result waits here for you.',
   '装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。':
     'This fills up once Claude Code or Codex is installed and “Let AI write” is on.',
   '这个项目里有 {n} 块是 AI 写的': '{n} block(s) here were written by an AI',
@@ -637,18 +664,17 @@ const EN: Record<string, string> = {
   '还没定。定几行「要盯什么」，之后才能让 AI 出去查。':
     'Not set yet. Write a few lines of what to watch for, and the AI can go and look.',
   '照你定的那几行出去查一遍': 'Go and check, following the lines you wrote',
+  '出去查一遍': 'Go and check',
   // The brief editor's placeholder. Replaced 2026-08-06 (Ocean #10: the CMU example was too
   // niche) and never translated — the shape is the point, so the English keeps it concrete
   // enough to act as a search rule rather than becoming an abstraction.
   '一行一件事。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
     'One thing per line. For example: whether the tool I use has shipped a new version, and whether anything breaks.',
 
-  // The maintenance actions, folded away last (§9.3 #1).
-  '让 AI 维护这个项目': 'Let AI maintain this project',
-  '这个项目：已关掉自动维护（点一下打开）':
-    'This project: automatic maintenance is off (click to turn it on)',
-  '这个项目：跟着总开关走（点一下单独关掉）':
-    'This project: follows the switch above (click to turn it off just here)',
+  // The maintenance actions — a fixed row at the bottom of the rail since §9.13, where the
+  // two sentences-pretending-to-be-controls that used to live here became one labelled
+  // switch (Ocean: 「我自己都没看懂这个按钮，太有歧义了」).
+  '自动维护这个项目': 'Maintain this project automatically',
   '{action}：AI 写好了，在右边等你过目':
     '{action}: the AI wrote it — it is on the right, waiting for you',
 

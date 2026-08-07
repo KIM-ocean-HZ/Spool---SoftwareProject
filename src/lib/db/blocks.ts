@@ -96,19 +96,34 @@ export const countMcpBlocks = async (): Promise<number> => {
   return rows[0]?.c ?? 0;
 };
 
-/** How many blocks each project holds, keyed by thread id.
+export interface ThreadBlockStats {
+  blocks: number;
+  /** Characters of block content + annotations — what a pack of this project would weigh.
+   *  Attachment text is NOT counted: whether it lands in a pack is a per-attachment switch
+   *  (§20.2), so including it here would report a size the pack may not produce. */
+  chars: number;
+}
+
+/** How much each project holds, keyed by thread id.
  *
- *  DESIGN_WORKBENCH §9.4 — the project matrix shows 完成情况, and "how much is in it" is the
- *  cheapest honest version of that. One grouped scan for the whole board rather than a query
- *  per card: the board renders every project at once, so N queries would be N round-trips to
- *  draw one screen. Threads with nothing in them are simply absent from the map. */
-export const countBlocksByThread = async (): Promise<Record<string, number>> => {
+ *  DESIGN_WORKBENCH §9.4 — the board shows 完成情况, and "how much is in it" is the cheapest
+ *  honest version of that. One grouped scan for the whole board rather than a query per row:
+ *  the board renders every project at once, so N queries would be N round-trips to draw one
+ *  screen. Threads with nothing in them are simply absent from the map.
+ *
+ *  §9.13 grew the character count alongside the block count — an expanded row answers
+ *  「这个项目打包出来有多大」 before the user spends a click opening the pack. Same scan, one
+ *  more aggregate, so it costs nothing extra. */
+export const blockStatsByThread = async (): Promise<Record<string, ThreadBlockStats>> => {
   const db = await getDb();
-  const rows = await db.select<{ thread_id: string; c: number }[]>(
-    'SELECT thread_id, COUNT(*) AS c FROM blocks GROUP BY thread_id',
+  const rows = await db.select<{ thread_id: string; c: number; chars: number | null }[]>(
+    `SELECT thread_id,
+            COUNT(*) AS c,
+            SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)) AS chars
+       FROM blocks GROUP BY thread_id`,
   );
-  const out: Record<string, number> = {};
-  for (const r of rows) out[r.thread_id] = r.c;
+  const out: Record<string, ThreadBlockStats> = {};
+  for (const r of rows) out[r.thread_id] = { blocks: r.c, chars: r.chars ?? 0 };
   return out;
 };
 

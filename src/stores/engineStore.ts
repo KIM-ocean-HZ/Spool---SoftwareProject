@@ -235,6 +235,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // W3-c. Null means "the account's default" and Rust omits the flag entirely — it is
         // claude's setting, so a codex run simply ignores it (DESIGN_WORKBENCH §9.3 #3).
         model: useSettingsStore.getState().aiModelClaude,
+        // §9.13. Same shape, different door: effort has no CLI flag, so Rust turns this
+        // into `CLAUDE_CODE_EFFORT_LEVEL` on the child's env (engine.rs claude_effort_env).
+        effort: useSettingsStore.getState().aiEffortClaude,
       });
       resultText = answer.result;
       ranOn = answer.engine;

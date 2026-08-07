@@ -17,6 +17,7 @@ type PersistableKey =
   | 'aiEngineTimeoutSecs'
   | 'aiEngine'
   | 'aiModelClaude'
+  | 'aiEffortClaude'
   | 'language'
   | 'firstCaptureHintPending'
   | 'sidebarWidth'
@@ -63,6 +64,14 @@ interface SettingsState {
   // validate `-c` overrides locally (measured 2026-08-07), so a picker there would offer
   // names that fail at the API rather than at the click. It waits on codex quota (2026-09-04).
   aiModelClaude: string | null;
+  // DESIGN_WORKBENCH §9.13 — how hard claude thinks. Null = the CLI's own default (the env
+  // var is not set at all), otherwise one of engine.rs's CLAUDE_EFFORTS: low / medium / high.
+  //
+  // ⚠️ There is no `--effort` flag; it rides in `CLAUDE_CODE_EFFORT_LEVEL` (read out of the
+  // 2.0.50 binary on 2026-08-07 — see engine.rs CLAUDE_EFFORTS for the resolver). ⚠️ And an
+  // unrecognised value is IGNORED by the CLI rather than rejected, so a typo here would look
+  // like it worked. Rust filters it against the list before setting anything.
+  aiEffortClaude: string | null;
   // UI language. Defaults to the system locale (see detectSystemLanguage); 'en' vs 'zh'
   // switches every surface via the lib/i18n dictionary. Persisted only once the user
   // picks one by hand; other windows re-read on change.
@@ -161,6 +170,7 @@ const KEYS: PersistableKey[] = [
   'aiEngineTimeoutSecs',
   'aiEngine',
   'aiModelClaude',
+  'aiEffortClaude',
   'language',
   'firstCaptureHintPending',
   'sidebarWidth',
@@ -191,6 +201,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEngineTimeoutSecs: 300,
   aiEngine: null,
   aiModelClaude: null,
+  aiEffortClaude: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,

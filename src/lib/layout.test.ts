@@ -60,8 +60,11 @@ describe('resolveLayout', () => {
   });
 
   it('never squeezes the reading column below its floor while a rail can still give', () => {
-    const narrow = resolveLayout({ ...roomy, windowWidth: 900 });
-    expect(narrow.sidebar + narrow.rail + MIN_CENTRE_WIDTH).toBeLessThanOrEqual(900);
+    // Just tight enough that the rail alone can absorb it — the point of the test is the
+    // ORDER things give in, so the width tracks the defaults rather than being a constant.
+    const width = DEFAULT_SIDEBAR_WIDTH + MIN_RAIL_WIDTH + MIN_CENTRE_WIDTH;
+    const narrow = resolveLayout({ ...roomy, windowWidth: width });
+    expect(narrow.sidebar + narrow.rail + MIN_CENTRE_WIDTH).toBeLessThanOrEqual(width);
     // The right rail gives first — the sidebar is how you navigate at all.
     expect(narrow.rail).toBeLessThan(DEFAULT_RAIL_WIDTH);
     expect(narrow.sidebar).toBe(DEFAULT_SIDEBAR_WIDTH);

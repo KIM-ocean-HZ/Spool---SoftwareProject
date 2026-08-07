@@ -2,31 +2,20 @@ import { invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
+import {
+  MCP_CLIENTS,
+  readClientStatuses,
+  type McpClient,
+  type McpClientStatus,
+} from '@/lib/mcp/clients';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
 
-// §20.12 one-click hookup (2026-07-07): per-client connection state shown as a badge.
-// "written" is a UI-only refinement of "configured" — the entry now points at this
-// binary, but the client reads its config at launch, so a restart note is the truth.
-type McpClientStatus = 'not-installed' | 'unconfigured' | 'configured' | 'stale' | 'written';
-// 2026-07-31 (Ocean): Claude Code promoted to a first-class one-click target, and the
-// other popular clients that keep their MCP servers in a plain JSON file joined it —
-// same one button, each written in that client's own shape (mcp.rs client_config_paths).
-// Claude first, per "get the Claude path perfect before widening". Decision ① added
-// ChatGPT desktop / Codex (one shared TOML file, merged via toml_edit). Clients that
-// take their config through a GUI (Cherry Studio, DeepChat, …) can't be written from
-// outside — they use the copy-snippet below (decision ②: that's enough for them).
-type McpClient = 'claude' | 'claude-code' | 'cursor' | 'vscode' | 'windsurf' | 'codex';
-const MCP_CLIENTS: { key: McpClient; label: string }[] = [
-  { key: 'claude', label: 'Claude Desktop' },
-  { key: 'claude-code', label: 'Claude Code' },
-  { key: 'cursor', label: 'Cursor' },
-  // Microsoft's brand rules forbid the "VS Code" / "vscode" short forms; the full
-  // product name is the only permitted spelling (docs/DESIGN_MCP_ECOSYSTEM.md §3.4).
-  { key: 'vscode', label: 'Visual Studio Code' },
-  { key: 'windsurf', label: 'Windsurf' },
-  { key: 'codex', label: 'ChatGPT / Codex' },
-];
+// The client table moved to lib/mcp/clients.ts (§9.13): 项目管理's 「问 AI」 needs the same
+// list to know which clients are already connected, and one table beats two.
+//
+// Clients that take their config through a GUI (Cherry Studio, DeepChat, …) can't be
+// written from outside — they use the copy-snippet below (decision ②: that's enough).
 
 // §20.12 MCP local server (experimental, default OFF). The toggle gates the
 // `spool --mcp` subprocess's tools; the snippet is what the user pastes into their AI
@@ -64,11 +53,7 @@ export default function McpConfig() {
     void invoke<string>('mcp_exe_path')
       .then(setExePath)
       .catch((e) => console.warn('[settings] mcp_exe_path failed', e));
-    for (const { key } of MCP_CLIENTS) {
-      void invoke<McpClientStatus>('mcp_client_status', { client: key })
-        .then((s) => setClientStatus((prev) => ({ ...prev, [key]: s })))
-        .catch((e) => console.warn('[settings] mcp_client_status failed', e));
-    }
+    void readClientStatuses().then(setClientStatus);
   }, []);
 
   // One click does everything (§20.12 revision): flips the toggle on if needed, then

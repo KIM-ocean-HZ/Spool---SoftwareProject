@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachment, listAttachmentsByBlock } from './attachments';
 import {
   type Block,
+  blockStatsByThread,
   computeMergedFields,
   countMcpBlocks,
   createBlock,
@@ -264,5 +265,42 @@ describe('countMcpBlocks agrees with isMcpSource', () => {
     const expected = labels.filter((s) => isMcpSource(s)).length;
     expect(expected).toBe(5);
     expect(await countMcpBlocks()).toBe(expected);
+  });
+});
+
+// DESIGN_WORKBENCH §9.13 — the numbers an expanded row in 项目管理 shows.
+describe('blockStatsByThread', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  it('counts blocks and characters per project, annotations included', async () => {
+    const ws = await createWorkspace('W');
+    const a = await createThread(ws.id, 'A');
+    const b = await createThread(ws.id, 'B');
+    await createBlock({ threadId: a.id, content: '12345', annotation: '123' }); // 8
+    await createBlock({ threadId: a.id, content: '12' }); // 2 — a null annotation adds 0,
+    await createBlock({ threadId: b.id, content: '1' }); //      not NULL to the whole sum
+    const stats = await blockStatsByThread();
+    expect(stats[a.id]).toEqual({ blocks: 2, chars: 10 });
+    expect(stats[b.id]).toEqual({ blocks: 1, chars: 1 });
+  });
+
+  it('leaves an empty project out of the map rather than reporting a zero row', async () => {
+    // The board reads `stats[id] ?? EMPTY_STATS`, so absence and zero render the same —
+    // but a GROUP BY cannot invent a row for a thread with no blocks, and pretending it
+    // could is how a caller ends up trusting `Object.keys(stats)` as a project list.
+    const ws = await createWorkspace('W');
+    const empty = await createThread(ws.id, 'nothing in it');
+    expect(await blockStatsByThread()).not.toHaveProperty(empty.id);
   });
 });

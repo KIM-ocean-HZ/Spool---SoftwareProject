@@ -18,6 +18,37 @@ import { useSettingsStore } from '@/stores/settingsStore';
  *  an alias follows the account's current model, an id rots when that model retires. */
 const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku'] as const;
 
+/**
+ * §9.13 — Ocean: 「Claude code 模型为什么没有 effort。加进去」.
+ *
+ * ⚠️ **Measured 2026-08-07, and the answer is that this CLI cannot use it at all.** The
+ * mechanism is real and it is wired end to end (settings → engineStore → engine.rs
+ * `claude_effort_env` → the child's `CLAUDE_CODE_EFFORT_LEVEL`), but every model
+ * claude 2.0.50 can reach REJECTS the parameter at the API:
+ *
+ * ```
+ * CLAUDE_CODE_EFFORT_LEVEL=low claude -p "…" --model haiku
+ *   → API Error: 400 "This model does not support the effort parameter."
+ *   --model sonnet   → the same 400
+ *   no --model       → the same 400   (so the account default does not escape it either)
+ *   --model opus     → 404 "model: claude-opus-4-1-20250805"  ← separate bug, see below
+ * The same call with the variable UNSET returns OK and costs $0.035.
+ * ```
+ *
+ * So the variable is not ignored, as reading the binary suggested — the CLI forwards it and
+ * the API refuses it. Offering the picker today would turn **every** run into a failed run,
+ * which is the exact trap §2.2 already avoided for codex's models: 宁可不给选.
+ *
+ * The list stays, and the plumbing behind it stays tested (engine.rs
+ * `effort_reaches_claude_as_an_env_var_and_only_when_it_is_one_of_the_three`), because the
+ * fix is not in Spool — effort works on Opus 4.5+ / Sonnet 4.6+, and this CLI maps `sonnet`
+ * and `opus` to older snapshots. **Re-measure after a `claude` update; when a reachable
+ * model accepts it, restoring the picker is the one `<select>` block below this comment.**
+ */
+const CLAUDE_EFFORTS = ['low', 'medium', 'high'] as const;
+/** Flipped on the day the measurement above changes. Nothing else needs to move. */
+const EFFORT_PICKER_ENABLED = false;
+
 interface Props {
   onCollapse: () => void;
   /** Spend across Spool's own runs in the last 7 days, or null while it loads. §5: this is
@@ -31,12 +62,14 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
   const status = useEngineStore((s) => s.status);
   const probe = useEngineStore((s) => s.probe);
   const model = useSettingsStore((s) => s.aiModelClaude);
+  const effort = useSettingsStore((s) => s.aiEffortClaude);
   const update = useSettingsStore((s) => s.update);
 
   const engineName = status?.selected ? ENGINE_LABEL[status.selected] : null;
-  // The model picker is claude's alone. Codex resolves its model list from a server-fetched
-  // catalog and does not validate `-c` overrides locally (measured 2026-08-07), so offering
-  // names there would mean a run that fails at the API instead of at the click.
+  // The model and effort pickers are claude's alone. Codex resolves its model list from a
+  // server-fetched catalog and validates neither `-c` model names nor reasoning-effort
+  // values locally (measured 2026-08-07), so offering either there would mean a run that
+  // fails at the API instead of at the click.
   const showModels = status?.selected === 'claude';
 
   return (
@@ -57,6 +90,9 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
           <span className="truncate">
             {engineName ?? <span className="text-muted">{t('没检测到引擎')}</span>}
             {showModels && model && <span className="text-muted"> · {model}</span>}
+            {EFFORT_PICKER_ENABLED && showModels && effort && (
+              <span className="text-muted"> · {effort}</span>
+            )}
           </span>
         </button>
         {spendUsd !== null && spendUsd > 0 && (
@@ -113,6 +149,28 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
                 {CLAUDE_MODELS.map((m) => (
                   <option key={m} value={m}>
                     {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {/* §9.13 — 「加进去」, built and then held back. See EFFORT_PICKER_ENABLED above:
+              the wiring works, but every model this CLI can reach 400s on the parameter, so
+              showing the picker would break every run instead of tuning it. 「默认」 means the
+              variable is never set, which is what happens today. */}
+          {EFFORT_PICKER_ENABLED && showModels && (
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-muted">{t('想多久')}</span>
+              <select
+                value={effort ?? ''}
+                onChange={(e) => void update({ aiEffortClaude: e.target.value || null })}
+                title={t('想得越久越贵，也越慢')}
+                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
+              >
+                <option value="">{t('默认')}</option>
+                {CLAUDE_EFFORTS.map((e) => (
+                  <option key={e} value={e}>
+                    {e}
                   </option>
                 ))}
               </select>
