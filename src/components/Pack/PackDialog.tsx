@@ -8,13 +8,7 @@ import {
   type CitedBlock,
   type PackRange,
 } from '@/lib/pack/assemble';
-import {
-  DEFAULT_PACK_TEMPLATE,
-  INSTRUCTION_HEADER,
-  PACK_TEMPLATES,
-  PACK_TEMPLATE_KEYS,
-  type PackTemplateKey,
-} from '@/lib/pack/templates';
+import { INSTRUCTION_HEADER } from '@/lib/pack/templates';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
@@ -61,15 +55,11 @@ export default function PackDialog({
   // in — it follows the app's own language, not a hard-coded one (2026-08-04).
   const language = useLanguage();
   const [copied, setCopied] = useState(false);
-  // v2.8 §20.7: per-pack task template selector. Per-pack only — no persistence across
-  // sessions or per-thread defaults, by intent: we're learning which templates earn
-  // their place, not building a system.
-  const [template, setTemplate] = useState<PackTemplateKey>(DEFAULT_PACK_TEMPLATE);
-  // §17 range selector: per-pack, defaults to everything. Like the template selector,
-  // deliberately not persisted.
+  // §17 range selector: per-pack, defaults to everything — deliberately not persisted,
+  // it is a per-task choice rather than a standing fact about this user.
   const [range, setRange] = useState<PackRange>('all');
-  // §1.1, and unlike the two above this one IS persisted: template and range are per-task
-  // choices, while "who am I pasting to" is a standing fact about how this user works.
+  // §1.1, and unlike the range above this one IS persisted: the range is a per-task
+  // choice, while "who am I pasting to" is a standing fact about how this user works.
   const instructions = useSettingsStore((s) => s.packInstructions);
   const updateSettings = useSettingsStore((s) => s.update);
 
@@ -89,7 +79,6 @@ export default function PackDialog({
         attachments: packedAttachments,
         refTitles,
         refBlocks,
-        template,
         // B-3: a narrowed pack must say so in its header, or the AI it gets pasted to
         // reads the slice as the whole project.
         scope: { range, total: blocks.length },
@@ -98,7 +87,7 @@ export default function PackDialog({
       }),
       packedCount: packedBlocks.length,
     };
-  }, [thread, blocks, attachments, refTitles, refBlocks, template, range, instructions, language]);
+  }, [thread, blocks, attachments, refTitles, refBlocks, range, instructions, language]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -140,33 +129,6 @@ export default function PackDialog({
           </button>
         </header>
 
-        {/* v2.8 §20.7: task-template picker. Quiet — defaults to 纯上下文 (no extra
-            block), so users who don't engage see byte-identical pack output. */}
-        <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
-          <span className="text-muted">{t('想让 AI 做什么?')}</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {PACK_TEMPLATE_KEYS.map((k) => {
-              const tpl = PACK_TEMPLATES[k];
-              const active = template === k;
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setTemplate(k)}
-                  title={t(tpl.hint)}
-                  className={`rounded-md border px-2 py-0.5 transition-colors ${
-                    active
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
-                  }`}
-                >
-                  {t(tpl.label)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {/* §17 range picker (pulled forward from v1.5): same quiet pill pattern. 全部 is
             the default and keeps output byte-identical to pre-range packs. */}
         <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
@@ -193,11 +155,11 @@ export default function PackDialog({
           </div>
         </div>
 
-        {/* DESIGN_CONTEXT_HYGIENE §1.1: the reading instructions are OFF by default here.
-            60% of a small pack used to be an explainer, and Ocean's ask was a clipboard
-            pack a plain web AI can just read. What the tick buys back is stated on the
-            row, not hidden in a tooltip — it is the one thing that stops a chatbot essay
-            from being read as fact. */}
+        {/* DESIGN_CONTEXT_HYGIENE §1.1: the reading instructions are ON by default
+            (Ocean 2026-08-08, reversing the original OFF) — they are the one thing that
+            stops a chatbot essay from being read as fact. What it costs is stated on the
+            row rather than hidden in a tooltip, so a user who wants the short pack knows
+            what unticking it drops. The choice is remembered. */}
         <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
           <label className="flex cursor-pointer items-center gap-1.5 text-muted hover:text-ink">
             <input

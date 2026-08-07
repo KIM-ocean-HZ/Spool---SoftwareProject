@@ -6,7 +6,6 @@ import {
   AI_NOTE_MARKER,
   ATTACHMENT_SEE_BELOW,
   CORRECTED_BY_PREFIX,
-  DEFAULT_PACK_TEMPLATE,
   EMPTY_LOG_LINE,
   EMPTY_PINNED_LINE,
   EXTRACT_CHAR_CAP,
@@ -18,7 +17,6 @@ import {
   NOTE_MARKER,
   OUTPUT_LANGUAGE_BY_LANG,
   PACK_HEADER,
-  PACK_TEMPLATES,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
   REF_BLOCK_CORRECTS,
@@ -35,7 +33,6 @@ import {
   UNKNOWN_THREAD,
   URL_MARKER,
   truncationMarker,
-  type PackTemplateKey,
 } from './templates';
 
 /** What the renderer needs about a block someone else cites. */
@@ -65,10 +62,6 @@ export interface AssembleArgs {
   // `annotation` arrived with the label ladder (DESIGN_CONTEXT_HYGIENE §3.2): the cited
   // block's own note outranks its first 40 characters as a way of naming it.
   refBlocks?: Map<string, CitedBlock>;
-  // v2.8 §20.7: optional task-template selector. The chosen template's closing block
-  // is appended after "Related Files & Links" and before the Output Language line.
-  // Default = 'default' (no extra block — pre-v2.8 behavior).
-  template?: PackTemplateKey;
   // B-3 (MCP field review 2026-08-04): when the caller pre-filtered `blocks` with
   // filterBlocksForRange, pass the range and the project's UNFILTERED block count — the
   // header then says "N of TOTAL" instead of claiming N is everything. Omit for 'all'.
@@ -359,7 +352,6 @@ export function assemble({
   attachments,
   refTitles,
   refBlocks,
-  template,
   scope,
   instructions = true,
   outputLanguage,
@@ -458,18 +450,6 @@ export function assemble({
       const shown = target === label ? '' : ` — ${target}`;
       out.push(`- ${label}${shown}${notInlined}`);
     }
-  }
-
-  // v2.8 §20.7: optional task-template closing block. Appended AFTER "Related Files &
-  // Links" and BEFORE the Output Language directive, so the receiving AI lands on the
-  // task right before it's told what language to reply in. Default template emits no
-  // block — pre-v2.8 packs stay byte-identical.
-  const tmpl = PACK_TEMPLATES[template ?? DEFAULT_PACK_TEMPLATE];
-  if (tmpl.closing) {
-    out.push('');
-    out.push('---');
-    out.push('');
-    out.push(tmpl.closing);
   }
 
   // Output Language: the closing directive asking the AI to respond in the user's language.

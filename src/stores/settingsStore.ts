@@ -104,12 +104,14 @@ interface SettingsState {
   // settings. Flipping this default is a one-line change if he wants it the other way.
   aiAutoMaintain: boolean;
   // DESIGN_CONTEXT_HYGIENE §1.1 — whether a clipboard pack carries the four-category
-  // reading instructions. Ocean 2026-08-06: 「pack 降级成最简便操作,让纯网页端 ai 用户使用」.
+  // reading instructions. Ocean 2026-08-06: 「pack 降级成最简便操作,让纯网页端 ai 用户使用」,
+  // so this shipped defaulting OFF.
   //
-  // ⚠️ Default OFF, which is the half of his instruction that costs something: without the
-  // header a receiving AI cannot tell an AI-written essay from the user's own judgement,
-  // and weighs them the same. He was asked and 拍板'd a switch rather than a deletion — so
-  // the mechanism is intact and one tick in the pack dialog brings it back. MCP packs are
+  // ⚠️ 2026-08-08 he reversed the default: 「默认勾上(带说明)」. Off was the half of his
+  // original ask that cost something — without the header a receiving AI cannot tell an
+  // AI-written essay from the user's own judgement and weighs them the same, which is the
+  // authority laundering DESIGN_MCP_WRITE_ROLE §2 exists to prevent. The switch stays, so
+  // a user who wants the short pack unticks it once and it is remembered. MCP packs are
   // NOT affected; there the header is a contract with a model, not an explainer.
   packInstructions: boolean;
   loaded: boolean;
@@ -220,7 +222,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   sidebarCollapsed: false,
   railCollapsed: true,
   aiAutoMaintain: false,
-  packInstructions: false,
+  packInstructions: true,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

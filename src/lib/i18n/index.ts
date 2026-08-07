@@ -227,10 +227,9 @@ const EN: Record<string, string> = {
   // Pack dialog
   '打包上下文': 'Pack context',
   '纯本地组装 · 直接粘贴给 AI 即可': 'Assembled locally · paste straight into an AI',
-  '想让 AI 做什么?': 'What should the AI do?',
   '打包范围?': 'Pack range?',
-  // DESIGN_CONTEXT_HYGIENE §1.1 — off by default, so the row has to state what ticking it
-  // buys, not just what it is.
+  // DESIGN_CONTEXT_HYGIENE §1.1 — on by default (Ocean 2026-08-08), so the row states what
+  // unticking it drops, not just what it is.
   '带上「怎么读这份上下文」的说明': 'Include the "how to read this" instructions',
   '告诉对方哪些是权威资料、哪些只是别的 AI 写的。会长 {n} 字符':
     'Tells the other AI which parts are authoritative and which are just another AI’s writing. Adds {n} characters',
@@ -242,12 +241,6 @@ const EN: Record<string, string> = {
   '只打包标了置顶的信息块': 'Pack only pinned blocks',
   '只打包最近 7 天捕捉的内容': 'Pack only the last 7 days',
   '只打包最近 30 天捕捉的内容': 'Pack only the last 30 days',
-  '纯上下文': 'Context only',
-  '只交付上下文，不附加任务（当前默认）': 'Deliver context only, no task attached (default)',
-  '复习资料': 'Revision materials',
-  '让 AI 据此生成复习材料': 'Ask the AI to generate revision materials',
-  '组合零散对话': 'Combine fragments',
-  '把碎片整合成一份去重的干净总结': 'Synthesize fragments into one deduplicated summary',
   '关闭': 'Close',
   '详情': 'Details',
   '复制到剪贴板': 'Copy to clipboard',
