@@ -974,6 +974,52 @@ fn parse_usage(v: &serde_json::Value) -> RunUsage {
     }
 }
 
+/// What a codex run spent, read from its `turn.completed` event.
+///
+/// ✅ **Measured 2026-08-10 on the first codex run that ever completed** (the account's quota
+/// was out from 2026-08-06 until then, which is why DESIGN_WORKBENCH §5 left this open). The
+/// stream is four events — `thread.started`, `turn.started`, `item.completed`,
+/// `turn.completed` — and the last one carries:
+///
+/// ```json
+/// {"type":"turn.completed","usage":{"input_tokens":22691,"cached_input_tokens":11008,
+///  "cache_write_input_tokens":0,"output_tokens":288,"reasoning_output_tokens":106}}
+/// ```
+///
+/// ⚠️ **Two things are NOT in there, and this is now a measurement rather than a guess:**
+///   * **No cost in dollars.** claude reports `total_cost_usd`; codex reports tokens only. So a
+///     codex run card shows tokens and 花费未知 — never a fabricated 0, which would read as
+///     "this run was free" on a subscription the user pays for.
+///   * **No model name.** Nothing in any of the four events says which model ran, so
+///     `RunUsage.model` stays `None` here. That is also why codex still has no model picker
+///     (`EngineKind::models` is empty for it): Spool cannot even confirm afterwards which
+///     model a run used, let alone validate a name before it.
+///
+/// Input is reported split; the sum is what the run actually read, matching how the claude
+/// side already totals its three input counters.
+pub fn parse_codex_usage(stdout: &str) -> RunUsage {
+    let mut usage = RunUsage::default();
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else { continue };
+        if v.get("type").and_then(serde_json::Value::as_str) != Some("turn.completed") {
+            continue;
+        }
+        let Some(u) = v.get("usage") else { continue };
+        let get = |k: &str| u.get(k).and_then(serde_json::Value::as_u64);
+        usage.input_tokens = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens"]
+            .iter()
+            .filter_map(|k| get(k))
+            .reduce(|a, b| a + b);
+        // Reasoning tokens are billed as output and are invisible in the answer, so leaving
+        // them out would under-report what the run cost.
+        usage.output_tokens = ["output_tokens", "reasoning_output_tokens"]
+            .iter()
+            .filter_map(|k| get(k))
+            .reduce(|a, b| a + b);
+    }
+    usage
+}
+
 /// gemini's `-o json` envelope is `{session_id, response, stats}` — a different shape from
 /// claude's, so it gets its own reader rather than a serde alias that would quietly accept
 /// half of either.
@@ -1352,15 +1398,18 @@ pub fn run_action(
             // "finished, nothing new" is a legitimate outcome and the caller counts the
             // blocks itself rather than believing this string.
             //
-            // ⚠️ Usage is left empty here on purpose. Where codex reports cost in its event
-            // stream — or whether it does — has NOT been measured, and inventing a field
-            // name would put a fabricated number in front of the user. Finding out needs one
-            // run that completes, and this account's codex quota is out until 2026-09-04
-            // (DESIGN_WORKBENCH §5). Until then the card shows "—" for a codex run.
+            // ✅ Measured 2026-08-10 on the first codex run that completed — see
+            // `parse_codex_usage`. Tokens are real and reported; dollars and the model name
+            // are not reported at all, so those stay None rather than being invented.
             let result = std::fs::read_to_string(&msg_path).unwrap_or_default().trim().to_string();
             finish(Ok((
                 kind,
-                RunEnvelope { is_error: false, result, num_turns: None, usage: RunUsage::default() },
+                RunEnvelope {
+                    is_error: false,
+                    result,
+                    num_turns: None,
+                    usage: parse_codex_usage(&stdout),
+                },
             )))
         }
         // A zero exit can still carry `{"error":…}`, same as codex — parse_gemini_envelope
@@ -1598,6 +1647,41 @@ mod tests {
         ] {
             assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must never be passed");
         }
+    }
+
+    // Verbatim from the first codex run that ever completed (2026-08-10, the distill action
+    // against a copy of the real library). Until that run, what codex reported about its own
+    // spend was unknown and deliberately left unparsed — DESIGN_WORKBENCH §5's open item.
+    #[test]
+    fn codex_usage_is_read_from_the_turn_completed_event() {
+        let stream = concat!(
+            r#"{"type":"thread.started","thread_id":"019fdd7a"}"#,
+            "\n",
+            r#"{"type":"turn.started"}"#,
+            "\n",
+            r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"到今天为止…"}}"#,
+            "\n",
+            r#"{"type":"turn.completed","usage":{"input_tokens":22691,"cached_input_tokens":11008,"cache_write_input_tokens":0,"output_tokens":288,"reasoning_output_tokens":106}}"#,
+        );
+        let usage = parse_codex_usage(stream);
+        // Input arrives split three ways; the sum is what the run actually read.
+        assert_eq!(usage.input_tokens, Some(22691 + 11008));
+        // Reasoning tokens bill as output and never appear in the answer — omitting them
+        // would under-report the run.
+        assert_eq!(usage.output_tokens, Some(288 + 106));
+        // ⚠️ Measured absences, not oversights: codex reports neither dollars nor which model
+        // ran. A zero here would read as "this run was free" on a paid subscription.
+        assert_eq!(usage.cost_usd, None);
+        assert_eq!(usage.model, None);
+    }
+
+    // A run that never reached `turn.completed` (cancelled, timed out, failed) must report
+    // nothing rather than zeros — "0 tokens" and "not known" are different claims.
+    #[test]
+    fn codex_usage_is_absent_when_the_turn_did_not_complete() {
+        let usage = parse_codex_usage(r#"{"type":"turn.started"}"#);
+        assert_eq!(usage.input_tokens, None);
+        assert_eq!(usage.output_tokens, None);
     }
 
     // §7.3's third column, and the same job the two tests above do. Every flag asserted here

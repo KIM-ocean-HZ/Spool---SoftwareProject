@@ -236,6 +236,33 @@ Ocean 当天的判断(实测撞上额度墙之后):**Codex 和 Claude Code 都�
 - 不为 codex 单独做一套动作。三个动作、prompt 常量、串行队列、真取消、
   「AI 活动」折叠区——**全部复用**,泛化只发生在"怎么起这个进程、怎么读它的输出"这一层。
 
+### 7.6-bis ✅ 2026-08-10:codex 真跑通了一次,V2 那三件结掉两件半
+
+**额度恢复后跑了一次 `distill`(真库副本,exit 0)。四个事件,全部形状如下:**
+
+```
+{"type":"thread.started","thread_id":"019fdd7a-…"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"…"}}
+{"type":"turn.completed","usage":{"input_tokens":22691,"cached_input_tokens":11008,
+  "cache_write_input_tokens":0,"output_tokens":288,"reasoning_output_tokens":106}}
+```
+
+| V2 的三件 | 结果 |
+|---|---|
+| **花费字段** | ✅ **有 token,没有美元。** `turn.completed.usage` 五个计数器,**没有 `total_cost_usd` 那种字段**。→ 已接上(`parse_codex_usage`),运行卡片显示 token 数 + 「花费未知」。⚠️ **绝不写 0** —— 那会被读成「这次是免费的」 |
+| **流式事件名** | ✅ **成功路径的四个名字拿到了**(上面)。⚠️ **工具调用那一格仍然没见过** —— 这次跑它没调任何 MCP 工具(原因见下),所以 `item` 的其他 type 还是未知 |
+| **模型目录** | ❌ **答案是「拿不到」**:四个事件里**没有任何地方说跑的是哪个模型**。→ 所以 codex 的模型选择器**继续不做**,理由从「没验过」升级成「**验过了,拿不到**」。`EngineKind::models()` 对 codex 返回空表 |
+
+⚠️ **顺带证实了 §7.8.3**:codex 这次也是**一块都没写**(32→32),正文最后一句是
+「如果你同意这块结论,我再将它追加回〈申请规划〉」。**三个引擎在写入闸这里行为完全一致**,
+这是提示词的设计,不是哪个引擎的毛病。
+
+⚠️ **两条环境噪音,别当成 bug**:
+① 即使 `< /dev/null`,stderr 仍会打一行 `Reading additional input from stdin...`(不影响);
+② `ERROR codex_models_manager::cache: failed to load models cache: missing field
+`base_instructions`` —— codex 自己的模型缓存坏了,和 Spool 无关。
+
 ### 7.6 ⚠️ 唯一没验到的那一格,和补验的办法
 
 **没验到的是「模型真的调了 Spool 的工具、真的写进一块」。**
