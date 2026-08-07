@@ -22,9 +22,40 @@
 **实机验过了**:隔离构建装起来**没白屏**,块流上的新东西都截到了(§2.1);
 MCP 那一侧在测试库上跑通(§2.2);跟进**真跑了两次**,跑出一个真 bug 并修掉(§2.3)。
 
-⏸ **还没推、没换装。** 两件都要 Ocean 明示。
+✅ **已推、已换装(2026-08-07 深夜,Ocean 明示两件一起给的)。**
+真库已迁到 **v13**,行数与迁移前备份逐表核对一致,输入监听/辅助功能授权都活着。见 §0.2。
 
-### 0.1 下一窗第一件事:两个待过目 + 一个待拍板
+### 0.2 ✅ 已推、已换装 —— 但有一件 Ocean 要自己动手
+
+**推送**:8 个提交上去了,远端 HEAD = `3ae6c6b`。
+⚠️ **SSH 那条路走不通** —— `~/.ssh/id_ed25519` 带口令、agent 里没有身份、
+沙盒里弹不出 askpass。**改走 HTTPS + `gh` 的凭据助手**推的
+(`git push https://github.com/KIM-ocean-HZ/spool.git main`)。
+`git fetch origin` 仍然会失败(remote 是 ssh 的),要刷新本地 ref 就带上 https URL。
+**远端 remote 本身没动过。**
+
+**换装**:`/Applications/Spool.app` 已换成这一版。核过的:
+identifier `com.oceanjin.spool`、签名 `Authority=Spool Dev`(和换装前**同一个身份**,
+所以授权没失效——起来之后日志是 `[double-tap] installed at HID/active`,
+两个授权齐全那一档)、`codesign --verify --deep --strict` 通过。
+真库 v12 → **v13**,`stale_at` / `ref_kind` 两列都在、**全为 NULL**(每一块都还作数),
+六张表行数与迁移前备份**逐表相同**。主窗打开正常,没白屏。
+
+⚠️⚠️ **Ocean 要自己动手的一件:把连着 Spool 的 AI 客户端完全退出再打开。**
+库升到 v13 了,而**已经连着的客户端还跑着换装前的旧二进制**(v12),
+它们现在会报:
+
+> 「Spool 的数据库是 v13,比这个 MCP 服务(v12)还新 — 客户端连的是旧版程序。」
+
+**这是正确的保护,不是坏了。** 完全退出 Claude Desktop(或别的客户端)再打开就好。
+
+**旧版留在**:`~/Desktop/Spool-旧版备份-2026-08-07T14-54-21/`。
+⚠️ 桌面上现在**攒了 4 份**旧版备份(08-06 两份、08-07 两份),确认新版没问题之后可以都删掉。
+**库的备份**在 `~/Library/Application Support/com.oceanjin.spool/`:
+我手动做的 `spool.db.backup-20260807-145307-preschema-v13`,
+以及 app 自己做的 `spool.pre-migration-v12-2026-08-07T06-54-33-049Z.db`。
+
+### 0.3 下一窗第一件事:两个待过目 + 一个待拍板
 
 | # | 事情 | 在哪 |
 |---|---|---|
@@ -135,7 +166,7 @@ MCP 那一侧在测试库上跑通(§2.2);跟进**真跑了两次**,跑出一个
 
 ## 3. 下一窗要做的
 
-### 3.1 ⏸ 三件等 Ocean(§0.1 的 A/B/C)
+### 3.1 ⏸ 三件等 Ocean(§0.3 的 A/B/C)
 
 问的时候按 memory `write-plainly-for-ocean`:大白话、一步一动作,
 **把取舍讲清楚,不要只报选项名**,能画 ASCII 草图就画(08-07 验证过,四题秒选)。
@@ -402,9 +433,16 @@ TZ=Europe/London GOLDEN_WRITE=1 npx vitest run src/lib/pack/assemble.test.ts
 
 ### 6.6 提交与推送
 
-**08-07 深夜这一窗:代码 + 文档已提交,工作区干净。没推。**
+**08-07 深夜这一窗:代码 + 文档已提交并已推(远端 HEAD `3ae6c6b`),也已换装。见 §0.2。**
 
-- ⚠️ **推送要单独问 Ocean。** 之前的「推送」明示不是长期授权。
+- ⚠️ **推送要单独问 Ocean,每次都要。** 这一窗他明示了「推送、换装」,
+  **那是对这一次的授权,不是长期授权。**
+- ⚠️ **SSH 推不了(08-07 实测)**:`~/.ssh/id_ed25519` 带口令、agent 空、沙盒弹不出 askpass。
+  **走 HTTPS**:`git push https://github.com/KIM-ocean-HZ/spool.git main`
+  (`gh` 的凭据助手已经配好,`git config credential.https://github.com.helper` 有值)。
+  ⚠️ `git fetch origin` 同理会失败,刷新本地 ref 要
+  `git fetch https://github.com/KIM-ocean-HZ/spool.git main:refs/remotes/origin/main`。
+  **别去改 remote。**
 - ⚠️ **绝不写自己的署名进 git 历史** —— 硬规则见 CLAUDE.md §5。每次提交后自检:
   `git log -1 --pretty=full | grep -iE 'claude|anthropic|co-authored|🤖|generated with'`
   ⚠️ **这个自检会误报**:「Claude Code 引擎位」是功能名、「claude 2.0.50」是 CLI 名、
