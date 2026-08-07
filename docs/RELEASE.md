@@ -12,7 +12,7 @@ CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-
 | MCP 工具面 | **14 个** |
 | 基线 | tsc 干净 / vitest 268 / cargo 45 / i18n 干净 |
 | 本机安装 | ✅ **2026-08-09 已换装**（`Spool Dev` 开发证书，真库已迁到 v14，数据 5 项目 31 块未变） |
-| 正式发布 | ⏳ **✅ Ocean 2026-08-09 明示「发布」，已授权，排在下一窗第一件。** §1 那四个 `APPLE_*` 环境变量只有他有，公证那一步必须他本人跑 |
+| 正式发布 | ✅ **2026-08-10 已发布** —— tag `v0.4.0`（指向 `84625db`），两个资产都在，官网固定名 URL 实测 200。公证回执存在 `CASE_STUDY_LEDGER.md` §1.2 |
 
 ⚠️ **换装用的是开发证书，不是 Developer ID。** 想发布得按 §2 从头跑一遍（那一步会用
 环境变量覆盖 `tauri.conf.json` 里的 `Spool Dev`），并且按 §3 逐条验收。
@@ -25,6 +25,12 @@ Developer ID**，不是 `Spool Dev`。
    时间戳）。**这是整个项目里唯一一个事后无法复算的数字**，`notarytool` 跑完就查不到了。
 2. **往 `CASE_STUDY_LEDGER.md` §1 加一行** —— 那就是台账第二期（「每次收口追加一行」），
    和跑基线是同一个动作。
+
+✅ **v0.4.0 这一次两件都做了**（2026-08-10）：回执在 `CASE_STUDY_LEDGER.md` §1.2，
+台账那一节从此就是「每次发布追加一行」的落点。
+⚠️ **实测补一条给下次**：`gh release create --target <短 sha>` 会被 GitHub 拒
+（`Release.target_commitish is invalid`）。**先本地 `git tag -a` 打在那个提交上、
+`git push` 推标签，再 `gh release create <tag> --verify-tag`** —— 这条路一次就过。
 
 ### 0.0.1 v0.4.0 相对 v0.3.0 新增了什么（发布说明的素材）
 

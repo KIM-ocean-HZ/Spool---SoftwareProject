@@ -39,7 +39,8 @@ Measured 2026-08-09, at the v0.4.0 close-out. Run each command from the reposito
 | MCP tool surface | **14** (10 read, 4 write-gated) | `tools/list` against `spool --mcp`; see §5 for the exact invocation |
 | Localisation | **2 languages**, machine-checked for gaps | `node scripts/i18n-check.mjs` → `(none missing)` |
 
-**Version history**: v0.3.0 (2026-07-30, first packaged release) → v0.4.0 (2026-08-09).
+**Version history**: v0.3.0 (2026-07-30, first packaged release) → v0.4.0 (2026-08-09 close-out,
+published 2026-08-10 — see §1.2).
 
 ### 1.1 What the test count does and does not prove
 
@@ -54,6 +55,32 @@ because they are the ones that catch the failures this codebase actually has:
 - **The migration round-trip.** Every schema step ships with SQL that takes the database back
   down one level, so the next step's migration always has something to migrate *from*. Without
   it, a migration test can only assert on a database the migration already produced.
+
+### 1.2 Release record
+
+One row per published release. **Notarisation submission ids are recorded here because they are
+the only figures in this ledger that cannot be recomputed** — Apple's `notarytool` returns them
+once, at submission, and there is no later query that recovers them.
+
+| Field | v0.4.0 |
+|---|---|
+| Published | **2026-08-10** |
+| Tagged commit | `84625db` |
+| Signing identity | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
+| **Notarisation — `.app`** | submission `89ebaceb-f883-4b1c-a6eb-86392769d132` · **Accepted** |
+| **Notarisation — `.dmg`** | submission `f7a15d9a-737d-4132-a54e-578d9f41fd7f` · **Accepted** |
+| Artefact | `Spool_0.4.0_aarch64.dmg`, 7,888,896 bytes |
+| sha256 | `933b9a7fb10a25f72cbd922c7c0a1d89fe02ef83b6a3885fba0dc0ec08b7df54` |
+| Gatekeeper verdict | `accepted` · `source=Notarized Developer ID`, **both artefacts** |
+
+**Why two submissions for one release.** The build tool notarises the `.app` and then signs — but
+does not notarise — the `.dmg` that wraps it. A user downloads the `.dmg`, and that is what
+Gatekeeper inspects, so an unnotarised wrapper produces the "unidentified developer" warning even
+though the application inside is fully notarised. The second submission and the stapling step are
+therefore mandatory, and the acceptance check has to be run against **both** artefacts. Verified
+here with `spctl -a -vv -t install` on each, and with `codesign -dvv` confirming the signing
+authority resolved to the Developer ID certificate rather than the local development certificate
+the build configuration names by default.
 
 ---
 
@@ -341,8 +368,8 @@ Tracked here so the gaps are visible rather than discovered late. Plan and seque
 - [ ] **Screenshots** — the current set is stale: the block feed, the right-hand rail, and the
       project board all changed appearance in v0.4.0. Each replacement has to depict a real
       usage scenario, not a feature.
-- [ ] **Notarisation receipt** — submission id and timestamp, captured at the first v0.4.0
-      release. This is the one figure in the ledger that cannot be recomputed later.
+- [x] **Notarisation receipt** — captured 2026-08-10 at the v0.4.0 release; both submission ids
+      are in §1.2.
 - [ ] **Target-user section** — the only part of the public page with no existing source
       material; it has to be written from scratch.
 - [ ] **MCP / CLI / desktop relationship** — the material exists across three design documents
