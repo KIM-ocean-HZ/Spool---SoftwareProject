@@ -9,8 +9,12 @@
 // no visible handle to drag back.
 
 /** §9.13 — narrowed again with the window enlargement (Ocean 2026-08-07:
- *  「默认窗口放大一些，然后左边栏右边栏都变窄，把位置阔给工作区」). 280 → 240. */
-export const DEFAULT_SIDEBAR_WIDTH = 240;
+ *  「默认窗口放大一些，然后左边栏右边栏都变窄，把位置阔给工作区」). 280 → 240.
+ *
+ *  §9.13.6-bis — 240 → 260, after Ocean saw it (2026-08-07 晚: 「左边栏再 +20 宽度」).
+ *  The window grew by the same 40 the two rails took, so the reading column keeps the
+ *  share it had: 「目前的中间工作区是合适的相对宽度」. */
+export const DEFAULT_SIDEBAR_WIDTH = 260;
 /** §9.2 R1 — Ocean, after using it: 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」.
  *  It shipped WIDER than the sidebar (320 against 280, floor 260 against 200), which is the
  *  opposite of what the rail is for: the sidebar is how you navigate, the rail is commentary
@@ -18,8 +22,12 @@ export const DEFAULT_SIDEBAR_WIDTH = 240;
  *  `rail_is_narrower_than_the_sidebar` test is what keeps them there.
  *
  *  §9.13: 250 → 210, in the same pass that took the sidebar to 240. The rail lost its
- *  whole-library half (BoardRail is gone) and its folds, so it has less to hold. */
-export const DEFAULT_RAIL_WIDTH = 210;
+ *  whole-library half (BoardRail is gone) and its folds, so it has less to hold.
+ *
+ *  §9.13.6-bis: 210 → 220 (Ocean 2026-08-07 晚, 「右边栏 220」). 210 was a number I picked
+ *  and he had not seen; at 210 lines like 「跑一次，结果留在这里等你过目。」 broke into
+ *  crumbs. Still under the sidebar, which is what `rail_is_narrower_than_the_sidebar` asks. */
+export const DEFAULT_RAIL_WIDTH = 220;
 
 export const MIN_SIDEBAR_WIDTH = 200;
 export const MAX_SIDEBAR_WIDTH = 480;

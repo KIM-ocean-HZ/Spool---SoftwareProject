@@ -14,9 +14,23 @@ import { useSettingsStore } from '@/stores/settingsStore';
 //
 // §9.1 puts this in the 附属 layer, so it stays one line high unless the user opens it.
 
-/** The claude aliases engine.rs will accept (`CLAUDE_MODELS`). Aliases, never pinned ids:
- *  an alias follows the account's current model, an id rots when that model retires. */
-const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku'] as const;
+/**
+ * §9.13.6-bis — **the model picker is gone** (Ocean 2026-08-07 晚: 「模型先删掉，但是记录，
+ * 后续还是要更新回去，和 Gemini CLI 放一起做」).
+ *
+ * What it offered was `opus` / `sonnet` / `haiku`, and `opus` was measured broken on this
+ * machine the same day (404 `claude-opus-4-1-20250805`, §9.13.5) — a choice that fails at the
+ * API is worse than no choice, the same rule §9.10 already applied to codex: 宁可不给选.
+ *
+ * It comes back with the third engine (DESIGN_AI_ENGINE §7.7, Gemini CLI), because 「哪个引擎
+ * 能选哪些模型」 has to be rebuilt as one table then anyway — this picker was claude-only, and
+ * a half of it left standing is what that work would have to unpick first.
+ *
+ * **Nothing behind the surface was removed**: `aiModelClaude` still exists, `ai_engine_run`
+ * still takes `model`, engine.rs still passes `--model`. Restoring is the `<select>` this
+ * comment replaced plus the one read in engineStore.ts (which is `null` today, so a value
+ * left in settings.json by an older build cannot keep applying).
+ */
 
 /**
  * §9.13 — Ocean: 「Claude code 模型为什么没有 effort。加进去」.
@@ -61,7 +75,6 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
   const [open, setOpen] = useState(false);
   const status = useEngineStore((s) => s.status);
   const probe = useEngineStore((s) => s.probe);
-  const model = useSettingsStore((s) => s.aiModelClaude);
   const effort = useSettingsStore((s) => s.aiEffortClaude);
   const update = useSettingsStore((s) => s.update);
 
@@ -89,7 +102,6 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
             ))}
           <span className="truncate">
             {engineName ?? <span className="text-muted">{t('没检测到引擎')}</span>}
-            {showModels && model && <span className="text-muted"> · {model}</span>}
             {EFFORT_PICKER_ENABLED && showModels && effort && (
               <span className="text-muted"> · {effort}</span>
             )}
@@ -134,26 +146,6 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
             </label>
           )}
 
-          {/* W3-c. 「默认」 is not a model — it means the flag is not passed at all, so the
-              account's own setting stands. Spool overriding it silently would be worse than
-              offering no choice. */}
-          {showModels && (
-            <label className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted">{t('用哪个模型')}</span>
-              <select
-                value={model ?? ''}
-                onChange={(e) => void update({ aiModelClaude: e.target.value || null })}
-                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
-              >
-                <option value="">{t('默认')}</option>
-                {CLAUDE_MODELS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           {/* §9.13 — 「加进去」, built and then held back. See EFFORT_PICKER_ENABLED above:
               the wiring works, but every model this CLI can reach 400s on the parameter, so
               showing the picker would break every run instead of tuning it. 「默认」 means the

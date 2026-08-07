@@ -234,7 +234,12 @@ export const useEngineStore = create<EngineState>((set, get) => {
         engine: useSettingsStore.getState().aiEngine,
         // W3-c. Null means "the account's default" and Rust omits the flag entirely — it is
         // claude's setting, so a codex run simply ignores it (DESIGN_WORKBENCH §9.3 #3).
-        model: useSettingsStore.getState().aiModelClaude,
+        //
+        // §9.13.6-bis: hard null, not the setting. The picker is gone (see EngineBar.tsx for
+        // why and for when it comes back), so nothing can set this any more — and a build
+        // from this week may have left `opus` in settings.json, which 404s on every run with
+        // no surface left to change it. Restoring the picker means restoring this read.
+        model: null,
         // §9.13. Same shape, different door: effort has no CLI flag, so Rust turns this
         // into `CLAUDE_CODE_EFFORT_LEVEL` on the child's env (engine.rs claude_effort_env).
         effort: useSettingsStore.getState().aiEffortClaude,
