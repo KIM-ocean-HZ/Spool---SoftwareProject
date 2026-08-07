@@ -155,6 +155,28 @@ const EN: Record<string, string> = {
   '引用项目': 'Referenced project',
   '原项目已删除': 'Original project was deleted',
   '引用的块已删除': 'Cited block no longer exists',
+
+  // DESIGN_CONTEXT_HYGIENE §3.1 — supersession. The wording carries the whole promise:
+  // a retired block leaves the CONTEXT, not the library, and every string here has to say
+  // so, or 「不作数了」 reads as 「删掉了」 and nobody presses it.
+  '这条不作数了（不再进上下文，但留在库里）': 'No longer holds (drops out of context, stays in your library)',
+  '还是作数的（重新放回上下文）': 'It holds after all (put it back into context)',
+  '已标记「不作数了」· {when} 起不再进上下文（还在库里，搜得到）':
+    'Marked as no longer holding · out of context since {when} (still in your library, still searchable)',
+  '它更正了哪一条？': 'Which one does this correct?',
+  '取消这条更正关系': 'Undo this correction link',
+  '取代了': 'replaces',
+  '更正了其中一处：': 'corrects one point in:',
+  '这一条更正了项目里的哪一条？': 'Which block in this project does this one correct?',
+  '输入几个字找那一条': 'Type a few words to find it',
+  '没有匹配的块': 'No block matches',
+  '换一条': 'Pick another',
+  '那条整条都不作数了': 'That whole block no longer holds',
+  '那一条整条退出上下文，这一条顶上。它还留在库里，搜得到':
+    'That block drops out of context and this one takes its place. It stays in your library and stays searchable.',
+  '只有其中一处要改': 'Only one point in it is wrong',
+  '那一条原文照旧，底下多一行说明「其中一处已被这条更正」':
+    'That block is left exactly as it is, with one line under it saying this block corrected a point in it.',
   '跳转到这个项目': 'Jump to this project',
   '点击编辑来源': 'Click to edit source',
   '添加来源标签': 'Add source label',
@@ -203,6 +225,11 @@ const EN: Record<string, string> = {
   '纯本地组装 · 直接粘贴给 AI 即可': 'Assembled locally · paste straight into an AI',
   '想让 AI 做什么?': 'What should the AI do?',
   '打包范围?': 'Pack range?',
+  // DESIGN_CONTEXT_HYGIENE §1.1 — off by default, so the row has to state what ticking it
+  // buys, not just what it is.
+  '带上「怎么读这份上下文」的说明': 'Include the "how to read this" instructions',
+  '告诉对方哪些是权威资料、哪些只是别的 AI 写的。会长 {n} 字符':
+    'Tells the other AI which parts are authoritative and which are just another AI’s writing. Adds {n} characters',
   '全部': 'All',
   '仅置顶': 'Pinned only',
   '近 7 天': 'Last 7 days',

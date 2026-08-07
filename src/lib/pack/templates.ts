@@ -26,6 +26,18 @@ export const REF_BLOCK_MISSING = '(cited block no longer exists)';
 // R6 debt 3: appended to a ↩ cites: line ONLY when the cited block lives in another
 // project — otherwise the citation read as if the evidence were in this pack.
 export const REF_BLOCK_FROM = ' — in project: ';
+// v13 (DESIGN_CONTEXT_HYGIENE §3.1): the two supersession flavours of the same sub-line.
+// They replace `↩ cites:` on the NEWER block, because "builds on" and "replaces" are
+// opposite instructions to whoever reads the pack next — and §2.3's whole argument is that
+// silently overwriting a fact is what a memory must never do. The wording spells the
+// consequence out rather than naming a relation: a receiving AI acts on "no longer holds",
+// not on the word "supersedes".
+export const REF_BLOCK_SUPERSEDES = '↩ replaces (that block no longer holds): ';
+export const REF_BLOCK_CORRECTS = '↩ corrects one point in: ';
+// The mirror image, rendered under the OLDER block — which stays in the pack in full
+// (§3.1.1: correcting one sentence must not cost the other 1,900 characters). Without this
+// line the correction would be invisible to anyone reading the old block top-down.
+export const CORRECTED_BY_PREFIX = '⚠️ one point in this block was corrected later — see ';
 export const ATTACHMENT_SEE_BELOW = ' — see Related Files & Links section below';
 
 // --- Section headings -------------------------------------------------------------------
@@ -40,6 +52,15 @@ export const UNKNOWN_THREAD = '(unknown project)';
 // Full Record slot is this one-line placeholder (they were duplicated verbatim before,
 // inflating large packs by the size of every pinned block).
 export const PINNED_SEE_ABOVE = '(pinned — full text in "Pinned Blocks" above)';
+
+// v13 (DESIGN_CONTEXT_HYGIENE §3.1): the closing line of the Full Record when the user has
+// retired blocks. It is not optional bookkeeping — §2.3's TOKI reading is that dropping a
+// retired fact WITHOUT saying so is the "silent overwrite" a temporal store exists to
+// avoid. The reader has to know the gap is there and that nothing was destroyed.
+export const staleOmittedLine = (n: number): string =>
+  `[... ${n} block${n === 1 ? '' : 's'} the user has marked as no longer valid ` +
+  `${n === 1 ? 'is' : 'are'} not shown — still in Spool, still searchable, ` +
+  `readable with get_blocks(stale=true) ...]`;
 
 // --- Top of the pack --------------------------------------------------------------------
 // `scope` is set when the block list was narrowed by a range selector: the count line then
@@ -70,7 +91,21 @@ const RANGE_REST: Record<string, string> = {
 
 // --- The four-category instruction header (verbatim — §9.5 / §19.13) --------------------
 // This static text teaches the receiving AI how to weigh the blocks below. It is core IP:
-// do not reword it. It opens and closes with a `---` rule so it reads as its own section.
+// do not reword the four categories. It opens and closes with a `---` rule so it reads as
+// its own section.
+//
+// DESIGN_CONTEXT_HYGIENE §1.1-bis (Ocean 2026-08-06: 「目前表头是开发初期的作品,需要更新」):
+// the four categories were written before the pack grew `#seq` numbers, `↩ cites:` lines,
+// `📌` placeholders, the extracted-but-not-inlined distinction, and (v13) retirement. The
+// header said nothing about any of them, so a receiving AI had to guess what a placeholder
+// line meant — and guessing "content is missing" is the wrong guess. The Notation section
+// closes that gap. What it deliberately does NOT do is add a fifth authority category:
+// DESIGN_FOLLOW_UP §1.2 and DESIGN_MCP_WRITE_ROLE §4.4-bis both ruled against opening one,
+// and everything below is mechanics, not authority.
+//
+// ⚠️ Its length is why the clipboard pack now omits the whole header by default (§1.1 —
+// 60% of a small pack was reading instructions). This text is for the surface that IS a
+// contract with a model: the MCP pack, and the clipboard pack when the user asks for it.
 export const INSTRUCTION_HEADER = `---
 
 ## How to Read This Context
@@ -122,6 +157,41 @@ the user's feelings at the cost of correctness.
 
 ### ⭐ User-highlighted spans (\`==…==\`)
 Substrings wrapped in \`==…==\` inside any block above are sentence-level key points the user emphasized at capture time — prioritize them. They coexist with pinned blocks (pin = whole block is core context; highlight = a sentence within a block is key); when a highlight sits inside a pinned block, treat it as one emphasis, not two.
+
+## Notation
+
+A block is one line, optionally followed by indented sub-lines:
+
+\`📌 #12 [2026-07-02 14:30 · from Safari] the block's own text\`
+
+- \`#12\` is this block's number inside this project. The user sees the same number in
+  Spool, so it is how you point at one block — say "#12", never an internal id.
+- The bracket is when it was captured and, after \`· from\`, where it came from. That
+  \`from\` label is what the four categories above are decided by; no label means the
+  user typed it themselves (💭 Personal).
+- \`📌\` = the user pinned it as core context. Pinned blocks are printed in full ONCE, in
+  "Pinned Blocks"; their slot in the timeline is a one-line placeholder ending in
+  \`(pinned — full text …)\`. That placeholder is not missing content.
+
+Indented under a block:
+
+- \`note:\` — the user's own annotation. Their words, not the source's: weigh it as
+  💭 Personal even when the block itself is 📖 Reference. Where a block is named by a
+  short preview rather than printed in full, that preview is its note when it has one.
+- \`↩ cites:\` — this block builds on the older block previewed after the marker.
+- \`↩ replaces (that block no longer holds):\` — the user has retired the older block.
+  It is history: do not use it, and do not go looking for it in this pack.
+- \`↩ corrects one point in:\` — one point in the older block is wrong. The older block is
+  still printed here in full and still stands on everything else.
+- \`⚠️ one point in this block was corrected later — see #N\` — the same fact, seen from
+  the older block. Read #N before using this one.
+- \`↳ attached file / folder / URL:\` — an artifact belonging to that block. A file whose
+  text Spool extracted is inlined here only when the user opted in; otherwise it appears
+  under "Related Files & Links" marked \`[extracted: yes, not inlined]\`, which means the
+  text exists and you may ask the user for it.
+
+Any line wrapped in \`[... ...]\` is Spool speaking, not content: it states what was left
+out of this pack and how to get it. Nothing Spool leaves out has been deleted.
 
 ---`;
 

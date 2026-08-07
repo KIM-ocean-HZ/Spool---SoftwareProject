@@ -55,7 +55,29 @@ CREATE TABLE IF NOT EXISTS blocks (
   source        TEXT,                           -- provenance label; auto-filled at capture, user-editable
   pinned        INTEGER NOT NULL DEFAULT 0,      -- marked as core context
   seq           INTEGER,                        -- v9: the block's human-visible number within its thread (#12); see below
-  created_at    INTEGER NOT NULL
+  created_at    INTEGER NOT NULL,
+  -- v13 (DESIGN_CONTEXT_HYGIENE §3.1): supersession — the one memory-governance strategy
+  -- Spool did not have. Age, recency and salience were all covered; nothing recorded that a
+  -- block had stopped being TRUE, so a conclusion overturned three weeks ago still read as
+  -- current to every AI the pack was handed to.
+  --
+  -- `stale_at` is Zep/Graphiti's `invalid_at`, not an invention: when the user said this no
+  -- longer holds. NULL = still valid. The block itself is never edited and never deleted —
+  -- TOKI's distinction, which this column exists to honour: superseding keeps the evidence
+  -- of how a belief changed, deleting erases the history. A stale block stays searchable,
+  -- stays readable through get_blocks, and simply stops being served as current in packs.
+  --
+  -- ⚠️ Only the user writes it. AI may not declare supersession (§3.1 «谁能用»): whether a
+  -- conclusion still holds is information only the user has, and a wrong guess deletes a
+  -- correct conclusion from every future pack — far worse than one more noisy block.
+  stale_at      INTEGER,
+  -- v13: what the existing `ref_block_id` MEANS. NULL / 'cites' is every row written before
+  -- v13 and every citation since — unchanged behaviour. 'supersedes' = this block replaces
+  -- that one wholesale (the old one carries stale_at too). 'corrects' = one point inside
+  -- that block is wrong; the old block is NOT touched and keeps rendering in full, which is
+  -- the §3.1.1 answer to «替代信息大多是大段文字里的一句话» — correcting a sentence must not
+  -- cost a re-paste of the other 1,900 characters.
+  ref_kind      TEXT
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"

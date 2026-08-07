@@ -1,5 +1,6 @@
 import {
   Copy,
+  CircleSlash,
   Highlighter,
   Link as LinkIcon,
   MessageSquarePlus,
@@ -7,6 +8,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Replace,
   Trash2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -27,12 +29,19 @@ interface Props {
   // CLAUDE.md §1 "no silent mode change" — the user sees from the button that the
   // click will REMOVE rather than ADD.
   selectionAlreadyHighlighted: boolean;
+  // DESIGN_CONTEXT_HYGIENE §3.1 — the two supersession entry points. `stale` reflects
+  // whether the user has already retired this block, so the button is its own undo.
+  // `hasSupersession` flips 「它更正了哪一条」 into the way to take that back.
+  stale: boolean;
+  hasSupersession: boolean;
   onTogglePin: () => void;
   onEdit: () => void;
   onAttachFile: () => void;
   onAttachUrl: () => void;
   onHighlight: () => void;
   onAnnotate: () => void;
+  onToggleStale: () => void;
+  onSupersede: () => void;
   onCopy: () => void;
   onDelete: () => void;
 }
@@ -76,12 +85,16 @@ export default function BlockActions({
   pinned,
   canHighlight,
   selectionAlreadyHighlighted,
+  stale,
+  hasSupersession,
   onTogglePin,
   onEdit,
   onAttachFile,
   onAttachUrl,
   onHighlight,
   onAnnotate,
+  onToggleStale,
+  onSupersede,
   onCopy,
   onDelete,
 }: Props) {
@@ -127,6 +140,27 @@ export default function BlockActions({
       </ActionBtn>
       <ActionBtn title={t('添加批注')} onClick={onAnnotate}>
         <MessageSquarePlus size={11} />
+      </ActionBtn>
+      {/* DESIGN_CONTEXT_HYGIENE §3.1, the two entry points. The first is on the OLD block
+          («这条不作数了»), the second on the NEW one («它更正了哪一条») — the design puts it
+          there because the moment the user has just written the new conclusion is the
+          moment they know what it replaces. Neither deletes anything. */}
+      <ActionBtn
+        title={
+          stale
+            ? t('还是作数的（重新放回上下文）')
+            : t('这条不作数了（不再进上下文，但留在库里）')
+        }
+        onClick={onToggleStale}
+        emphasis="accent"
+      >
+        <CircleSlash size={11} className={stale ? 'text-accent' : ''} />
+      </ActionBtn>
+      <ActionBtn
+        title={hasSupersession ? t('取消这条更正关系') : t('它更正了哪一条？')}
+        onClick={onSupersede}
+      >
+        <Replace size={11} className={hasSupersession ? 'text-accent' : ''} />
       </ActionBtn>
       <ActionBtn title={t('复制')} onClick={onCopy}>
         <Copy size={11} />

@@ -5,14 +5,17 @@ import {
   assemble,
   filterBlocksForRange,
   PACK_RANGE_KEYS,
+  type CitedBlock,
   type PackRange,
 } from '@/lib/pack/assemble';
 import {
   DEFAULT_PACK_TEMPLATE,
+  INSTRUCTION_HEADER,
   PACK_TEMPLATES,
   PACK_TEMPLATE_KEYS,
   type PackTemplateKey,
 } from '@/lib/pack/templates';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
@@ -41,7 +44,7 @@ interface Props {
   attachments: Attachment[];
   refTitles: Map<string, string>;
   // v2.4 (§20.13 D2): cited-block previews for blocks carrying refBlockId.
-  refBlocks: Map<string, { content: string; createdAt: number }>;
+  refBlocks: Map<string, CitedBlock>;
   onClose: () => void;
 }
 
@@ -65,6 +68,10 @@ export default function PackDialog({
   // §17 range selector: per-pack, defaults to everything. Like the template selector,
   // deliberately not persisted.
   const [range, setRange] = useState<PackRange>('all');
+  // §1.1, and unlike the two above this one IS persisted: template and range are per-task
+  // choices, while "who am I pasting to" is a standing fact about how this user works.
+  const instructions = useSettingsStore((s) => s.packInstructions);
+  const updateSettings = useSettingsStore((s) => s.update);
 
   // assemble is a synchronous pure function — memoize it so re-renders don't re-pack the
   // whole thread. It's still fast (<1ms on small threads) but this keeps the textarea
@@ -86,11 +93,12 @@ export default function PackDialog({
         // B-3: a narrowed pack must say so in its header, or the AI it gets pasted to
         // reads the slice as the whole project.
         scope: { range, total: blocks.length },
+        instructions,
         outputLanguage: language,
       }),
       packedCount: packedBlocks.length,
     };
-  }, [thread, blocks, attachments, refTitles, refBlocks, template, range, language]);
+  }, [thread, blocks, attachments, refTitles, refBlocks, template, range, instructions, language]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -183,6 +191,28 @@ export default function PackDialog({
               );
             })}
           </div>
+        </div>
+
+        {/* DESIGN_CONTEXT_HYGIENE §1.1: the reading instructions are OFF by default here.
+            60% of a small pack used to be an explainer, and Ocean's ask was a clipboard
+            pack a plain web AI can just read. What the tick buys back is stated on the
+            row, not hidden in a tooltip — it is the one thing that stops a chatbot essay
+            from being read as fact. */}
+        <div className="flex flex-none items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
+          <label className="flex cursor-pointer items-center gap-1.5 text-muted hover:text-ink">
+            <input
+              type="checkbox"
+              checked={instructions}
+              onChange={(e) => void updateSettings({ packInstructions: e.target.checked })}
+              className="h-3 w-3 accent-[var(--accent)]"
+            />
+            <span>{t('带上「怎么读这份上下文」的说明')}</span>
+          </label>
+          <span className="text-muted/70">
+            {t('告诉对方哪些是权威资料、哪些只是别的 AI 写的。会长 {n} 字符', {
+              n: INSTRUCTION_HEADER.length.toLocaleString(),
+            })}
+          </span>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-3">

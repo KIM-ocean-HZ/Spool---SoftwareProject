@@ -10,6 +10,8 @@ import {
   approveBatch,
   countExpiredBatches,
   countPending,
+  dropProposals,
+  listBatchesCreatedSince,
   listPendingBatches,
   purgeExpired,
   rejectBatch,
@@ -215,5 +217,78 @@ describe('proposal queue (DESIGN_MCP_WRITE_ROLE §4 M1)', () => {
     const origin = (await listBlocksByThread(inboxId))[0]!;
     expect(paper[0]!.refBlockId).toBe(origin.id);
     expect(await countPending(NOW)).toBe(0);
+  });
+});
+
+// DESIGN_FOLLOW_UP §2.4 (M3) — the two reads/writes the dedup gate needs. The gate's own
+// logic is pure and tested in lib/engine/followUp.test.ts; this is the database half.
+describe('follow-up dedup support', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  const batch = async (id: string, createdAt: number, contents: string[]) => {
+    const ws = await createWorkspace('W');
+    const thread = await createThread(ws.id, 'T');
+    await __insertBatchForTest({
+      id,
+      client: 'Claude · MCP',
+      note: null,
+      sourceText: null,
+      sourceThreadId: null,
+      createdAt,
+      expiresAt: createdAt + 7 * DAY,
+      items: contents.map((content) => ({
+        threadId: thread.id,
+        content,
+        annotation: null,
+        refBlockId: null,
+      })),
+    });
+    return thread;
+  };
+
+  it('returns only the batches born inside the run window', async () => {
+    await batch('old', NOW - DAY, ['before the run']);
+    await batch('mine', NOW + 10, ['during the run']);
+    const found = await listBatchesCreatedSince(NOW);
+    expect(found.map((b) => b.id)).toEqual(['mine']);
+    expect(found[0]!.items.map((i) => i.content)).toEqual(['during the run']);
+  });
+
+  it('drops repeats and leaves the rest of the batch alone', async () => {
+    await batch('b1', NOW, ['keep me', 'drop me', 'keep me too']);
+    const [before] = await listBatchesCreatedSince(NOW);
+    const doomed = before!.items.find((i) => i.content === 'drop me')!;
+    await dropProposals([doomed.id]);
+    const [after] = await listPendingBatches(NOW);
+    expect(after!.items.map((i) => i.content)).toEqual(['keep me', 'keep me too']);
+  });
+
+  // A heading over nothing is worse than no heading: the review screen would show a batch
+  // the user cannot act on.
+  it('takes the batch with the last proposal in it', async () => {
+    await batch('b1', NOW, ['only one']);
+    const [before] = await listBatchesCreatedSince(NOW);
+    await dropProposals(before!.items.map((i) => i.id));
+    expect(await listPendingBatches(NOW)).toEqual([]);
+    expect(await countPending(NOW)).toBe(0);
+    // §4.3: what the queue turned away leaves no trace at all — not even an empty shell.
+    expect(await countExpiredBatches(NOW + 30 * DAY)).toBe(0);
+  });
+
+  it('is a no-op on an empty list', async () => {
+    await batch('b1', NOW, ['untouched']);
+    await dropProposals([]);
+    expect(await countPending(NOW)).toBe(1);
   });
 });

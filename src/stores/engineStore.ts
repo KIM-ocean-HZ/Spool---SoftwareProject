@@ -10,7 +10,14 @@ import {
   type EngineRun,
   type RunUsage,
 } from '@/lib/db/engineRuns';
-import { countPending } from '@/lib/db/proposals';
+import { dropProposals, listBatchesCreatedSince } from '@/lib/db/proposals';
+import { getFollowUpState, setFollowUpState } from '@/lib/db/threads';
+import {
+  parseFollowUpState,
+  rememberProposals,
+  serializeFollowUpState,
+  siftProposals,
+} from '@/lib/engine/followUp';
 import { toolCaption } from '@/lib/engine/progress';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
@@ -169,6 +176,39 @@ let nextTaskId = 1;
 const timeouts = new Map<number, number>();
 const resultHandlers = new Map<number, ResultHandler>();
 
+/**
+ * DESIGN_FOLLOW_UP §2.4 (M3) — the dedup gate, run between the follow-up finishing and the
+ * user hearing about it.
+ *
+ * M2 asked the model not to repeat itself and gave it nothing to compare against; the
+ * prompt now carries the list of URLs already proposed (mcp.rs follow_up_seen_block), and
+ * this is the half that does not depend on the model complying. §1.1 is why it has to be
+ * both: Follow up is an INTAKE valve on a product whose value is that the library stays
+ * clean, and "three familiar links every week" is how a user learns to distrust it.
+ *
+ * Returns how many genuinely new proposals survived — 0 means the honest, quiet result
+ * §2.4 is built around, not a failure.
+ */
+const siftFollowUp = async (threadId: string, runStartedAt: number): Promise<number> => {
+  const state = parseFollowUpState(await getFollowUpState(threadId));
+  const now = Date.now();
+  // Runs are serial, so the batches born during this run's window are this run's.
+  const batches = await listBatchesCreatedSince(runStartedAt);
+  const items = batches.flatMap((b) => b.items);
+  if (items.length === 0) {
+    // Still record the run: 「上次跑过」 is true whether or not it found anything, and M4's
+    // timer will need it.
+    await setFollowUpState(threadId, serializeFollowUpState({ ...state, lastRunAt: now }));
+    return 0;
+  }
+  const { fresh, repeats } = siftProposals(items, state, now);
+  if (repeats.length > 0) {
+    await dropProposals(repeats.map((r) => r.id));
+  }
+  await setFollowUpState(threadId, serializeFollowUpState(rememberProposals(state, fresh, now)));
+  return fresh.length;
+};
+
 export const useEngineStore = create<EngineState>((set, get) => {
   // Drain the queue one task at a time. Re-entrant by construction: it returns
   // immediately if something is already running, and calls itself when that finishes.
@@ -200,14 +240,6 @@ export const useEngineStore = create<EngineState>((set, get) => {
     // "finished, nothing new" would be the wrong thing to tell the user about a run that
     // just queued five items for review (§3.4).
     const isFollowUp = next.action === 'follow_up';
-    let proposalsBefore = 0;
-    if (isFollowUp) {
-      try {
-        proposalsBefore = await countPending(Date.now());
-      } catch {
-        proposalsBefore = -1;
-      }
-    }
 
     const startedAt = Date.now();
     let outcome: EngineRun['outcome'] = 'ok';
@@ -253,6 +285,20 @@ export const useEngineStore = create<EngineState>((set, get) => {
       detail = outcome === 'failed' ? message : null;
     }
 
+    // §2.4 (M3): the dedup gate runs BEFORE the reload below, so what the user's badge and
+    // review screen see is already the sifted set — a repeat must never flash into the
+    // queue and vanish. It runs on cancelled/failed follow-ups too: whatever the model
+    // managed to queue before it stopped is in the database, and it is proposals like any
+    // other.
+    let queued = 0;
+    if (isFollowUp) {
+      try {
+        queued = await siftFollowUp(next.threadId, startedAt);
+      } catch (e) {
+        console.warn('[engine] follow-up dedup failed', e);
+      }
+    }
+
     // Whatever the outcome, blocks written before it stopped are in the library and stay
     // there (§2.3 — append-only, no rollback). So the reload and the count happen on
     // every path, not just the happy one.
@@ -271,21 +317,16 @@ export const useEngineStore = create<EngineState>((set, get) => {
     }
 
     const label = t(ACTION_LABEL[next.action]);
-    let queued = 0;
     if (outcome === 'ok' && next.action === 'follow_up_brief') {
       // Nothing was stored and nothing should be announced: the draft goes to the panel
       // the user is looking at, and they decide whether it becomes the brief (§6-2).
       onResult?.(resultText);
     } else if (outcome === 'ok' && isFollowUp) {
-      try {
-        const after = await countPending(Date.now());
-        queued = proposalsBefore < 0 ? 0 : Math.max(0, after - proposalsBefore);
-      } catch (e) {
-        console.warn('[engine] proposal count failed', e);
-      }
       // §2.4: "nothing new" is a legitimate, quiet result — not a failure and not an
       // apology. Saying it plainly is what keeps the feature from feeling broken on the
-      // weeks when the world genuinely did not move.
+      // weeks when the world genuinely did not move. M3 makes the sentence true rather
+      // than hopeful: `queued` counts what survived the dedup gate, so a run that brought
+      // back five links the user has already seen says exactly this.
       toast.notice(
         queued > 0
           ? t('跟进：提了 {n} 条待你过目', { n: queued })

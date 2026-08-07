@@ -69,6 +69,51 @@ describe('assemble', () => {
     expect(out).toContain('Respond in Simplified Chinese unless content itself dictates');
   });
 
+  // DESIGN_CONTEXT_HYGIENE §1.1-bis (Ocean: 「目前表头是开发初期的作品,需要更新」). The four
+  // categories were written before the pack grew every marker below, and the header
+  // explained none of them — a receiving AI had to guess what a pinned placeholder meant,
+  // and "content is missing" is the wrong guess.
+  it('explains the pack notation the four categories never covered (§1.1-bis)', () => {
+    const out = assemble({ thread, blocks: [textBlock('b1', 'hi')], now: NOW });
+    expect(out).toContain('## Notation');
+    for (const phrase of [
+      "`#12` is this block's number inside this project",
+      'That placeholder is not missing content.',
+      '`↩ cites:`',
+      '`↩ replaces (that block no longer holds):`',
+      '`↩ corrects one point in:`',
+      '[extracted: yes, not inlined]',
+      'Nothing Spool leaves out has been deleted.',
+    ]) {
+      expect(out).toContain(phrase);
+    }
+    // ⚠️ And what it must NOT do: open a fifth authority category. Two design docs ruled
+    // against that (DESIGN_FOLLOW_UP §1.2, DESIGN_MCP_WRITE_ROLE §4.4-bis) and this section
+    // is mechanics, not authority.
+    expect(out).toContain('FOUR different authority categories');
+    expect(out.match(/^### [📖🧩🔄💭⭐]/gm)).toHaveLength(5);
+  });
+
+  // §1.1: Ocean 拍板 a switch, not a deletion — 「pack 降级成最简便操作,让纯网页端 ai 用户
+  // 使用」. The clipboard default flips in PackDialog; assemble keeps instructions on so the
+  // golden path and the MCP twin stay byte-identical.
+  it('drops the whole reading header when instructions are off, and nothing else', () => {
+    const blocks = [textBlock('b1', '正文一句', { seq: 1, source: 'Safari' })];
+    const full = assemble({ thread, blocks, now: NOW });
+    const minimal = assemble({ thread, blocks, instructions: false, now: NOW });
+    expect(minimal).not.toContain('## How to Read This Context');
+    expect(minimal).not.toContain('## Notation');
+    // Everything that is CONTENT survives — this is a shorter pack, not a lesser one.
+    expect(minimal).toContain('# Project Context: 论文文献综述');
+    expect(minimal).toContain('1 blocks total.');
+    expect(minimal).toContain('## Pinned Blocks');
+    expect(minimal).toContain('## Full Record (chronological)');
+    expect(minimal).toContain('#1 [2026-05-15 09:00 · from Safari] 正文一句');
+    expect(minimal).toContain('## Output Language');
+    // The saving is the point: on a one-block project the header IS the pack.
+    expect(minimal.length).toBeLessThan(full.length / 2);
+  });
+
   it('header explains user-highlighted == spans (§20.5)', () => {
     const out = assemble({ thread, blocks: [textBlock('b1', 'hi')], now: NOW });
     expect(out).toContain('### ⭐ User-highlighted spans');
@@ -227,7 +272,10 @@ describe('assemble', () => {
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).toContain('- photo.jpg');
-    expect(out).not.toContain('[extracted: yes, not inlined]');
+    // Asserted on the Related Files row, not on the whole pack: the instruction header's
+    // Notation section (DESIGN_CONTEXT_HYGIENE §1.1-bis) now explains what that marker
+    // means, so the string legitimately appears up there in every pack.
+    expect(out).not.toContain('- photo.jpg  [extracted: yes, not inlined]');
   });
 
   it('truncates inlined extracted text longer than 8000 chars with a marker', () => {
@@ -436,6 +484,154 @@ describe('assemble', () => {
       // range 'all' keeps the plain wording (the golden path).
       const all = assemble({ thread, blocks, scope: { range: 'all', total: blocks.length }, now: NOW });
       expect(all).toContain('3 blocks total');
+    });
+  });
+
+  // DESIGN_CONTEXT_HYGIENE §3.1 — supersession, the one memory-governance strategy Spool
+  // did not have (§2.2: age / recency / salience were all covered, "is this still TRUE"
+  // was not).
+  describe('supersession (§3.1)', () => {
+    it('keeps a retired block out of the pack and says so, without deleting anything', () => {
+      const blocks = [
+        textBlock('b1', '截止 4 月 30 日', { seq: 1, staleAt: T(10) }),
+        textBlock('b2', '改成 3 月 15 日', { seq: 2, createdAt: T(11) }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).not.toContain('截止 4 月 30 日');
+      expect(out).toContain('改成 3 月 15 日');
+      expect(out).toContain('1 blocks total.');
+      // ⚠️ The gap is DECLARED. §2.3's reading of TOKI is that dropping a retired fact
+      // silently is exactly the failure a temporal store exists to avoid — and the line has
+      // to say the block still exists, or "retire" reads as "delete".
+      expect(out).toContain('1 block the user has marked as no longer valid is not shown');
+      expect(out).toContain('still in Spool, still searchable');
+    });
+
+    it('retires a pinned block too — the later statement wins', () => {
+      const blocks = [textBlock('b1', '核心结论', { seq: 1, pinned: true, staleAt: T(10) })];
+      const out = assemble({ thread, blocks, now: NOW });
+      // Out of BOTH sections: pin says "this is core context" about a conclusion that was
+      // still holding, and the user has since said it is not.
+      expect(out).not.toContain('核心结论');
+      expect(out).toContain('(no pinned blocks)');
+      expect(out).toContain('1 block the user has marked as no longer valid');
+    });
+
+    it('drops a retired block’s attachments with it', () => {
+      const blocks = [
+        textBlock('b1', '旧的', { seq: 1, staleAt: T(10) }),
+        textBlock('b2', '新的', { seq: 2 }),
+      ];
+      const attachments = [attachment('a1', 'b1', { label: 'old.pdf', target: '/x/old.pdf' })];
+      const out = assemble({ thread, blocks, attachments, now: NOW });
+      // The pack must not point at material it deliberately withheld.
+      expect(out).not.toContain('old.pdf');
+    });
+
+    it('marks a wholesale replacement differently from a citation', () => {
+      const blocks = [
+        textBlock('b2', '改成 3 月 15 日', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'supersedes',
+        }),
+      ];
+      const out = assemble({
+        thread,
+        blocks,
+        refBlocks: new Map([['b1', { content: '截止 4 月 30 日', createdAt: T(0) }]]),
+        now: NOW,
+      });
+      expect(out).toContain('↩ replaces (that block no longer holds): ');
+      expect(out).not.toContain('↩ cites: ');
+    });
+
+    // §3.1.1, and the answer to Ocean's question («替代信息大多情况是大段文字里的一句话,ai
+    // 写回应该要复制这一段话的其余所有内容才对吧?»): no copy. The old block renders in full,
+    // unchanged, and grows one line pointing at the correction.
+    it('leaves a partly-corrected block whole and points at the correction', () => {
+      const long = '课程要求:复现一篇论文,截止 4 月 30 日,占总分 40%,可以两人一组';
+      const blocks = [
+        textBlock('b1', long, { seq: 1 }),
+        textBlock('b2', '占分是 30% 不是 40%', { seq: 2, refBlockId: 'b1', refKind: 'corrects' }),
+      ];
+      const out = assemble({
+        thread,
+        blocks,
+        refBlocks: new Map([['b1', { content: long, createdAt: T(0) }]]),
+        now: NOW,
+      });
+      expect(out).toContain(long); // every character of it, still there
+      expect(out).toContain('⚠️ one point in this block was corrected later — see #2');
+      expect(out).toContain('↩ corrects one point in: ');
+      expect(out).not.toContain('no longer valid'); // b1 was never retired
+    });
+
+    it('does not warn about a correction the user has since retired', () => {
+      const blocks = [
+        textBlock('b1', '原文', { seq: 1 }),
+        textBlock('b2', '更正', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          staleAt: T(10),
+        }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).toContain('原文');
+      // Asserted with the sub-line indent: the header's Notation section quotes the marker
+      // to explain it, so the bare phrase is in every pack by design.
+      expect(out).not.toContain('    ⚠️ one point in this block was corrected later');
+    });
+  });
+
+  // DESIGN_CONTEXT_HYGIENE §3.2 — the label ladder, W7 being its first rung. Ocean's §1.2
+  // objection is the reason it exists: a pasted wall of text does not announce itself in
+  // its first 40 characters, and the user's own note about it does.
+  describe('label ladder (§3.2 / W7)', () => {
+    // Found by running it against the real lab library rather than by reading it: a short
+    // block whose note said 「先按这个数走」 lost its own text to that note, and the reader
+    // could no longer tell what the block said.
+    it('leaves a short block naming itself, note or no note', () => {
+      const blocks = [
+        textBlock('b1', '门槛是召回率 60%', { seq: 1, pinned: true, annotation: '先按这个数走' }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).toContain('📌 #1 [2026-05-15 09:00] 门槛是召回率 60% (pinned');
+      expect(out).not.toContain('先按这个数走 (pinned');
+    });
+
+    it('names a pinned block by its annotation, falling back to the head', () => {
+      const blocks = [
+        textBlock('b1', '这里是一段很长的原文'.repeat(6), {
+          seq: 1,
+          pinned: true,
+          annotation: '这条讲的是评分口径',
+        }),
+        textBlock('b2', '另一段很长的原文'.repeat(6), { seq: 2, pinned: true, createdAt: T(1) }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).toContain(
+        '📌 #1 [2026-05-15 09:00] 这条讲的是评分口径 (pinned — full text in "Pinned Blocks" above)',
+      );
+      // No note → rung three, exactly as before v13.
+      expect(out).toContain(
+        '📌 #2 [2026-05-15 09:01] 另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文… ' +
+          '(pinned — full text in "Pinned Blocks" above)',
+      );
+    });
+
+    it('names a cited block by its annotation too', () => {
+      const blocks = [textBlock('b2', '建立在那条上', { seq: 2, refBlockId: 'b1' })];
+      const out = assemble({
+        thread,
+        blocks,
+        refBlocks: new Map([
+          ['b1', { content: '原文很长'.repeat(20), annotation: '我当时的判断', createdAt: T(0) }],
+        ]),
+        now: NOW,
+      });
+      expect(out).toContain('↩ cites: [2026-05-15 09:00] 我当时的判断');
     });
   });
 

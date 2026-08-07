@@ -28,6 +28,17 @@ interface BlocksState {
   togglePin: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
   setSource: (id: string, source: string | null) => Promise<void>;
+  /** DESIGN_CONTEXT_HYGIENE §3.1 — 「这条不作数了」and taking it back. */
+  setStale: (id: string, stale: boolean) => Promise<void>;
+  /** §3.1 — declared FROM the newer block: which older one it replaces or corrects.
+   *  `supersedes` retires the target in the same call; `corrects` leaves it untouched. */
+  setSupersession: (
+    id: string,
+    targetBlockId: string,
+    kind: 'supersedes' | 'corrects',
+  ) => Promise<void>;
+  /** §3.1 — undo either declaration: the relation goes and the target comes back. */
+  clearSupersession: (id: string) => Promise<void>;
   setContent: (id: string, content: string) => Promise<void>;
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
@@ -87,6 +98,21 @@ const applyExtraction = (
         : a,
     ),
   };
+};
+
+// Patch one block wherever it is loaded. The feed is keyed by thread and a block only
+// lives in one of them, but which one is not worth a lookup for a two-field update.
+const patchBlock = (
+  set: (partial: Partial<BlocksState>) => void,
+  get: () => BlocksState,
+  id: string,
+  fields: Partial<Block>,
+): void => {
+  const next: Record<string, Block[]> = {};
+  for (const [tId, list] of Object.entries(get().byThread)) {
+    next[tId] = list.map((b) => (b.id === id ? { ...b, ...fields } : b));
+  }
+  set({ byThread: next });
 };
 
 export const useBlocksStore = create<BlocksState>((set, get) => {
@@ -207,6 +233,43 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         next[tId] = list.map((b) => (b.id === id ? { ...b, source } : b));
       }
       set({ byThread: next });
+    },
+
+    // DESIGN_CONTEXT_HYGIENE §3.1 — one timestamp, and the block is out of every pack.
+    // No confirmation dialog and no undo entry, for the same reason pin has neither: the
+    // action is its own inverse and the button sitting there says so. Nothing is deleted.
+    setStale: async (id, stale) => {
+      const staleAt = stale ? Date.now() : null;
+      await db.setBlockStale(id, staleAt);
+      patchBlock(set, get, id, { staleAt });
+    },
+
+    setSupersession: async (id, targetBlockId, kind) => {
+      const now = Date.now();
+      await db.setBlockSupersession(id, targetBlockId, kind, now);
+      const state = get();
+      const next: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        next[tId] = list.map((b) => {
+          if (b.id === id) return { ...b, refBlockId: targetBlockId, refKind: kind };
+          // 'supersedes' retires the target in the same breath — the store has to show it,
+          // or the block stays looking live until the next thread load.
+          if (b.id === targetBlockId && kind === 'supersedes' && b.staleAt == null) {
+            return { ...b, staleAt: now };
+          }
+          return b;
+        });
+      }
+      set({ byThread: next });
+    },
+
+    // The relation goes; the target's retirement does NOT come back automatically. It was
+    // its own statement the moment it was made, and un-retiring something the user may have
+    // retired for three other reasons would be this feature guessing on their behalf —
+    // exactly what §3.1 keeps AI out of. 「这条不作数了」 on the target is the way back.
+    clearSupersession: async (id) => {
+      await db.setBlockSupersession(id, null, null, Date.now());
+      patchBlock(set, get, id, { refBlockId: null, refKind: null });
     },
 
     setContent: async (id, content) => {
@@ -455,6 +518,12 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           // insertBlocks assigns it and the source's own #n is left alone.
           seq: null,
           createdAt: base + i,
+          // v13: the retirement travels with the copy. A block the user retired here is
+          // retired there too — arriving as a live conclusion in the destination project is
+          // exactly the resurrection DESIGN_CONTEXT_HYGIENE §3.1 exists to prevent. The
+          // citation relation copies verbatim alongside refBlockId, which it annotates.
+          staleAt: src.staleAt,
+          refKind: src.refKind,
         });
         for (const a of state.attachmentsByBlock[src.id] ?? []) {
           copyAttachments.push({

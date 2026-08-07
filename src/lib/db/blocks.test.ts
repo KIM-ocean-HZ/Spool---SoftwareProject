@@ -8,8 +8,12 @@ import {
   computeMergedFields,
   countMcpBlocks,
   createBlock,
+  deleteBlock,
   listBlocksByThread,
   mergeBlocks,
+  restoreBlock,
+  setBlockStale,
+  setBlockSupersession,
   togglePin,
 } from './blocks';
 import { isMcpSource } from '@/lib/blocks/sourceIcon';
@@ -302,5 +306,112 @@ describe('blockStatsByThread', () => {
     const ws = await createWorkspace('W');
     const empty = await createThread(ws.id, 'nothing in it');
     expect(await blockStatsByThread()).not.toHaveProperty(empty.id);
+  });
+});
+
+// DESIGN_CONTEXT_HYGIENE §3.1 — supersession. Two nullable columns, three ways to use
+// them, and the property that makes the whole design safe: nothing is ever destroyed.
+describe('supersession (v13)', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  const seed = async () => {
+    const ws = await createWorkspace('W');
+    const thread = await createThread(ws.id, 'T');
+    const older = await createBlock({ threadId: thread.id, content: '截止 4 月 30 日' });
+    const newer = await createBlock({ threadId: thread.id, content: '改成 3 月 15 日' });
+    return { thread, older, newer };
+  };
+
+  it('starts every block valid and citing nothing in particular', async () => {
+    const { older } = await seed();
+    expect(older.staleAt).toBeNull();
+    expect(older.refKind).toBeNull();
+  });
+
+  // Use ①: the user knows a conclusion has stopped holding but has no replacement yet —
+  // Ocean 拍板'd that this must be supported on its own.
+  it('retires a block with no replacement, and takes it back', async () => {
+    const { thread, older } = await seed();
+    await setBlockStale(older.id, 1_754_000_000_000);
+    let rows = await listBlocksByThread(thread.id);
+    expect(rows.find((b) => b.id === older.id)!.staleAt).toBe(1_754_000_000_000);
+    // ⚠️ Still there, still readable, text untouched. Retiring is not deleting (§2.3's
+    // TOKI distinction) — this assertion IS the design.
+    expect(rows).toHaveLength(2);
+    expect(rows.find((b) => b.id === older.id)!.content).toBe('截止 4 月 30 日');
+
+    await setBlockStale(older.id, null);
+    rows = await listBlocksByThread(thread.id);
+    expect(rows.find((b) => b.id === older.id)!.staleAt).toBeNull();
+  });
+
+  // Use ②: wholesale replacement. One call, because leaving the old block live while the
+  // new one claims to replace it is a state the user never meant to be in.
+  it('retires the target in the same breath as declaring a replacement', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'supersedes', 1_754_000_000_000);
+    const rows = await listBlocksByThread(thread.id);
+    expect(rows.find((b) => b.id === newer.id)).toMatchObject({
+      refBlockId: older.id,
+      refKind: 'supersedes',
+      staleAt: null,
+    });
+    expect(rows.find((b) => b.id === older.id)!.staleAt).toBe(1_754_000_000_000);
+  });
+
+  it('does not move a retirement the user already made', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockStale(older.id, 111);
+    await setBlockSupersession(newer.id, older.id, 'supersedes', 999);
+    // When they retired it is a fact about them, not about this declaration.
+    expect((await listBlocksByThread(thread.id)).find((b) => b.id === older.id)!.staleAt).toBe(111);
+  });
+
+  // Use ③, and the answer to Ocean's question about copying: 'corrects' must leave the
+  // target completely alone, or fixing one sentence costs a re-paste of the paragraph.
+  it('leaves the target untouched for a partial correction', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'corrects', 1_754_000_000_000);
+    const rows = await listBlocksByThread(thread.id);
+    expect(rows.find((b) => b.id === newer.id)!.refKind).toBe('corrects');
+    expect(rows.find((b) => b.id === older.id)).toMatchObject({
+      staleAt: null,
+      content: '截止 4 月 30 日',
+    });
+  });
+
+  it('clears the relation without un-retiring the target', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'supersedes', 1_754_000_000_000);
+    await setBlockSupersession(newer.id, null, null, 2_000_000_000_000);
+    const rows = await listBlocksByThread(thread.id);
+    expect(rows.find((b) => b.id === newer.id)).toMatchObject({
+      refBlockId: null,
+      refKind: null,
+    });
+    // Deliberate: "this no longer holds" was its own statement the moment it was made, and
+    // guessing that it should be undone is exactly what §3.1 keeps out of this feature.
+    expect(rows.find((b) => b.id === older.id)!.staleAt).toBe(1_754_000_000_000);
+  });
+
+  it('brings both fields back when an undone delete restores the block', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'supersedes', 1_754_000_000_000);
+    const before = (await listBlocksByThread(thread.id)).find((b) => b.id === older.id)!;
+    await deleteBlock(older.id);
+    await restoreBlock(before);
+    // ⌘Z must not quietly resurrect a conclusion the user had retired.
+    expect((await listBlocksByThread(thread.id)).find((b) => b.id === older.id)).toEqual(before);
   });
 });

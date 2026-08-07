@@ -154,6 +154,75 @@ const deleteBatches = async (ids: string[]): Promise<void> => {
  *  for — there is nothing to take back, because nothing landed. */
 export const rejectBatch = (batchId: string): Promise<void> => deleteBatches([batchId]);
 
+/** DESIGN_FOLLOW_UP §2.4 (M3) — everything a run just queued, so the dedup gate can look
+ *  at it before the user does. Scoped by batch creation time: engine runs are strictly
+ *  serial (engineStore §1.2), so the batches born inside a run's window are that run's. */
+export const listBatchesCreatedSince = async (since: number): Promise<ProposalBatch[]> => {
+  const db = await getDb();
+  const batches = await db.select<BatchRow[]>(
+    'SELECT * FROM proposal_batches WHERE created_at >= $1 ORDER BY created_at ASC',
+    [since],
+  );
+  if (batches.length === 0) return [];
+  const ids = batches.map((b) => b.id);
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+  const items = await db.select<ItemRow[]>(
+    `SELECT * FROM proposals WHERE batch_id IN (${placeholders}) ORDER BY batch_id, sort_order ASC`,
+    ids,
+  );
+  const byBatch = new Map<string, Proposal[]>();
+  for (const r of items) {
+    const list = byBatch.get(r.batch_id) ?? [];
+    list.push({
+      id: r.id,
+      threadId: r.thread_id,
+      content: r.content,
+      annotation: r.annotation,
+      refBlockId: r.ref_block_id,
+    });
+    byBatch.set(r.batch_id, list);
+  }
+  return batches.map((b) => ({
+    id: b.id,
+    client: b.client,
+    note: b.note,
+    sourceText: b.source_text,
+    sourceThreadId: b.source_thread_id,
+    createdAt: b.created_at,
+    expiresAt: b.expires_at,
+    items: byBatch.get(b.id) ?? [],
+  }));
+};
+
+/** §2.4: drop the proposals a follow-up already showed the user once.
+ *
+ *  Deletion, not a flag — the same rule rejection follows (§4.3): what the queue turned
+ *  away leaves no trace, or the queue becomes the landfill it exists to prevent. A batch
+ *  emptied by this goes with them, so the review screen never shows a heading over
+ *  nothing.
+ *
+ *  ⚠️ It is only ever called with ids the gate matched against THIS project's own history,
+ *  so it cannot reach a batch some other client queued in the same minute. */
+export const dropProposals = async (ids: string[]): Promise<void> => {
+  if (ids.length === 0) return;
+  const db = await getDb();
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+  const owning = await db.select<{ batch_id: string }[]>(
+    `SELECT DISTINCT batch_id FROM proposals WHERE id IN (${placeholders})`,
+    ids,
+  );
+  await db.execute(`DELETE FROM proposals WHERE id IN (${placeholders})`, ids);
+  const emptied: string[] = [];
+  for (const { batch_id } of owning) {
+    const rest = await db.select<{ c: number }[]>(
+      'SELECT COUNT(*) AS c FROM proposals WHERE batch_id = $1',
+      [batch_id],
+    );
+    if ((rest[0]?.c ?? 0) === 0) emptied.push(batch_id);
+  }
+  await deleteBatches(emptied);
+};
+
 export const purgeExpired = async (now: number): Promise<number> => {
   const db = await getDb();
   const rows = await db.select<{ id: string }[]>(

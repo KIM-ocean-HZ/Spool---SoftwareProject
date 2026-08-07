@@ -25,6 +25,7 @@ import BlockAttachments from './BlockAttachments';
 import CitationLine from './CitationLine';
 import RefBlockItem from './RefBlockItem';
 import SourceBadge from './SourceBadge';
+import SupersedePicker from './SupersedePicker';
 
 interface Props {
   block: Block;
@@ -117,6 +118,10 @@ function TextBlockItem({
   const t = useT();
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
+  const setStale = useBlocksStore((s) => s.setStale);
+  const setSupersession = useBlocksStore((s) => s.setSupersession);
+  const clearSupersession = useBlocksStore((s) => s.clearSupersession);
+  const siblings = useBlocksStore((s) => s.byThread[block.threadId]);
   const attach = useBlocksStore((s) => s.attach);
   const detach = useBlocksStore((s) => s.detach);
   const setIncludeInPack = useBlocksStore((s) => s.setIncludeInPack);
@@ -159,6 +164,11 @@ function TextBlockItem({
   const [editingContent, setEditingContent] = useState(false);
   const [contentDraft, setContentDraft] = useState(block.content);
   const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  // DESIGN_CONTEXT_HYGIENE §3.1: whether the "which one does this correct" picker is open
+  // on this block. Local, because only one block can be answering that question at a time
+  // and the answer is over in one click.
+  const [pickingTarget, setPickingTarget] = useState(false);
 
   // Annotation editor. Visually separate (paper-2 background) so a reader can tell
   // "the user wrote this" apart from "the user captured this".
@@ -640,6 +650,37 @@ function TextBlockItem({
     }
   };
 
+  // W7 (DESIGN_WORKBENCH §7 / DESIGN_CONTEXT_HYGIENE §3.2): a block that carries the
+  // user's own note is titled by that note. Only while it is not being edited — the editor
+  // keeps the source layout (content first, note below), the same principle as showing raw
+  // `==` markers in the content textarea.
+  const annotationAsTitle = !!block.annotation?.trim() && !editingAnnotation;
+  const annotationView = (
+    <div
+      // Double-click the annotation itself to edit just the annotation in place
+      // (separate from double-clicking the content, which opens both fields).
+      onDoubleClick={
+        readOnly
+          ? undefined
+          : () => {
+              setActive(block.id);
+              enterEditMode(() => setEditingAnnotation(true));
+            }
+      }
+      title={readOnly ? undefined : t('双击编辑批注')}
+      className="mb-1.5 font-ui text-[15px] font-medium leading-[1.55] text-ink"
+    >
+      {/* Step 3 §20.5: annotations are a read surface too — route through the same
+          tokenizer so a ==…== span (and search hits when navigated) renders as a
+          highlight, never literal markers. No spine on annotations. */}
+      <ContentRuns
+        content={block.annotation ?? ''}
+        hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
+        activeHitIndex={navHitIndex}
+      />
+    </div>
+  );
+
   return (
     <article
       ref={articleRef}
@@ -662,12 +703,24 @@ function TextBlockItem({
       }
       className={`group relative rounded-md px-3.5 py-3 transition-colors hover:bg-paper-2/40 ${
         block.pinned ? 'pl-4' : ''
-      } ${
+      } ${block.staleAt != null ? 'opacity-55' : ''} ${
         isDropTarget ? 'ring-2 ring-accent ring-offset-1 ring-offset-paper' : ''
       } ${highlight || selfFlash ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
     >
       {block.pinned && (
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
+      )}
+
+      {/* DESIGN_CONTEXT_HYGIENE §3.1: a retired block stays exactly where it is, readable,
+          searchable, undeletable-by-accident — it has simply stopped going out in packs.
+          The row says which, because the block looking normal is the failure mode: the
+          user would keep reading a conclusion they had already retired. */}
+      {block.staleAt != null && (
+        <div className="mb-1 font-ui text-[11px] text-muted">
+          {t('已标记「不作数了」· {when} 起不再进上下文（还在库里，搜得到）', {
+            when: formatBlockTime(block.staleAt),
+          })}
+        </div>
       )}
 
       <div className="mb-1 flex items-center gap-2 text-[10px] text-muted">
@@ -734,11 +787,33 @@ function TextBlockItem({
               setActive(block.id);
               enterEditMode(() => setEditingAnnotation(true));
             }}
+            stale={block.staleAt != null}
+            hasSupersession={block.refKind === 'supersedes' || block.refKind === 'corrects'}
+            onToggleStale={() => {
+              setActive(block.id);
+              void setStale(block.id, block.staleAt == null);
+            }}
+            onSupersede={() => {
+              setActive(block.id);
+              if (block.refKind === 'supersedes' || block.refKind === 'corrects') {
+                void clearSupersession(block.id);
+              } else {
+                setPickingTarget((v) => !v);
+              }
+            }}
             onCopy={() => onCopy?.()}
             onDelete={() => onDelete?.()}
           />
         )}
       </div>
+
+      {/* W7 (DESIGN_WORKBENCH §7, DESIGN_CONTEXT_HYGIENE §3.2 rung one): when the user
+          wrote a note about this block, THAT is what the block is — so it reads first, in
+          the block's own voice, and the captured original drops below it as quoted
+          material. Blocks with no note are untouched: §7 rejected the unconditional
+          version precisely because most blocks have none and would have carried a blank
+          headline over demoted prose. */}
+      {annotationAsTitle && annotationView}
 
       {editingContent ? (
         <textarea
@@ -790,9 +865,14 @@ function TextBlockItem({
                   }
                 : undefined
             }
-            className={`whitespace-pre-wrap break-words font-ui text-[15px] leading-[1.65] text-ink ${
-              showCollapsed ? 'feed-fade' : ''
-            }`}
+            className={`whitespace-pre-wrap break-words font-ui leading-[1.65] ${
+              // W7: demoted to quoted material when the note above is carrying the block.
+              // Neutral rule, not the accent one — accent means "the user's own words",
+              // and under W7 those are the line above, not this one.
+              annotationAsTitle
+                ? 'border-l-2 border-line pl-2 text-[13px] text-ink-2'
+                : 'text-[15px] text-ink'
+            } ${showCollapsed ? 'feed-fade' : ''}`}
           >
             {/* Step 2 §9.3 / §13.4: content renders through the run tokenizer
                 (ContentRuns) — the first-line spine, ==…== highlights, and search
@@ -850,79 +930,68 @@ function TextBlockItem({
         </div>
       )}
 
-      {/* Annotation. Read-only view stays visually distinct (left rule + paper-2 tint)
-          so it never reads as part of the captured source text. The edit textarea (v2.8
-          §20.4) is quiet and subordinate to the content textarea above — smaller font,
-          muted color, lighter border — so most blocks (which won't have annotations)
-          show a barely-there input rather than competing for attention. */}
-      {(block.annotation || editingAnnotation) &&
-        (editingAnnotation ? (
-          <div className="mt-1.5">
-            <textarea
-              ref={annotationRef}
-              value={annotationDraft}
-              onChange={(e) => setAnnotationDraft(e.target.value)}
-              onBlur={() => void commitAnnotation()}
-              onKeyDown={(e) => {
-                if (isImeComposing(e.nativeEvent)) return;
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
-                  if (editingContent) cancelAll();
-                  else cancelAnnotation();
-                }
-                // §3.6: Enter inserts a newline (commit is the 完成 button or blur). This is
-                // also why a Chinese-IME Enter that confirms a candidate no longer ends the
-                // note prematurely — Enter never commits here.
+      {/* The annotation EDITOR always sits below the content — editing returns to the
+          source layout (same reason the content textarea keeps raw `==` markers). Quiet
+          and subordinate to the content textarea above, so a block being annotated for the
+          first time shows a barely-there input rather than competing for attention. */}
+      {editingAnnotation && (
+        <div className="mt-1.5">
+          <textarea
+            ref={annotationRef}
+            value={annotationDraft}
+            onChange={(e) => setAnnotationDraft(e.target.value)}
+            onBlur={() => void commitAnnotation()}
+            onKeyDown={(e) => {
+              if (isImeComposing(e.nativeEvent)) return;
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
+                if (editingContent) cancelAll();
+                else cancelAnnotation();
+              }
+              // §3.6: Enter inserts a newline (commit is the 完成 button or blur). This is
+              // also why a Chinese-IME Enter that confirms a candidate no longer ends the
+              // note prematurely — Enter never commits here.
+            }}
+            rows={2}
+            placeholder={t('批注（可选）')}
+            className="w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
+            spellCheck={false}
+          />
+          <div className="mt-1 flex justify-end">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()} // don't blur the textarea first
+              onClick={() => {
+                if (editingContent) void commitContent();
+                void commitAnnotation();
               }}
-              rows={2}
-              placeholder={t('批注（可选）')}
-              className="w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
-              spellCheck={false}
-            />
-            <div className="mt-1 flex justify-end">
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()} // don't blur the textarea first
-                onClick={() => {
-                  if (editingContent) void commitContent();
-                  void commitAnnotation();
-                }}
-                className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-accent hover:bg-accent/10"
-              >
-                {t('完成')}
-              </button>
-            </div>
+              className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-accent hover:bg-accent/10"
+            >
+              {t('完成')}
+            </button>
           </div>
-        ) : (
-          <div
-            // Double-click the annotation itself to edit just the annotation in place
-            // (separate from double-clicking the content, which opens both fields).
-            onDoubleClick={
-              readOnly
-                ? undefined
-                : () => {
-                    setActive(block.id);
-                    enterEditMode(() => setEditingAnnotation(true));
-                  }
-            }
-            title={readOnly ? undefined : t('双击编辑批注')}
-            className="mt-2 border-l-2 border-accent/60 bg-paper-2/30 px-2 py-1 font-ui text-[13px] italic leading-[1.55] text-ink-2"
-          >
-            {/* Step 3 §20.5: annotations are a read surface too — route through the same
-                tokenizer so a ==…== span (and search hits when navigated) renders as a
-                highlight, never literal markers. No spine on annotations. */}
-            <ContentRuns
-              content={block.annotation ?? ''}
-              hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
-              activeHitIndex={navHitIndex}
-            />
-          </div>
-        ))}
+        </div>
+      )}
 
       {/* v2.4 P2-3: quiet citation line — the feed counterpart of the pack's ↩ cites
-          row. Only MCP-written blocks carry refBlockId, so most blocks skip this. */}
-      {block.refBlockId && <CitationLine refBlockId={block.refBlockId} />}
+          row. Only MCP-written blocks carry refBlockId, so most blocks skip this.
+          v13: the same line, with the relation's own verb (DESIGN_CONTEXT_HYGIENE §3.1). */}
+      {block.refBlockId && (
+        <CitationLine refBlockId={block.refBlockId} refKind={block.refKind} />
+      )}
+
+      {pickingTarget && !readOnly && (
+        <SupersedePicker
+          block={block}
+          blocks={siblings ?? []}
+          onPick={(targetId, kind) => {
+            setPickingTarget(false);
+            void setSupersession(block.id, targetId, kind);
+          }}
+          onCancel={() => setPickingTarget(false)}
+        />
+      )}
 
       {attachingUrl && (
         <div className="mt-2 flex items-center gap-1.5">

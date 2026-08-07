@@ -34,11 +34,32 @@ const applySchema = (handle: Sqlite): void => {
 const userVersion = (handle: Sqlite): number =>
   Number((handle.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
 
+// Blocks as an older step left them: v13's two columns come off, because a database that
+// starts below v12 walks all the way to 13 in one pass and picks them up on the way. They
+// are v13's business and are asserted in v13's own test.
+const blocksSansV13 = (handle: Sqlite): Record<string, unknown>[] =>
+  (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map((r) => {
+    const { stale_at, ref_kind, ...rest } = r;
+    void stale_at;
+    void ref_kind;
+    return rest;
+  });
+
 const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
+// Rewind past v13: blocks had no way to say a conclusion had stopped holding.
+const downgradeToV12 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE blocks DROP COLUMN stale_at;
+    ALTER TABLE blocks DROP COLUMN ref_kind;
+    PRAGMA user_version = 12;
+  `);
+};
+
 // Rewind past v12: no engine-run record, and threads had no auto-maintain opt-out.
 const downgradeToV11 = (handle: Sqlite): void => {
+  downgradeToV12(handle);
   handle.exec(`
     DROP INDEX IF EXISTS idx_engine_runs_thread;
     DROP INDEX IF EXISTS idx_engine_runs_time;
@@ -140,7 +161,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -174,7 +195,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -194,7 +215,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -212,7 +233,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -234,7 +255,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -265,7 +286,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -319,7 +340,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -331,7 +352,7 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(handle.prepare('SELECT COUNT(*) AS c FROM proposals').get()).toEqual({ c: 0 });
     // And nothing about the library moved: this step is two CREATE TABLEs, and a row of
     // the user's that came out different would mean it is not.
-    expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
+    expect(blocksSansV13(handle)).toEqual(blocksBefore);
   });
 
   it('v10 → v11 adds the follow-up brief columns and turns nothing on', async () => {
@@ -342,7 +363,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     const cols = columnNames(handle, 'threads');
     expect(cols).toContain('follow_up_brief');
     expect(cols).toContain('follow_up_state');
@@ -374,7 +395,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     // The column the whole table exists for (DESIGN_WORKBENCH §1.1: the AI's prose had
     // nowhere to live, so it was thrown away and the user was told "没有新增块").
     const cols = columnNames(handle, 'engine_runs');
@@ -393,7 +414,7 @@ describe('migrateSchema registry (§19.3)', () => {
     ]);
     // Otherwise not a row of the user's library may move: this step is one CREATE TABLE,
     // two indexes and one nullable column.
-    expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
+    expect(blocksSansV13(handle)).toEqual(blocksBefore);
     expect(
       (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
         const { auto_maintain, ...rest } = r;
@@ -403,15 +424,39 @@ describe('migrateSchema registry (§19.3)', () => {
     ).toEqual(threadsBefore);
   });
 
+  it('v12 → v13 adds supersession and leaves every block valid', async () => {
+    applySchema(handle);
+    downgradeToV12(handle);
+    seedUserData(handle);
+    const blocksBefore = handle.prepare('SELECT * FROM blocks').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(13);
+    const cols = columnNames(handle, 'blocks');
+    expect(cols).toContain('stale_at');
+    expect(cols).toContain('ref_kind');
+    // ⚠️ The property this migration lives or dies by (DESIGN_CONTEXT_HYGIENE §3.1): NULL on
+    // every existing row means every block the user already had is still valid, and
+    // `ref_kind` NULL reads as 'cites' — so a database that walks this step renders exactly
+    // the pack it rendered before. Supersession is something the USER declares; a migration
+    // that marked anything stale would be deciding for them, on the one axis where a wrong
+    // guess takes a correct conclusion out of every future pack.
+    expect(handle.prepare('SELECT stale_at, ref_kind FROM blocks').all()).toEqual([
+      { stale_at: null, ref_kind: null },
+    ]);
+    expect(blocksSansV13(handle)).toEqual(blocksBefore);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec("PRAGMA user_version = 12");
+    handle.exec('PRAGMA user_version = 13');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -431,7 +476,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(12);
+    expect(userVersion(handle)).toBe(13);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

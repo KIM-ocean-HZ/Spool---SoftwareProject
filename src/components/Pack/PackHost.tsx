@@ -3,6 +3,7 @@ import PackDialog from './PackDialog';
 import type { Attachment } from '@/lib/db/attachments';
 import { listBlocksByIds, type Block } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
+import type { CitedBlock } from '@/lib/pack/assemble';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 
@@ -72,9 +73,7 @@ export default function PackHost() {
   // may live in another thread) so the pack can render its ↩ cites preview. Missing rows
   // stay out of the map — assemble renders those citations as gone. Fetched only while the
   // dialog is open: the data has no other consumer.
-  const [refBlocks, setRefBlocks] = useState<Map<string, { content: string; createdAt: number }>>(
-    () => new Map(),
-  );
+  const [refBlocks, setRefBlocks] = useState<Map<string, CitedBlock>>(() => new Map());
   useEffect(() => {
     if (!packingId) return;
     const ids = [...new Set(blocks.map((b) => b.refBlockId).filter((id): id is string => !!id))];
@@ -85,7 +84,14 @@ export default function PackHost() {
     let stale = false;
     void listBlocksByIds(ids).then((rows) => {
       if (stale) return;
-      setRefBlocks(new Map(rows.map((b) => [b.id, { content: b.content, createdAt: b.createdAt }])));
+      setRefBlocks(
+        new Map(
+          rows.map((b) => [
+            b.id,
+            { content: b.content, annotation: b.annotation, createdAt: b.createdAt },
+          ]),
+        ),
+      );
     });
     return () => {
       stale = true;

@@ -3,6 +3,7 @@ import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import {
   ATTACHMENT_SEE_BELOW,
+  CORRECTED_BY_PREFIX,
   DEFAULT_PACK_TEMPLATE,
   EMPTY_LOG_LINE,
   EMPTY_PINNED_LINE,
@@ -18,19 +19,30 @@ import {
   PACK_TEMPLATES,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
+  REF_BLOCK_CORRECTS,
   REF_BLOCK_MARKER,
   REF_BLOCK_FROM,
   REF_BLOCK_MISSING,
+  REF_BLOCK_SUPERSEDES,
   REF_MARKER,
   SECTION_FILES,
   SECTION_LOG,
   SECTION_PINNED,
   SOURCE_MARKER,
+  staleOmittedLine,
   UNKNOWN_THREAD,
   URL_MARKER,
   truncationMarker,
   type PackTemplateKey,
 } from './templates';
+
+/** What the renderer needs about a block someone else cites. */
+export interface CitedBlock {
+  content: string;
+  annotation?: string | null;
+  createdAt: number;
+  foreignTitle?: string;
+}
 
 export interface AssembleArgs {
   thread: Thread;
@@ -44,7 +56,9 @@ export interface AssembleArgs {
   // v2.4 (§20.13 D2): cited block id → its content + capture time, for blocks carrying
   // refBlockId. Caller-supplied like refTitles (cited blocks may live in other threads).
   // A citing block whose id is missing here renders the citation as no-longer-exists.
-  refBlocks?: Map<string, { content: string; createdAt: number; foreignTitle?: string }>;
+  // `annotation` arrived with the label ladder (DESIGN_CONTEXT_HYGIENE §3.2): the cited
+  // block's own note outranks its first 40 characters as a way of naming it.
+  refBlocks?: Map<string, CitedBlock>;
   // v2.8 §20.7: optional task-template selector. The chosen template's closing block
   // is appended after "Related Files & Links" and before the Output Language line.
   // Default = 'default' (no extra block — pre-v2.8 behavior).
@@ -53,6 +67,25 @@ export interface AssembleArgs {
   // filterBlocksForRange, pass the range and the project's UNFILTERED block count — the
   // header then says "N of TOTAL" instead of claiming N is everything. Omit for 'all'.
   scope?: { range: PackRange; total: number };
+  // DESIGN_CONTEXT_HYGIENE §1.1 (Ocean 2026-08-06: 「直接去掉 pack 的分类,只留下纯上下文的
+  // 格式」, then 拍板 that it be a switch rather than a deletion). false drops the
+  // four-category reading instructions and leaves the content.
+  //
+  // The number behind it: the golden fixture's pack is 4,329 chars and the header is 2,616
+  // of them — 60% of a small pack is instructions on how to read the other 40%, which is
+  // §2.1's own argument (attention is the budget) turned against the pack itself.
+  //
+  // ⚠️ And what the switch costs, because it is real: that header is the one thing telling
+  // the receiving AI that an essay some chatbot wrote three months ago is not a fact. Drop
+  // it and a web AI weighs it exactly like the user's own judgement — the "authority
+  // laundering" DESIGN_MCP_WRITE_ROLE §2 exists to prevent. Which is why it is a switch:
+  // the mechanism stays, the plain-web user gets what they asked for, and one tick brings
+  // it back.
+  //
+  // Defaults to true so the golden path and the MCP twin stay byte-identical; PackDialog
+  // is where the default flips to minimal, because that is the surface Ocean was talking
+  // about (the clipboard). MCP packs always keep it — there it IS the contract.
+  instructions?: boolean;
   // v9 (2026-08-04): which language the closing Output Language directive asks for.
   // Defaults to Chinese so every existing caller and the golden fixture are unchanged;
   // PackDialog passes the app's UI language, and mcp.rs reads it from settings.json.
@@ -172,11 +205,22 @@ const seqMarker = (b: Block): string => (b.seq == null ? '' : `#${b.seq} `);
 // One block: its header line, an optional note, an optional block-level citation, then
 // each attachment. A pinned block gets the 📌 prefix wherever it is rendered — Pinned
 // Blocks section and Full Record alike.
+// v13 (DESIGN_CONTEXT_HYGIENE §3.1): which marker the `ref_block_id` sub-line uses. NULL
+// ref_kind is every pre-v13 row and the default — it reads as 'cites', unchanged.
+const refBlockMarker = (kind: Block['refKind']): string => {
+  if (kind === 'supersedes') return REF_BLOCK_SUPERSEDES;
+  if (kind === 'corrects') return REF_BLOCK_CORRECTS;
+  return REF_BLOCK_MARKER;
+};
+
 const renderBlock = (
   b: Block,
   byBlock: Map<string, Attachment[]>,
   refTitles: Map<string, string> | undefined,
-  refBlocks: Map<string, { content: string; createdAt: number; foreignTitle?: string }> | undefined,
+  refBlocks: Map<string, CitedBlock> | undefined,
+  // v13: the newer blocks that corrected a point inside THIS one, by seq. Rendered under
+  // the old block, which stays in the pack in full (§3.1.1).
+  correctedBy: Map<string, number[]> | undefined,
 ): string[] => {
   const time = formatPackTime(b.createdAt);
   const star = b.pinned ? PINNED_PREFIX : '';
@@ -197,18 +241,41 @@ const renderBlock = (
   }
   if (b.refBlockId) {
     const cited = refBlocks?.get(b.refBlockId);
+    const marker = refBlockMarker(b.refKind);
     lines.push(
       cited
-        ? `${NOTE_INDENT}${REF_BLOCK_MARKER}[${formatPackTime(cited.createdAt)}] ${headAnchor(cited.content)}${
+        ? `${NOTE_INDENT}${marker}[${formatPackTime(cited.createdAt)}] ${blockLabel(cited.content, cited.annotation)}${
             cited.foreignTitle ? `${REF_BLOCK_FROM}${cited.foreignTitle}` : ''
           }`
-        : `${NOTE_INDENT}${REF_BLOCK_MARKER}${REF_BLOCK_MISSING}`,
+        : `${NOTE_INDENT}${marker}${REF_BLOCK_MISSING}`,
+    );
+  }
+  const corrections = correctedBy?.get(b.id);
+  if (corrections && corrections.length > 0) {
+    lines.push(
+      `${NOTE_INDENT}${CORRECTED_BY_PREFIX}${corrections.map((s) => `#${s}`).join(', ')}`,
     );
   }
   for (const a of byBlock.get(b.id) ?? []) {
     lines.push(...renderAttachment(a));
   }
   return lines;
+};
+
+// v13 (DESIGN_CONTEXT_HYGIENE §3.1.1): old block id → the #seq of each newer block that
+// corrected a point inside it. Derived from the pack's own block list, so a correction
+// written in another project is not claimed here — the pack only speaks for what it holds.
+// Blocks with no seq (pre-v9 rows) cannot be pointed at and are skipped: a warning naming
+// nothing is worse than no warning.
+const correctionsBySource = (blocks: Block[]): Map<string, number[]> => {
+  const out = new Map<string, number[]>();
+  for (const b of blocks) {
+    if (b.refKind !== 'corrects' || !b.refBlockId || b.seq == null) continue;
+    const list = out.get(b.refBlockId);
+    if (list) list.push(b.seq);
+    else out.set(b.refBlockId, [b.seq]);
+  }
+  return out;
 };
 
 // 2026-07-09: a pinned block's Full Record slot — same time/source bracket for the
@@ -226,11 +293,39 @@ export const headAnchor = (content: string): string => {
   return chars.slice(0, PLACEHOLDER_HEAD_CHARS).join('') + '…';
 };
 
+// DESIGN_CONTEXT_HYGIENE §3.2 — the label ladder, and W7 ("批注当标题") is its first rung.
+//
+// Wherever the pack names a block it is NOT printing in full, it has to pick a few words
+// that say what that block is. The first 40 characters (headAnchor) were the only rule,
+// and Ocean's §1.2 objection is the reason there is a ladder now: a pasted wall of text
+// does not announce itself in its first 40 characters. The user's own annotation does —
+// it is a sentence they wrote about this block, it costs nothing, and it carries the
+// highest authority the pack has (💭 Personal). Rung two (an AI-written line) is
+// deliberately NOT built yet — §4-5 says to see whether the other four items leave a gap
+// first — so this ladder is two rungs with the same fallback it always had.
+//
+// ⚠️ The note only wins when the body does NOT fit in the anchor. §3.2's own rule for the
+// AI rung says the same thing about short blocks — "短块用前 40 字就够,那是 Ocean §1.2 那句话
+// 的反面" — and it applies here too. Measured against the real lab library on 2026-08-07: a
+// 28-character block whose note read 「先按这个数走」 rendered as 「先按这个数走」 and the reader
+// could no longer tell WHAT was replaced. When the whole body fits, the body IS its best
+// name; a note about it adds nothing you could not already see, and costs the thing itself.
+//
+// ⚠️ Applies only where the block's own body is absent or elsewhere: the pinned
+// placeholder, `↩ cites:`, and the over-budget catalogue. NOT to mcp.rs's Block IDs table,
+// which is a lookup keyed by the body text the reader just saw. Mirrored in mcp.rs.
+export const blockLabel = (content: string, annotation?: string | null): string => {
+  const body = headAnchor(content);
+  const note = annotation?.trim();
+  const bodyFitsWhole = body === oneLine(content);
+  return note && note.length > 0 && !bodyFitsWhole ? headAnchor(note) : body;
+};
+
 const renderPinnedPlaceholder = (b: Block): string => {
   const time = formatPackTime(b.createdAt);
   const bracket =
     b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
-  const head = headAnchor(b.content);
+  const head = blockLabel(b.content, b.annotation);
   const anchor = head.length > 0 ? `${head} ` : '';
   return `${PINNED_PREFIX}${seqMarker(b)}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
 };
@@ -240,17 +335,28 @@ const renderPinnedPlaceholder = (b: Block): string => {
 // the receiving AI does the actual classification at consumption time.
 export function assemble({
   thread,
-  blocks,
+  blocks: allBlocks,
   attachments,
   refTitles,
   refBlocks,
   template,
   scope,
+  instructions = true,
   outputLanguage,
   now,
 }: AssembleArgs): string {
   const dateStr = formatPackDate(now ?? Date.now());
   const out: string[] = [];
+
+  // v13 (DESIGN_CONTEXT_HYGIENE §3.1): retired blocks leave the pack, not the library.
+  // ⚠️ Including the pinned ones. Pin and retirement are two statements by the same person
+  // and they contradict each other; the later one wins, because "this is core context" was
+  // said about a conclusion that still held. The pack has to SAY so, though — see
+  // staleOmittedLine. This is also the plan's one honest compression: length goes, nothing
+  // is lost, and the user can still read what they used to think.
+  const blocks = allBlocks.filter((b) => b.staleAt == null);
+  const staleCount = allBlocks.length - blocks.length;
+  const correctedBy = correctionsBySource(blocks);
 
   out.push(
     PACK_HEADER(
@@ -260,8 +366,10 @@ export function assemble({
       scope && scope.range !== 'all' ? { range: scope.range, total: scope.total } : undefined,
     ),
   );
-  out.push('');
-  out.push(INSTRUCTION_HEADER);
+  if (instructions) {
+    out.push('');
+    out.push(INSTRUCTION_HEADER);
+  }
 
   // Group attachments by their owning block so each block lists its own inline.
   const byBlock = new Map<string, Attachment[]>();
@@ -280,7 +388,7 @@ export function assemble({
   if (pinned.length === 0) {
     out.push(EMPTY_PINNED_LINE);
   } else {
-    for (const b of pinned) out.push(...renderBlock(b, byBlock, refTitles, refBlocks));
+    for (const b of pinned) out.push(...renderBlock(b, byBlock, refTitles, refBlocks, correctedBy));
   }
 
   // Full Record: every block in chronological order. A block's annotation and its
@@ -294,8 +402,13 @@ export function assemble({
   } else {
     for (const b of blocks) {
       if (b.pinned) out.push(renderPinnedPlaceholder(b));
-      else out.push(...renderBlock(b, byBlock, refTitles, refBlocks));
+      else out.push(...renderBlock(b, byBlock, refTitles, refBlocks, correctedBy));
     }
+  }
+  // v13: the gap is declared, never silent (§2.3 — a store that drops a fact without
+  // saying so is exactly the failure TOKI separates supersession from deletion to avoid).
+  if (staleCount > 0) {
+    out.push(staleOmittedLine(staleCount));
   }
 
   // Related Files & Links: every attachment in the thread, collected so the user can
@@ -303,7 +416,12 @@ export function assemble({
   // whose extracted_text exists but was NOT inlined (include_in_pack === false) carries
   // a "[extracted: yes, not inlined]" tag, so the receiving AI knows content exists but
   // was deliberately withheld for length — and can ask the user to inline it if needed.
-  const all = attachments ?? [];
+  // v13: an attachment whose block was retired goes with it — the section must not point
+  // at material the pack deliberately withheld (same rule the budgeted omission follows).
+  const liveIds = new Set(blocks.map((b) => b.id));
+  const all = staleCount > 0
+    ? (attachments ?? []).filter((a) => liveIds.has(a.blockId))
+    : attachments ?? [];
   if (all.length > 0) {
     out.push('');
     out.push(SECTION_FILES);

@@ -32,7 +32,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
 // and attachments), the v10 review queue, then attachments → blocks → threads →
@@ -387,6 +387,25 @@ const MIGRATIONS: Migration[] = [
         await db.execute('ALTER TABLE threads ADD COLUMN auto_maintain INTEGER');
       } catch (e) {
         console.info('[db] auto_maintain: not added (likely exists)', e);
+      }
+    },
+  },
+  {
+    // v13 (DESIGN_CONTEXT_HYGIENE §3.1): supersession. Two nullable columns on `blocks` and
+    // nothing else — no row is rewritten, no existing column changes meaning, and NULL in
+    // both is exactly the behaviour every reader had before v13 (`ref_kind` NULL reads as
+    // 'cites'). That is what makes an interrupted run harmless: a database that walks half
+    // of this step behaves identically to one that walked none of it.
+    from: 12,
+    to: 13,
+    name: 'add-block-supersession',
+    run: async (db) => {
+      for (const col of ['stale_at INTEGER', 'ref_kind TEXT']) {
+        try {
+          await db.execute(`ALTER TABLE blocks ADD COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] ${col}: not added (likely exists)`, e);
+        }
       }
     },
   },

@@ -1,5 +1,5 @@
 {
-  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling). Also covers a cross-project citation (b8 → b-other, foreignTitle) vs the same-project one (b6 → b1).",
+  "__readme": "Cross-language golden fixture (§20.12). assemble.ts (TS test in assemble.test.ts) and mcp.rs (Rust test golden_pack_matches_fixture) must both render this dataset to golden-pack.expected.txt (dates normalized to <DATE>). Covers: pinned+source+annotation, sourceless personal block, ==highlight==, multiline content, multiline annotation, ref via refTitles, ref fallback to content snapshot, url / folder / inlined-file / not-inlined-file attachments, empty label fallback, block-level citation via refBlocks (live + dangling). Also covers a cross-project citation (b8 → b-other, foreignTitle) vs the same-project one (b6 → b1). v13 (DESIGN_CONTEXT_HYGIENE): b9 is a PINNED block the user retired (staleAt) — it must leave both the Pinned Blocks section and the Full Record, taking its slot with it, and the closing [... 1 block ...] line must appear; b10 supersedes it (↩ replaces marker, preview resolved from refBlocks even though the citee is stale); b11 corrects b2, which stays in full and grows a ⚠️ line naming #11. The label ladder (§3.2 / W7) shows up twice: b1's pinned placeholder and b6's ↩ cites: line both name b1 by its ANNOTATION, not by its first 40 characters.",
   "now": 1750000000000,
   "thread": {
     "id": "t1",
@@ -121,6 +121,48 @@
       "pinned": false,
       "createdAt": 1749999000000,
       "seq": 8
+    },
+    {
+      "id": "b9",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "招生页面写着截止 4 月 30 日,按这个排进度",
+      "annotation": null,
+      "refThreadId": null,
+      "refBlockId": null,
+      "source": "Safari",
+      "pinned": true,
+      "createdAt": 1749999100000,
+      "seq": 9,
+      "staleAt": 1749999500000
+    },
+    {
+      "id": "b10",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "招生页面改版了,截止日期挪到 3 月 15 日",
+      "annotation": null,
+      "refThreadId": null,
+      "refBlockId": "b9",
+      "refKind": "supersedes",
+      "source": "Safari",
+      "pinned": false,
+      "createdAt": 1749999600000,
+      "seq": 10
+    },
+    {
+      "id": "b11",
+      "threadId": "t1",
+      "kind": "text",
+      "content": "占分是 30% 不是 40%,其余要求没变",
+      "annotation": null,
+      "refThreadId": null,
+      "refBlockId": "b2",
+      "refKind": "corrects",
+      "source": null,
+      "pinned": false,
+      "createdAt": 1749999700000,
+      "seq": 11
     }
   ],
   "attachments": [
@@ -176,7 +218,16 @@
   "refBlocks": {
     "b1": {
       "content": "Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==",
+      "annotation": "一直没懂为什么要除 sqrt(d_k)\n查了三篇讲解还是模糊",
       "createdAt": 1746540000000
+    },
+    "b2": {
+      "content": "课程要求:期末项目要复现一篇 2024 年后的论文\n截止 4 月 30 日\n占总分 40%",
+      "createdAt": 1749100000000
+    },
+    "b9": {
+      "content": "招生页面写着截止 4 月 30 日,按这个排进度",
+      "createdAt": 1749999100000
     },
     "b-other": {
       "content": "实验设计里的原始记录:baseline 复现用的是 seed=42",

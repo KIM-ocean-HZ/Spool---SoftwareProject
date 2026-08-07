@@ -4,6 +4,16 @@ import { getDb } from './client';
 
 export type BlockKind = 'text' | 'ref';
 
+/** v13 (DESIGN_CONTEXT_HYGIENE §3.1) — what a block's `refBlockId` MEANS.
+ *
+ *  `cites` is every citation written before v13 and the default since: "this builds on
+ *  that". The other two are the supersession relation, and the difference between them is
+ *  the whole of §3.1.1: `supersedes` retires the cited block wholesale (it carries
+ *  `staleAt` too), while `corrects` says one point inside it is wrong and leaves the cited
+ *  block completely untouched — which is what stops correcting one sentence from costing a
+ *  re-paste of the surrounding two thousand characters. */
+export type RefKind = 'cites' | 'supersedes' | 'corrects';
+
 export interface Block {
   id: string;
   threadId: string;
@@ -19,6 +29,11 @@ export interface Block {
   // backfill ran. Never renumbered, never reused — see schema.sql.
   seq: number | null;
   createdAt: number;
+  /** v13: when the USER said this stopped holding. Null = still valid. The block is never
+   *  edited and never deleted — it leaves packs, not the library. */
+  staleAt: number | null;
+  /** v13: null reads as 'cites' (every pre-v13 row, and the default). */
+  refKind: RefKind | null;
 }
 
 export interface CreateBlockArgs {
@@ -46,6 +61,8 @@ interface Row {
   pinned: number;
   seq: number | null;
   created_at: number;
+  stale_at: number | null;
+  ref_kind: RefKind | null;
 }
 
 const fromRow = (r: Row): Block => ({
@@ -60,10 +77,12 @@ const fromRow = (r: Row): Block => ({
   pinned: r.pinned === 1,
   seq: r.seq ?? null,
   createdAt: r.created_at,
+  staleAt: r.stale_at ?? null,
+  refKind: r.ref_kind ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at';
+  'id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -172,6 +191,10 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     pinned: args.pinned ?? false,
     seq: null,
     createdAt: Date.now(),
+    // v13: a block is born valid and citing nothing in particular. Supersession is only
+    // ever declared afterwards, by the user, on a block that already exists.
+    staleAt: null,
+    refKind: null,
   };
   // v9: `seq` is computed inside the INSERT, not read-then-written. WAL serialises
   // writers, so a single statement holding the write lock cannot lose the race against
@@ -226,11 +249,11 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 11;
+  const COLS = 13;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11})`;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11}, $${o + 12}, $${o + 13})`;
     })
     .join(', ');
   const params = blocks.flatMap((b) => {
@@ -248,10 +271,12 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.pinned ? 1 : 0,
       next,
       b.createdAt,
+      b.staleAt,
+      b.refKind,
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind) VALUES ${tuples}`,
     params,
   );
 };
@@ -316,8 +341,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       block.id,
       block.threadId,
@@ -330,8 +355,55 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.pinned ? 1 : 0,
       block.seq,
       block.createdAt,
+      // v13: an undone delete must come back exactly as it was, retirement included —
+      // otherwise ⌘Z quietly resurrects a conclusion the user had retired.
+      block.staleAt,
+      block.refKind,
     ],
   );
+};
+
+/** DESIGN_CONTEXT_HYGIENE §3.1 — «这条不作数了», and taking it back.
+ *
+ *  The whole write: one timestamp. Nothing about the block's text, note, pin or position
+ *  moves, and nothing is deleted — §2.3's TOKI distinction is the point of doing it this
+ *  way. Passing null is the undo, and it has to exist: this is a judgement call, and a
+ *  judgement call the user cannot reverse is a trap.
+ *
+ *  ⚠️ There is no MCP counterpart on purpose (§3.1 «谁能用»). */
+export const setBlockStale = async (id: string, staleAt: number | null): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE blocks SET stale_at = $1 WHERE id = $2', [staleAt, id]);
+};
+
+/** DESIGN_CONTEXT_HYGIENE §3.1 — «它更正了哪一条», declared FROM the newer block.
+ *
+ *  Two strengths, and §3.1.1 is why they are separate. `supersedes` retires the target as
+ *  a whole, so it takes a `stale_at` at the same moment. `corrects` says one point inside
+ *  the target is wrong — the target keeps rendering in full, and the new block only has to
+ *  name the point that changed. Copying the rest of the old block forward would be three
+ *  things at once: a duplicate (the very disease this plan treats), an identity laundering
+ *  (📖 Reference re-entering the library as 💭 Personal), and a price nobody would pay.
+ *
+ *  Passing null for `kind` clears the relation back to a plain citation. */
+export const setBlockSupersession = async (
+  id: string,
+  targetBlockId: string | null,
+  kind: Exclude<RefKind, 'cites'> | null,
+  now: number,
+): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE blocks SET ref_block_id = $1, ref_kind = $2 WHERE id = $3', [
+    kind === null ? null : targetBlockId,
+    kind,
+    id,
+  ]);
+  if (kind === 'supersedes' && targetBlockId) {
+    await db.execute('UPDATE blocks SET stale_at = $1 WHERE id = $2 AND stale_at IS NULL', [
+      now,
+      targetBlockId,
+    ]);
+  }
 };
 
 // §9.13 Undo (merge): revert the merge survivor's mutable fields to their pre-merge

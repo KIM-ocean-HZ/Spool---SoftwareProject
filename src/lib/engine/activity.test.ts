@@ -14,6 +14,8 @@ const block = (id: string, createdAt: number, source: string | null): Block => (
   pinned: false,
   seq: null,
   createdAt,
+  staleAt: null,
+  refKind: null,
 });
 
 const T = 1_700_000_000_000;

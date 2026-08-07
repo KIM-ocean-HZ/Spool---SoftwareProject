@@ -39,6 +39,10 @@
 #     mechanical scan, and it is worth knowing which one you are testing: a fixture full of
 #     paraphrases makes a working detector look broken. (The paraphrase case is the debt
 #     DESIGN_CONTEXT_HYGIENE §3.1 owns — 取代关系 — not something 去重 can reach today.)
+#     ➕ v13 (DESIGN_CONTEXT_HYGIENE §3.1): the same project also carries all three
+#     supersession states — a PINNED block retired outright, the block that replaced it,
+#     and a partial correction that leaves its target whole. That is what to look at when
+#     judging whether 「不作数了」 reads as 「删掉了」 anywhere it should not.
 #   跟进 (follow_up)     Tauri 2 升级       a follow_up_brief naming things that genuinely
 #                                          move on the open web. Nothing else in the library
 #                                          has a brief, so the button is off everywhere else
@@ -294,6 +298,37 @@ INSERT INTO blocks (id, thread_id, kind, content, annotation, source, ref_block_
   '一个常被忽略的点:检索器和生成器是分开训练的,所以检索指标涨了不代表最终答案会更准。评测必须端到端做,单看 recall@k 会骗人。这一点在附录里又提了一次。',
   NULL,'Zotero 笔记',NULL,0,12,
   CAST(strftime('%s', date('now','localtime','-9 days') || ' 11:15:00','utc')*1000 AS INTEGER));
+
+-- ---------------------------------------------------------------------------------------
+-- v13 取代关系 的料 (DESIGN_CONTEXT_HYGIENE §3.1). All three states, in one project, so
+-- the block stream and the pack can be judged side by side:
+--   #13 retired outright + #14 replacing it  → #13 leaves the pack, #14 carries ↩ replaces
+--   #15 correcting #5                        → #5 stays in FULL, and grows the ⚠️ line
+--
+-- ⚠️ #13 is PINNED on purpose. Pin and retirement are the same person saying two opposite
+-- things, and the design says the later one wins — a fixture where the retired block was
+-- unpinned would never exercise that.
+--
+-- ⚠️ This is also the case 去重 provably cannot reach: 「换句话说的同一件事」 is invisible to a
+-- character-trigram detector (measured 2026-08-07, see the note above). #13 vs #14 is not a
+-- duplicate at all — it is an OUT-OF-DATE fact, which is a different disease and needs this
+-- different medicine.
+INSERT INTO blocks (id, thread_id, kind, content, annotation, source, ref_block_id, ref_kind,
+                    stale_at, pinned, seq, created_at) VALUES
+ ('WbBlPap13','WbThPaperNotes0000002','text',
+  '我们内部定的门槛:检索召回率到不了 60% 就先别上线。',
+  '先按这个数走','团队会议记录',NULL,NULL,
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 09:00:00','utc')*1000 AS INTEGER),
+  1,13,
+  CAST(strftime('%s', date('now','localtime','-27 days') || ' 16:00:00','utc')*1000 AS INTEGER)),
+ ('WbBlPap14','WbThPaperNotes0000002','text',
+  '门槛改了:不再看召回率,改成端到端准确率 75%。召回率再高,生成端不用证据也是白搭。',
+  NULL,'团队会议记录','WbBlPap13','supersedes',NULL,0,14,
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 09:05:00','utc')*1000 AS INTEGER)),
+ ('WbBlPap15','WbThPaperNotes0000002','text',
+  '更正一处:rerank 那个 +15~20% 是他们自己数据集上的数字,我们的数据只涨了 4 个点。其余结论没问题。',
+  NULL,NULL,'WbBlPap05','corrects',NULL,0,15,
+  CAST(strftime('%s', date('now','localtime','-1 days') || ' 09:40:00','utc')*1000 AS INTEGER));
 
 -- ---------------------------------------------------------------------------------------
 -- 跟进 的料。Enough for the brief to be grounded — the run reads these to know what is
