@@ -168,13 +168,8 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
               </select>
             </label>
           )}
-          {status.selected === 'codex' && (
-            <p className="text-[10px] leading-relaxed text-muted">
-              {t('Codex 的模型要等它的额度恢复（9/4）才能测出来，先不给选，免得给你一个跑不通的名字。')}
-            </p>
-          )}
           <p className="text-[10px] leading-relaxed text-muted">
-            {t('花的是你自己那个 CLI 账号的额度。上面只写花了多少——还剩多少，两个 CLI 都不告诉外面。')}
+            {t('用的是你自己 CLI 账号的额度。')}
           </p>
         </div>
       )}

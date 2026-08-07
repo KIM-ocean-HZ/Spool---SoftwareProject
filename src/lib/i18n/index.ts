@@ -437,8 +437,8 @@ const EN: Record<string, string> = {
   '起草跟进目标': 'Draft what to watch',
   '定几行「要盯什么」，之后才能让 AI 出去查':
     'Set a few lines of "what to watch" before the AI can go looking',
-  '照你定的那几行,让本机的 {engine} 出去查一遍有没有新进展':
-    'Have the {engine} on this machine go and check for news, against the lines you set',
+  '照你定的那几行,让本机的 {engine} 联网搜索有没有新进展':
+    'Have the {engine} on this machine search the web for news, against the lines you set',
   '这个项目要盯什么': 'What should this project watch?',
   '写清楚要盯的几件事。以后每次「跟进」，AI 就照这几行出去查——它只找这几行说的东西。':
     'Name the things worth watching. Every "Follow up" run works from these lines — and looks for nothing else.',
@@ -597,10 +597,11 @@ const EN: Record<string, string> = {
   // internally is not a word the user has any way to interpret.
   '想多久': 'Thinking',
   '想得越久越贵，也越慢': 'Thinking longer costs more, and takes longer',
-  'Codex 的模型要等它的额度恢复（9/4）才能测出来，先不给选，免得给你一个跑不通的名字。':
-    'Codex’s model names cannot be verified until its quota comes back (Sep 4), so there is no picker yet — better none than one that hands you a name the run rejects.',
-  '花的是你自己那个 CLI 账号的额度。上面只写花了多少——还剩多少，两个 CLI 都不告诉外面。':
-    'This spends your own CLI account’s allowance. The figure above is what was spent — how much is left is something neither CLI reports.',
+  // 2026-08-08 (Ocean): the two notes that used to sit here explained why Codex has no
+  // model picker and why no remaining-quota figure is shown. Both were developer voice —
+  // they answered questions only someone building this would ask. What the user does need
+  // to know is whose allowance a run spends.
+  '用的是你自己 CLI 账号的额度。': 'Runs on your own CLI account’s allowance.',
 
   // The live run (§9.3 #4).
   '停下': 'Stop',
@@ -685,13 +686,12 @@ const EN: Record<string, string> = {
   '这个项目里有 {n} 块是 AI 写的': '{n} block(s) here were written by an AI',
 
   // Follow-up, first level (§9.3 #2).
-  '在盯什么': 'Watching for',
-  '改': 'Edit',
+  '跟进内容': 'Watching for',
   '定一个': 'Set one',
   '还没定。定几行「要盯什么」，之后才能让 AI 出去查。':
     'Not set yet. Write a few lines of what to watch for, and the AI can go and look.',
-  '照你定的那几行出去查一遍': 'Go and check, following the lines you wrote',
-  '出去查一遍': 'Go and check',
+  '照你定的那几行联网搜索': 'Search the web, following the lines you wrote',
+  '联网搜索': 'Search the web',
   // The brief editor's placeholder. Replaced 2026-08-06 (Ocean #10: the CMU example was too
   // niche) and never translated — the shape is the point, so the English keeps it concrete
   // enough to act as a search rule rather than becoming an abstraction.

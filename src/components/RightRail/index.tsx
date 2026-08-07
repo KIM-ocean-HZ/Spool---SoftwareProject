@@ -264,14 +264,14 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
           <div className="space-y-1 border-t border-line pt-2.5">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[10px] uppercase tracking-wide text-muted">
-                {t("在盯什么")}
+                {t("跟进内容")}
               </span>
               <button
                 type="button"
                 onClick={onEditBrief}
                 className="flex-none text-[10px] text-muted transition-colors hover:text-accent"
               >
-                {thread.followUpBrief ? t("改") : t("定一个")}
+                {thread.followUpBrief ? t("编辑") : t("定一个")}
               </button>
             </div>
             <p className="whitespace-pre-wrap text-[10px] leading-relaxed text-ink-2">
@@ -290,11 +290,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                 onClick={() =>
                   enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
                 }
-                title={t("照你定的那几行出去查一遍")}
+                title={t("照你定的那几行联网搜索")}
                 className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
               >
                 <Globe size={12} className="flex-none" />
-                {t("出去查一遍")}
+                {t("联网搜索")}
               </button>
             )}
           </div>
