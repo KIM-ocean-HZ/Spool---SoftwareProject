@@ -3,7 +3,7 @@ import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
 import schemaSql from './schema.sql?raw';
 
-export const INBOX_WORKSPACE_TITLE = '收件箱';
+export const INBOX_WORKSPACE_TITLE = '默认工作区';
 export const UNSORTED_THREAD_TITLE = '未分类';
 
 // Seeded rows are per-language (2026-07-31, HANDOFF §2.2). Unlike UI strings — Chinese
@@ -16,7 +16,10 @@ export const UNSORTED_THREAD_TITLE = '未分类';
 // seeded. Anything the user touched, renamed or deleted stays exactly as they left it.
 export type SeedLanguage = 'zh' | 'en';
 
-const INBOX_TITLE: Record<SeedLanguage, string> = { zh: INBOX_WORKSPACE_TITLE, en: 'Inbox' };
+const INBOX_TITLE: Record<SeedLanguage, string> = {
+  zh: INBOX_WORKSPACE_TITLE,
+  en: 'Default workspace',
+};
 const UNSORTED_TITLE: Record<SeedLanguage, string> = { zh: UNSORTED_THREAD_TITLE, en: 'Unsorted' };
 
 // Set by App.tsx from the resolved UI language BEFORE anything opens the database (it
