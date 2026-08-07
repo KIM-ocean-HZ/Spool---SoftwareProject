@@ -394,9 +394,20 @@ const EN: Record<string, string> = {
     'When Claude Code or Codex is detected on this machine, a "Let AI maintain" group appears in the project menu. It runs through the CLI you are already logged into — Spool stores no API key and still never goes online.',
   '检测中…': 'Checking…',
   '✓ 已检测到': '✓ Found',
-  '没检测到 Claude Code，也没检测到 Codex': 'Neither Claude Code nor Codex found',
+  '没检测到 Claude Code、Codex 或 Gemini CLI': 'No Claude Code, Codex or Gemini CLI found',
   '装 Claude Code': 'Get Claude Code',
   '装 Codex': 'Get Codex',
+  '装 Gemini CLI': 'Get Gemini CLI',
+  '装了 Claude Code、Codex 或 Gemini CLI 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
+    'Once Claude Code, Codex or the Gemini CLI is installed, the right-hand rail can put it to work tidying your projects. It runs through the CLI you are already signed into — Spool stores no API key and still never goes online itself.',
+  // DESIGN_AI_ENGINE §7.8 — measured, not hedged: 20 requests per model per day, and one
+  // follow-up run spends all of them. Per §7.4 the word 免费 never stands alone.
+  'Gemini CLI 走的是 Gemini API 的免费额度：每个模型每天大约 20 次请求。压缩和体检够用，联网跟进不够——所以那一项在这个引擎上不出现。API key 配在 gemini 自己那里（~/.gemini/.env），Spool 不存、也读不到。':
+    "The Gemini CLI runs on the Gemini API's free allowance: roughly 20 requests per model per day. That is enough for Compress and Check over, and not enough for a web follow-up — so that one action does not appear on this engine. Your API key lives in the CLI's own config (~/.gemini/.env); Spool neither stores it nor can read it.",
+  'Gemini 免费额度按模型分开算，每个每天大约 20 次。用完了换一个模型还能接着跑。':
+    "Gemini's free allowance is counted per model — about 20 runs a day each. When one is used up, switching model gets you going again.",
+  '联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。':
+    'The Gemini CLI cannot carry a web follow-up — one run uses up its whole free allowance. Switch to Claude Code or Codex for this one.',
   '、': ', ',
   '用哪个引擎': 'Engine to use',
   '两个都装了。跑的是哪个，用的就是那个账号的额度。':
@@ -708,8 +719,6 @@ const EN: Record<string, string> = {
 
   // The AI engine settings tab (§9.2 R5).
   'AI 引擎': 'AI engine',
-  '装了 Claude Code 或 Codex 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
-    'With Claude Code or Codex installed, the right panel can have it tidy up a project for you — running through the CLI you are already logged into. Spool stores no API key and never goes online itself.',
   '用哪个引擎、用哪个模型、这周花了多少——都在右侧栏最上面那一行，就在动作旁边。':
     'Which engine, which model and what this week cost are all on the top line of the right panel, next to the actions themselves.',
   '显示 AI 维护动作': 'Show the AI maintenance actions',

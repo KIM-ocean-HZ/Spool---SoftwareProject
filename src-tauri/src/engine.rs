@@ -118,17 +118,25 @@ fn allowed_tools(web: bool) -> String {
 pub enum EngineKind {
     Claude,
     Codex,
+    Gemini,
 }
 
 impl EngineKind {
-    /// Preference order when both are installed (§7.4): `claude` first — more capable, and
+    /// Preference order when several are installed (§7.4): `claude` first — more capable, and
     /// the users who already have an engine slot today are on it.
-    pub const ALL: [EngineKind; 2] = [EngineKind::Claude, EngineKind::Codex];
+    ///
+    /// ⚠️ **`gemini` is last on purpose, and that is a measurement (§7.8), not a ranking of
+    /// the model.** Its free tier is 20 requests per model per day; two of the four actions
+    /// cannot finish inside that. Putting it above either subscription engine would hand a
+    /// user who has all three the one that runs out — the same mistake §7.4 corrected on
+    /// 2026-08-06 when it stopped calling Codex free.
+    pub const ALL: [EngineKind; 3] = [EngineKind::Claude, EngineKind::Codex, EngineKind::Gemini];
 
     pub fn as_str(self) -> &'static str {
         match self {
             EngineKind::Claude => "claude",
             EngineKind::Codex => "codex",
+            EngineKind::Gemini => "gemini",
         }
     }
 
@@ -136,8 +144,18 @@ impl EngineKind {
         match s {
             "claude" => Some(EngineKind::Claude),
             "codex" => Some(EngineKind::Codex),
+            "gemini" => Some(EngineKind::Gemini),
             _ => None,
         }
+    }
+
+    /// DESIGN_AI_ENGINE §7.8.5-2 — whether this engine may be offered the one action that
+    /// reaches the open web. Gemini may not: 跟进 is the only multi-turn agentic action, and
+    /// it is precisely the one measured to exhaust a whole day's free quota without
+    /// finishing. A button that cannot succeed is worse than an absent one, so the action is
+    /// withheld the same quiet way the whole group is withheld when no CLI is installed.
+    pub fn supports_web(self) -> bool {
+        !matches!(self, EngineKind::Gemini)
     }
 
     /// The executable's name on PATH, which is also what the candidate paths end in.
@@ -522,6 +540,41 @@ pub fn mcp_config_json(exe: &str) -> String {
 ///     account's quota is out until 2026-09-04.
 pub const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
+/// gemini's, measured 2026-08-10 by calling `generateContent` once per name with a real free
+/// key. That probe is the whole reason this list is short: the CLI's own `ListModels` returns
+/// **42** names, and several of them answer `404 … no longer available to new users`
+/// (`gemini-2.5-flash`) or `429` on the free tier before a single token is spent
+/// (`gemini-2.5-pro`, `gemini-2.0-flash`). Offering a name from the catalog would put a
+/// picker entry in front of the user that cannot run.
+///
+/// ⚠️ **Full ids, not aliases** — the opposite of claude, and for the opposite reason: free
+/// quota is metered **per model** (§7.8.4), so which one is selected is exactly what decides
+/// whether today's runs are still possible. An alias that silently moves would move the
+/// quota pool with it.
+///
+/// ⚠️ **The list rots.** Google retires these fast (2.5-flash was closed to new users within
+/// a year). Re-probe before trusting it — the loop is in §7.8.
+pub const GEMINI_MODELS: [&str; 4] = [
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+];
+
+impl EngineKind {
+    /// The model names this engine's picker may offer, and the list a hand-edited
+    /// settings.json is checked against. Empty means "this engine has no verified catalog"
+    /// — codex, whose names come from a server-fetched catalog it does not validate locally
+    /// (see CLAUDE_MODELS' note), so Spool offers none rather than guessing.
+    pub fn models(self) -> &'static [&'static str] {
+        match self {
+            EngineKind::Claude => &CLAUDE_MODELS,
+            EngineKind::Gemini => &GEMINI_MODELS,
+            EngineKind::Codex => &[],
+        }
+    }
+}
+
 /// How hard the claude engine thinks — DESIGN_WORKBENCH §9.13 (Ocean 2026-08-07:
 /// 「Claude code 模型为什么没有 effort。加进去」).
 ///
@@ -662,6 +715,99 @@ fn toml_string(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
+/// gemini's built-in tools, which unlike claude's are ON unless named here (§7.3). This is
+/// the whole reason the gemini slot can honour §2.2's "nothing outside Spool's tools": the
+/// list is a DENY list, so a tool the CLI adds in a future version is live until someone
+/// notices — the opposite polarity from `ALLOWED_TOOL_NAMES`, and worth knowing when a
+/// gemini upgrade lands.
+///
+/// ⚠️ `web_fetch` / `google_web_search` are deliberately absent: they are added back per
+/// action by `gemini_settings_json`'s `web` flag, the same per-action grant claude gets
+/// through `WEB_TOOL_NAMES`.
+const GEMINI_EXCLUDED_TOOLS: [&str; 13] = [
+    "run_shell_command",
+    "write_file",
+    "replace",
+    "read_file",
+    "read_many_files",
+    "list_directory",
+    "glob",
+    "grep_search",
+    "search_file_content",
+    "invoke_agent",
+    "save_memory",
+    "list_mcp_resources",
+    "read_mcp_resource",
+];
+
+/// gemini takes its MCP servers from a settings FILE in the working directory — there is no
+/// `--mcp-config` and no `-c` override (§7.3). So Spool writes one into a throwaway directory
+/// and runs the CLI with that directory as its cwd.
+///
+/// Three fields here are each load-bearing, and each fails SILENTLY if wrong:
+///   * `trust: true` — an untrusted server is configured but never started.
+///   * `includeTools` — the Spool-side whitelist, bare names (no `mcp_spool_` prefix).
+///   * `tools.exclude` — the built-in file/shell tools, which are otherwise all live.
+///
+/// ⚠️ **`tools.exclude` is deprecated**: gemini 0.54.4 warns it "will be removed in 1.0.
+/// Migrate to Policy Engine". When that lands this function must be rewritten, and until it
+/// is, a gemini upgrade can silently restore the shell tool. Stated in §7.8.6 rather than
+/// papered over.
+pub fn gemini_settings_json(exe: &str, web: bool) -> String {
+    let mut excluded: Vec<&str> = GEMINI_EXCLUDED_TOOLS.to_vec();
+    if !web {
+        excluded.push("google_web_search");
+        excluded.push("web_fetch");
+    }
+    serde_json::json!({
+        "tools": { "exclude": excluded },
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "command": exe,
+                "args": ["--mcp"],
+                "trust": true,
+                "includeTools": ALLOWED_TOOL_NAMES,
+            }
+        }
+    })
+    .to_string()
+}
+
+/// The argv for one headless `gemini` run.
+///
+/// ⚠️ `--allowed-mcp-server-names` is not belt-and-braces here, it is the ONLY thing standing
+/// between this run and every MCP server in the user's own `~/.gemini/settings.json`: gemini
+/// has no `--strict-mcp-config` (claude) and no `--ignore-user-config` (codex), so those
+/// servers ARE loaded and ARE started. Naming Spool's server keeps their tools out of the
+/// model's hands, which is the half of the guarantee that can still be kept (§7.8.6).
+///
+/// ⚠️ No `--max-turns` equivalent exists (same as codex); the timeout is the only ceiling.
+///
+/// `model` is `None` for "whatever the CLI defaults to". ⚠️ Measured 2026-08-10: `-m` is a
+/// request, not a pin — asking for `gemini-3.6-flash` produced a quota error naming
+/// `gemini-3.5-flash`. So nothing downstream may assume the model that ran is the one asked
+/// for; `RunUsage.model` is read back from the run's own stats for exactly this reason.
+pub fn gemini_args(prompt: &str, model: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-p".into(),
+        prompt.into(),
+        // One JSON envelope, same shape of job as claude's `--output-format json`.
+        "-o".into(),
+        "json".into(),
+        // Headless: nobody is present to approve a tool call. The blast radius is bounded by
+        // the two whitelists in `gemini_settings_json`, not by this flag.
+        "--approval-mode".into(),
+        "yolo".into(),
+        "--allowed-mcp-server-names".into(),
+        MCP_SERVER_NAME.into(),
+    ];
+    if let Some(m) = model {
+        args.push("-m".into());
+        args.push(m.into());
+    }
+    args
+}
+
 /// The argv for one headless `codex` run. `exe` is Spool's own binary — codex takes its MCP
 /// servers as config overrides, so there is no temp file on this path.
 pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str, web: bool) -> Vec<String> {
@@ -715,14 +861,39 @@ pub fn codex_args(prompt: &str, exe: &str, last_message_path: &str, web: bool) -
 ///
 /// Split out from spawning so the list is assertable without a live CLI (same reason as the
 /// arg builders) — nothing else fails this loudly for so small an omission.
+/// `GEMINI_API_KEY` joins them for gemini — Google stopped free Google-account login for the
+/// CLI in 2025-06, so a key is how the free tier is reached at all (§7.7). Passed through only
+/// if the user actually set it; Spool never stores it, which is the entire point of shape A.
+///
+/// ⚠️ **And it is usually NOT set, which is fine.** Spool is launched from Finder, so it
+/// inherits launchd's environment, not the user's shell — the same reason `candidate_paths`
+/// exists. Measured 2026-08-10: with no `GEMINI_API_KEY` anywhere in the environment and a
+/// working directory Spool had just created, gemini still authenticated by reading
+/// **`~/.gemini/.env`**, its own config. That is the route to tell users about: the key lives
+/// in the CLI's config, Spool passes nothing and sees nothing. The passthrough below is kept
+/// for the user who really did export it.
 pub fn run_env(kind: EngineKind) -> Vec<(&'static str, std::ffi::OsString)> {
     let mut keys: Vec<&'static str> = vec!["PATH", "HOME", "USER"];
-    if kind == EngineKind::Codex {
-        keys.push("CODEX_HOME");
+    match kind {
+        EngineKind::Codex => keys.push("CODEX_HOME"),
+        EngineKind::Gemini => keys.push("GEMINI_API_KEY"),
+        EngineKind::Claude => {}
     }
-    keys.into_iter()
+    let mut out: Vec<(&'static str, std::ffi::OsString)> = keys
+        .into_iter()
         .filter_map(|k| std::env::var_os(k).map(|v| (k, v)))
-        .collect()
+        .collect();
+    // ⚠️⚠️ Not optional, and the single most expensive thing to get wrong in this module:
+    // without it gemini treats the working directory as untrusted and **silently disables
+    // every MCP server** — the run completes, costs quota, and comes back having never seen
+    // Spool at all. `--skip-trust` does NOT cover this (measured 2026-08-10: the model
+    // answered "NO_MCP_TOOLS" with that flag set). The directory being trusted is one Spool
+    // just created and wrote a single settings file into, so there is nothing here to trust
+    // that Spool did not put there itself.
+    if kind == EngineKind::Gemini {
+        out.push(("GEMINI_CLI_TRUST_WORKSPACE", std::ffi::OsString::from("true")));
+    }
+    out
 }
 
 /// DESIGN_WORKBENCH §5 — what a run cost and which model spent it.
@@ -801,6 +972,66 @@ fn parse_usage(v: &serde_json::Value) -> RunUsage {
         input_tokens: input,
         output_tokens: u.and_then(|u| u.get("output_tokens")?.as_u64()),
     }
+}
+
+/// gemini's `-o json` envelope is `{session_id, response, stats}` — a different shape from
+/// claude's, so it gets its own reader rather than a serde alias that would quietly accept
+/// half of either.
+///
+/// Two things it does NOT carry, and neither is recoverable:
+///   * **cost.** There is no `total_cost_usd`; the free tier has no per-run price and the
+///     paid tier bills the key, not the CLI. A run card must therefore say 花费未知 rather
+///     than invent a zero — "$0.00" would read as "this was free" on a key that is billed.
+///   * **a reliable model name.** `stats.models` is keyed by the model that actually ran,
+///     which is the honest answer and the reason it is read from here instead of echoing
+///     back the `-m` we asked for (§7.8.4 — the two differ).
+///
+/// A failed run reports `{"error": {...}}` instead of `response`, and the CLI's own words are
+/// the useful ones (over quota / bad key), so they are passed through unchanged.
+pub fn parse_gemini_envelope(stdout: &str) -> Result<RunEnvelope, String> {
+    let value: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
+    if let Some(err) = value.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("the run failed without saying why");
+        return Err(msg.to_string());
+    }
+    let models = value.get("stats").and_then(|s| s.get("models")).and_then(serde_json::Value::as_object);
+    // Sum across models: a fallback (§7.8.4) means more than one may have spent tokens, and
+    // the total is what the run actually cost the quota.
+    let sum = |field: &str| -> Option<u64> {
+        let m = models?;
+        let total: u64 = m
+            .values()
+            .filter_map(|v| v.get("tokens")?.get(field)?.as_u64())
+            .sum();
+        Some(total)
+    };
+    Ok(RunEnvelope {
+        is_error: false,
+        result: value
+            .get("response")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        num_turns: None,
+        usage: RunUsage {
+            // The model that spent the most is the one that did the work; a fallback's first
+            // attempt typically errors with zero tokens (measured).
+            model: models.and_then(|m| {
+                m.iter()
+                    .max_by_key(|(_, v)| {
+                        v.get("tokens").and_then(|t| t.get("total")?.as_u64()).unwrap_or(0)
+                    })
+                    .map(|(k, _)| k.clone())
+            }),
+            cost_usd: None,
+            input_tokens: sum("prompt"),
+            output_tokens: sum("candidates"),
+        },
+    })
 }
 
 fn envelope_from_value(value: serde_json::Value) -> Result<RunEnvelope, String> {
@@ -967,6 +1198,18 @@ pub fn run_action(
     let (Some(bin), Some(kind)) = (status.path.as_deref(), status.selected) else {
         return Err("no AI engine CLI found".into());
     };
+    // §7.8.5-2. The UI already withholds 跟进 on an engine that cannot carry it, but the
+    // resolution above can land on a DIFFERENT engine than the one the UI was looking at
+    // (a preference naming an uninstalled engine falls back), so the refusal belongs here
+    // too — this is the check that is true whatever the caller believed.
+    if web && !kind.supports_web() {
+        return Err(format!("{} cannot run the follow-up action", kind.as_str()));
+    }
+    // W3-c's filter, moved here from the caller now that there is more than one catalog: the
+    // engine that RUNS decides which names are valid, and it is not always the one JS asked
+    // for (`select` falls back when a preference names an uninstalled engine). A stale
+    // `aiEngineModel` naming a claude alias must not reach gemini's `-m`.
+    let model = model.filter(|m| kind.models().contains(m));
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let tmp = std::env::temp_dir();
     // One file per process, which is also one per run given the guard above. Rewritten at
@@ -976,6 +1219,11 @@ pub fn run_action(
     // codex writes its final message here instead of Spool parsing it out of the event
     // stream; claude never touches it.
     let msg_path = tmp.join(format!("spool-engine-msg-{}.txt", std::process::id()));
+
+    // gemini reads its MCP servers from `<cwd>/.gemini/settings.json` and nowhere else, so
+    // this run gets a directory of its own. Same lifetime as cfg_path: rewritten per run,
+    // removed on the way out down either path.
+    let work_dir = tmp.join(format!("spool-gemini-{}", std::process::id()));
 
     let mut cmd = std::process::Command::new(bin);
     match kind {
@@ -989,6 +1237,22 @@ pub fn run_action(
             // answer — the file is only written when the CLI has something to say.
             let _ = std::fs::remove_file(&msg_path);
             cmd.args(codex_args(prompt, &exe.to_string_lossy(), &msg_path.to_string_lossy(), web));
+        }
+        EngineKind::Gemini => {
+            // Rebuilt from scratch: a settings file left by a killed run would otherwise
+            // decide this run's tool whitelist.
+            let _ = std::fs::remove_dir_all(&work_dir);
+            std::fs::create_dir_all(work_dir.join(".gemini"))
+                .map_err(|e| format!("could not prepare the engine's working directory: {e}"))?;
+            std::fs::write(
+                work_dir.join(".gemini/settings.json"),
+                gemini_settings_json(&exe.to_string_lossy(), web),
+            )
+            .map_err(|e| format!("could not write the MCP config: {e}"))?;
+            // ⚠️ The cwd IS the configuration on this path. Without it gemini reads whatever
+            // directory Spool happened to be launched from.
+            cmd.current_dir(&work_dir);
+            cmd.args(gemini_args(prompt, model));
         }
     }
     cmd.env_clear();
@@ -1029,12 +1293,18 @@ pub fn run_action(
             }
         }),
         EngineKind::Codex => Arc::new(|_: &str| {}),
+        // `-o json` emits one object at the end, so there is nothing to narrate mid-run.
+        // gemini does offer `-o stream-json`, and moving to it is a self-contained follow-up:
+        // the envelope this parser reads would become the stream's last line, exactly as it
+        // did for claude. Left out of this pass rather than guessed at (§7.6's rule).
+        EngineKind::Gemini => Arc::new(|_: &str| {}),
     };
     let result =
         stream_with_timeout(cmd, Duration::from_secs(clamp_timeout_secs(timeout_secs)), watch);
     // Delete the config before returning down either path — it names an executable, and
     // leaving it in /tmp serves nothing.
     let _ = std::fs::remove_file(&cfg_path);
+    let _ = std::fs::remove_dir_all(&work_dir);
 
     let out = result?;
     let stdout = out.stdout;
@@ -1050,6 +1320,10 @@ pub fn run_action(
         let said = match kind {
             EngineKind::Codex => parse_codex_error(&stdout),
             EngineKind::Claude => None,
+            // gemini exits non-zero on quota exhaustion and still prints its envelope, whose
+            // `error.message` is the sentence worth showing ("You have exhausted your daily
+            // quota on this model"). stderr on that path is a node stack trace.
+            EngineKind::Gemini => parse_gemini_envelope(&stdout).err(),
         };
         return finish(Err(said.unwrap_or_else(|| {
             if stderr.is_empty() { stdout.trim().to_string() } else { stderr }
@@ -1089,6 +1363,9 @@ pub fn run_action(
                 RunEnvelope { is_error: false, result, num_turns: None, usage: RunUsage::default() },
             )))
         }
+        // A zero exit can still carry `{"error":…}`, same as codex — parse_gemini_envelope
+        // returns that as Err, so this one call covers both outcomes.
+        EngineKind::Gemini => finish(parse_gemini_envelope(&stdout).map(|env| (kind, env))),
     }
 }
 
@@ -1192,7 +1469,10 @@ mod tests {
             // would silently become "preference not recognised, fall back to claude".
             assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{}\"", kind.as_str()));
         }
-        assert_eq!(EngineKind::parse("gemini"), None);
+        // An engine Spool has no adapter for is not a preference, it is a typo (§7.2: adding
+        // one means writing code, never configuration). `gemini` was this case until
+        // 2026-08-10 and is now a real variant covered by the loop above.
+        assert_eq!(EngineKind::parse("cursor"), None);
         assert_eq!(EngineKind::parse(""), None);
     }
 
@@ -1318,6 +1598,130 @@ mod tests {
         ] {
             assert!(!args.iter().any(|a| a == forbidden), "{forbidden} must never be passed");
         }
+    }
+
+    // §7.3's third column, and the same job the two tests above do. Every flag asserted here
+    // was run against gemini-cli 0.54.4 on 2026-08-10 against a copy of a real library.
+    #[test]
+    fn gemini_args_name_the_one_server_that_may_be_reached() {
+        let args = gemini_args("提炼一下", None);
+        assert_eq!(args[0], "-p");
+        assert_eq!(args[1], "提炼一下");
+        let has = |f: &str| args.iter().any(|a| a == f);
+        let after = |f: &str| {
+            let i = args.iter().position(|a| a == f).unwrap_or_else(|| panic!("{f} missing"));
+            args[i + 1].clone()
+        };
+        assert_eq!(after("-o"), "json");
+        // Headless: nobody can answer a prompt, so an approval mode that asks would hang
+        // inside a budget that is billing.
+        assert_eq!(after("--approval-mode"), "yolo");
+        // ⚠️ THE boundary flag on this engine. gemini has no --strict-mcp-config and no
+        // --ignore-user-config, so the user's own MCP servers ARE loaded and started; naming
+        // ours is the only thing keeping their tools away from the model (§7.8.6).
+        assert_eq!(after("--allowed-mcp-server-names"), MCP_SERVER_NAME);
+        // No model unless asked: "whatever the account defaults to" is a choice Spool
+        // declines to make for the user, same as claude.
+        assert!(!has("-m"));
+        assert_eq!(gemini_args("x", Some("gemini-3-flash-preview")).last().unwrap(), "gemini-3-flash-preview");
+    }
+
+    // The settings file IS the configuration on this engine — there is no --mcp-config to
+    // pass, so everything security-relevant lives in these few fields.
+    #[test]
+    fn gemini_settings_carry_both_whitelists() {
+        let v: serde_json::Value =
+            serde_json::from_str(&gemini_settings_json("/Applications/Spool.app/x", false)).unwrap();
+        let server = &v["mcpServers"][MCP_SERVER_NAME];
+        assert_eq!(server["command"], "/Applications/Spool.app/x");
+        assert_eq!(server["args"][0], "--mcp");
+        // An untrusted server is configured and never started — silently, which is why this
+        // is asserted rather than assumed.
+        assert_eq!(server["trust"], true);
+        let include = server["includeTools"].as_array().expect("includeTools");
+        assert_eq!(include.len(), ALLOWED_TOOL_NAMES.len());
+        for t in ALLOWED_TOOL_NAMES {
+            assert!(include.iter().any(|x| x == t), "{t} missing from includeTools");
+        }
+        // ⚠️ Opposite polarity to claude's allow list: gemini's built-ins are ON unless
+        // excluded, so the dangerous ones must be named one by one.
+        let excluded: Vec<&str> =
+            v["tools"]["exclude"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        for t in ["run_shell_command", "write_file", "replace", "read_file"] {
+            assert!(excluded.contains(&t), "{t} must not be reachable");
+        }
+        // Web tools are granted per action, exactly as claude's are.
+        assert!(excluded.contains(&"google_web_search"), "no web unless the action gets it");
+        let web: serde_json::Value =
+            serde_json::from_str(&gemini_settings_json("/x", true)).unwrap();
+        let web_excluded: Vec<&str> =
+            web["tools"]["exclude"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        assert!(!web_excluded.contains(&"google_web_search"));
+        // …and the shell stays gone even then.
+        assert!(web_excluded.contains(&"run_shell_command"));
+    }
+
+    // Without this variable gemini treats the working directory as untrusted and disables
+    // every MCP server — the run still costs quota and comes back having never seen Spool.
+    // Measured 2026-08-10; `--skip-trust` does not substitute.
+    #[test]
+    fn gemini_run_env_grants_workspace_trust() {
+        let env = run_env(EngineKind::Gemini);
+        assert!(
+            env.iter().any(|(k, v)| *k == "GEMINI_CLI_TRUST_WORKSPACE" && v == "true"),
+            "an untrusted workspace silently disables the MCP server",
+        );
+        // Not granted to the engines that have no such concept.
+        for kind in [EngineKind::Claude, EngineKind::Codex] {
+            assert!(!run_env(kind).iter().any(|(k, _)| *k == "GEMINI_CLI_TRUST_WORKSPACE"));
+        }
+    }
+
+    // Verbatim shape from a successful run on 2026-08-10 (thread_health against a copy of
+    // the real library). Trimmed to the fields the parser reads.
+    #[test]
+    fn gemini_envelope_reads_response_and_the_model_that_actually_ran() {
+        let out = r#"{
+          "session_id": "b69374f5",
+          "response": "「升学」项目的体检结果出来了",
+          "stats": { "models": {
+            "gemini-3.1-pro-preview-customtools": {
+              "tokens": {"prompt": 0, "candidates": 0, "total": 0}
+            },
+            "gemini-3-flash-preview": {
+              "tokens": {"prompt": 25000, "candidates": 871, "total": 25871}
+            }
+          }}
+        }"#;
+        let env = parse_gemini_envelope(out).expect("a successful envelope");
+        assert!(!env.is_error);
+        assert_eq!(env.result, "「升学」项目的体检结果出来了");
+        // ⚠️ The model that RAN, not the one asked for — `-m` is a request, not a pin, and a
+        // fallback leaves the first model in the stats with zero tokens.
+        assert_eq!(env.usage.model.as_deref(), Some("gemini-3-flash-preview"));
+        assert_eq!(env.usage.input_tokens, Some(25000));
+        assert_eq!(env.usage.output_tokens, Some(871));
+        // No cost field exists on this CLI. None means the card says 花费未知; a zero would
+        // read as "this run was free" on a key that may well be billed.
+        assert_eq!(env.usage.cost_usd, None);
+    }
+
+    // Verbatim from the run that exhausted the day's quota. The CLI's sentence is the useful
+    // one — Spool has nothing better to say than what Google just said.
+    #[test]
+    fn gemini_quota_failure_passes_the_clis_own_words_through() {
+        let out = r#"{"session_id":"9cd68c95","error":{"type":"Error","message":"You have exhausted your daily quota on this model.","code":1}}"#;
+        let err = parse_gemini_envelope(out).expect_err("an error envelope must not parse as success");
+        assert_eq!(err, "You have exhausted your daily quota on this model.");
+    }
+
+    // §7.8.5-2: 跟进 is the only multi-turn agentic action and the one measured to burn a
+    // whole day's free quota without finishing, so the gemini slot does not carry it.
+    #[test]
+    fn only_the_subscription_engines_carry_the_web_action() {
+        assert!(EngineKind::Claude.supports_web());
+        assert!(EngineKind::Codex.supports_web());
+        assert!(!EngineKind::Gemini.supports_web());
     }
 
     // A path is interpolated into a TOML value, so it has to survive being one.

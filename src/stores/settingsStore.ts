@@ -17,6 +17,7 @@ type PersistableKey =
   | 'aiEngineTimeoutSecs'
   | 'aiEngine'
   | 'aiModelClaude'
+  | 'aiModelGemini'
   | 'aiEffortClaude'
   | 'language'
   | 'firstCaptureHintPending'
@@ -54,7 +55,7 @@ interface SettingsState {
   // §7.4: which CLI runs the actions. Null = no pick, which is the normal state: it only
   // means anything when BOTH claude and codex are installed, and Rust falls back to
   // whatever it finds if this names one that is gone.
-  aiEngine: 'claude' | 'codex' | null;
+  aiEngine: 'claude' | 'codex' | 'gemini' | null;
   // DESIGN_WORKBENCH §9.3 #3 (W3-c) — which model the claude engine runs on. Null = the
   // account's own default, and that is not the same as picking one: with no value the
   // `--model` flag is not passed at all, so Spool never overrides a choice the user made
@@ -65,6 +66,12 @@ interface SettingsState {
   // validate `-c` overrides locally (measured 2026-08-07), so a picker there would offer
   // names that fail at the API rather than at the click. It waits on codex quota (2026-09-04).
   aiModelClaude: string | null;
+  // DESIGN_AI_ENGINE §7.8 — the same thing for gemini, kept as a SEPARATE key rather than one
+  // shared `aiModel`: the two catalogues share no names, so one key would mean switching
+  // engine silently discards the other engine's choice. ⚠️ Full model ids here, not aliases,
+  // because gemini's free quota is metered per model (§7.8.4) — which one is selected is
+  // exactly what decides whether today's runs still work.
+  aiModelGemini: string | null;
   // DESIGN_WORKBENCH §9.13 — how hard claude thinks. Null = the CLI's own default (the env
   // var is not set at all), otherwise one of engine.rs's CLAUDE_EFFORTS: low / medium / high.
   //
@@ -182,6 +189,7 @@ const KEYS: PersistableKey[] = [
   'aiEngineTimeoutSecs',
   'aiEngine',
   'aiModelClaude',
+  'aiModelGemini',
   'aiEffortClaude',
   'language',
   'firstCaptureHintPending',
@@ -214,6 +222,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEngineTimeoutSecs: 300,
   aiEngine: null,
   aiModelClaude: null,
+  aiModelGemini: null,
   aiEffortClaude: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,

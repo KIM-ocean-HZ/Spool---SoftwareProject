@@ -15,22 +15,41 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // §9.1 puts this in the 附属 layer, so it stays one line high unless the user opens it.
 
 /**
- * §9.13.6-bis — **the model picker is gone** (Ocean 2026-08-07 晚: 「模型先删掉，但是记录，
- * 后续还是要更新回去，和 Gemini CLI 放一起做」).
+ * §9.13.6-bis — **the model picker, restored** (2026-08-10, with the third engine, exactly as
+ * Ocean scheduled it on 2026-08-07 晚: 「模型先删掉，但是记录，后续还是要更新回去，和
+ * Gemini CLI 放一起做」).
  *
- * What it offered was `opus` / `sonnet` / `haiku`, and `opus` was measured broken on this
- * machine the same day (404 `claude-opus-4-1-20250805`, §9.13.5) — a choice that fails at the
- * API is worse than no choice, the same rule §9.10 already applied to codex: 宁可不给选.
+ * It was removed because it offered `opus` / `sonnet` / `haiku` and `opus` was measured broken
+ * on this machine (404 `claude-opus-4-1-20250805`, §9.13.5) — a choice that fails at the API is
+ * worse than no choice. It comes back as **one table keyed by engine**, which is the shape the
+ * third engine forced: a claude-only picker had no place to put gemini's names.
  *
- * It comes back with the third engine (DESIGN_AI_ENGINE §7.7, Gemini CLI), because 「哪个引擎
- * 能选哪些模型」 has to be rebuilt as one table then anyway — this picker was claude-only, and
- * a half of it left standing is what that work would have to unpick first.
+ * ⚠️ **`opus` is still out.** The measurement that removed it has not been re-run, and putting
+ * a known-404 name back would restore the original bug, not the original feature. It returns
+ * the day a `claude` update makes it resolve — this list is the only edit that takes.
  *
- * **Nothing behind the surface was removed**: `aiModelClaude` still exists, `ai_engine_run`
- * still takes `model`, engine.rs still passes `--model`. Restoring is the `<select>` this
- * comment replaced plus the one read in engineStore.ts (which is `null` today, so a value
- * left in settings.json by an older build cannot keep applying).
+ * ⚠️ **codex has no entry, and that is also a measurement** (§9.10 / CLAUDE_MODELS): its models
+ * come from a server-fetched catalog it does not validate locally, so any name offered here
+ * would fail at the API rather than at the click. An engine with no entry shows no picker.
+ *
+ * ⚠️ The names must stay in step with engine.rs's `CLAUDE_MODELS` / `GEMINI_MODELS`, which is
+ * where a run's model is actually validated — anything not in those lists is dropped before it
+ * reaches a flag, so a name added only here would silently do nothing.
  */
+const ENGINE_MODELS: Record<EngineKind, readonly string[]> = {
+  claude: ['sonnet', 'haiku'],
+  codex: [],
+  // Full ids, not aliases: gemini's free quota is metered per model (DESIGN_AI_ENGINE §7.8.4),
+  // so this picker is the control that decides whether today's runs still work. Every name
+  // was called once for real on 2026-08-10 — the CLI's own catalogue lists 42, of which
+  // several 404 or 429 before a token is spent.
+  gemini: [
+    'gemini-3-flash-preview',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest',
+  ],
+};
 
 /**
  * §9.13 — Ocean: 「Claude code 模型为什么没有 effort。加进去」.
@@ -76,14 +95,19 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
   const status = useEngineStore((s) => s.status);
   const probe = useEngineStore((s) => s.probe);
   const effort = useSettingsStore((s) => s.aiEffortClaude);
+  const modelClaude = useSettingsStore((s) => s.aiModelClaude);
+  const modelGemini = useSettingsStore((s) => s.aiModelGemini);
   const update = useSettingsStore((s) => s.update);
 
   const engineName = status?.selected ? ENGINE_LABEL[status.selected] : null;
-  // The model and effort pickers are claude's alone. Codex resolves its model list from a
-  // server-fetched catalog and validates neither `-c` model names nor reasoning-effort
-  // values locally (measured 2026-08-07), so offering either there would mean a run that
-  // fails at the API instead of at the click.
+  // The effort picker is claude's alone (see EFFORT_PICKER_ENABLED). The model picker is
+  // per-engine now, and an engine with no verified catalogue simply has none.
   const showModels = status?.selected === 'claude';
+  const selected = status?.selected ?? null;
+  const models = selected ? ENGINE_MODELS[selected] : [];
+  const model = selected === 'gemini' ? modelGemini : modelClaude;
+  const setModel = (v: string): Promise<void> =>
+    update(selected === 'gemini' ? { aiModelGemini: v || null } : { aiModelClaude: v || null });
 
   return (
     <div className="flex-none border-b border-line">
@@ -144,6 +168,35 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
                 ))}
               </select>
             </label>
+          )}
+
+          {/* §9.13.6-bis restored. 「默认」 = no `--model` flag at all, which is not the same
+              as picking one: it leaves whatever the user set up in their own CLI alone. */}
+          {models.length > 0 && (
+            <label className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-muted">{t('用哪个模型')}</span>
+              <select
+                value={model ?? ''}
+                onChange={(e) => void setModel(e.target.value)}
+                className="min-w-0 flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
+              >
+                <option value="">{t('默认')}</option>
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* §7.8.4 — a per-model daily allowance is not a footnote on this engine, it is the
+              thing that decides whether the next run happens. Said once, here, next to the
+              control that changes it. */}
+          {selected === 'gemini' && (
+            <p className="text-[10px] leading-relaxed text-muted">
+              {t('Gemini 免费额度按模型分开算，每个每天大约 20 次。用完了换一个模型还能接着跑。')}
+            </p>
           )}
 
           {/* §9.13 — 「加进去」, built and then held back. See EFFORT_PICKER_ENABLED above:

@@ -58,14 +58,22 @@ export const ACTION_LABEL: Record<EngineAction, string> = {
 };
 
 /** §7: which CLI is behind the engine slot. The wire names match Rust's EngineKind. */
-export type EngineKind = 'claude' | 'codex';
+export type EngineKind = 'claude' | 'codex' | 'gemini';
 
 /** How each engine is written where the user reads it. Product names, so never translated
  *  — the same reason the source badge shows "Claude · MCP" in both languages. */
 export const ENGINE_LABEL: Record<EngineKind, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  gemini: 'Gemini CLI',
 };
+
+/** DESIGN_AI_ENGINE §7.8.5-2 — 跟进 is withheld on Gemini. It is the only multi-turn agentic
+ *  action, and 2026-08-10 measured it burning a whole day of the free tier's 20 requests
+ *  without finishing. Rust refuses it too (`supports_web`); this is what keeps the button
+ *  from appearing in the first place, the same quiet withholding §1.1 uses when no CLI is
+ *  installed at all. */
+export const engineSupportsWeb = (kind: EngineKind | null): boolean => kind !== 'gemini';
 
 export interface DetectedEngine {
   kind: EngineKind;
@@ -264,14 +272,20 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // Read at the moment the task starts, not when it was queued: a run that waited
         // out three others should use the engine the settings page says now.
         engine: useSettingsStore.getState().aiEngine,
-        // W3-c. Null means "the account's default" and Rust omits the flag entirely — it is
-        // claude's setting, so a codex run simply ignores it (DESIGN_WORKBENCH §9.3 #3).
+        // W3-c. Null means "the account's default" and Rust omits the flag entirely.
         //
-        // §9.13.6-bis: hard null, not the setting. The picker is gone (see EngineBar.tsx for
-        // why and for when it comes back), so nothing can set this any more — and a build
-        // from this week may have left `opus` in settings.json, which 404s on every run with
-        // no surface left to change it. Restoring the picker means restoring this read.
-        model: null,
+        // §9.13.6-bis: the picker is back (2026-08-10, with the third engine), so this reads
+        // the setting again — per engine, because the two catalogues share no names.
+        //
+        // ⚠️ Sending the WRONG engine's name is harmless by construction: `run_action`
+        // filters the value against the catalogue of the engine that actually runs, which is
+        // not always the one asked for (a preference naming an uninstalled engine falls
+        // back). That is also what neutralises an `opus` left in settings.json by a build
+        // from 2026-08-07 — it is no longer in any catalogue, so it is dropped.
+        model:
+          useSettingsStore.getState().aiEngine === 'gemini'
+            ? useSettingsStore.getState().aiModelGemini
+            : useSettingsStore.getState().aiModelClaude,
         // §9.13. Same shape, different door: effort has no CLI flag, so Rust turns this
         // into `CLAUDE_CODE_EFFORT_LEVEL` on the child's env (engine.rs claude_effort_env).
         effort: useSettingsStore.getState().aiEffortClaude,

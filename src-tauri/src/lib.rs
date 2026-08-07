@@ -108,7 +108,9 @@ async fn ai_engine_run(
         // W3-c: an unrecognised model name is dropped rather than passed on. This value
         // crosses from settings.json, which the user edits by hand, and a typo reaching
         // `--model` would fail the run with a CLI error about a flag they never typed.
-        let model = model.filter(|m| engine::CLAUDE_MODELS.contains(&m.as_str()));
+        // ⚠️ The check itself lives in `run_action` now that each engine has its own
+        // catalogue — only the engine that actually runs knows which names are valid, and a
+        // preference naming an uninstalled engine falls back to a different one (§7.4).
         // §9.13, same rule as the model above and for the same reason — settings.json is
         // hand-editable. Unlike `--model`, a bad effort value would not even fail: claude
         // silently ignores anything outside its three words, so a typo would just quietly
@@ -217,6 +219,7 @@ fn open_mcp_client_page(client: String) -> Result<(), String> {
         "vscode" => "https://code.visualstudio.com",
         "windsurf" => "https://windsurf.com",
         "codex" => "https://developers.openai.com/codex",
+        "gemini" => "https://github.com/google-gemini/gemini-cli",
         other => return Err(format!("unknown MCP client: {other}")),
     };
     #[cfg(target_os = "macos")]

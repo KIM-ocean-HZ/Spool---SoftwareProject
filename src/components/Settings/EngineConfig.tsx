@@ -39,7 +39,7 @@ export default function EngineConfig() {
     <div className="py-2.5">
       <div className="text-sm text-ink">{t('本机 AI 引擎')}</div>
       <div className="mt-0.5 text-xs text-muted">
-        {t('装了 Claude Code 或 Codex 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。')}
+        {t('装了 Claude Code、Codex 或 Gemini CLI 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。')}
       </div>
 
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -52,12 +52,14 @@ export default function EngineConfig() {
           </span>
         ) : (
           <>
-            <span className="text-muted">{t('没检测到 Claude Code，也没检测到 Codex')}</span>
-            {/* §7.4: when nothing is installed, BOTH routes are shown — this line is the
-                only place a user without a Claude subscription finds out the slot exists at
-                all. Neither is presented as free: 2026-08-06 measured Codex's free tier
-                running out and locking the account for a month. */}
-            {(['claude-code', 'codex'] as const).map((c) => (
+            <span className="text-muted">{t('没检测到 Claude Code、Codex 或 Gemini CLI')}</span>
+            {/* §7.4: when nothing is installed, EVERY route is shown — this line is the only
+                place a user without a Claude subscription finds out the slot exists at all.
+                None is presented as free: 2026-08-06 measured Codex's free tier running out
+                and locking the account for a month, and 2026-08-10 measured Gemini's at 20
+                requests per model per day. Saying 免费 here would send a user down a path
+                that stops working on their first serious run. */}
+            {(['claude-code', 'codex', 'gemini'] as const).map((c) => (
               <button
                 key={c}
                 type="button"
@@ -68,7 +70,7 @@ export default function EngineConfig() {
                 }
                 className="text-accent underline-offset-2 hover:underline"
               >
-                {c === 'codex' ? t('装 Codex') : t('装 Claude Code')}
+                {c === 'codex' ? t('装 Codex') : c === 'gemini' ? t('装 Gemini CLI') : t('装 Claude Code')}
               </button>
             ))}
           </>
@@ -89,6 +91,16 @@ export default function EngineConfig() {
           {engineStatus.selected === 'codex' && (
             <div className="mt-2 rounded border border-line bg-paper-2/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted">
               {t('Codex 这条路有一处关不掉：它自带的终端工具没法摘掉（Claude Code 那边可以）。Spool 能做的是把它锁成只读——它读得到东西，但改不了你机器上的文件。')}
+            </div>
+          )}
+
+          {/* Same rule as the codex line above (§7.3: state the degradation plainly). Both
+              sentences here are measurements from 2026-08-10, not caveats-in-general: the
+              quota is 20 requests per model per day, and one follow-up run spends all of
+              them. §7.4's standing rule is why the word 免费 never appears alone. */}
+          {engineStatus.selected === 'gemini' && (
+            <div className="mt-2 rounded border border-line bg-paper-2/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted">
+              {t('Gemini CLI 走的是 Gemini API 的免费额度：每个模型每天大约 20 次请求。压缩和体检够用，联网跟进不够——所以那一项在这个引擎上不出现。API key 配在 gemini 自己那里（~/.gemini/.env），Spool 不存、也读不到。')}
             </div>
           )}
 

@@ -30,6 +30,7 @@ import { useWorkspacesStore } from "@/stores/workspacesStore";
 import {
   ACTION_LABEL,
   ENGINE_LABEL,
+  engineSupportsWeb,
   useEngineStore,
   type EngineAction,
   type EngineKind,
@@ -283,20 +284,29 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                 </span>
               )}
             </p>
-            {thread.followUpBrief && (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={() =>
-                  enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
-                }
-                title={t("照你定的那几行联网搜索")}
-                className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-              >
-                <Globe size={12} className="flex-none" />
-                {t("联网搜索")}
-              </button>
-            )}
+            {/* §7.8.5-2 — the button is withheld, not disabled, on an engine that cannot
+                carry this action; a greyed control invites a hunt for the switch that turns
+                it on, and there isn't one. The brief itself stays visible and editable:
+                switching to a subscription engine later should find it already written. */}
+            {thread.followUpBrief &&
+              (engineSupportsWeb(status?.selected ?? null) ? (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
+                  }
+                  title={t("照你定的那几行联网搜索")}
+                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+                >
+                  <Globe size={12} className="flex-none" />
+                  {t("联网搜索")}
+                </button>
+              ) : (
+                <p className="text-[10px] leading-relaxed text-muted">
+                  {t("联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。")}
+                </p>
+              ))}
           </div>
         )}
 
