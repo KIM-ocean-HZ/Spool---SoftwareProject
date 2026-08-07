@@ -158,6 +158,35 @@ redaction** — the project name and every block body are real application mater
 which found and produced fixes for three bugs (see §3.4). Recorded in the run's own cost field,
 which the engine layer parses from the CLI's output.
 
+### 2.5 What a free AI tier is actually worth as infrastructure
+
+2026-08-10, evaluating whether a free API tier could power the maintenance engine for users
+with no paid subscription. Run against a copy of the live library — real material, real
+prompts, isolated working directory and home directory.
+
+| Figure | Value |
+|---|---|
+| Free-tier allowance, measured | **20 requests per model per day** |
+| Published/assumed figure the design was planned on | **1,500 per day** — wrong by **75×** |
+| Actions that completed | **2 of 4** (compress, health check) — 2 requests and under 40s each |
+| Actions that could not complete | **2 of 4** (web follow-up, weekly review) — the multi-turn ones |
+| Requests one failed follow-up consumed | **20 — the entire day's allowance for that model** |
+| Tokens to answer a one-word prompt | **15,502** (system prompt plus tool definitions) |
+| Paid-engine baseline on the identical prompt | **$0.062**, one turn, same quality |
+
+Two findings that only a real run could produce, both now load-bearing in the code:
+
+- **The quota is metered per model**, which is the only reason the tier is usable at all: when
+  one model's allowance is gone, another still answers. That turned the model picker from a
+  convenience into the control that decides whether the next run happens.
+- **The CLI's retry behaviour spends the allowance defending against its own rate limit**, then
+  reports "you have exhausted your daily quota" — describing a tier that supports roughly one
+  and a half serious runs per day as though the user had used it up.
+
+**What was shipped as a result**: the free engine is offered, ranked last, with the web action
+withheld rather than shown-and-failing, and the allowance stated in the interface in the words
+above. Design rationale in `DESIGN_AI_ENGINE.md` §7.8.
+
 ---
 
 ## 3. Failures and fixes
@@ -320,6 +349,38 @@ Both are documented because neither would ever surface as an error, and both cos
   `TZ=Europe/London` explicitly, and the tests cannot be trusted to catch it.
 - **A raw-string delimiter closed early.** The instruction header is a Rust `r##"…"##` literal,
   not `r#"…"#`, because the text itself contains `"#12"` — and `"#` would terminate `r#"`.
+
+### 3.8 A tier of the product was designed on a number that was wrong by 75× (2026-08-10)
+
+The plan to support users without a paid AI subscription rested on one figure written into the
+design document: a free API allowance of **1,500 requests per day**. It was recorded with a
+warning attached — *re-check this table before building on it, it will go stale* — and four days
+later the first real run measured the true figure at **20 per day**.
+
+Nothing in the toolchain could have caught this. The number was not in the code, not in a type,
+and not in any test; it was a sentence in a plan, and it was wrong in the direction that makes a
+feature look viable. The design that followed from it — a free tier equal in standing to the
+paid ones — would have shipped a slot where half the actions could not finish, which is the
+same trap this project had already documented once for a different vendor's free tier.
+
+**What changed structurally.** Three things, none of them "fix the number":
+
+1. **The engine adapter now encodes measurements, not intentions.** Every non-obvious flag in
+   it carries the date it was verified and what was observed. Three of them are marked as
+   failing *silently* if wrong — a workspace-trust variable whose absence disables the tool
+   server while the run still bills, a working directory that IS the configuration, and a
+   server allow-list that is the only barrier against the user's own configuration. Each has a
+   test asserting it, because none of them would produce an error.
+2. **Capability became a property of the engine, not of the product.** The action that cannot
+   complete on the free tier is withheld from it in both layers — the interface does not draw
+   the button, and the runtime refuses the call even if something else asks for it, because the
+   engine that runs is not always the one the interface was looking at.
+3. **The limit is stated in the interface in plain numbers.** Not "may be rate limited" —
+   "about 20 runs a day per model, enough for these two actions and not for that one".
+
+The general form, and the reason this entry exists: **a documented figure with a warning on it
+is still an unverified figure.** The warning did not prevent a design being built on top of it.
+Only running the thing did.
 
 ---
 
