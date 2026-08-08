@@ -1,20 +1,18 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createBlock } from './blocks';
 import { __setTestDb } from './client';
 import {
-  lastSuccessfulRunAt,
+  listRunsForAction,
   listRunsForThread,
   markReviewed,
   recordRun,
   spendSince,
-  threadsDueForMaintenance,
   weeklyReviewDue,
   type NewEngineRun,
 } from './engineRuns';
 import schemaSql from './schema.sql?raw';
-import { createThread, setAutoMaintain, updateThread } from './threads';
+import { createThread } from './threads';
 import { createWorkspace } from './workspaces';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -36,12 +34,8 @@ const makeAdapter = (handle: Sqlite): Database =>
   }) as unknown as Database;
 
 const MINUTE = 60_000;
-const HOUR = 3_600_000;
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;
-
-const SETTLE = 10 * MINUTE;
-const COOLDOWN = 24 * HOUR;
 
 let handle: Sqlite;
 
@@ -59,11 +53,6 @@ const run = (over: Partial<NewEngineRun> = {}): NewEngineRun => ({
   finishedAt: NOW,
   ...over,
 });
-
-/** Blocks stamp themselves with Date.now(), so age them by hand. */
-const ageNewestBlock = (threadId: string, at: number): void => {
-  handle.prepare('UPDATE blocks SET created_at = ? WHERE thread_id = ?').run(at, threadId);
-};
 
 beforeEach(() => {
   handle = new DatabaseSync(':memory:');
@@ -116,75 +105,21 @@ describe('engine_runs', () => {
     expect(spend.runs).toBe(2);
   });
 
-  it('only a successful run counts as having maintained a project', async () => {
-    const ws = await createWorkspace('W');
-    const th = await createThread(ws.id, 'Flux');
-    await recordRun(run({ threadId: th.id, outcome: 'failed', finishedAt: NOW }));
-    await recordRun(run({ threadId: th.id, outcome: 'cancelled', finishedAt: NOW + 1 }));
-    expect(await lastSuccessfulRunAt(th.id, 'distill')).toBeNull();
+  // §11.1 — the 周回顾 view reads every review ever run, including the ones the user has
+  // already answered. That is the difference between an archive and the rail's feed.
+  it('returns every run of one action, answered or not', async () => {
+    await recordRun(run({ action: 'weekly_review', threadId: null, finishedAt: NOW }));
+    const answered = await recordRun(
+      run({ action: 'weekly_review', threadId: null, finishedAt: NOW + 1 }),
+    );
+    await markReviewed(answered.id, NOW + 2);
+    await recordRun(run({ action: 'follow_up', threadId: null, finishedAt: NOW + 3 }));
 
-    await recordRun(run({ threadId: th.id, outcome: 'ok', finishedAt: NOW + 2 }));
-    expect(await lastSuccessfulRunAt(th.id, 'distill')).toBe(NOW + 2);
-  });
-});
-
-// §4.3 — Ocean: 「必须节约token」. Every assertion here is a way of NOT spending money.
-describe('threadsDueForMaintenance', () => {
-  const seed = async (title: string): Promise<{ id: string }> => {
-    const ws = await createWorkspace('W');
-    const th = await createThread(ws.id, title);
-    await createBlock({ threadId: th.id, content: 'something new' });
-    return th;
-  };
-
-  it('picks a project that gained a block and has had time to settle', async () => {
-    const th = await seed('Flux');
-    ageNewestBlock(th.id, NOW - HOUR);
-    const due = await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN);
-    expect(due.map((d) => d.title)).toEqual(['Flux']);
-  });
-
-  it('leaves a project alone until its newest block has settled', async () => {
-    const th = await seed('Flux');
-    // Capturing is bursty; a clip from a minute ago means the user is still working.
-    ageNewestBlock(th.id, NOW - MINUTE);
-    expect(await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN)).toEqual([]);
-  });
-
-  it('does not re-run a project that has not changed since its last distil', async () => {
-    const th = await seed('Flux');
-    ageNewestBlock(th.id, NOW - 2 * DAY);
-    await recordRun(run({ threadId: th.id, finishedAt: NOW - DAY }));
-    expect(await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN)).toEqual([]);
-  });
-
-  it('honours the cooldown even when the project did change', async () => {
-    const th = await seed('Flux');
-    ageNewestBlock(th.id, NOW - HOUR);
-    // Distilled an hour before that — the project moved since, but not long enough ago
-    // for a second run to be worth billing.
-    await recordRun(run({ threadId: th.id, finishedAt: NOW - 2 * HOUR }));
-    expect(await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN)).toEqual([]);
-    // A day later the same state is due again.
-    expect(await threadsDueForMaintenance(NOW + DAY, SETTLE, COOLDOWN)).toHaveLength(1);
-  });
-
-  it('never touches an opted-out project or a finished one', async () => {
-    const optedOut = await seed('Opted out');
-    ageNewestBlock(optedOut.id, NOW - HOUR);
-    await setAutoMaintain(optedOut.id, false);
-
-    const done = await seed('Done');
-    ageNewestBlock(done.id, NOW - HOUR);
-    await updateThread(done.id, { status: 'done' });
-
-    expect(await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN)).toEqual([]);
-  });
-
-  it('a project with no blocks at all is not a candidate', async () => {
-    const ws = await createWorkspace('W');
-    await createThread(ws.id, 'Empty');
-    expect(await threadsDueForMaintenance(NOW, SETTLE, COOLDOWN)).toEqual([]);
+    const reviews = await listRunsForAction('weekly_review');
+    expect(reviews).toHaveLength(2);
+    expect(reviews.every((r) => r.action === 'weekly_review')).toBe(true);
+    // Newest first, and being answered does not remove it.
+    expect(reviews[0].id).toBe(answered.id);
   });
 });
 

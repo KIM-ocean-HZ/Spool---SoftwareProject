@@ -145,6 +145,22 @@ export const listRunsForThread = async (threadId: string, limit = 20): Promise<E
   return rows.map(fromRow);
 };
 
+/**
+ * Every run of one action, newest first — what the 周回顾 view reads.
+ *
+ * ⚠️ Unlike the rail's two queries this ignores `reviewed_at`: a weekly review is not a card
+ * asking a question, it is the record of a week. Answering it must not make it vanish, which
+ * is the difference between a feed you act on and an archive you consult.
+ */
+export const listRunsForAction = async (action: RunAction, limit = 50): Promise<EngineRun[]> => {
+  const db = await getDb();
+  const rows = await db.select<RunRow[]>(
+    'SELECT * FROM engine_runs WHERE action = $1 ORDER BY finished_at DESC LIMIT $2',
+    [action, limit],
+  );
+  return rows.map(fromRow);
+};
+
 /** Library-wide feed: weekly reviews, and anything the user has not answered yet. */
 export const listRecentRuns = async (limit = 20): Promise<EngineRun[]> => {
   const db = await getDb();
@@ -163,75 +179,15 @@ export const markReviewed = async (id: string, at: number): Promise<void> => {
   await db.execute('UPDATE engine_runs SET reviewed_at = $1 WHERE id = $2', [at, id]);
 };
 
-/**
- * DESIGN_WORKBENCH §4.3 — when a project was last maintained successfully.
- *
- * This is what makes "only run when the project actually changed" derivable rather than a
- * new column: compare it against the project's newest block. Ocean's constraint was
- * 「必须节约token」, and a project nobody has touched since the last pass has nothing new
- * to distil — so it is not worth a run, and this query is how that is known.
- *
- * Cancelled and failed runs do not count: neither produced a conclusion, so the work is
- * still outstanding.
- */
-export const lastSuccessfulRunAt = async (
-  threadId: string,
-  action: RunAction,
-): Promise<number | null> => {
-  const db = await getDb();
-  const rows = await db.select<{ at: number | null }[]>(
-    `SELECT MAX(finished_at) AS at FROM engine_runs
-      WHERE thread_id = $1 AND action = $2 AND outcome = 'ok'`,
-    [threadId, action],
-  );
-  return rows[0]?.at ?? null;
-};
-
-/**
- * DESIGN_WORKBENCH §4.3 — which projects are worth an automatic run right now.
- *
- * Ocean's constraint was 「必须节约token」, so this query's whole job is to say NO. Four
- * conditions, and each one is a way of not spending money:
- *
- *  * **The project gained a block since its last successful distil.** A project nobody has
- *    touched has nothing new to conclude, so re-distilling it buys a second copy of an
- *    answer already in the library. This is the condition Ocean actually asked for.
- *  * **That block has had time to settle.** Capturing is bursty — five clips in a minute is
- *    one thought, not five. Running on the first arrival would bill for a half-written
- *    project and then be stale immediately.
- *  * **A cooldown per project.** Belt and braces on the two above: whatever else happens,
- *    one project cannot cost more than one run per cooldown window.
- *  * **The user has not opted this project out**, and finished projects are left alone —
- *    a done project's conclusion is not going to change.
- *
- * Returns titles too, because that is what a run is queued with (ids are never spoken).
- */
-export const threadsDueForMaintenance = async (
-  now: number,
-  settleMs: number,
-  cooldownMs: number,
-): Promise<{ id: string; title: string }[]> => {
-  const db = await getDb();
-  return db.select<{ id: string; title: string }[]>(
-    `SELECT t.id, t.title
-       FROM threads t
-       JOIN (SELECT thread_id, MAX(created_at) AS newest FROM blocks GROUP BY thread_id) b
-         ON b.thread_id = t.id
-       LEFT JOIN (SELECT thread_id, MAX(finished_at) AS last_ok
-                    FROM engine_runs
-                   WHERE action = 'distill' AND outcome = 'ok'
-                   GROUP BY thread_id) r
-         ON r.thread_id = t.id
-      WHERE t.deleted_at IS NULL
-        AND t.status = 'active'
-        AND COALESCE(t.auto_maintain, 1) = 1
-        AND b.newest > COALESCE(r.last_ok, 0)
-        AND b.newest <= $1 - $2
-        AND COALESCE(r.last_ok, 0) <= $1 - $3
-      ORDER BY b.newest ASC`,
-    [now, settleMs, cooldownMs],
-  );
-};
+// ⚠️ 2026-08-11 — `lastSuccessfulRunAt` and `threadsDueForMaintenance` used to live here.
+// They existed only to decide WHICH project was worth an automatic 压缩, and that action is
+// retired (DESIGN_WORKBENCH §11.2-A): Ocean judged what it wrote 「总结性的语句没什么用，如果
+// 放在上下文里只会造成冗余」. The one automatic action left reads every project, so there is no
+// "which" left to answer — see `weeklyReviewDue` below, and hooks/useAutoMaintain.
+//
+// ⚠️ `threads.auto_maintain` is still a column and still on the Thread type. Nothing reads it
+// now. It is left in place because dropping a column is a schema migration, and that is a
+// bigger and riskier change than the dead code it would remove.
 
 /** §3.4 — whether a whole-library review is due. One per period, and a failed or cancelled
  *  run does not count as having happened: nothing was produced, so nothing was reviewed. */

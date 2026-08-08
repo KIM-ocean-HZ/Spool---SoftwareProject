@@ -190,39 +190,11 @@ export const setAutoMaintain = async (id: string, on: boolean | null): Promise<v
   ]);
 };
 
-/**
- * DESIGN_WORKBENCH §3.4 — where 周回顾 files its output.
- *
- * Ocean 2026-08-06: 周回顾 是面向所有项目的动作, and its product should stand on its own.
- * So it gets a project of its own, created the first time a review is actually produced.
- *
- * ⚠️ **Created here, on a real user-visible outcome — never at startup and never from a
- * seed path.** memory `spool-db-wipe-incident`: anything that runs at launch and touches
- * threads is the shape of bug that cost this project a library once. A find-or-create
- * driven by "a review just came back" cannot fire on an empty launch.
- *
- * Matched by title, because that is what the user sees and renames. A renamed review
- * project simply gets a new one next to it — annoying, but the alternative is a hidden
- * marker column that makes a project the user cannot tell apart from their own.
- */
-export const findOrCreateReviewThread = async (
-  workspaceId: string,
-  title: string,
-): Promise<Thread> => {
-  const db = await getDb();
-  const rows = await db.select<Row[]>(
-    `SELECT ${SELECT_COLS} FROM threads
-      WHERE title = $1 AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
-    [title],
-  );
-  if (rows[0]) return fromRow(rows[0]);
-  const created = await createThread(workspaceId, title);
-  // A review project is never the capture target and never maintained automatically — it
-  // is the output of maintenance, and distilling the distillations is a loop nobody asked
-  // for (and one that would spend money every week for it).
-  await setAutoMaintain(created.id, false);
-  return { ...created, autoMaintain: false };
-};
+// 2026-08-11 — `findOrCreateReviewThread` used to live here: 周回顾 had no home, so it made
+// itself a project called 「回顾」 in `workspaces[0]`, whichever that happened to be. Ocean
+// found one inside his 升学 workspace and asked what the rule was; there wasn't one. A review
+// is not a block and needs no project — it is durable in `engine_runs` and read in its own
+// pinned view (components/ReviewBoard), so the function has no callers and is gone.
 
 /** §2.4's comparison material: what the last run already saw, so the next one can stay
  *  quiet about it. Opaque JSON to this layer — only the follow-up run reads its shape. */

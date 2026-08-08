@@ -442,7 +442,10 @@ const EN: Record<string, string> = {
   '联网跟进…': 'Follow up on the web…',
   '跟进': 'Follow up',
   '改要盯的东西': 'Change what to watch',
-  '起草跟进目标': 'Draft what to watch',
+  // §11.2-E (Ocean 2026-08-11): it used to call itself 「起草跟进目标」, which reads like
+  // paperwork. Same mechanism, named after what it is FOR — the AI reads the project and
+  // says what is still open.
+  '找出还没解决的问题': 'Find what is still unresolved',
   '定几行「要盯什么」，之后才能让 AI 出去查':
     'Set a few lines of "what to watch" before the AI can go looking',
   '照你定的那几行,让本机的 {engine} 联网搜索有没有新进展':
@@ -452,9 +455,9 @@ const EN: Record<string, string> = {
     'Name the things worth watching. Every "Follow up" run works from these lines — and looks for nothing else.',
   '一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。':
     'One per line. For example: whether CMU’s application deadline or GRE requirements have changed.',
-  '让 AI 起个草': 'Let the AI draft it',
+  '让 AI 看看还缺什么': 'Let the AI see what is missing',
   'AI 在读这个项目…': 'The AI is reading this project…',
-  '起草只读你库里的东西，不联网。': 'Drafting only reads your library. It does not go online.',
+  '这一步只读你库里的东西，不联网。': 'This step only reads your library. It does not go online.',
   '就按这个找': 'Use this',
   '关掉跟进': 'Turn it off',
   '清空就等于关掉跟进': 'Clearing the text turns follow-up off',
@@ -647,14 +650,21 @@ const EN: Record<string, string> = {
   '按新建时间': 'By date created',
   '迟 {n} 天': '{n}d late',
   '{n} 天': '{n}d',
-  '把这个项目压成一条结论': 'Compress this project into one conclusion',
-  '回顾最近一周——跨所有项目，存进「回顾」项目':
-    'Review the past week across every project — filed into a “Review” project',
-  '自动维护': 'Maintain automatically',
-  '放了一阵子又有新内容的项目，自动压一次；一天最多一次':
-    'Projects that have settled and then gained something new get compressed once — at most once a day',
   '{n} 块 · {chars} 字': '{n} blocks · {chars} chars',
+  '{n} 块重复': '{n} duplicate(s)',
+  '这个项目里有一模一样的块。打开项目自己处理——Spool 不会替你合并或删除。':
+    'This project has byte-identical blocks. Open it and decide yourself — Spool never merges or deletes for you.',
   '跳转': 'Open',
+
+  // 周回顾 as its own pinned view (components/ReviewBoard, 2026-08-11).
+  '跨所有项目，不属于任何一个': 'Across every project — belonging to none of them',
+  '回顾最近一周——读一遍所有项目': 'Look back over the past week — reads every project',
+  '回顾这一周': 'Review this week',
+  '每周自动回顾一次': 'Review automatically once a week',
+  '正在回顾…': 'Reviewing…',
+  '还没有回顾。点上面那一下，AI 会读一遍所有项目，说说这一周做了什么、还剩什么。':
+    'No reviews yet. Press the button above and the AI reads every project, then says what moved this week and what is still open.',
+  '这次什么也没回来': 'nothing came back this time',
 
   // 「问 AI」 (§9.13) — the row's one-click question.
   '问 AI': 'Ask AI',
@@ -681,13 +691,12 @@ const EN: Record<string, string> = {
 
   // Run cards (§3.1) and the inbox (§3.3 / §9.2 R2).
   '提了 {n} 条待你过目': 'proposed {n} item(s) for you to review',
-  '写好了，等你过目': 'written, waiting for you',
+  '有回话，等你过目': 'replied, waiting for you',
   '这次没有新东西': 'nothing new this time',
   '花费未知': 'cost unknown',
   '存成一块': 'Store as a block',
   '从这里去掉（记录和花费仍然留着）':
     'Remove from here (the record and its cost stay)',
-  '回顾': 'Review',
   '存好了': 'Stored',
   '{action} · {engine}': '{action} · {engine}',
   '{n} 条待你过目': '{n} waiting for you',
@@ -713,8 +722,8 @@ const EN: Record<string, string> = {
   // The maintenance actions — a fixed row at the bottom of the rail since §9.13, where the
   // two sentences-pretending-to-be-controls that used to live here became one labelled
   // switch (Ocean: 「我自己都没看懂这个按钮，太有歧义了」).
-  '自动维护这个项目': 'Maintain this project automatically',
-  '{action}：AI 写好了，在右边等你过目':
+  '周回顾跑完了，在左边「周回顾」里': 'Weekly review done — it is under “Weekly review” on the left',
+  '{action}：AI 有回话，在右边等你过目':
     '{action}: the AI wrote it — it is on the right, waiting for you',
 
   // The AI engine settings tab (§9.2 R5).

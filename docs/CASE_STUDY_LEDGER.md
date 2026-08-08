@@ -382,6 +382,80 @@ The general form, and the reason this entry exists: **a documented figure with a
 is still an unverified figure.** The warning did not prevent a design being built on top of it.
 Only running the thing did.
 
+### 3.9 One missing metadata field made two tools uncallable on one client (2026-08-11)
+
+The user reported that a weekly review had come back saying it could not read his projects:
+*"I tried to read the full records for two projects, but the reads were cancelled."*
+
+The tool descriptor advertises fourteen tools. Twelve carried an `annotations` object declaring
+whether the tool writes; **two did not** — an omission with no effect on anything the project
+could test. The tools listed correctly, described correctly, and ran correctly against every
+local probe.
+
+They did not run on the user's client. A headless agent runs with approvals disabled, so a tool
+whose descriptor does not declare it read-only falls into an approval path that, with no human
+present, resolves as **"user cancelled"**. Measured against the real CLI, the pattern was exact:
+
+```
+list_threads  {}                      → failed · "user cancelled MCP tool call"
+list_threads  {"title_contains": …}   → failed · "user cancelled MCP tool call"
+check_library {}                      → completed
+get_digest    {"since_days": 7}       → completed
+```
+
+The two undeclared tools were the two that mattered most: the catalogue call the server's own
+instructions tell every client to make **first**, and the deep-read call the weekly-review
+prompt uses to expand a project. So the feature did not degrade — it was blind on that client
+from the day it shipped, and it reported that fact in prose the interface displayed as success.
+
+Two lines of JSON fixed it. What is worth recording is the shape: **an omission in metadata,
+invisible to every local check, whose only witness is a third-party client refusing the call.**
+The guard added afterwards asserts the property rather than the values — every tool must
+declare, and only the four writers may declare that they write.
+
+### 3.10 A parser's complaint impersonating the program it was parsing (2026-08-11)
+
+The same session's second report was a maintenance action failing with:
+
+```
+could not read the CLI's JSON output: EOF while parsing a value at line 1 column 0
+```
+
+That message is a JSON library describing empty input. The engine had in fact explained itself
+clearly — *"Please set an Auth method … GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, …"* — but on
+**stderr**, while the reader looked only at stdout.
+
+The reader returned one error type for two different situations: *the engine reported a failure*
+and *I could not read this*. The caller treated both as the engine speaking, so its fallback to
+the engine's raw output could never be reached, and the useful sentence was discarded in favour
+of a parser's. Splitting the two — return nothing when there is nothing to read — restored a
+policy the project had already committed to in writing: **pass the tool's own words through,
+never invent a message.**
+
+The engine also prints its diagnostics above the structured output rather than only within it,
+so parsing the stream as a whole fails on text the engine considers ordinary.
+
+### 3.11 A product tier removed by its vendor between design and use (2026-06-18 → 2026-08-11)
+
+§3.8 recorded a free allowance measured at 20 requests per day against a documented 1,500. Three
+weeks later the same tier was checked again, and the finding had changed category: the free
+sign-in route no longer exists at all. The vendor's own response to a run:
+
+```
+IneligibleTierError: This client is no longer supported for … individuals.
+```
+
+The service was withdrawn for free and consumer-paid users on **2026-06-18** — before the
+integration built against it was written, and without that being apparent from either the tool
+or the third-party documentation still describing the old limits.
+
+Recorded as its own entry because it is a different lesson from §3.8. There the published number
+was wrong and measurement corrected it. Here **measurement was also correct, and then the thing
+measured was withdrawn** — so a dependency on somebody else's free tier is not a figure to
+verify once, but a claim with a shelf life. The feature that relied on it is retained; what
+changed is that the product no longer describes it as the route for users without a
+subscription.
+
 ---
 
 ## 4. Boundaries stated on purpose

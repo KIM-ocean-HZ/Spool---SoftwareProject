@@ -174,10 +174,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [highlightBlockId, blocks, windowSize]);
 
-  const handleCopy = (text: string) => {
-    void navigator.clipboard.writeText(text);
-  };
-
   // v2.8 §20.1 drag-marquee: mouseDown on empty feed space (no block, no button, no
   // textarea …) starts a rubber-band selection like Finder. Modifier-held mouseDown is
   // skipped so shift/cmd-click on a checkbox keeps its own meaning. Origin is captured
@@ -460,7 +456,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
                 anySelected={anySelected}
                 onSelectClick={(shiftKey) => handleSelectClick(b.id, shiftKey)}
                 onTogglePin={() => void togglePin(b.id)}
-                onCopy={() => handleCopy(b.content)}
                 onDelete={() => void remove(b.id)}
               />
               {/* 拍板点 5: one line, once, right under the first block the user ever

@@ -1,4 +1,12 @@
-import { Inbox, LayoutGrid, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import {
+  CalendarRange,
+  Inbox,
+  LayoutGrid,
+  PanelLeftClose,
+  Plus,
+  Search,
+  Settings as SettingsIcon,
+} from 'lucide-react';
 import { useMemo } from 'react';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { useT } from '@/lib/i18n';
@@ -22,8 +30,8 @@ export default function Sidebar({ onCollapse }: Props) {
   const createWorkspace = useWorkspacesStore((s) => s.create);
   const threadsByWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
-  const boardOpen = useThreadsStore((s) => s.boardOpen);
-  const openBoard = useThreadsStore((s) => s.openBoard);
+  const pinnedView = useThreadsStore((s) => s.pinnedView);
+  const openPinned = useThreadsStore((s) => s.openPinned);
   // ⚠️ Flattened in a useMemo off the map, never via selectAllThreadsFlat as a hook selector
   // — that returns a fresh array each call and loops React until it gives up (threadsStore).
   const dueSoon = useMemo(() => {
@@ -73,15 +81,21 @@ export default function Sidebar({ onCollapse }: Props) {
             right rail is left to mean one thing only (what the AI is doing).
 
             It looks like a project row on purpose — same padding, same active mark — because
-            that is what it is to the user: the project whose contents are all the others. */}
+            that is what it is to the user: the project whose contents are all the others.
+
+            2026-08-11 — there are two of these now. Ocean: 「周回顾在左侧边栏的位置应该和项目
+            管理一起吧，作为独立工作区出现」. Same argument, one dimension over: 项目管理 is every
+            project at once, 周回顾 is every project over time. Neither is a project, and neither
+            belongs inside one — which is what put a 「回顾」 project in his 升学 workspace and
+            a review card in every project's rail (components/ReviewBoard). */}
         <ul className="mb-1">
           <li
-            onClick={openBoard}
+            onClick={() => openPinned('board')}
             className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
-              boardOpen ? 'bg-paper-2' : 'hover:bg-paper-2/60'
+              pinnedView === 'board' ? 'bg-paper-2' : 'hover:bg-paper-2/60'
             }`}
           >
-            {boardOpen && (
+            {pinnedView === 'board' && (
               <span className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-accent" />
             )}
             <div className="flex items-center gap-2">
@@ -93,6 +107,20 @@ export default function Sidebar({ onCollapse }: Props) {
                   {t('{n} 个快到期', { n: dueSoon })}
                 </span>
               )}
+            </div>
+          </li>
+          <li
+            onClick={() => openPinned('review')}
+            className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
+              pinnedView === 'review' ? 'bg-paper-2' : 'hover:bg-paper-2/60'
+            }`}
+          >
+            {pinnedView === 'review' && (
+              <span className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-accent" />
+            )}
+            <div className="flex items-center gap-2">
+              <CalendarRange size={12} className="flex-none text-muted" />
+              <span className="min-w-0 flex-1 truncate text-sm text-ink">{t('周回顾')}</span>
             </div>
           </li>
         </ul>

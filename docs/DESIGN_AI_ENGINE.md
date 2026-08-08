@@ -422,3 +422,105 @@ Ocean 当天的判断(实测撞上额度墙之后):**Codex 和 Claude Code 都�
 重做成一张完整的表。**底下的线一根没断**(设置键、`ai_engine_run` 的 `model`、
 `--model` 都在),要复原的是 `EngineBar.tsx` 里那个 `<select>` 和 `engineStore.ts` 里
 那一行硬 `null`。
+
+---
+
+## 7.9 ⭐⭐ 免费档复查(2026-08-11)—— Gemini 的免费入口已经被 Google 关掉了
+
+Ocean 2026-08-11 问的原题:「**目前可以接入的能够符合 spool 所有功能的免费 AI 还有没有**」。
+这一节是当天重新查 + 重新实测的结论。⚠️ **§7.8 那一节仍然成立,但它的前提变了** ——
+当时以为「免费档 = 额度小」,现在是「免费档的那扇门已经不在了」。
+
+### 7.9.1 实测:这台机器上 gemini 现在根本跑不起来
+
+`~/.gemini/` 里只有 2026-04 的 `oauth_creds.json`,**没有 `settings.json`,没有 `.env`**。
+按 §7.3 的配方无头跑一次(隔离 cwd、`GEMINI_CLI_TRUST_WORKSPACE=true`),拿到:
+
+```
+exit 41 · stdout 0 字节 · stderr:
+{ "error": { "message": "Please set an Auth method in your ~/.gemini/settings.json
+  or specify one of the following environment variables before running:
+  GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA", "code": 41 } }
+```
+
+**这就是 Ocean 那句「压缩 没跑成 / could not read the CLI's JSON output: EOF…」的真身。**
+不是额度问题,是**这台机器上 gemini 没有可用的认证**。为什么他看到的是一句 serde 报错
+而不是上面这句人话,见 §7.9.4。
+
+### 7.9.2 ⚠️ 「用 Google 账号登录」这条免费路 **2026-06-18 已经被 Google 停掉**
+
+补上 `security.auth.selectedType = "oauth-personal"`(⚠️ 0.54.4 的键是
+**`security.auth.selectedType`**,不是老文档里那个扁平的 `selectedAuthType`)之后再跑,
+拿到的是这一句:
+
+```
+IneligibleTierError: This client is no longer supported for Gemini Code Assist for
+individuals. To continue using Gemini, please migrate to the Antigravity suite of
+products: https://antigravity.google
+```
+
+对得上 Google 自己的公告:**2026-06-18 起 Gemini CLI 与 Gemini Code Assist IDE 扩展
+对「AI Pro / Ultra 用户」和「免费使用的个人」全部停止服务**,企业 License 不受影响。
+→ **网上那些「1000 次/天」「1500 次/天」的数字全是过期的**,别再拿它们估算。
+
+### 7.9.3 结论表:今天还剩什么
+
+| 档 | 免费? | MCP | 无头 | 能不能跑全部四个动作 |
+|---|---|---|---|---|
+| **Claude Code** | ❌ 订阅 | ✅ | ✅ | ✅ 四个都行 |
+| **Codex** | ❌ 订阅 | ✅ | ✅ | ✅ 四个都行 |
+| **Gemini CLI(E3)** | ⚠️ 只剩 **AI Studio API key** 这一条路 | ✅ | ✅ | ❌ 只够 压缩/去重(§7.8 实测 ~20 次/天/模型) |
+| **Antigravity CLI**(Google 指定的继任者) | ⚠️ 有免费档,**~20 次/天 Flash**,5 小时滚动刷新 | ✅ 有,但闭源、配置格式全变 | ? 未实测 | ❌ 额度天花板和 E3 一样 |
+| **GitHub Copilot CLI** | ✅ 有免费档 | ✅ | ✅ `-p` | ❌ 免费档 **每月 50 次** agent/chat 请求 |
+| **Qwen Code** | ❌ 免费 OAuth **2026-04-15 已停** | ✅ | ✅ | ❌ |
+| **opencode / Goose 这类自带 provider 的** | 取决于背后接谁 | ✅ | ✅ | ❌ 绕回同一个额度问题,且联网那半仍然没有 |
+
+**答案:没有。** §4-9 记的那条「真正稳定免费又能跑全部四个动作的档仍然不存在」不但还成立,
+**缺口还变大了** —— 唯一的免费入口(Google 账号登录)在两个月前关掉了。
+
+⚠️⚠️ **一条要给 Ocean 看的推论**:E3 这个免费档今天只跑得动 **压缩 / 去重**,
+而这两个正是他 2026-08-11 亲自判定「没什么用」的两个动作;
+他想加强的 **跟进 / 周回顾**,恰好是免费档跑不了的两个。
+**所以「往跟进 + 周回顾 走」等于承认 Spool 的 AI 功能是订阅制的。**
+这是个产品取舍,不是技术问题,留给他拍板 —— 展开在 `DESIGN_WORKBENCH.md` §11。
+
+### 7.9.4 ⚠️ 顺手修掉的一个真 bug:解析器的抱怨盖住了 CLI 的人话
+
+`run_action` 失败路径上原来写的是 `parse_gemini_envelope(&stdout).err()`,
+而那个 `Err` 有**两种**含义:「gemini 说它失败了」和「我读不懂这段」。
+stdout 是空的时候返回的是后者,于是 `unwrap_or_else(stderr)` 那条回退**永远轮不到**,
+用户看到的是 `EOF while parsing a value at line 1 column 0`,
+而真正有用的那句「Please set an Auth method…」被扔了。
+
+两处都改了(`engine.rs`):
+
+1. **信封要在 stdout 和 stderr 两条流上找。** 实测:认证失败时**整个 `-o json` 信封在
+   stderr 上,stdout 是空的**;而且信封上面还压着 gemini 自己的两行警告
+   (`tools.exclude` 弃用提示、`YOLO mode is enabled`),所以整段直接 parse 一定失败 ——
+   `gemini_envelope_value` 先整段试,再从最后一个行首 `{` 起试。
+2. **新增 `parse_gemini_error(stdout, stderr)`,只在真读到 `{"error":{"message":…}}` 时
+   返回 `Some`。** 读不到就返回 `None`,让调用方回退去显示 CLI 的原始输出 ——
+   §2.3「CLI 自己的话最有用」这条规矩靠的就是这个回退。
+
+✅ 三个测试钉住(其中一个是上面那段 stderr 的逐字复刻)。
+
+
+### 7.9.5 Antigravity CLI 查了(Ocean 2026-08-11 让先查再决定)—— 结论:**不改变答案**
+
+⚠️ **只读了文档,没有装、没有实测。** 这台机器上没装 `agy`,而它的安装方式是
+`curl -fsSL https://antigravity.google/cli/install.sh | bash` —— 往用户机器上装东西
+要 Ocean 明示。**所以下面每一条都要按 §6.2-ter 打折:文档写的 ≠ 真的**
+(75 倍那次教训就在同一个厂商身上)。
+
+| 项 | 查到的 | 对 Spool 意味着什么 |
+|---|---|---|
+| 额度 | 免费档 **~20 次/天 Flash**,5 小时滚动刷新(第三方博客,非官方) | **天花板和现在一样** —— 跟进/周回顾照样跑不了 |
+| 二进制 | `agy` | 引擎检测的 `candidate_paths` 要另写一份 |
+| 无头一次性跑 | ⚠️ **官方安装文档只写了 `--version` / `--help` / 交互式 TUI**;有博客说它「默认 YOLO(-y) 以免无头时卡住」 | **Spool 的引擎契约需要 `-p` + 机器可读输出,两样都没查到明文** |
+| MCP 配置 | 全局 `~/.gemini/config/mcp_config.json`,或工作区 `.agents/mcp_config.json` | 工作区那条也许能复用 gemini 的临时 cwd 招数;**没有 `--mcp-config` 之类的单次覆盖** |
+| 工具限制 | `disabledTools` —— **是一张 DENY 名单** | ⚠️ §2.2 要的是 ALLOW 名单。「只给这 14 个」用 deny 名单**表达不出来** |
+| 审批 | 「工具默认是 Ask 模式,执行前要批准」,另有 `mcp(server/*)` 之类的权限模式 | ⚠️ **和今天刚修的 codex 那个 bug 一模一样的形状**:无头没人批 → 静默取消 |
+| 源码 | 闭源 | 「翻二进制字符串确认真相」这招(救过这个项目好几次)更难用了 |
+
+**结论:光额度这一条就足够了 —— 20 次/天,和现在一样,所以 Antigravity 不改变 §7.9.3 的答案。**
+其余六条只是额外的代价。⚠️ **要真正确认,得装上去跑一次**;要不要装,等 Ocean 一句话。

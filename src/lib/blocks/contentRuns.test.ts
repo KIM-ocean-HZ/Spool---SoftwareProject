@@ -69,3 +69,61 @@ describe('tokenizeContent', () => {
     expect(runs.filter((r) => r.highlight).map((r) => r.text)).toEqual(['one', 'two']);
   });
 });
+
+// DESIGN_WORKBENCH §10.1 — inline Markdown rides the same run machinery as ==…==.
+describe('tokenizeContent · inline markdown', () => {
+  it('strips ** and flags the inner span as strong', () => {
+    expect(tokenizeContent('a **b** c')).toEqual([
+      { text: 'a ', spine: false, highlight: false, hit: null },
+      { text: 'b', spine: false, highlight: false, hit: null, mark: 'strong' },
+      { text: ' c', spine: false, highlight: false, hit: null },
+    ]);
+  });
+
+  it('renders `code` as its own mark and leaves what is inside it literal', () => {
+    const runs = tokenizeContent('run `npm **run** dev` now');
+    expect(runs.find((r) => r.mark === 'code')?.text).toBe('npm **run** dev');
+    expect(runs.some((r) => r.mark === 'strong')).toBe(false);
+  });
+
+  it('only takes * as italic when it hugs its text', () => {
+    expect(tokenizeContent('3 * 4 * 5').some((r) => r.mark)).toBe(false);
+    expect(tokenizeContent('a *b* c').find((r) => r.mark === 'em')?.text).toBe('b');
+    // ** wins over * — the bold pattern is claimed first, so this is one bold span.
+    expect(tokenizeContent('**bold**').find((r) => r.mark)?.mark).toBe('strong');
+  });
+
+  it('keeps search hits aligned with the ORIGINAL offsets when markers are present', () => {
+    // The §10.1 trap: 「跳到命中处」 works off character offsets in this exact string, so a
+    // hit on 「重点」 must still mark 「重点」 with two ** in front of it.
+    const content = '这里是 **重点** 内容';
+    const start = content.indexOf('重点');
+    const runs = tokenizeContent(content, {
+      hits: [{ start, end: start + 2, idx: 0 }],
+      activeHitIndex: 0,
+    });
+    const hit = runs.find((r) => r.hit);
+    expect(hit?.text).toBe('重点');
+    expect(hit?.mark).toBe('strong');
+    expect(runs.some((r) => r.text.includes('*'))).toBe(false);
+  });
+
+  it('tokenizes only the requested slice, in the same coordinate space', () => {
+    const content = '# 标题\n正文 **粗**';
+    const runs = tokenizeContent(content, { from: 5, to: content.length });
+    expect(runs.map((r) => r.text).join('')).toBe('正文 粗');
+    expect(runs.find((r) => r.mark === 'strong')?.text).toBe('粗');
+  });
+
+  it('leaves markers literal inside a raw (code-block) range', () => {
+    const content = 'let x = **1**';
+    const runs = tokenizeContent(content, { raw: [{ start: 0, end: content.length }] });
+    expect(runs).toEqual([{ text: content, spine: false, highlight: false, hit: null }]);
+  });
+
+  it('hides the structural marker ranges the parser reports', () => {
+    const content = '# 标题';
+    const runs = tokenizeContent(content, { hidden: [{ start: 0, end: 2 }] });
+    expect(runs.map((r) => r.text).join('')).toBe('标题');
+  });
+});

@@ -62,7 +62,11 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
           : run.proposalsQueued > 0
             ? t('提了 {n} 条待你过目', { n: run.proposalsQueued })
             : hasText
-              ? t('写好了，等你过目')
+              ? // ⚠️ 「有回话」 rather than 「写好了」 (2026-08-11): a run whose text is the AI
+                // explaining why it did NOT do the job is still text, and this line cannot
+                // tell the two apart. Saying which one it is was how a refusal got stored as
+                // a weekly review.
+                t('有回话，等你过目')
               : t('这次没有新东西');
 
   return (

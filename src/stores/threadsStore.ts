@@ -4,6 +4,10 @@ import * as db from '@/lib/db/threads';
 import type { Thread, ThreadPatch } from '@/lib/db/threads';
 import { buildThreadDeleteUndo, useUndoStore } from './undoStore';
 
+/** The sidebar's pinned entries — the two "projects" whose contents are not blocks.
+ *  'board' is 项目管理 (every project), 'review' is 周回顾 (every project, over time). */
+export type PinnedView = 'board' | 'review' | null;
+
 interface ThreadsState {
   threadsByWorkspace: Record<string, Thread[]>;
   activeId: string | null;
@@ -21,15 +25,24 @@ interface ThreadsState {
    *  project that is not the one on screen (Ocean: 「点击项目管理需要展开显示 pack」), so the
    *  dialog is mounted once in App (components/Pack/PackHost) and addressed by thread id. */
   packingId: string | null;
-  /** Whether the 项目管理 view owns the main area (DESIGN_WORKBENCH §9.4, Ocean 2026-08-07:
-   *  「左侧边栏加入一个项目管理的一个总项目……它的工作区用来存放项目矩阵」).
+  /** Which pinned view owns the main area, or null when a project does (DESIGN_WORKBENCH
+   *  §9.4, Ocean 2026-08-07: 「左侧边栏加入一个项目管理的一个总项目……它的工作区用来存放项目
+   *  矩阵」).
+   *
+   *  2026-08-11 — there are two of them now. Ocean, on finding a 「回顾」 project sitting inside
+   *  his 升学 workspace: 「周回顾在左侧边栏的位置应该和项目管理一起吧，作为独立工作区出现」.
+   *  A weekly review reads every project, so it belongs to none of them, and the old code had
+   *  no home for it — see components/ReviewBoard.
+   *
+   *  ⚠️ One field rather than two booleans: the two views are alternatives, and two flags
+   *  would make "both open" representable and therefore eventually true.
    *
    *  ⚠️ A flag rather than a sentinel `activeId`. `loadAll` drops an activeId that no longer
    *  matches a row — a fake id would be silently reset on every reload, and every consumer
    *  of activeId (block loading, capture target, pack) would have to learn to skip it. The
    *  selected project stays selected underneath, so leaving the board goes back where you
    *  were. */
-  boardOpen: boolean;
+  pinnedView: PinnedView;
   loading: boolean;
   error: string | null;
   loadAll: () => Promise<void>;
@@ -48,7 +61,7 @@ interface ThreadsState {
    *  since §9.2 R3, but only for the project you are reading; the board lists finished
    *  projects too, and a card you could finish but never un-finish was a one-way door. */
   reopen: (id: string) => Promise<void>;
-  openBoard: () => void;
+  openPinned: (view: PinnedView) => void;
 }
 
 const groupByWorkspace = (threads: Thread[]): Record<string, Thread[]> => {
@@ -69,7 +82,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   captureTargetId: null,
   completingId: null,
   packingId: null,
-  boardOpen: false,
+  pinnedView: null,
   loading: true,
   error: null,
 
@@ -165,9 +178,9 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
     await get().loadAll();
   },
 
-  // Picking a project always leaves the board — that IS what clicking a card in the matrix
-  // means (§9.4: 「点击可以跳转到项目即可」).
-  select: (id) => set({ activeId: id, boardOpen: false }),
+  // Picking a project always leaves whichever pinned view was open — that IS what clicking a
+  // card in the matrix means (§9.4: 「点击可以跳转到项目即可」).
+  select: (id) => set({ activeId: id, pinnedView: null }),
 
   setCompleting: (id) => set({ completingId: id }),
 
@@ -177,7 +190,7 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
     await get().patch(id, { status: 'active', completedAt: null, digest: null });
   },
 
-  openBoard: () => set({ boardOpen: true }),
+  openPinned: (view) => set({ pinnedView: view }),
 }));
 
 // ⚠️ Imperative use only — `selectAllThreadsFlat(useThreadsStore.getState())`.

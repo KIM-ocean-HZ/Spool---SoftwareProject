@@ -1,38 +1,22 @@
-import {
-  Bot,
-  ChevronDown,
-  ChevronRight,
-  Globe,
-  Inbox,
-  Layers,
-  Sparkles,
-} from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import EngineBar from "./EngineBar";
 import LiveRun from "./LiveRun";
 import RunCard from "./RunCard";
-import Toggle from "@/components/ui/Toggle";
 import { createBlock } from "@/lib/db/blocks";
 import type { EngineRun } from "@/lib/db/engineRuns";
 import { spendSince } from "@/lib/db/engineRuns";
 import { groupAiActivity, visibleRuns } from "@/lib/engine/activity";
 import { canShowEngineActions, engineActionsDisabled } from "@/lib/engine/gate";
 import { dateLocale, useT } from "@/lib/i18n";
-import {
-  findOrCreateReviewThread,
-  setAutoMaintain,
-  type Thread,
-} from "@/lib/db/threads";
+import type { Thread } from "@/lib/db/threads";
 import { useBlocksStore } from "@/stores/blocksStore";
 import { useSearchStore } from "@/stores/searchStore";
-import { useThreadsStore } from "@/stores/threadsStore";
-import { useWorkspacesStore } from "@/stores/workspacesStore";
 import {
   ACTION_LABEL,
   ENGINE_LABEL,
   engineSupportsWeb,
   useEngineStore,
-  type EngineAction,
   type EngineKind,
 } from "@/stores/engineStore";
 import { useProposalsStore } from "@/stores/proposalsStore";
@@ -66,10 +50,27 @@ import { toast } from "@/stores/toastStore";
 // workspace (ProjectBoard), and this rail is per-project or it is not there at all — App
 // does not mount it while the board is open.
 
-const ENGINE_ACTIONS: { action: EngineAction; hint: string }[] = [
-  { action: "distill", hint: "把这个项目压成一条结论" },
-  { action: "thread_health", hint: "查一遍重复块、失效引用，看摘要过没过期" },
-];
+// ⚠️ **压缩 and 去重 are gone from this rail (2026-08-11, Ocean's call after living with them).**
+//
+// Not a UI tidy-up — he read what they actually produced in 〈Flux〉 #9/#10 and judged both
+// unfit, each for its own structural reason:
+//
+//   * **压缩**: 「最有用的是能告诉我还有什么没做…但是总结性的语句没什么用，如果放在上下文里
+//     只会造成冗余」. Half of what it wrote was already in the library, so distilling it back
+//     in made the pack bigger without making it say more. 周回顾 gives him the useful half
+//     「并且更加简洁」, so he retired this one into it.
+//   * **去重**: 「AI 引擎没办法帮我把新块指向过期块里面的那句话，没什么用」. That is a limit
+//     no prompt can lift — Spool merges nothing, rewrites nothing, deletes nothing by design
+//     (DESIGN_MCP_WRITE_ROLE), so this action could only ever report and then ask him to go do
+//     it himself. Paying a model to find duplicates is now replaced by finding them locally
+//     for free, on the row where he can act on them (ProjectBoard).
+//
+// ⚠️ **The MCP tools and prompts of the same names are UNTOUCHED**, and deliberately so: they
+// serve a chat client, where a human really is present to answer the closing 「你同意吗？」 that
+// made both actions useless here. What was wrong is running them with nobody in the loop.
+//
+// So this rail is now one action wide: 联网搜索 (below), the one that brings in something the
+// library does not already contain.
 
 interface Props {
   thread: Thread | null;
@@ -92,7 +93,6 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
   const actionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
   const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
-  const autoMaintain = useSettingsStore((s) => s.aiAutoMaintain);
 
   const pending = useProposalsStore((s) => s.pendingCount);
   const openReview = useProposalsStore((s) => s.open);
@@ -132,32 +132,18 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const showActions = engineReady && thread !== null;
   const disabled = engineActionsDisabled(gate);
 
-  // §4.3 — the per-project opt-out. Back to `null` rather than `true`, so a project the
-  // user un-mutes goes back to following the master switch instead of being pinned on.
-  const toggleThreadAuto = async (): Promise<void> => {
-    if (!thread) return;
-    await setAutoMaintain(
-      thread.id,
-      thread.autoMaintain === false ? null : false,
-    );
-    await useThreadsStore.getState().loadAll();
-  };
-
   // §3.1 — this is the "user agrees" the prompts have always asked for. The block goes in
   // through the ordinary insert path with a source label, exactly like an MCP write: what
   // the AI wrote must never be able to pass as something the user typed.
+  // ⚠️ There is no weekly-review branch here any more, and that is the fix, not an omission.
+  // It used to find-or-create a project called 「回顾」 inside `workspaces[0]` — whichever
+  // workspace happened to sort first — which is how one appeared inside Ocean's 升学 workspace
+  // and made him ask 「是对应每个规划区一个回顾吗？」. A review is not a block; it lives in
+  // `engine_runs` and is read in its own view (components/ReviewBoard), so nothing needs to be
+  // guessed about where it belongs.
   const store = async (run: EngineRun): Promise<void> => {
     if (!run.resultText) return;
-    // §3.4: a weekly review belongs to no project, so it files into one of its own —
-    // created on this click, which is the first moment a review actually exists. ⚠️ Never
-    // at startup and never from a seed path (memory `spool-db-wipe-incident`).
-    let target = run.threadId ?? thread?.id;
-    if (run.action === "weekly_review") {
-      const ws = useWorkspacesStore.getState().workspaces[0];
-      if (!ws) return;
-      target = (await findOrCreateReviewThread(ws.id, t("回顾"))).id;
-      await useThreadsStore.getState().loadAll();
-    }
+    const target = run.threadId ?? thread?.id;
     if (!target) return;
     setStoring(run.id);
     try {
@@ -373,54 +359,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
         )}
       </div>
 
-      {/* §9.13 #1 — the action row. It was a fold; Ocean called every fold in this panel
-          friction, and this one guarded the two buttons the panel exists to offer. Fixed to
-          the bottom edge so its position never moves as the results above it grow. */}
-      {showActions && (
-        <div className="flex-none border-t border-line px-3 py-2">
-          <div className="flex items-center gap-1">
-            {ENGINE_ACTIONS.map(({ action, hint }) => (
-              <button
-                key={action}
-                type="button"
-                disabled={disabled}
-                title={t(hint)}
-                onClick={() =>
-                  enqueue(thread.id, thread.title, action, timeoutSecs)
-                }
-                className="flex flex-1 items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
-              >
-                {action === "distill" ? (
-                  <Layers size={12} className="flex-none" />
-                ) : (
-                  <Sparkles size={12} className="flex-none" />
-                )}
-                {t(ACTION_LABEL[action])}
-              </button>
-            ))}
-          </div>
-
-          {/* ⚠️ Ocean 2026-08-07 on what used to be here — a text line reading
-              「这个项目：跟着总开关走（点一下单独关掉）」: 「我自己都没看懂这个按钮，太有歧义了,
-              并且用户根本不知道这里能点击」. Both faults are the same fault: it was a
-              *sentence* pretending to be a control. It is a labelled switch now, the same
-              switch component the settings page uses, so it looks like the thing it is.
-
-              And it only appears when the master switch is ON: with automation off nothing
-              maintains anything, so a per-project opt-out is a control over nothing. */}
-          {autoMaintain && (
-            <label className="mt-1.5 flex cursor-pointer items-center justify-between gap-2 border-t border-line pt-1.5">
-              <span className="min-w-0 text-[10px] text-muted">
-                {t("自动维护这个项目")}
-              </span>
-              <Toggle
-                checked={thread.autoMaintain !== false}
-                onChange={() => void toggleThreadAuto()}
-              />
-            </label>
-          )}
-        </div>
-      )}
+      {/* ⚠️ The bottom action row is gone with the two actions it held (see the note at the
+          top of this file), and so is the per-project 自动维护 switch that sat under it: the
+          only thing automation still runs is 周回顾, which reads every project and therefore
+          cannot be opted out of one at a time. That switch now lives, library-wide, in the
+          view that owns the action (components/ReviewBoard). */}
     </aside>
   );
 }

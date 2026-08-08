@@ -109,9 +109,9 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
               className="flex items-center gap-1.5 rounded border border-line bg-paper px-2.5 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted"
             >
               {drafting && <Loader2 size={11} className="animate-spin" />}
-              {drafting ? t('AI 在读这个项目…') : t('让 AI 起个草')}
+              {drafting ? t('AI 在读这个项目…') : t('让 AI 看看还缺什么')}
             </button>
-            <span className="text-[10px] text-muted">{t('起草只读你库里的东西，不联网。')}</span>
+            <span className="text-[10px] text-muted">{t('这一步只读你库里的东西，不联网。')}</span>
           </div>
         </div>
 

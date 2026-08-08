@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
+import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import {
   isCurrentlyHighlighted,
   isHighlightable,
@@ -43,7 +44,6 @@ interface Props {
   anySelected?: boolean;
   onSelectClick?: (shiftKey: boolean) => void;
   onTogglePin?: () => void;
-  onCopy?: () => void;
   onDelete?: () => void;
 }
 
@@ -113,7 +113,6 @@ function TextBlockItem({
   anySelected,
   onSelectClick,
   onTogglePin,
-  onCopy,
   onDelete,
 }: Props) {
   const t = useT();
@@ -837,7 +836,6 @@ function TextBlockItem({
                 setPickingTarget((v) => !v);
               }
             }}
-            onCopy={() => onCopy?.()}
             onDelete={() => onDelete?.()}
           />
         )}
@@ -924,7 +922,9 @@ function TextBlockItem({
             {hasSegmentAnnotations(block.content) && !isNavTarget ? (
               <SegmentedContent content={block.content} />
             ) : (
-              <ContentRuns
+              // §10.1: content goes through the Markdown renderer; annotations above stay
+              // on the plain tokenizer (they are one line of prose, never a document).
+              <MarkdownContent
                 content={block.content}
                 hits={isNavTarget ? hitsForField(navHits, 'content') : undefined}
                 activeHitIndex={navHitIndex}

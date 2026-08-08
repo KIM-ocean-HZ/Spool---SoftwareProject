@@ -9,6 +9,7 @@ import SearchOverlay from '@/components/Search/SearchOverlay';
 import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ProjectBoard from '@/components/ProjectBoard';
+import ReviewBoard from '@/components/ReviewBoard';
 import ThreadView from '@/components/ThreadView';
 import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
@@ -74,7 +75,7 @@ export default function App() {
   // Same shape, same reason (DESIGN_WORKBENCH §9.4): the project board can finish a project
   // that is not the one on screen, so the "这个项目结束了" panel is mounted once here and
   // addressed by thread id.
-  const boardOpen = useThreadsStore((s) => s.boardOpen);
+  const pinnedView = useThreadsStore((s) => s.pinnedView);
   const completingId = useThreadsStore((s) => s.completingId);
   const completingThread = useThreadsStore(selectThreadById(completingId));
   const setCompleting = useThreadsStore((s) => s.setCompleting);
@@ -325,19 +326,26 @@ export default function App() {
             </>
           )}
 
-          {/* DESIGN_WORKBENCH §9.4 — 项目管理 is a pinned entry in the sidebar whose
-              "workspace" is the project matrix, so it takes the centre column the way a
-              project does. Selecting any project leaves it (threadsStore.select). */}
+          {/* DESIGN_WORKBENCH §9.4 — the pinned entries are sidebar rows whose "workspace" is
+              not a set of blocks (the project matrix; the run of weekly reviews), so each
+              takes the centre column the way a project does. Selecting any project leaves
+              whichever one was open (threadsStore.select). */}
           <main className="min-w-0 flex-1 overflow-hidden">
-            {boardOpen ? <ProjectBoard /> : <ThreadView />}
+            {pinnedView === 'board' ? (
+              <ProjectBoard />
+            ) : pinnedView === 'review' ? (
+              <ReviewBoard />
+            ) : (
+              <ThreadView />
+            )}
           </main>
 
-          {/* DESIGN_WORKBENCH §9.13 — **项目管理 has no right rail at all.** Ocean, twice:
+          {/* DESIGN_WORKBENCH §9.13 — **a pinned view has no right rail at all.** Ocean, twice:
               「而不是在右侧边栏中和每个项目共用，这会有歧义」 and then 「去掉项目汇总的右边栏」.
-              So the rail is not merely emptied while the board is open, it is not mounted —
-              the board's own workspace holds 周回顾 and the automation switch, and the
-              centre column gets the whole width. */}
-          {boardOpen ? null : railCollapsed ? (
+              So the rail is not merely emptied while one is open, it is not mounted — the rail
+              is per-project, each pinned view holds its own controls, and the centre column
+              gets the whole width. */}
+          {pinnedView ? null : railCollapsed ? (
             <button
               type="button"
               onClick={() => void updateSettings({ railCollapsed: false })}

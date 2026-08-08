@@ -102,8 +102,10 @@ describe('visibleRuns', () => {
     id: string,
     threadId: string | null,
     reviewedAt: number | null,
-  ): { id: string; threadId: string | null; reviewedAt: number | null } => ({
+    action = 'distill',
+  ): { id: string; action: string; threadId: string | null; reviewedAt: number | null } => ({
     id,
+    action,
     threadId,
     reviewedAt,
   });
@@ -113,12 +115,15 @@ describe('visibleRuns', () => {
     expect(visibleRuns(runs, 't1').map((r) => r.id)).toEqual(['open']);
   });
 
-  it('keeps library-wide runs whatever project is open, including none', () => {
-    // 周回顾 belongs to no project (§3.4), so it is not "another project's card".
-    const runs = [run('weekly', null, null), run('mine', 't1', null)];
-    expect(visibleRuns(runs, 't1').map((r) => r.id)).toEqual(['weekly', 'mine']);
-    expect(visibleRuns(runs, 't2').map((r) => r.id)).toEqual(['weekly']);
-    expect(visibleRuns(runs, null).map((r) => r.id)).toEqual(['weekly']);
+  // ⚠️ This is the reverse of what it asserted until 2026-08-11. A weekly review used to be
+  // shown in EVERY project's rail (it belongs to no project, so it was treated as belonging
+  // everywhere), and Ocean read the result exactly backwards from the intent:
+  // 「周回顾出现在了升学规划区？是对应每个规划区一个回顾吗？」. It has its own view now.
+  it('never shows a weekly review under a project, because it is about all of them', () => {
+    const runs = [run('weekly', null, null, 'weekly_review'), run('mine', 't1', null)];
+    expect(visibleRuns(runs, 't1').map((r) => r.id)).toEqual(['mine']);
+    expect(visibleRuns(runs, 't2')).toEqual([]);
+    expect(visibleRuns(runs, null)).toEqual([]);
   });
 
   it('never shows another project’s run under this one', () => {
@@ -128,7 +133,7 @@ describe('visibleRuns', () => {
   it('empties completely once everything has been answered', () => {
     // The whole point of the fix: a rail you have dealt with looks dealt with. Before this,
     // answered cards stayed on screen greyed out and the pile only ever grew.
-    const runs = [run('a', 't1', 1), run('b', null, 2), run('c', 't1', 3)];
+    const runs = [run('a', 't1', 1), run('b', 't1', 2), run('c', 't1', 3)];
     expect(visibleRuns(runs, 't1')).toEqual([]);
   });
 });

@@ -154,6 +154,41 @@ export const blockStatsByThread = async (): Promise<Record<string, ThreadBlockSt
   return out;
 };
 
+/**
+ * How many blocks in each project are exact copies of another one in the same project.
+ *
+ * DESIGN_WORKBENCH §11.2-B — what replaced the 去重 button. Ocean retired that action because
+ * 「AI 引擎没办法帮我把新块指向过期块里面的那句话，没什么用」: it could only ever report, since
+ * Spool merges nothing and deletes nothing by design, so it charged a model to tell him
+ * something and then sent him to do the work himself. Finding duplicates does not need a model
+ * at all — this is one indexed GROUP BY, it costs nothing, and it lands on the row in 项目管理
+ * where the disposal actually happens.
+ *
+ * ⚠️ **Exact matches only, deliberately.** `find_similar_blocks` (the MCP tool) scores fuzzy
+ * similarity and needs a threshold; a badge that is sometimes wrong is worse than no badge,
+ * because the user cannot tell which kind of wrong it is today. Byte-identical content has no
+ * threshold and no false positives — and it is the case that actually occurs: 〈Flux〉 carries a
+ * pair at similarity 1.0, 3,503 chars each, together 13% of that project's whole pack.
+ *
+ * The count is the REDUNDANT copies (a pair counts once), because that is how many blocks
+ * would go away if the user tidied up.
+ */
+export const duplicateCountsByThread = async (): Promise<Record<string, number>> => {
+  const db = await getDb();
+  const rows = await db.select<{ thread_id: string; extra: number }[]>(
+    `SELECT thread_id, SUM(n - 1) AS extra
+       FROM (SELECT thread_id, COUNT(*) AS n
+               FROM blocks
+              WHERE stale_at IS NULL
+              GROUP BY thread_id, content
+             HAVING COUNT(*) > 1)
+      GROUP BY thread_id`,
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.thread_id] = r.extra;
+  return out;
+};
+
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();
   const rows = await db.select<Row[]>(

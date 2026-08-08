@@ -1,31 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { threadsDueForMaintenance, weeklyReviewDue } from '@/lib/db/engineRuns';
+import { weeklyReviewDue } from '@/lib/db/engineRuns';
 import { canShowEngineActions } from '@/lib/engine/gate';
 import { useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
-// DESIGN_WORKBENCH §4.3 — automatic maintenance.
+// DESIGN_WORKBENCH §4.3 / §11.2 — automatic maintenance.
 //
 // Ocean 2026-08-06: "我倾向于ai维护自动化,且必须节约token…让用户放心并且有开关",
 // and the decision he took was 「只在项目真变了才跑」.
 //
-// Every number below is a spending decision, so they are named and gathered here rather
-// than buried in a query:
+// ⚠️ **2026-08-11: there is only ONE automatic action left — 周回顾.** The automatic
+// per-project 压缩 that used to live here went with the action itself (§11.2): Ocean judged
+// what it wrote 「总结性的语句没什么用，如果放在上下文里只会造成冗余」, and an automatic run
+// producing it was that verdict on a timer, spending money without being asked twice.
 //
-//  * SETTLE — how long a project must sit still before it counts as "changed". Capturing
-//    is bursty; five clips in a minute are one thought, and distilling after the first
-//    bills for a half-written project and is stale by the time it returns.
-//  * COOLDOWN — a hard per-project ceiling. Whatever else happens, one project cannot cost
-//    more than one automatic run a day.
+// What that removes along with it: SETTLE and COOLDOWN (both existed to decide WHICH project
+// was worth distilling), and the per-project opt-out (a review reads every project, so there
+// is no "this one" to opt out of). What is left is one question asked every tick.
+//
 //  * WEEKLY — 周回顾 is a weekly thing; it says so in its name.
-//  * TICK — how often this even looks. The check is two indexed queries against SQLite, so
-//    the cost of looking is nothing; the cost of ACTING is what the three above bound.
-//
-// ONE project per tick, deliberately. Runs are serial anyway (engineStore's queue), so
-// enqueueing five would not make them finish sooner — it would just commit to spending on
-// all five before the user has seen what the first one produced.
-const SETTLE_MS = 10 * 60_000;
-const COOLDOWN_MS = 24 * 60 * 60_000;
+//  * TICK — how often this even looks. The check is one indexed query against SQLite, so
+//    the cost of looking is nothing; the cost of ACTING is what WEEKLY bounds.
 const WEEKLY_MS = 7 * 24 * 60 * 60_000;
 const TICK_MS = 10 * 60_000;
 
@@ -67,18 +62,11 @@ export function useAutoMaintain(): void {
       if (current || queue.length > 0) return;
 
       try {
-        const now = Date.now();
-        // The library-wide review first — it is the one that is about time passing rather
-        // than about a project moving, so a busy week must not crowd it out forever.
-        if (await weeklyReviewDue(now, WEEKLY_MS)) {
-          // §3.4: it belongs to no project. The title is only what the queue displays; the
-          // run itself reads the whole library.
+        // §3.4: it belongs to no project. The title is only what the queue displays; the
+        // run itself reads the whole library.
+        if (await weeklyReviewDue(Date.now(), WEEKLY_MS)) {
           enqueue('', '', 'weekly_review', g.timeoutSecs);
-          return;
         }
-        const due = await threadsDueForMaintenance(now, SETTLE_MS, COOLDOWN_MS);
-        const next = due[0];
-        if (next) enqueue(next.id, next.title, 'distill', g.timeoutSecs);
       } catch (e) {
         // A failed check is not worth telling the user about: nothing was promised, and the
         // next tick tries again.

@@ -12,12 +12,18 @@
 
 import { Fragment, type ReactNode } from 'react';
 import { HIGHLIGHT_RE } from './highlight';
+import type { MdSpan } from './markdown';
 
 export interface HitRange {
   start: number;
   end: number;
   idx: number;
 }
+
+// §10.1 — the inline half of Markdown. One more attribute on the same run, for the same
+// reason `highlight` is one: a search hit can overlap a bold span, and flat runs with
+// independent attributes is what lets both render without nesting wrappers.
+export type InlineMark = 'strong' | 'em' | 'code';
 
 export interface ContentRun {
   text: string;
@@ -27,7 +33,22 @@ export interface ContentRun {
   highlight: boolean;
   // Search-hit attribution (§9.10), or null. `active` is the currently-focused hit.
   hit: { idx: number; active: boolean } | null;
+  // §10.1 inline Markdown: **bold**, *italic*, `code`. Markers are stripped like ==.
+  mark?: InlineMark;
 }
+
+// Inline markers, in precedence order — first claim wins, and a later pattern overlapping
+// an already-claimed range is skipped. Code first, because backticks are the one marker
+// whose whole job is "what is inside me is literal".
+//
+// ⚠️ `em` is deliberately the fussiest pattern here. A lone `*` shows up in ordinary prose
+// (「3 * 4」, footnote stars), so it only counts when it hugs its text and follows a
+// boundary — a false italic silently eats two characters of the user's text.
+const INLINE_MARKS: { mark: InlineMark; re: RegExp; cap: number }[] = [
+  { mark: 'code', re: /`([^`\n]+)`/g, cap: 1 },
+  { mark: 'strong', re: /\*\*([^\n]+?)\*\*/g, cap: 2 },
+  { mark: 'em', re: /(?<![*\w])\*(?!\s)([^*\n]*[^*\s\n])\*(?![*\w])/g, cap: 1 },
+];
 
 // End offset of the "spine" — the slightly-heavier opening of a text block. Rule:
 //   - content has a blank line ("\n\n"): spine = everything before the first blank line
@@ -49,6 +70,15 @@ interface TokenizeOptions {
   hits?: readonly HitRange[];
   activeHitIndex?: number;
   withSpine?: boolean;
+  // §10.1: tokenize only this slice, in the SAME coordinate space (hit offsets and marker
+  // positions stay absolute). MarkdownContent renders one structural block at a time and
+  // must not have to remap anything to do it.
+  from?: number;
+  to?: number;
+  // Ranges where inline markers are literal — inside a fenced code block.
+  raw?: readonly MdSpan[];
+  // Marker ranges the parser identified as structure (`## `, `- `, the fences).
+  hidden?: readonly MdSpan[];
 }
 
 // Tokenize content into runs. Offsets (spine end, hit ranges, == matches) all live in the
@@ -58,29 +88,55 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
   const hits = opts.hits ?? [];
   const activeHitIndex = opts.activeHitIndex ?? -1;
   const sEnd = opts.withSpine ? spineEnd(content) : 0;
+  const from = opts.from ?? 0;
+  const to = opts.to ?? content.length;
+  const isRaw = (s: number, e: number): boolean =>
+    (opts.raw ?? []).some((r) => s >= r.start && e <= r.end);
 
   type Interval =
     | { kind: 'hit'; start: number; end: number; idx: number }
     | { kind: 'highlight'; start: number; end: number }
+    | { kind: 'mark'; start: number; end: number; mark: InlineMark }
     | { kind: 'cap'; start: number; end: number };
 
   const intervals: Interval[] = [];
+  // Claimed spans, marker chars included — a later inline pattern that overlaps one is
+  // not a marker at all (「**a *b** c*」 is one bold span, not a tangle).
+  const claimed: MdSpan[] = [];
+  const free = (s: number, e: number): boolean =>
+    !claimed.some((c) => s < c.end && c.start < e) && !isRaw(s, e);
   // Persistent ==…== highlights: inner span is a highlight interval; the surrounding
   // two-char markers are caps (never rendered).
   for (const m of content.matchAll(HIGHLIGHT_RE)) {
     const s = m.index ?? 0;
     const e = s + m[0].length;
+    if (!free(s, e)) continue;
+    claimed.push({ start: s, end: e });
     intervals.push({ kind: 'cap', start: s, end: s + 2 });
     intervals.push({ kind: 'highlight', start: s + 2, end: e - 2 });
     intervals.push({ kind: 'cap', start: e - 2, end: e });
   }
+  // §10.1 inline Markdown, same shape: the marker chars are caps, the inside is a mark.
+  for (const { mark, re, cap } of INLINE_MARKS) {
+    for (const m of content.matchAll(re)) {
+      const s = m.index ?? 0;
+      const e = s + m[0].length;
+      if (!free(s, e)) continue;
+      claimed.push({ start: s, end: e });
+      intervals.push({ kind: 'cap', start: s, end: s + cap });
+      intervals.push({ kind: 'mark', start: s + cap, end: e - cap, mark });
+      intervals.push({ kind: 'cap', start: e - cap, end: e });
+    }
+  }
+  // Structural markers (`## `, `- `, the fences) are hidden exactly like a == cap.
+  for (const h of opts.hidden ?? []) intervals.push({ kind: 'cap', start: h.start, end: h.end });
   for (const h of hits) intervals.push({ kind: 'hit', start: h.start, end: h.end, idx: h.idx });
 
-  const breakpoints = new Set<number>([0, content.length]);
-  if (sEnd > 0 && sEnd < content.length) breakpoints.add(sEnd);
+  const breakpoints = new Set<number>([from, to]);
+  if (sEnd > from && sEnd < to) breakpoints.add(sEnd);
   for (const it of intervals) {
-    breakpoints.add(it.start);
-    breakpoints.add(it.end);
+    if (it.start > from && it.start < to) breakpoints.add(it.start);
+    if (it.end > from && it.end < to) breakpoints.add(it.end);
   }
   const sorted = [...breakpoints].sort((a, b) => a - b);
 
@@ -89,7 +145,7 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
     const segStart = sorted[i]!;
     const segEnd = sorted[i + 1]!;
     if (segStart >= segEnd) continue;
-    // == cap chars: never render visibly.
+    // Marker chars (== caps, ** caps, `## `): never render visibly.
     if (intervals.some((it) => it.kind === 'cap' && segStart >= it.start && segEnd <= it.end)) {
       continue;
     }
@@ -100,22 +156,23 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
     const highlight = intervals.some(
       (it) => it.kind === 'highlight' && segStart >= it.start && segEnd <= it.end,
     );
+    const mark = intervals.find(
+      (it): it is Extract<Interval, { kind: 'mark' }> =>
+        it.kind === 'mark' && segStart >= it.start && segEnd <= it.end,
+    )?.mark;
     runs.push({
       text: content.slice(segStart, segEnd),
       spine: sEnd > 0 && segStart < sEnd,
       highlight,
       hit: hit ? { idx: hit.idx, active: hit.idx === activeHitIndex } : null,
+      mark,
     });
   }
   return runs;
 }
 
-interface ContentRunsProps {
+interface ContentRunsProps extends TokenizeOptions {
   content: string;
-  hits?: readonly HitRange[];
-  activeHitIndex?: number;
-  // Spine applies to block content; off for annotations (which have no title line).
-  withSpine?: boolean;
 }
 
 // Display-only renderer (§2.6 — no rich text). Maps each run to a styled node: the
@@ -123,17 +180,22 @@ interface ContentRunsProps {
 // (var(--selection)), and search hits (active one brighter, with an inset accent ring so
 // orientation holds after landing). Active hit marks keep `data-hit-index` so BlockItem's
 // nav scroll-into-view can target them.
-export function ContentRuns({
-  content,
-  hits,
-  activeHitIndex = -1,
-  withSpine = false,
-}: ContentRunsProps): ReactNode {
-  const runs = tokenizeContent(content, { hits, activeHitIndex, withSpine });
+export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
+  const runs = tokenizeContent(content, opts);
   return (
     <Fragment>
       {runs.map((run, i) => {
-        const spineCls = run.spine ? 'font-medium' : '';
+        // §10.1: an inline mark composes with everything else — it is a class (and, for
+        // code, an element), never a wrapper that would nest inside a hit or a highlight.
+        const markCls =
+          run.mark === 'strong'
+            ? 'font-semibold text-ink'
+            : run.mark === 'em'
+              ? 'italic'
+              : run.mark === 'code'
+                ? 'rounded-sm bg-paper-2 px-1 font-mono text-[0.9em] text-ink'
+                : '';
+        const spineCls = `${run.spine ? 'font-medium' : ''} ${markCls}`.trim();
         if (run.hit) {
           return (
             <mark
@@ -159,9 +221,16 @@ export function ContentRuns({
             </mark>
           );
         }
-        if (run.spine) {
+        if (run.mark === 'code') {
           return (
-            <span key={i} className="font-medium">
+            <code key={i} className={markCls}>
+              {run.text}
+            </code>
+          );
+        }
+        if (spineCls) {
+          return (
+            <span key={i} className={spineCls}>
               {run.text}
             </span>
           );

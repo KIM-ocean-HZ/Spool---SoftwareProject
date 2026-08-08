@@ -1917,6 +1917,9 @@ const DIGEST_BLOCK_CHAR_CAP: usize = 600;
 // Pinned anchor lines for threads without window activity. R3 friction #4: 80 read
 // too short in the field — pins are user-curated core, give them most of a line.
 const DIGEST_ANCHOR_CHARS: usize = 160;
+// Deadlines listed before the rest is trimmed (§11.4-D). Capped so this section stays a
+// line item rather than a second catalogue; the ones cut are the furthest away.
+const DIGEST_DEADLINE_CAP: usize = 8;
 
 // Local midnight of the calendar day `days_back` days before `now_ms`. Subtracting on
 // tm_mday (mktime normalizes out-of-range fields, tm_isdst = -1 resolves DST) keeps the
@@ -1931,6 +1934,19 @@ fn window_start_ms(now_ms: i64, days_back: i64) -> i64 {
     tm.tm_isdst = -1;
     let secs = unsafe { libc::mktime(&mut tm) };
     (secs as i64) * 1000
+}
+
+// Whole calendar days from `now_ms` to a deadline — 0 the day it is due, negative once it
+// is late. A port of dueInDays (src/lib/threads/deadline.ts), and it has to stay one: the
+// sidebar's countdown badge and this line are the same number shown twice, and a digest
+// saying 「还剩 1 天」 under a badge saying 「今天到期」 is worse than no line at all. Both
+// compare LOCAL MIDNIGHTS — a deadline is stored as the last moment of its day, so
+// subtracting raw timestamps reads "1 day left" all through the morning it is due.
+// Rounding, not truncating division, because a DST boundary makes one of those days 23
+// or 25 hours long.
+fn days_until(deadline_ms: i64, now_ms: i64) -> i64 {
+    let diff = window_start_ms(deadline_ms, 0) - window_start_ms(now_ms, 0);
+    (diff as f64 / 86_400_000.0).round() as i64
 }
 
 // One digest block entry: the shared header line capped at DIGEST_BLOCK_CHAR_CAP plus
@@ -1972,12 +1988,13 @@ fn get_digest_json(
         updated_at: i64,
         summary: Option<String>,
         total_blocks: i64,
+        deadline: Option<i64>,
     }
     let ws_clause = if ws_id.is_some() { "AND w.id = ?1" } else { "" };
     // Same GROUP BY aggregate as list_threads (6a) — no per-row correlated COUNT.
     let sql = format!(
         "SELECT t.id, t.title, w.title, t.status, t.updated_at, t.summary,
-                COALESCE(bc.cnt, 0)
+                COALESCE(bc.cnt, 0), t.deadline
          FROM threads t
          JOIN workspaces w ON w.id = t.workspace_id
          LEFT JOIN (SELECT thread_id, COUNT(*) AS cnt FROM blocks GROUP BY thread_id) bc
@@ -1994,6 +2011,7 @@ fn get_digest_json(
             updated_at: r.get(4)?,
             summary: r.get(5)?,
             total_blocks: r.get(6)?,
+            deadline: r.get(7)?,
         })
     };
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -2135,6 +2153,56 @@ fn get_digest_json(
         "Authority categories per get_pack's reading header; source labels preserved.".to_string(),
     );
 
+    // §11.4-D (Ocean 2026-08-11:「可以和截止日期放在一起,作为日程进度的回报」). A project with
+    // a deadline and no activity in the window is otherwise INVISIBLE in a digest — no
+    // chunk, no anchor, just +1 in the tail's count — and that is exactly the project a
+    // review has to raise. So this list is built from every in-scope project, not from the
+    // active ones, and each line says whether anything moved. A finished project keeps its
+    // deadline but is never due (same rule as the sidebar badge). Emitted here, before the
+    // budget is computed, so a due date is never what gets trimmed: it is a handful of
+    // lines and it is the one fact in here with a clock on it.
+    let active_ids: std::collections::HashSet<&str> =
+        active.iter().map(|t| t.meta.id.as_str()).collect();
+    let mut due: Vec<(&ThreadMeta, i64)> = threads
+        .iter()
+        .filter(|m| m.status != "done")
+        .filter_map(|m| m.deadline.map(|d| (m, days_until(d, now_ms))))
+        .collect();
+    due.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.id.cmp(&b.0.id)));
+    if !due.is_empty() {
+        out.push(String::new());
+        out.push(t!(
+            "## 截止日期(最近的在前;只列还没完成、且设了日期的项目)",
+            "## Deadlines (soonest first; only unfinished projects that have one)"
+        ));
+        for (meta, days) in due.iter().take(DIGEST_DEADLINE_CAP) {
+            let days = *days;
+            let when = match days {
+                d if d < 0 => t!("已逾期 {} 天", "{} days overdue", -d),
+                0 => t!("今天到期", "due today"),
+                1 => t!("明天到期", "due tomorrow"),
+                d => t!("还剩 {d} 天", "{d} days left"),
+            };
+            let moved = if active_ids.contains(meta.id.as_str()) {
+                String::new()
+            } else {
+                t!(" · 窗口内无新块", " · no new blocks in the window")
+            };
+            out.push(format!(
+                "- {}: {} · {when}{moved}",
+                if meta.title.is_empty() { untitled() } else { &meta.title },
+                format_pack_date(meta.deadline.unwrap()),
+            ));
+        }
+        if due.len() > DIGEST_DEADLINE_CAP {
+            let n = due.len() - DIGEST_DEADLINE_CAP;
+            out.push(t!(
+                "(+ {n} 个更晚的截止日期未列出)",
+                "(+ {n} later deadlines not listed)"
+            ));
+        }
+    }
+
     if active.is_empty() && anchors.is_empty() {
         out.push(String::new());
         out.push(t!(
@@ -2149,7 +2217,8 @@ fn get_digest_json(
     // Budget accounting. Costs count chars + the joining newline per line. R3 BUG-3/4
     // rewrite: everything — section headers, per-thread fallback mentions, anchor
     // lines, the tail — is accounted, so output stays ≤ max_chars whenever the
-    // mandatory floor (header + one mention per active thread + tail) itself fits;
+    // mandatory floor (header + deadlines + one mention per active thread + tail)
+    // itself fits;
     // and threads upgrade from mention to full chunk in ACTIVITY order, so a less
     // active thread can never render in full while a more active one is degraded.
     let cost = |lines: &[String]| -> i64 {
@@ -4261,6 +4330,7 @@ fn tools_descriptor() -> Value {
         {
             "name": "list_threads",
             "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts and approx_pack_chars. Two clocks per project: last_block_at is when a block was last added (null if the project has none) and is what the rows are ordered by inside each workspace; updated_at moves on any change at all, including an AI-written summary. Neither distinguishes your own writes from the user's. approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
+            "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -4286,6 +4356,7 @@ fn tools_descriptor() -> Value {
         {
             "name": "get_pack",
             "description": "Return Spool's paste-ready context briefing (the 'pack') for one project — the full project context a user would otherwise paste by hand. The text starts with reading instructions; follow them. Output is capped at 50,000 chars by default: an over-budget call still returns a pack — reading header and Pinned Blocks complete, Full Record filled newest-first to the budget, and if that alone overflows, inlined attachment text is squeezed too. Every cut is stated in place (how many older blocks were omitted, how many chars of a file's text were dropped) and how to read the rest: get_blocks paging, or max_chars=0 for the full text.",
+            "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -5306,12 +5377,41 @@ fn write_gate_line(dir: &std::path::Path) -> &'static str {
     }
 }
 
-fn weekly_review_prompt_text(digest: &str, gate: &str) -> String {
+// §11.2-C (Ocean 2026-08-11:「去重压缩 ai 都会在最后提问一句,没有用」). What happens to the
+// finished review is the one step that differs by who is in the room. A chat client HAS a
+// human — asking before writing is the whole consent design there. Spool's engine slot does
+// not: it runs the CLI headless, so all three engines faithfully ended every run with a
+// question nobody could answer (§7.6-bis, three confirmations). Consent there is a button on
+// the run card, and it happens after the run, not inside it.
+fn review_filing_line(headless: bool) -> &'static str {
+    if headless {
+        ts!(
+            "这一次是 Spool 在后台替用户跑的,屏幕前没有人。⚠️ 不要在结尾问「你同意吗」\
+             「要我存起来吗」这类话——没有人会回答;也不要调用 add_block 或任何别的写入工具。\
+             把回顾本身写出来就行,用户会在 Spool 的运行卡片上自己点「存成一块」。",
+            "Spool ran this for the user in the background; nobody is at the screen. \
+             \u{26a0}\u{fe0f} Do not close by asking whether they agree or whether you should \
+             save it — no one is there to answer — and do not call add_block or any other write \
+             tool. Just write the review: the user files it themselves with \u{201c}Store as a \
+             block\u{201d} on the run card in Spool."
+        )
+    } else {
+        ts!(
+            "先把回顾讲给用户看。他点头之后,才用 add_block 存成一块——存到哪个项目由他定\
+             (也可以让他新建一个专门放回顾的项目);批注里写清这是哪段时间的回顾。",
+            "Show the review to the user first. Only after they say yes, store it as one block \
+             with add_block — they choose which project (they may want a new one just for \
+             reviews); the annotation should say which stretch of time it covers."
+        )
+    }
+}
+
+fn weekly_review_prompt_text(digest: &str, filing: &str, gate: &str) -> String {
     let material = fenced_material(digest);
     let rule = material_rule();
     t!(
-        "你在帮用户做一次回顾。下面是 Spool 生成的跨项目摘要(digest),它是这次回顾唯一的事实来源。\n\n# Digest\n{material}\n\n# 你要做的\n1. 先读 digest 顶部的选取规则:它只包含窗口内每个项目最新几块加全部置顶,不是全部记录。要展开某个项目,先用 get_pack / get_blocks 补读,再下判断。\n2. 写一份回顾,四段,用大白话,别用项目管理黑话:\n   - 这段时间真正推进了什么(按项目讲,点名项目标题)\n   - 用户自己写下的东西说明他在纠结什么(💭 无来源的块和 note: 行是最高信号,==高亮== 是他自己划的重点)\n   - 哪些项目停住了(digest 末尾的置顶锚点和\"无活动\"计数)\n   - 接下来可以先做的一件事——每个项目最多一条,用建议的语气,不要命令\n3. digest 里看不出来的就说看不出来,绝不编。\n4. 先把回顾讲给用户看。他点头之后,才用 add_block 存成一块——存到哪个项目由他定(也可以让他新建一个专门放回顾的项目);批注里写清这是哪段时间的回顾。\n5. 全程用项目标题称呼项目,绝不把 id 说出来或写进内容。\n6. {rule}\n{gate}",
-        "You are helping the user look back over a stretch of time. Below is the cross-project digest Spool generated; it is the only source of fact for this review.\n\n# Digest\n{material}\n\n# What to do\n1. Read the selection rules at the top of the digest first: it holds only the newest few blocks per project in the window plus every pinned block — not the full record. To open a project up, read more with get_pack / get_blocks before judging it.\n2. Write the review in four parts, in plain language, with no project-management jargon:\n   - what actually moved forward (project by project, naming each project title)\n   - what the user's own writing says they are wrestling with (💭 sourceless blocks and note: lines are the highest signal; ==highlights== are what they marked themselves)\n   - which projects have stalled (the pinned anchors and the \"no activity\" count at the end of the digest)\n   - one thing worth doing next — at most one per project, phrased as a suggestion, never an order\n3. If the digest does not show something, say so. Never invent.\n4. Show the review to the user first. Only after they say yes, store it as one block with add_block — they choose which project (they may want a new one just for reviews); the annotation should say which stretch of time it covers.\n5. Refer to projects by title throughout. Never say an id out loud or write one into the content.\n6. {rule}\n{gate}"
+        "你在帮用户做一次回顾。下面是 Spool 生成的跨项目摘要(digest),它是这次回顾唯一的事实来源。\n\n# Digest\n{material}\n\n# 你要做的\n1. 先读 digest 顶部的选取规则:它只包含窗口内每个项目最新几块加全部置顶,不是全部记录。要展开某个项目,先用 get_pack / get_blocks 补读,再下判断。\n2. 按项目写,**一个项目一段**,用大白话,别用项目管理黑话。每段三行:\n   - **做了什么**:这段时间这个项目真正推进的事。\n   - **还剩什么**:没定下来的、卡住的、下一步要碰的(💭 无来源的块和 note: 行是最高信号,==高亮== 是他自己划的重点)。\n   - **离截止还有几天**:照抄 digest 顶部「截止日期」那一节里这个项目的那一行;那一节里没有它,就写「没设截止日期」。⚠️ 别自己算日期,更别把块正文里写的日期当成项目的截止日期——那是块里的内容,不是这个项目的截止日期。\n3. 哪些项目要各占一段:digest「近期活跃」里的每一个;另外,只在「截止日期」一节或末尾置顶锚点里出现、而「近期活跃」里没有的,也各占一段,「做了什么」那一行就写「这一周没动」。末尾\"无活动\"计数里的其余项目连标题都不在 digest 里,一句话带过就行,别点名。\n4. 段的顺序按截止日期排,最紧的、已逾期的排最前,没设截止日期的排在最后。全部写完之后,用一句话说接下来最该先做的那一件事——建议的语气,不要命令。\n5. digest 里看不出来的就说看不出来,绝不编。\n6. {filing}\n7. 全程用项目标题称呼项目,绝不把 id 说出来或写进内容。\n8. {rule}\n{gate}",
+        "You are helping the user look back over a stretch of time. Below is the cross-project digest Spool generated; it is the only source of fact for this review.\n\n# Digest\n{material}\n\n# What to do\n1. Read the selection rules at the top of the digest first: it holds only the newest few blocks per project in the window plus every pinned block — not the full record. To open a project up, read more with get_pack / get_blocks before judging it.\n2. Write it project by project, **one paragraph per project**, in plain language, with no project-management jargon. Three lines each:\n   - **What moved**: what this project actually got done in this stretch.\n   - **What is left**: what is unsettled, stuck, or next to touch (\u{1f4ad} sourceless blocks and note: lines are the highest signal; ==highlights== are what they marked themselves).\n   - **Days to the deadline**: copy this project's line from the \u{201c}Deadlines\u{201d} section at the top of the digest; if it is not in that section, write \u{201c}no deadline set\u{201d}. \u{26a0}\u{fe0f} Do not work a date out yourself, and never read a date written inside a block as the project's deadline — that is content in a block, not this project's due date.\n3. Which projects get a paragraph: every one under \u{201c}Recently active\u{201d}; plus any that appears only in the Deadlines section or the pinned anchors at the end and NOT under Recently active — those get a paragraph too, with \u{201c}nothing this week\u{201d} as the first line. The rest, counted in the \"no activity\" tail, are not even named in the digest: mention them in one clause and name none of them.\n4. Order the paragraphs by deadline — overdue and tightest first, projects with no deadline last. After the last one, say in a single sentence the one thing worth doing next: a suggestion, never an order.\n5. If the digest does not show something, say so. Never invent.\n6. {filing}\n7. Refer to projects by title throughout. Never say an id out loud or write one into the content.\n8. {rule}\n{gate}"
     )
 }
 
@@ -5539,6 +5639,17 @@ fn project_chooser_text(conn: &Connection, what: &str, arg: &str) -> Result<Stri
 // passes the same {"project": …} shape a client would, so a wording change here reaches
 // both the MCP prompt and the GUI action in one edit.
 pub fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
+    guidance_text_for(name, args, false)
+}
+
+/// The same assemblies, worded for a run with nobody watching — Spool's own engine slot
+/// (§11.2-C). The MCP surfaces must keep calling `guidance_text`: there a human is reading
+/// the chat, and asking before writing is the consent design, not filler.
+pub fn guidance_text_headless(name: &str, args: &Value) -> Result<String, String> {
+    guidance_text_for(name, args, true)
+}
+
+fn guidance_text_for(name: &str, args: &Value, headless: bool) -> Result<String, String> {
     let num = |k: &str| -> Option<i64> {
         let v = args.get(k)?;
         v.as_i64()
@@ -5577,7 +5688,10 @@ pub fn guidance_text(name: &str, args: &Value) -> Result<String, String> {
                 None,
                 now_ms(),
             )?;
-            Ok(weekly_review_prompt_text(&digest, write_gate_line(dir)))
+            // Headless: no write gate line either — it is advice about when to call a
+            // write tool, and the answer in the engine slot is "never" (review_filing_line).
+            let gate = if headless { "" } else { write_gate_line(dir) };
+            Ok(weekly_review_prompt_text(&digest, review_filing_line(headless), gate))
         }),
         "thread_health" => prompt_body(|dir, conn| {
             let Some(key) = project else {
@@ -6274,6 +6388,50 @@ mod tests {
         assert_eq!(s.len(), 16);
         assert_eq!(&s[4..5], "-");
         assert_eq!(&s[13..14], ":");
+    }
+
+    /// ⚠️ **Every tool needs `annotations`, and a missing one is invisible until a real run.**
+    ///
+    /// 2026-08-11, measured against codex 0.146.1: `list_threads` and `get_pack` were the only
+    /// two entries here without an annotations object, and on codex that made them
+    /// **uncallable** — every call came back `user cancelled MCP tool call` while the annotated
+    /// tools beside them answered normally. `codex exec` runs with `approval_policy="never"`,
+    /// so a tool it cannot see a `readOnlyHint` on falls into an approval path that, headless,
+    /// nobody is there to answer.
+    ///
+    /// The cost of the omission was the whole 周回顾 feature on that engine: its prompt says to
+    /// expand a project with `get_pack`, so every review came back "读取被取消了" — and
+    /// `list_threads` is the first call the server's own instructions tell a client to make.
+    ///
+    /// Nothing else fails when an annotation is forgotten: the tool lists, describes and runs
+    /// correctly everywhere it is tested, and only a live third-party client refuses it.
+    #[test]
+    fn every_tool_declares_its_read_write_annotation() {
+        let tools = tools_descriptor();
+        // Both spellings of "this is safe to run unasked" are legitimate; what is not
+        // legitimate is saying nothing at all.
+        for tool in tools.as_array().expect("the descriptor is an array") {
+            let name = tool["name"].as_str().expect("every tool is named");
+            let hint = tool
+                .get("annotations")
+                .unwrap_or_else(|| panic!("{name} has no annotations — codex cannot call it"))
+                .get("readOnlyHint")
+                .unwrap_or_else(|| panic!("{name}'s annotations do not say whether it writes"));
+            assert!(hint.is_boolean(), "{name}'s readOnlyHint must be a bool");
+        }
+        // The four that write are the four that may say so; anything else claiming to write
+        // would be a copy-paste of the wrong annotation block.
+        let writers: Vec<&str> = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["annotations"]["readOnlyHint"] == json!(false))
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            writers,
+            ["create_thread", "add_block", "propose_blocks", "set_thread_summary"]
+        );
     }
 
     // DESIGN_FOLLOW_UP §3.2 / §3.4. The two properties worth pinning are the gate (no
@@ -7345,6 +7503,108 @@ mod tests {
         assert!(d_empty.contains("窗口内没有新块"), "{d_empty}");
     }
 
+    // §11.4-D (Ocean 2026-08-11): the digest carries the deadlines, so a review can pair
+    // 「推进了什么」 with 「还剩几天」. The case that matters is the project with a date and
+    // NOTHING in the window — it has no chunk and no anchor, so without this section the
+    // review cannot see it at all.
+    #[test]
+    fn digest_lists_deadlines_soonest_first() {
+        store_lang(Lang::Zh);
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        let now: i64 = 1_752_148_800_000; // 2026-07-10, local noon-ish
+        let day = 86_400_000i64;
+        // A deadline is stored as the last moment of its day — the fixtures say so, or
+        // days_until is not being tested the way the app stores dates.
+        let end_of = |d: i64| window_start_ms(now, 0) + d * day + day - 1;
+        conn.execute_batch(&format!(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, deadline, created_at, updated_at)
+               VALUES
+               ('t1', 'ws1', '申请规划', 'active', {far},   1, {now}),
+               ('t2', 'ws1', '推荐信',   'active', {today}, 1, 100),
+               ('t3', 'ws1', '报名',     'active', {late},  1, 100),
+               ('t4', 'ws1', '已交的论文','done',   {soon},  1, 100),
+               ('t5', 'ws1', '没日期的', 'active', NULL,    1, {now});
+             INSERT INTO blocks (id, thread_id, kind, content, pinned, created_at) VALUES
+               ('b1', 't1', 'text', '今天写了个人陈述', 0, {now}),
+               ('b5', 't5', 'text', '今天也动了这个', 0, {now});",
+            now = now,
+            far = end_of(12),
+            today = end_of(0),
+            late = end_of(-3),
+            soon = end_of(1),
+        ))
+        .unwrap();
+
+        let d = get_digest_json(&conn, None, Some(7), None, now).unwrap();
+        let section = d.find("## 截止日期").expect("deadline section missing");
+        // Soonest first: overdue, then today, then the far one.
+        let i_late = d.find("- 报名:").unwrap();
+        let i_today = d.find("- 推荐信:").unwrap();
+        let i_far = d.find("- 申请规划:").unwrap();
+        assert!(section < i_late && i_late < i_today && i_today < i_far, "{d}");
+        // Calendar days, not elapsed ms: a deadline that expires tonight is 「今天到期」.
+        assert!(d.contains("- 推荐信: 2025-07-10 · 今天到期 · 窗口内无新块"), "{d}");
+        assert!(d.contains("- 报名: 2025-07-07 · 已逾期 3 天 · 窗口内无新块"), "{d}");
+        // Something moved in 申请规划 this window, so it carries no "nothing moved" mark.
+        assert!(d.contains("- 申请规划: 2025-07-22 · 还剩 12 天\n"), "{d}");
+        // A finished project is never due, and a project without a date is not listed.
+        assert!(!d.contains("已交的论文"), "{d}");
+        assert!(!section_of(&d, "## 截止日期").contains("没日期的"), "{d}");
+        // The section sits above the activity, is charged to the budget like everything
+        // else, and is never what a squeeze drops — the blocks degrade to mentions first.
+        assert!(section < d.find("## 近期活跃").unwrap(), "{d}");
+        for budget in [600i64, 800, 1500] {
+            let small = get_digest_json(&conn, None, Some(7), Some(budget), now).unwrap();
+            assert!(
+                small.chars().count() as i64 <= budget,
+                "budget {budget} → {} chars",
+                small.chars().count()
+            );
+            assert!(small.contains("- 报名: 2025-07-07"), "deadline dropped at {budget}: {small}");
+        }
+
+        // The other half of D: a date in the material is worth nothing unless the review
+        // instructions tell the model to measure the week against it.
+        let prompt = weekly_review_prompt_text(&d, review_filing_line(false), "写入已开启");
+        assert!(prompt.contains("一个项目一段"), "{prompt}");
+        assert!(prompt.contains("离截止还有几天"), "{prompt}");
+
+        // No deadlines anywhere → no section at all (and no empty header).
+        conn.execute("UPDATE threads SET deadline = NULL", []).unwrap();
+        let none = get_digest_json(&conn, None, Some(7), None, now).unwrap();
+        assert!(!none.contains("## 截止日期"), "{none}");
+    }
+
+    // §11.2-C: the same review, two rooms. Spool's engine slot runs headless — every engine
+    // faithfully closed with 「你同意吗」 because the prompt told it to ask, and nobody was
+    // there. A chat client keeps the question: that is where consent actually happens.
+    #[test]
+    fn headless_review_asks_nobody_for_a_yes() {
+        store_lang(Lang::Zh);
+        let headless = weekly_review_prompt_text("D", review_filing_line(true), "");
+        assert!(headless.contains("没有人会回答"), "{headless}");
+        assert!(headless.contains("运行卡片"), "{headless}");
+        assert!(!headless.contains("他点头之后"), "{headless}");
+        assert!(!headless.contains("add_block 存成一块"), "{headless}");
+
+        let chat = weekly_review_prompt_text("D", review_filing_line(false), "写入已开启");
+        assert!(chat.contains("他点头之后"), "{chat}");
+        assert!(chat.contains("写入已开启"), "{chat}");
+    }
+
+    // The lines between one "## " heading and the next.
+    fn section_of<'a>(text: &'a str, heading: &str) -> &'a str {
+        let start = text.find(heading).expect("heading missing");
+        let rest = &text[start + heading.len()..];
+        match rest.find("\n## ") {
+            Some(end) => &rest[..end],
+            None => rest,
+        }
+    }
+
     // D-1 / D-2 (三方评审 2026-08-04, Ocean 拍板): the write surfaces refuse a raw id
     // outright — the old behaviour warned AFTER committing, so the reviewer's test block
     // is a permanent library finding to this day. Plus §3.1-2's dry_run.
@@ -8006,7 +8266,7 @@ mod tests {
         let health = thread_health_prompt_text(&report, gate);
         assert!(health.contains("# 项目体检"));
         let digest = get_digest_json(&conn, None, Some(7), None, 1_750_000_000_000).unwrap();
-        let weekly = weekly_review_prompt_text(&digest, gate);
+        let weekly = weekly_review_prompt_text(&digest, review_filing_line(false), gate);
         assert!(weekly.contains("# Spool Digest"));
         let built = build_pack(&conn, "t1", "all").unwrap();
         let ids = pack_id_table(&built.blocks, 0);

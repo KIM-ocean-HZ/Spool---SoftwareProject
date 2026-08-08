@@ -74,20 +74,30 @@ export const countAiBlocks = (blocks: readonly Block[]): number =>
  *     dismisses a card. It used to only grey the card, so a rail you had dealt with
  *     entirely still looked full — and the pile only ever grew. The DATABASE row stays
  *     either way: it is what makes the 7-day spend figure true.
- *   * **Only this project's, plus the ones that belong to no project.** A 周回顾 reads the
- *     whole library (`threadId === null`), so it shows wherever you are; everything else
- *     belongs to one project and must not appear under another (§3.4's ambiguity).
+ *   * **Only this project's.** Everything else belongs to one project and must not appear
+ *     under another (§3.4's ambiguity).
+ *
+ * ⚠️ **And 周回顾 is not "this project's" anywhere.** It used to be shown in every project's
+ * rail on the reasoning that a library-wide run belongs everywhere; Ocean read that as the
+ * opposite — 「周回顾出现在了升学规划区？是对应每个规划区一个回顾吗？还是什么逻辑？」 — which
+ * is the same ambiguity §3.4 removed from the OTHER direction. A thing that belongs to every
+ * project shown inside one project reads as belonging to that one. It has its own view now
+ * (components/ReviewBoard), and that is the only place it appears.
  *
  * A pure function rather than a filter inline in the component, because "the card went
  * away when I dismissed it" is exactly the kind of thing no automated check in this project
  * can see (HANDOFF §6.2-bis: synthetic clicks do not drive the webview).
  */
-export const visibleRuns = <T extends { threadId: string | null; reviewedAt: number | null }>(
+export const visibleRuns = <
+  T extends { action: string; threadId: string | null; reviewedAt: number | null },
+>(
   runs: readonly T[],
   threadId: string | null,
 ): T[] =>
   runs.filter(
     (r) =>
       r.reviewedAt === null &&
-      (r.threadId === null || (threadId !== null && r.threadId === threadId)),
+      r.action !== 'weekly_review' &&
+      threadId !== null &&
+      r.threadId === threadId,
   );

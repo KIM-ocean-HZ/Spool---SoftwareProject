@@ -53,7 +53,7 @@ export const ACTION_LABEL: Record<EngineAction, string> = {
   distill: '压缩',
   thread_health: '去重',
   weekly_review: '周回顾',
-  follow_up_brief: '起草跟进目标',
+  follow_up_brief: '找出还没解决的问题',
   follow_up: '跟进',
 };
 
@@ -98,14 +98,14 @@ export interface EngineTask {
   action: EngineAction;
 }
 
-/** DESIGN_FOLLOW_UP §3.2: 起草跟进目标 is the one action whose OUTPUT is the point — the
+/** DESIGN_FOLLOW_UP §3.2: 找出还没解决的问题 is the one action whose OUTPUT is the point — the
  *  draft brief comes back as text for the user to read and edit, and nothing is stored
  *  until they say so. Every other action's product is blocks or proposals, which the run
  *  has already put in the database by the time it returns. */
 type ResultHandler = (result: string) => void;
 
 /** What one run hands back. DESIGN_WORKBENCH §4.1: this used to be a bare string, and the
- *  string was thrown away for every action but 起草跟进目标 — which is why a weekly review
+ *  string was thrown away for every action but 找出还没解决的问题 — which is why a weekly review
  *  the AI had fully written came back to the user as "跑完了，没有新增块" (§1.1). */
 interface EngineRunResult {
   result: string;
@@ -351,12 +351,21 @@ export const useEngineStore = create<EngineState>((set, get) => {
       // 去重 are told to say their conclusion and store it only once the user agrees;
       // headless, nobody can agree, so writing nothing is CORRECT and "没有新增块" described
       // it as if the AI had idled. What it produced is on the run card now, so point there.
+      //
+      // ⚠️ 「有回话」, not 「写好了」 — 2026-08-11. A weekly review that came back saying it had
+      // REFUSED to write one ("读取被取消了…我先不拼凑回顾") was announced as 「AI 写好了」, so
+      // Ocean stored a non-review believing it was a review. Spool cannot judge whether prose
+      // is an answer or an apology, and must therefore not claim it is either.
       toast.notice(
         written > 0
           ? t('{action}：AI 归档了 {n} 块', { action: label, n: written })
-          : resultText.trim()
-            ? t('{action}：AI 写好了，在右边等你过目', { action: label })
-            : t('{action}：跑完了，没有新增块', { action: label }),
+          : !resultText.trim()
+            ? t('{action}：跑完了，没有新增块', { action: label })
+            : // A review is not in the rail any more — it is in its own view (ReviewBoard),
+              // so pointing right would point at nothing.
+              next.action === 'weekly_review'
+              ? t('周回顾跑完了，在左边「周回顾」里')
+              : t('{action}：AI 有回话，在右边等你过目', { action: label }),
       );
     } else if (outcome === 'cancelled') {
       // Stopping is not undoing. If something already landed, say so — the user will
@@ -378,7 +387,7 @@ export const useEngineStore = create<EngineState>((set, get) => {
       );
     }
 
-    // The run goes to the database before the queue moves on. 起草跟进目标 is the one
+    // The run goes to the database before the queue moves on. 找出还没解决的问题 is the one
     // exception: its draft is already in the panel the user is staring at, and it is not a
     // finding — storing every discarded draft would bury the cards that do want an answer.
     if (next.action !== 'follow_up_brief') {

@@ -97,7 +97,9 @@ async fn ai_engine_run(
         } else {
             serde_json::json!({ "project": project })
         };
-        let prompt = mcp::guidance_text(&action, &args)?;
+        // §11.2-C: the headless wording. Nobody is at the screen for an engine-slot run, so
+        // the prompt must not end by asking for a yes — the run card is where the user says it.
+        let prompt = mcp::guidance_text_headless(&action, &args)?;
         // max_turns: the agentic loop needs a few turns (read the material, then write one
         // block); 12 is generous for that and still a hard stop. A follow-up spends turns
         // searching before it has anything to propose, so it gets more — still a ceiling,

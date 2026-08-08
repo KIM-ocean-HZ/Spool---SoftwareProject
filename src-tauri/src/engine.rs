@@ -1020,6 +1020,48 @@ pub fn parse_codex_usage(stdout: &str) -> RunUsage {
     usage
 }
 
+/// The `{…}` envelope out of one of gemini's streams, or None when there is not one there.
+///
+/// ⚠️ **The envelope is not alone on its stream.** gemini prints its own warnings first —
+/// measured 2026-08-11: a deprecation notice for `tools.exclude` and "YOLO mode is enabled"
+/// both land above it — so parsing the stream whole fails on text gemini considers ordinary.
+/// The envelope is the LAST thing printed and is pretty-printed with its opening brace alone
+/// on a line, which is what the search below keys on.
+fn gemini_envelope_value(stream: &str) -> Option<serde_json::Value> {
+    let text = stream.trim();
+    if text.is_empty() {
+        return None;
+    }
+    // Whole-stream first: that is the shape of a clean run, and of any future version that
+    // stops narrating to the same stream.
+    serde_json::from_str(text).ok().or_else(|| {
+        let start = text.rfind("\n{")? + 1;
+        serde_json::from_str(text[start..].trim()).ok()
+    })
+}
+
+/// gemini's own words for a run that failed, or None when it never printed an envelope.
+///
+/// ⚠️ **This exists so a parse failure can never impersonate the CLI.** Until 2026-08-11 the
+/// caller took `parse_gemini_envelope(&stdout).err()` as "what gemini said", and that Err is
+/// also what comes back when stdout holds nothing to read — so a run that failed for a reason
+/// gemini had spelled out on stderr was reported to the user as
+/// `could not read the CLI's JSON output: EOF while parsing a value at line 1 column 0`,
+/// with the real sentence ("Please set an Auth method…") thrown away. Ocean hit exactly that
+/// and could not act on it. Returning None here is what lets the caller fall through to
+/// stderr, which is the whole point of §2.3's pass-the-CLI's-words-through rule.
+pub fn parse_gemini_error(stdout: &str, stderr: &str) -> Option<String> {
+    [stdout, stderr].into_iter().find_map(|stream| {
+        Some(
+            gemini_envelope_value(stream)?
+                .get("error")?
+                .get("message")?
+                .as_str()?
+                .to_string(),
+        )
+    })
+}
+
 /// gemini's `-o json` envelope is `{session_id, response, stats}` — a different shape from
 /// claude's, so it gets its own reader rather than a serde alias that would quietly accept
 /// half of either.
@@ -1034,9 +1076,14 @@ pub fn parse_codex_usage(stdout: &str) -> RunUsage {
 ///
 /// A failed run reports `{"error": {...}}` instead of `response`, and the CLI's own words are
 /// the useful ones (over quota / bad key), so they are passed through unchanged.
-pub fn parse_gemini_envelope(stdout: &str) -> Result<RunEnvelope, String> {
-    let value: serde_json::Value = serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("could not read the CLI's JSON output: {e}"))?;
+///
+/// ⚠️ **Which stream the envelope lands on is not fixed** — measured on gemini 0.54.4,
+/// 2026-08-11: a run that cannot authenticate prints the whole `-o json` envelope to
+/// **stderr** and leaves stdout completely empty. So both are searched, stdout first.
+pub fn parse_gemini_envelope(stdout: &str, stderr: &str) -> Result<RunEnvelope, String> {
+    let value = gemini_envelope_value(stdout)
+        .or_else(|| gemini_envelope_value(stderr))
+        .ok_or_else(|| "the CLI printed no JSON output".to_string())?;
     if let Some(err) = value.get("error") {
         let msg = err
             .get("message")
@@ -1368,8 +1415,11 @@ pub fn run_action(
             EngineKind::Claude => None,
             // gemini exits non-zero on quota exhaustion and still prints its envelope, whose
             // `error.message` is the sentence worth showing ("You have exhausted your daily
-            // quota on this model"). stderr on that path is a node stack trace.
-            EngineKind::Gemini => parse_gemini_envelope(&stdout).err(),
+            // quota on this model"). ⚠️ On the auth-failure path that envelope is on STDERR
+            // and stdout is empty (measured 2026-08-11), so both are searched — and a stream
+            // with no envelope in it yields None rather than a parser's complaint, which is
+            // what lets the fallback below show gemini's raw output instead.
+            EngineKind::Gemini => parse_gemini_error(&stdout, &stderr),
         };
         return finish(Err(said.unwrap_or_else(|| {
             if stderr.is_empty() { stdout.trim().to_string() } else { stderr }
@@ -1414,7 +1464,7 @@ pub fn run_action(
         }
         // A zero exit can still carry `{"error":…}`, same as codex — parse_gemini_envelope
         // returns that as Err, so this one call covers both outcomes.
-        EngineKind::Gemini => finish(parse_gemini_envelope(&stdout).map(|env| (kind, env))),
+        EngineKind::Gemini => finish(parse_gemini_envelope(&stdout, &stderr).map(|env| (kind, env))),
     }
 }
 
@@ -1777,7 +1827,7 @@ mod tests {
             }
           }}
         }"#;
-        let env = parse_gemini_envelope(out).expect("a successful envelope");
+        let env = parse_gemini_envelope(out, "").expect("a successful envelope");
         assert!(!env.is_error);
         assert_eq!(env.result, "「升学」项目的体检结果出来了");
         // ⚠️ The model that RAN, not the one asked for — `-m` is a request, not a pin, and a
@@ -1795,8 +1845,40 @@ mod tests {
     #[test]
     fn gemini_quota_failure_passes_the_clis_own_words_through() {
         let out = r#"{"session_id":"9cd68c95","error":{"type":"Error","message":"You have exhausted your daily quota on this model.","code":1}}"#;
-        let err = parse_gemini_envelope(out).expect_err("an error envelope must not parse as success");
+        let err = parse_gemini_envelope(out, "").expect_err("an error envelope must not parse as success");
         assert_eq!(err, "You have exhausted your daily quota on this model.");
+        assert_eq!(parse_gemini_error(out, "").as_deref(), Some(err.as_str()));
+    }
+
+    /// ⚠️ Verbatim from the run Ocean could not diagnose (gemini 0.54.4, 2026-08-11).
+    ///
+    /// Everything about this output is on the WRONG stream: stdout is empty, and the envelope
+    /// sits on stderr underneath two lines of gemini's own chatter. The old reader looked only
+    /// at stdout, failed to parse "", and handed the user serde's words —
+    /// `EOF while parsing a value at line 1 column 0` — while the sentence that actually says
+    /// what to do went in the bin.
+    #[test]
+    fn gemini_reports_the_auth_failure_it_printed_on_stderr() {
+        let stderr = "Warning: tools.exclude in settings.json is deprecated and will be removed in 1.0. Migrate to Policy Engine: https://geminicli.com/docs/core/policy-engine/\n\
+                      YOLO mode is enabled. All tool calls will be automatically approved.\n\
+                      {\n  \"session_id\": \"7a6f2cd5\",\n  \"error\": {\n    \"type\": \"Error\",\n    \"message\": \"Please set an Auth method in your /Users/x/.gemini/settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA\",\n    \"code\": 41\n  }\n}\n";
+        let said = parse_gemini_error("", stderr).expect("gemini's own sentence");
+        assert!(said.starts_with("Please set an Auth method"), "got: {said}");
+        assert!(said.contains("GEMINI_API_KEY"));
+        // And the same message reaches the run through the ordinary envelope reader, so a
+        // zero-exit variant of this failure is not reported as a success.
+        assert_eq!(parse_gemini_envelope("", stderr).unwrap_err(), said);
+    }
+
+    /// The other half of the same fault: when there is genuinely no envelope anywhere, this
+    /// must say NOTHING rather than invent a message, so `run_action` falls through to the
+    /// CLI's raw output. A parser's complaint outranking the CLI is what caused the bug above.
+    #[test]
+    fn a_gemini_run_with_no_envelope_yields_no_message_of_our_own() {
+        assert_eq!(parse_gemini_error("", ""), None);
+        assert_eq!(parse_gemini_error("node: bad option --foo", "Segmentation fault"), None);
+        // A successful envelope is not an error either, on whichever stream it arrives.
+        assert_eq!(parse_gemini_error(r#"{"response":"done"}"#, ""), None);
     }
 
     // §7.8.5-2: 跟进 is the only multi-turn agentic action and the one measured to burn a

@@ -1,5 +1,4 @@
 import {
-  Copy,
   CircleSlash,
   Highlighter,
   Link as LinkIcon,
@@ -42,7 +41,6 @@ interface Props {
   onAnnotate: () => void;
   onToggleStale: () => void;
   onSupersede: () => void;
-  onCopy: () => void;
   onDelete: () => void;
 }
 
@@ -95,7 +93,6 @@ export default function BlockActions({
   onAnnotate,
   onToggleStale,
   onSupersede,
-  onCopy,
   onDelete,
 }: Props) {
   const t = useT();
@@ -161,9 +158,6 @@ export default function BlockActions({
         onClick={onSupersede}
       >
         <Replace size={11} className={hasSupersession ? 'text-accent' : ''} />
-      </ActionBtn>
-      <ActionBtn title={t('复制')} onClick={onCopy}>
-        <Copy size={11} />
       </ActionBtn>
       <ActionBtn title={t('删除')} onClick={onDelete} emphasis="accent">
         <Trash2 size={11} />

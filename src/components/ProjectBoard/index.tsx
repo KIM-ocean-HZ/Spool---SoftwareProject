@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  CalendarRange,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -12,14 +11,14 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import AskAiButton from './AskAiButton';
 import StatusDot from '@/components/ui/StatusDot';
-import Toggle from '@/components/ui/Toggle';
-import { blockStatsByThread, type ThreadBlockStats } from '@/lib/db/blocks';
+import {
+  blockStatsByThread,
+  duplicateCountsByThread,
+  type ThreadBlockStats,
+} from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { canShowEngineActions } from '@/lib/engine/gate';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { dateLocale, useT } from '@/lib/i18n';
-import { ACTION_LABEL, useEngineStore } from '@/stores/engineStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -46,10 +45,12 @@ import { useWorkspacesStore } from '@/stores/workspacesStore';
 //   * 删除   — 「项目管理加入删除键」. Goes through the same soft delete + undo toast as the
 //              sidebar's, so it is recoverable by the same ⌘Z the rest of the app uses.
 //
-// ⚠️ **This view also holds the two whole-library controls.** They were in the right rail
-// (BoardRail, now deleted) and Ocean cut that: 「去掉项目汇总的右边栏」. 周回顾 reads every
-// project and the automation switch governs every project, so 项目管理 — the view that IS
-// every project — is where they belong.
+// ⚠️ **This view no longer holds any whole-library CONTROL.** It used to hold two — 周回顾 and
+// the automation switch — and both moved to components/ReviewBoard on 2026-08-11: Ocean asked
+// for 周回顾 「和项目管理一起……作为独立工作区出现」, and the switch followed the only action it
+// still governs. What this board gained in the same pass is the opposite kind of thing: a
+// per-row duplicate count that costs nothing to compute (§11.2-B), replacing a 去重 action that
+// charged a model to report what SQL already knows.
 //
 // 2026-08-10 — 工作区 as a column (拍板第 7 条). Ocean's own model: 「工作区类似大文件夹，
 // 项目是按照工作区文件夹分类的」. The sidebar was built on that model; this board was built on
@@ -74,26 +75,12 @@ export default function ProjectBoard() {
   const patch = useThreadsStore((s) => s.patch);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
 
-  const current = useEngineStore((s) => s.current);
-  const enqueue = useEngineStore((s) => s.enqueue);
-  const engineStatus = useEngineStore((s) => s.status);
-  const probe = useEngineStore((s) => s.probe);
-  const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
-  const autoMaintain = useSettingsStore((s) => s.aiAutoMaintain);
-  const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
-  const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
-  const actionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
-  const update = useSettingsStore((s) => s.update);
-
   const [sort, setSort] = useState<Sort>('deadline');
   const [openId, setOpenId] = useState<string | null>(null);
   const [stats, setStats] = useState<Record<string, ThreadBlockStats>>({});
+  const [dupeCounts, setDupeCounts] = useState<Record<string, number>>({});
   // Only the open row can show it, and only one row is open, so one flag is enough.
   const [moveOpen, setMoveOpen] = useState(false);
-
-  useEffect(() => {
-    if (engineStatus === null) void probe();
-  }, [engineStatus, probe]);
 
   useEffect(() => {
     if (!moveOpen) return;
@@ -115,14 +102,10 @@ export default function ProjectBoard() {
     void blockStatsByThread()
       .then(setStats)
       .catch((e) => console.warn('[board] block stats failed', e));
+    void duplicateCountsByThread()
+      .then(setDupeCounts)
+      .catch((e) => console.warn('[board] duplicate scan failed', e));
   }, [byWorkspace]);
-
-  const engineReady = canShowEngineActions({
-    cliAvailable: engineStatus?.available === true,
-    mcpEnabled,
-    mcpWriteEnabled,
-    actionsEnabled,
-  });
 
   const wsTitleById = useMemo(
     () => new Map(workspaces.map((w) => [w.id, w.title.trim() || t('未命名')])),
@@ -167,6 +150,7 @@ export default function ProjectBoard() {
             ? 'var(--status-parked)'
             : 'var(--muted)';
     const s = stats[th.id] ?? EMPTY_STATS;
+    const dupes = dupeCounts[th.id] ?? 0;
     const open = openId === th.id;
     const isDone = th.status === 'done';
     const title = th.title.trim() || t('无标题');
@@ -205,6 +189,18 @@ export default function ProjectBoard() {
           <span className="flex-none font-mono text-[10px] text-muted">
             {t('{n} 块', { n: s.blocks })}
           </span>
+          {/* §11.2-B — what the 去重 button turned into. Free, local, exact matches only, and
+              on the row rather than in a paid run's prose: the disposal was always the user's
+              to make, so the finding belongs where they can act on it. Absent at zero. */}
+          {dupes > 0 && (
+            <span
+              className="flex-none text-[10px]"
+              style={{ color: 'var(--status-parked)' }}
+              title={t('这个项目里有一模一样的块。打开项目自己处理——Spool 不会替你合并或删除。')}
+            >
+              {t('{n} 块重复', { n: dupes })}
+            </span>
+          )}
           <span className="w-20 flex-none text-right font-mono text-[10px]" style={{ color: colour }}>
             {isDone
               ? th.completedAt
@@ -328,35 +324,13 @@ export default function ProjectBoard() {
         </div>
       </header>
 
-      {/* The whole-library controls, evicted from the right rail (§9.13). They are one line
-          each and they sit above the list they govern, which is the thing 「和每个项目共用
-          会有歧义」 was about: here there is no per-project panel to confuse them with. */}
-      {engineReady && (
-        <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-6 py-2">
-          <button
-            type="button"
-            disabled={current !== null}
-            onClick={() => enqueue('', '', 'weekly_review', timeoutSecs)}
-            title={t('回顾最近一周——跨所有项目，存进「回顾」项目')}
-            className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
-          >
-            <CalendarRange size={12} className="flex-none" />
-            {t(ACTION_LABEL.weekly_review)}
-          </button>
+      {/* ⚠️ **Both whole-library controls have left this screen (2026-08-11).** 周回顾 became
+          its own pinned view, because Ocean asked for it 「和项目管理一起……作为独立工作区出现」;
+          the 自动维护 switch followed it there, because with per-project 压缩 retired (§11.2-A)
+          a weekly review is the only thing automation still runs, and a switch belongs beside
+          the action it governs rather than beside projects it no longer touches.
 
-          {/* §4.3 — automation, beside the projects it acts on. ⚠️ Default OFF, and that
-              stays a deliberate reading of a request that pulled two ways: Ocean asked for
-              automation AND for 「必须节约token」/「让用户放心」 in one breath, and this
-              switch spends real money without asking again. */}
-          <label className="flex cursor-pointer items-center gap-2">
-            <Toggle checked={autoMaintain} onChange={(v) => void update({ aiAutoMaintain: v })} />
-            <span className="text-xs text-ink-2">{t('自动维护')}</span>
-            <span className="text-[10px] text-muted">
-              {t('放了一阵子又有新内容的项目，自动压一次；一天最多一次')}
-            </span>
-          </label>
-        </div>
-      )}
+          This board is every project. A review is every project over time. Different screens. */}
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {live.length === 0 && done.length === 0 ? (
