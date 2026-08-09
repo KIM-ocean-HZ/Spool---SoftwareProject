@@ -119,6 +119,28 @@ export const findDates = (content: string, from: number): DateHit[] => {
   return out;
 };
 
+/** The lead times at which a date gets raised — 「两个月，一个月，一周，差不多这样吧」
+ *  (Ocean 2026-08-13). Widest first.
+ *
+ *  ⚠️ This is a SCHEDULE, not a window, and that distinction is the whole feature. A window
+ *  asks "is this date close enough to mention"; a schedule asks "has this date crossed a line
+ *  since I last told you". The second one is what lets a ✕ mean 「先收起」 without meaning
+ *  「永远别提」: silencing the two-month notice leaves the one-month and one-week ones intact. */
+export const NOTICE_STAGES = [60, 30, 7] as const;
+
+/**
+ * The tightest stage this date has entered, or `null` while it is still beyond the widest.
+ * 45 days out → 60; 20 → 30; 3 → 7; 70 → null.
+ *
+ * Comparing two of these is how a dismissal expires: a row silenced at 60 comes back the day
+ * the date reaches 30, because 30 is tighter than what the user actually silenced.
+ */
+export const noticeStage = (days: number): number | null => {
+  let stage: number | null = null;
+  for (const s of NOTICE_STAGES) if (days <= s) stage = s;
+  return stage;
+};
+
 /** Whole days from `now` to `at`, both taken at local midnight (same rule as dueInDays). */
 export const daysUntil = (at: number, now: number): number => {
   const today = new Date(now);

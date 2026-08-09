@@ -1,6 +1,6 @@
 import { CalendarClock, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { daysUntil, findDates } from '@/lib/blocks/dates';
+import { daysUntil, findDates, noticeStage } from '@/lib/blocks/dates';
 import type { Block } from '@/lib/db/blocks';
 import { dismissDate, listDismissals } from '@/lib/db/dateDismissals';
 import { dateLocale, useT } from '@/lib/i18n';
@@ -25,13 +25,10 @@ import { useSearchStore } from '@/stores/searchStore';
 // it scrolls away like anything else on the page. That is why it is a card with its own margin
 // rather than a full-width bar with a bottom border.
 
-// How far ahead a date starts being raised — 「在一个月前再弹出提醒吧」 (Ocean, third round,
-// after living with a version that had no cutoff at all and showed every project three
-// permanent rows). ⚠️ The history behind this number is worth keeping: the FIRST build used 7
-// days, which against his real library showed nothing at all — his nearest date was 23 days out
-// and the application deadlines this exists for are 114–170 days out. So 7 was too tight to
-// ever fire and unbounded was too loud; 30 is his answer after seeing both.
-const NOTICE_WINDOW_DAYS = 30;
+// ⚠️ WHEN a date is raised is a schedule, not a window: 两个月 / 一个月 / 一周 before, defined
+// as NOTICE_STAGES in lib/blocks/dates.ts. The number went 7 → none → 30 → this over three
+// rounds of Ocean actually looking at it; the history is in that file and in HANDOFF §2-bis,
+// and the short version is that every earlier value was picked at the desk and this one was not.
 
 // Rows past this fold into a "+N more" count: it is a note above the feed, not a panel.
 const MAX_ROWS = 3;
@@ -55,12 +52,14 @@ interface Notice {
 export default function DateNotices({ threadId, blocks }: Props) {
   const t = useT();
   const highlight = useSearchStore((s) => s.highlight);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // key → when the user last pressed ✕ on it. The timestamp, not a boolean: which stage was
+  // silenced is recovered from it, so a dismissal expires on its own at the next stage.
+  const [dismissed, setDismissed] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     let live = true;
-    void listDismissals(threadId).then((s) => {
-      if (live) setDismissed(s);
+    void listDismissals(threadId).then((m) => {
+      if (live) setDismissed(m);
     });
     return () => {
       live = false;
@@ -73,11 +72,19 @@ export default function DateNotices({ threadId, blocks }: Props) {
     for (const b of blocks) {
       for (const hit of findDates(b.content, b.createdAt)) {
         const days = daysUntil(hit.at, now);
-        // Today through the month ahead. A date that has already gone by is not raised: there
-        // is nothing left to do about it, and his library is full of them (every source line
-        // carries the day it was captured), which would bury the ones that still matter.
-        if (days < 0 || days > NOTICE_WINDOW_DAYS) continue;
-        if (dismissed.has(`${b.id}:${hit.at}`)) continue;
+        // A date that has already gone by is not raised: there is nothing left to do about it,
+        // and his library is full of them (every source line carries the day it was captured),
+        // which would bury the ones that still matter.
+        if (days < 0) continue;
+        const stage = noticeStage(days);
+        if (stage === null) continue; // still further out than the widest lead time
+        const silencedAt = dismissed.get(`${b.id}:${hit.at}`);
+        if (silencedAt !== undefined) {
+          // Which stage was he looking at when he pressed ✕? If the date has not crossed into
+          // a tighter one since, it stays silent; the moment it does, this comparison flips.
+          const silencedStage = noticeStage(daysUntil(hit.at, silencedAt)) ?? Infinity;
+          if (stage >= silencedStage) continue;
+        }
         out.push({ blockId: b.id, at: hit.at, line: hit.line, days });
       }
     }
@@ -87,9 +94,9 @@ export default function DateNotices({ threadId, blocks }: Props) {
   if (notices.length === 0) return null;
 
   const onDismiss = (n: Notice): void => {
-    // Optimistic: the row goes now. A failed write would only mean it comes back sooner than a
-    // week, which is a far smaller harm than a ✕ that appears not to work.
-    setDismissed((prev) => new Set(prev).add(`${n.blockId}:${n.at}`));
+    // Optimistic: the row goes now. A failed write would only mean it comes back at the next
+    // render, which is a far smaller harm than a ✕ that appears not to work.
+    setDismissed((prev) => new Map(prev).set(`${n.blockId}:${n.at}`, Date.now()));
     void dismissDate(n.blockId, n.at);
   };
 
@@ -134,8 +141,8 @@ export default function DateNotices({ threadId, blocks }: Props) {
           <button
             type="button"
             onClick={() => onDismiss(n)}
-            title={t('先收起，一周后再提醒我')}
-            aria-label={t('先收起，一周后再提醒我')}
+            title={t('先收起 —— 两个月前、一个月前、一周前各提醒一次')}
+            aria-label={t('先收起 —— 两个月前、一个月前、一周前各提醒一次')}
             className="flex-none rounded p-0.5 text-muted transition-colors hover:text-accent"
           >
             <X size={12} />

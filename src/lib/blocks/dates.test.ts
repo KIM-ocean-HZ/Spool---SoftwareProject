@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysUntil, findDates } from './dates';
+import { daysUntil, findDates, noticeStage } from './dates';
 
 // 旧账 §5-3. The detector decides which dates a user gets reminded about, so the cases that
 // matter are the two failure directions: missing the deadline that was the whole point
@@ -68,6 +68,32 @@ describe('findDates', () => {
     // If the year-bearing branch did not win, `2026/8/13` would also yield August 13th
     // twice — once whole, once as `8/13`.
     expect(findDates('2026/8/13', FROM).map((h) => h.at)).toEqual([at(2026, 8, 13)]);
+  });
+});
+
+// 「两个月，一个月，一周」(Ocean 2026-08-13). What these tests pin is not the three numbers but
+// the comparison built on them: a date silenced at one stage has to come back at the next.
+describe('noticeStage', () => {
+  it('says nothing while the date is beyond two months', () => {
+    expect(noticeStage(114)).toBeNull(); // his Cornell 12/1, as of 08-09
+    expect(noticeStage(61)).toBeNull();
+  });
+
+  it('reports the tightest stage the date has entered', () => {
+    expect(noticeStage(60)).toBe(60);
+    expect(noticeStage(45)).toBe(60);
+    expect(noticeStage(31)).toBe(60);
+    expect(noticeStage(30)).toBe(30);
+    expect(noticeStage(8)).toBe(30);
+    expect(noticeStage(7)).toBe(7);
+    expect(noticeStage(0)).toBe(7);
+  });
+
+  it('gives a dismissal somewhere to expire: each stage is tighter than the last', () => {
+    // Silenced two months out, the row is due back when the date reaches one month, and again
+    // at one week — that comparison is the whole mechanism, so it gets its own assertion.
+    expect(noticeStage(20)!).toBeLessThan(noticeStage(45)!);
+    expect(noticeStage(3)!).toBeLessThan(noticeStage(20)!);
   });
 });
 
