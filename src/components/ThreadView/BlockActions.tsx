@@ -1,9 +1,7 @@
 import {
   CircleSlash,
   Highlighter,
-  Link as LinkIcon,
   MessageSquarePlus,
-  Paperclip,
   Pencil,
   Pin,
   PinOff,
@@ -35,8 +33,6 @@ interface Props {
   hasSupersession: boolean;
   onTogglePin: () => void;
   onEdit: () => void;
-  onAttachFile: () => void;
-  onAttachUrl: () => void;
   onHighlight: () => void;
   onAnnotate: () => void;
   onToggleStale: () => void;
@@ -87,8 +83,6 @@ export default function BlockActions({
   hasSupersession,
   onTogglePin,
   onEdit,
-  onAttachFile,
-  onAttachUrl,
   onHighlight,
   onAnnotate,
   onToggleStale,
@@ -112,12 +106,6 @@ export default function BlockActions({
       </ActionBtn>
       <ActionBtn title={t('编辑文本')} onClick={onEdit}>
         <Pencil size={11} />
-      </ActionBtn>
-      <ActionBtn title={t('附加文件')} onClick={onAttachFile}>
-        <Paperclip size={11} />
-      </ActionBtn>
-      <ActionBtn title={t('附加链接')} onClick={onAttachUrl}>
-        <LinkIcon size={11} />
       </ActionBtn>
       <ActionBtn
         title={highlightTitle}

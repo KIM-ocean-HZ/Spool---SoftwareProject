@@ -1,11 +1,6 @@
 import { nanoid } from 'nanoid';
 import { create } from 'zustand';
 import {
-  listAttachmentsByBlock,
-  reassignAttachmentBlock,
-  restoreAttachment,
-} from '@/lib/db/attachments';
-import {
   computeMergedFields,
   deleteBlock,
   getBlockById,
@@ -178,7 +173,7 @@ export const previewForEntry = (entry: UndoEntry): string => {
 // Reverse one entry and return a closure that RE-APPLIES the original operation (redo).
 // Every branch is composed of additive (INSERT) or idempotent (UPDATE) writes ordered
 // parent-before-child — no intermediate destructive delete — so a partial failure can at
-// worst leave some attachments unrestored, never lose existing data. (tauri-plugin-sql's
+// worst leave some rows unrestored, never lose existing data. (tauri-plugin-sql's
 // sqlx pool can't honour BEGIN/COMMIT across statements — see db/threads.ts:141 — so this
 // ordering is how §9.13's "no half-applied reversal" is met without a real transaction.)
 const reverseAndBuildRedo = async (
@@ -189,24 +184,21 @@ const reverseAndBuildRedo = async (
       // Snapshot the live block (source may have been back-filled since capture) so
       // redo restores it faithfully, then delete it.
       const block = await getBlockById(entry.payload.blockId);
-      const attachments = block ? await listAttachmentsByBlock(block.id) : [];
       await deleteBlock(entry.payload.blockId);
       return async () => {
         if (!block) return;
         await restoreBlock(block);
-        for (const a of attachments) await restoreAttachment(a);
       };
     }
     case 'delete': {
-      const { block, attachments } = entry.payload;
+      const { block } = entry.payload;
       await restoreBlock(block);
-      for (const a of attachments) await restoreAttachment(a);
       return async () => {
         await deleteBlock(block.id);
       };
     }
     case 'merge': {
-      const { survivorId, sourceBlocks, movedAttachments } = entry.payload;
+      const { survivorId, sourceBlocks } = entry.payload;
       for (const b of sourceBlocks) {
         if (b.id !== survivorId) await restoreBlock(b);
       }
@@ -219,9 +211,6 @@ const reverseAndBuildRedo = async (
           survivor.pinned,
           survivor.source,
         );
-      }
-      for (const m of movedAttachments) {
-        await reassignAttachmentBlock(m.id, m.originalBlockId);
       }
       return async () => {
         const merged = computeMergedFields(sourceBlocks);
@@ -260,15 +249,13 @@ const reverseAndBuildRedo = async (
       };
     }
     case 'forward': {
-      // §20.1: a forward only ever ADDED these copy blocks. Undo deletes ONLY the copies
-      // (their copied attachments cascade-delete with them via the FK); the source blocks
-      // and their attachments are never referenced here, so they stay untouched. Redo
-      // re-inserts the copies verbatim (blocks before attachments for the FK).
-      const { blocks, attachments } = entry.payload;
+      // §20.1: a forward only ever ADDED these copy blocks. Undo deletes ONLY the copies;
+      // the source blocks are never referenced here, so they stay untouched. Redo re-inserts
+      // the copies verbatim. (v15: no file was ever copied, so none is deleted or restored.)
+      const { blocks } = entry.payload;
       for (const b of blocks) await deleteBlock(b.id);
       return async () => {
         for (const b of blocks) await restoreBlock(b);
-        for (const a of attachments) await restoreAttachment(a);
       };
     }
   }

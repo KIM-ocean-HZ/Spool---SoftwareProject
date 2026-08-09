@@ -456,6 +456,60 @@ verify once, but a claim with a shelf life. The feature that relied on it is ret
 changed is that the product no longer describes it as the route for users without a
 subscription.
 
+### 3.12 Everything passed, and the typography was still wrong (2026-08-12)
+
+A Markdown renderer was written for block bodies, in response to a user complaint that the raw
+`**`, `#` and `-` markers looked untidy. It shipped with four green baselines, eighteen new
+tests including four that render the component to a string and assert on the markup, and the
+three indirect signs a running build is healthy (steady CPU, write-ahead log created, clean
+stderr). The user's first look produced three findings, all correct, none of which any of that
+could have caught:
+
+- **the bold was too heavy** — a fixed weight 600, which on the Chinese font in use resolves to
+  Semibold. In Chinese type that weight reads as shouting; Medium is the emphasis weight. The
+  fix makes bold one step above whatever it sits in rather than an absolute number;
+- **the heading sizes did not separate** — six levels at 17/16/15/14/13/13 px against body text
+  of 15px. Level 3 was the same size as body text and level 1 was two pixels larger. Written
+  down, the six levels look like a scale; on screen there were effectively two;
+- **it read cramped** — 8px between paragraphs where standard Markdown uses a full line.
+
+Every one of these is a number that was chosen without seeing it. Tests can assert that a
+heading is a heading; they cannot assert that it looks like one. The project already knew the
+boundary — screenshots are unavailable on this machine (§3.2 is the same boundary discovered
+through a white window), so "does it look right" was documented as the user's to answer. This
+entry records what that costs when the answer arrives one round trip later: a renderer that was
+correct in every mechanical sense and wrong in the only sense it was built for.
+
+The second half of the same report — that the weekly review screen showed raw `##` — is a
+different shape of the same gap. The renderer was attached to the surface that prompted the
+complaint, and the surface where the AI writes its *longest* Markdown was not checked, because
+nobody had looked at it either.
+
+### 3.13 The fix for §3.12 overshot, and a second invented number turned up beside it (2026-08-13)
+
+The response to "the heading sizes did not separate" was to put them on the standard editorial
+scale — the one a Markdown document on the web is set in, topping out at 1.45em for a level 1.
+It passed its tests, including a new one asserting six strictly descending sizes. The user's
+next look was one sentence: **the headings are far too big, put them back.**
+
+Both settings were derived the same way: from what Markdown is supposed to look like, rather
+than from what this surface is. A block is a card in a scrolling feed, a few sentences long. A
+document's scale assumes a page, where a level 1 heading appears once and is a title. Dropped
+into a feed, the same ratio makes every heading shout. The first attempt was too flat and the
+second too loud, and neither number came from looking at the thing.
+
+Recorded beside a second number found the same day, because it is the same mistake in different
+clothing. Collapsing long blocks had been triggered at **8 lines** — a constant with no
+derivation anywhere in the design record. The user's replacement was not a different number; it
+was a **rule**: a block that fits on the screen is not folded, and only a block taller than the
+reading area is. The implementation now measures the feed's own viewport instead of holding a
+constant at all, so the threshold cannot drift from the thing it is about.
+
+The lesson the two share: a number chosen at the desk needs a source outside the desk. "What the
+convention says" and "what seemed about right" are both sources that cannot be checked, and both
+produced a value that a single glance at the real screen overturned. Where a rule can be stated
+instead — *fits on screen* — the rule survives contact and the constant does not.
+
 ---
 
 ## 4. Boundaries stated on purpose

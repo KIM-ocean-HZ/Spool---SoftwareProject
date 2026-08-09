@@ -93,8 +93,12 @@ the lines you wrote yourself describing what to watch for, and asks that CLI to 
 news — so those lines and the context it needs reach the CLI's provider. The other three
 actions only read your own library, with web tools switched off.</p>
 <p>In other words: Spool never sends data anywhere on its own. The only way content leaves this
-machine is <em>an AI program you installed</em> reading it under your authorization — and “allow
-AI writes” is a second, separate switch.</p>
+machine is <em>an AI program you installed</em> reading it under your authorization.</p>
+<p>The other direction — an AI writing into your library — only arises once you have turned the
+MCP server on. The “allow AI writes” switch underneath it is <strong>on by default and can be
+turned off at any time</strong>; what an AI writes can only be <strong>added, never edited over
+anything you wrote</strong>, and every entry carries a source label (“Claude · MCP”, say) so it
+reads as theirs, not yours.</p>
 
 <h2>System permissions</h2>
 <table>

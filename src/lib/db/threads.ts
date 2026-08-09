@@ -150,6 +150,11 @@ export const updateThread = async (id: string, patch: ThreadPatch): Promise<numb
   if ('summary' in patch) {
     sets.push(`summary_source = $${i++}`);
     values.push(patch.summary != null ? 'user' : null);
+    // v16 (§5-5): stamp when this card was written. Never surfaced in the UI — Ocean asked
+    // for it recorded, not displayed. Clearing the summary clears the stamp with it, the
+    // same way it resets provenance above.
+    sets.push(`summary_at = $${i++}`);
+    values.push(patch.summary != null ? Date.now() : null);
   }
   const now = Date.now();
   // Always bump updated_at — even an empty patch is meaningful ("this thread saw

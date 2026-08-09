@@ -30,3 +30,18 @@ export const annotationIsAi = (
   annotationBy: AnnotationAuthor | null | undefined,
   source: string | null,
 ): boolean => (annotationBy ? annotationBy === 'ai' : isMcpSource(source));
+
+/** 「只看我写的」(archived DESIGN_NEXT_STAGE §4.4 — 「我的思考」凸显) — is this block one the
+ *  user put something of their own into?
+ *
+ *  ⚠️ The rule is not invented for the filter: it is the pack's own 💭 Personal category,
+ *  which counts a sourceless entry AND a `note:` line the user wrote. Both halves matter.
+ *  Dropping the second one would hide a note the user wrote ON an AI-written block —
+ *  precisely the signal the comment above calls Spool's strongest, and precisely the one
+ *  that gets more common as more blocks arrive through MCP. */
+export const isUserWritten = (b: {
+  source: string | null;
+  annotation: string | null;
+  annotationBy: AnnotationAuthor | null;
+}): boolean =>
+  !b.source?.trim() || (!!b.annotation?.trim() && !annotationIsAi(b.annotationBy, b.source));

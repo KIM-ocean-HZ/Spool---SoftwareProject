@@ -143,8 +143,6 @@ const EN: Record<string, string> = {
   '置顶': 'Pin',
   '取消置顶': 'Unpin',
   '编辑': 'Edit',
-  '附加文件': 'Attach file',
-  '附加链接': 'Attach link',
   '标为重点': 'Highlight',
   '取消重点': 'Remove highlight',
   '批注': 'Annotate',
@@ -188,10 +186,7 @@ const EN: Record<string, string> = {
   '+ 来源': '+ source',
   '打开引用的项目': 'Open referenced project',
   '引用的项目已删除': 'Referenced project was deleted',
-  '加入 Pack': 'Include in pack',
   '无法打开附件': 'Could not open attachment',
-  '（文本已加入 Pack）': '(text included in pack)',
-  '收起提取的文本': 'Collapse extracted text',
   '展开提取的文本': 'Expand extracted text',
   '字符': 'chars',
   '此文本会随打包 / 状态摘要一起发送给 AI —— 点击取消': 'This text is sent to the AI with packs / status summaries — click to opt out',
@@ -276,7 +271,18 @@ const EN: Record<string, string> = {
   '让 AI 总结': 'Let AI summarize',
   '结论': 'Conclusion',
   '置顶的信息块': 'Pinned blocks',
-  '文件与链接': 'Files & links',
+  // DESIGN_PROJECT_FILES §3.2 — 「项目文件」, the right rail panel that replaced the block
+  // action bar's 📎 and 🔗.
+  '项目文件': 'Project files',
+  '加文件': 'Add file',
+  '从文件选择器里加一个文件': 'Add a file through the file picker',
+  '这个项目还没有文件。加进来的文件默认谁都不读，打包时也不会带上正文。':
+    'No files in this project yet. Anything you add here is read by nobody by default, and its text stays out of packs.',
+  '从这个项目里去掉（文件本身不动）': 'Remove from this project (the file itself is untouched)',
+  '打包时带上这个文件的文字': 'Include this file\u2019s text when packing',
+  '添加文件失败：{msg}': 'Could not add the file: {msg}',
+  '这次更新去掉了「附加链接」，你原来加的 {n} 个链接已经删掉了。':
+    'This update removed the \u201cattach link\u201d feature. The {n} link(s) you had added have been deleted.',
   '这个项目没有标记过的重点。翻翻完整记录？': 'No marked highlights in this project. Browse the full record?',
   '查看完整记录': 'View full record',
 
@@ -303,6 +309,10 @@ const EN: Record<string, string> = {
   '截止日期': 'Deadline',
   '排序：按时间 — 点击改为按来源': 'Sorted by time — click for by source',
   '排序：按来源 — 点击改为按时间': 'Sorted by source — click for by time',
+  '只看我写的：你自己写的块，加上你亲手批注过的':
+    'Only what I wrote: the blocks you wrote yourself, plus any you annotated by hand',
+  '只看我写的：开着 — 点击看全部': 'Only what I wrote: on — click to show everything',
+  '这个项目里还没有你自己写下的东西。': "You haven't written anything into this project yet.",
   '查看更早的 {n} 条': 'Show {n} earlier blocks',
   'Spool 渲染崩了': 'Spool hit a rendering error',
   '从左侧选一个项目，或按 ⌘N 新建': 'Pick a project on the left, or press ⌘N to create one',
@@ -315,6 +325,11 @@ const EN: Record<string, string> = {
   '全部块内容 + 批注 + 已加入 Pack 的附件文本':
     'All block content + annotations + attachment text included in packs',
   '今天': 'today',
+  '明天': 'tomorrow',
+  // 旧账 §5-3: dates found inside a block's own text (DateNotices).
+  '去看这一块': 'Go to this block',
+  '别再提这条': "Don't remind me about this one",
+  '还有 {n} 个日子在这个项目里': '{n} more dates in this project',
   '逾期{n}天': '{n}d overdue',
   '刚刚': 'just now',
   '{n} 分钟前': '{n} min ago',
@@ -337,8 +352,8 @@ const EN: Record<string, string> = {
   'PDF / Word / 纯文本文件被附加时自动读取内容,用于 Pack 输出。完全本地操作,不上传任何数据。':
     'Reads PDF / Word / plain-text attachments for pack output. Fully local, nothing uploaded.',
   'MCP 服务（实验）': 'MCP server (experimental)',
-  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。默认只读,仅本机。':
-    'Lets MCP-capable AI tools (Claude, Cursor, …) pull project packs directly — from paste to zero-paste. Read-only by default, local only.',
+  '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。只在本机,不出网。':
+    'Lets MCP-capable AI tools (Claude, Cursor, …) pull project packs directly — from paste to zero-paste. Stays on this machine, nothing goes online.',
   '你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页':
     'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
   '去下载': 'Get it',

@@ -37,8 +37,8 @@ describe('parseMarkdown', () => {
     const content = '- one\n  - nested\n2. two';
     const doc = parseMarkdown(content);
     expect(doc.blocks).toEqual([
-      { kind: 'item', marker: '·', indent: 0, text: { start: 2, end: 5 } },
-      { kind: 'item', marker: '·', indent: 1, text: { start: 10, end: 16 } },
+      { kind: 'item', marker: '•', indent: 0, text: { start: 2, end: 5 } },
+      { kind: 'item', marker: '•', indent: 1, text: { start: 10, end: 16 } },
       { kind: 'item', marker: '2.', indent: 0, text: { start: 20, end: 23 } },
     ]);
     expect(doc.blocks.map((b) => textOf(content, b.text))).toEqual(['one', 'nested', 'two']);

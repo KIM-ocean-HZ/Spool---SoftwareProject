@@ -6,9 +6,12 @@ import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { isDormant } from '@/lib/threads/dormancy';
 import { useBlocksStore } from '@/stores/blocksStore';
+import type { Attachment } from '@/lib/db/attachments';
 import { ACTION_LABEL, useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+
+const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
 
 export type ThreadViewMode = 'log' | 'digest';
 
@@ -112,7 +115,9 @@ export default function ThreadHeader({
   const patch = useThreadsStore((s) => s.patch);
   const setSummary = useThreadsStore((s) => s.setSummary);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
-  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
+  const attachments = useBlocksStore(
+    (s) => s.attachmentsByThread[thread.id] ?? EMPTY_ATTACHMENTS,
+  );
 
   const [title, setTitle] = useDebouncedField(thread.title, thread.id, (v) =>
     void patch(thread.id, { title: v }),
@@ -143,17 +148,14 @@ export default function ThreadHeader({
   // memoized only so it doesn't re-run on unrelated header re-renders.
   const charCount = useMemo(() => {
     let n = 0;
-    for (const b of blocks) {
-      n += b.content.length + (b.annotation?.length ?? 0);
-      const atts = attachmentsByBlock[b.id];
-      if (atts) {
-        for (const a of atts) {
-          if (a.includeInPack && a.extractedText) n += a.extractedText.length;
-        }
-      }
+    for (const b of blocks) n += b.content.length + (b.annotation?.length ?? 0);
+    // v15: the files are the project's, so they are counted once for the project rather
+    // than walked per block.
+    for (const a of attachments) {
+      if (a.includeInPack && a.extractedText) n += a.extractedText.length;
     }
     return n;
-  }, [blocks, attachmentsByBlock]);
+  }, [blocks, attachments]);
 
   useEffect(() => {
     setEditingSummary(false);

@@ -35,7 +35,19 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 17;
+
+// Things a migration did to the user's data that the user is entitled to hear about.
+// v15 is the first migration that removes anything (the retired `url` attachments), and
+// DESIGN_PROJECT_FILES §5.1 ③ point 2 is explicit that it must not happen silently. The
+// migration pushes here; the UI drains it once, after the database is up.
+export interface MigrationNotice {
+  kind: 'url-attachments-removed';
+  count: number;
+}
+const pendingMigrationNotices: MigrationNotice[] = [];
+export const drainMigrationNotices = (): MigrationNotice[] =>
+  pendingMigrationNotices.splice(0, pendingMigrationNotices.length);
 
 // Tables in reverse dependency order: the two FTS shadows (virtual, mirroring blocks
 // and attachments), the v10 review queue, then attachments → blocks → threads →
@@ -434,6 +446,131 @@ const MIGRATIONS: Migration[] = [
       } catch (e) {
         console.info('[db] proposals.ref_kind: not added (likely exists)', e);
       }
+    },
+  },
+  {
+    // v15 (DESIGN_PROJECT_FILES, Ocean 2026-08-08) — an attachment stops belonging to a block
+    // and starts belonging to the project.
+    //
+    // ⚠️⚠️ THIS IS THE FIRST MIGRATION IN THIS REGISTRY THAT DESTROYS ANYTHING. Every step
+    // above is additive and an interrupted run of one is indistinguishable from a complete
+    // run. This one deletes rows (`kind='url'`, §5.1 ③, Ocean's explicit answer (c) on
+    // 2026-08-08) and drops a column. So the order below is not arbitrary:
+    //
+    //   1. backfill thread_id from the block BEFORE anything is destroyed — if the process
+    //      dies here, nothing has been lost and the step re-runs from the top;
+    //   2. delete the url rows;
+    //   3. only then drop the index and the column.
+    //
+    // ⚠️ `deleteUrlAttachments` counts what it removed and stashes it in `pendingNotices`
+    // (§5.1 ③ point 2: links must not evaporate silently).
+    //
+    // ⚠️ KNOWN AND ACCEPTED DIVERGENCE: on a MIGRATED database `thread_id` ends up nullable
+    // and without the ON DELETE CASCADE that schema.sql gives a FRESH one. SQLite cannot add
+    // NOT NULL or a foreign key to an existing column, and the alternative — rebuilding the
+    // table — would mean dropping and recreating a table that an FTS index hangs off, i.e.
+    // a far bigger blast radius than the constraint is worth here. The cascade in particular
+    // is theoretical: threads are soft-deleted (`deleted_at`), never DELETEd, so it has
+    // never once fired. The assertion at the end of this step is what actually holds the
+    // invariant, and `createAttachment` is the only writer.
+    from: 14,
+    to: 15,
+    name: 'move-attachments-to-thread',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE attachments ADD COLUMN thread_id TEXT');
+      } catch (e) {
+        console.info('[db] attachments.thread_id: not added (likely exists)', e);
+      }
+      try {
+        await db.execute('ALTER TABLE attachments ADD COLUMN ai_access INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        console.info('[db] attachments.ai_access: not added (likely exists)', e);
+      }
+      // Step 1 — inherit the owning block's project. Guarded on the column still existing,
+      // because a resumed run may already have dropped it.
+      const cols = await db.select<{ name: string }[]>('PRAGMA table_info(attachments)');
+      if (cols.some((c) => c.name === 'block_id')) {
+        await db.execute(
+          `UPDATE attachments
+              SET thread_id = (SELECT b.thread_id FROM blocks b WHERE b.id = attachments.block_id)
+            WHERE thread_id IS NULL`,
+        );
+      }
+      // Step 2 — the url kind is retired (§5.1 ③). Explicit DELETE, never a silent one:
+      // whatever this removes is reported to the user on the next start.
+      const urls = await db.select<{ c: number }[]>(
+        "SELECT COUNT(*) AS c FROM attachments WHERE kind = 'url'",
+      );
+      const urlCount = urls[0]?.c ?? 0;
+      if (urlCount > 0) {
+        await db.execute("DELETE FROM attachments WHERE kind = 'url'");
+        pendingMigrationNotices.push({ kind: 'url-attachments-removed', count: urlCount });
+        console.warn(`[db] v15: removed ${urlCount} url attachment(s) (DESIGN_PROJECT_FILES §5.1 ③)`);
+      }
+      // An attachment whose block had already gone has nothing to inherit. ON DELETE CASCADE
+      // should have taken it years ago; if one is still here it is unreachable either way.
+      const orphans = await db.select<{ c: number }[]>(
+        'SELECT COUNT(*) AS c FROM attachments WHERE thread_id IS NULL',
+      );
+      const orphanCount = orphans[0]?.c ?? 0;
+      if (orphanCount > 0) {
+        await db.execute('DELETE FROM attachments WHERE thread_id IS NULL');
+        console.warn(`[db] v15: removed ${orphanCount} attachment(s) whose block no longer exists`);
+      }
+      // Step 3 — now, and only now, the old ownership goes. The index has to go first:
+      // SQLite refuses to drop a column any index mentions.
+      await db.execute('DROP INDEX IF EXISTS idx_attachments_block');
+      try {
+        await db.execute('ALTER TABLE attachments DROP COLUMN block_id');
+      } catch (e) {
+        console.info('[db] attachments.block_id: not dropped (likely already gone)', e);
+      }
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_attachments_thread ON attachments(thread_id, created_at ASC)',
+      );
+      // The assertion DESIGN_PROJECT_FILES §3.1 asks for, and the same shape as v13's
+      // "every block still counts". A row with no project is not reachable from anywhere.
+      const left = await db.select<{ c: number }[]>(
+        'SELECT COUNT(*) AS c FROM attachments WHERE thread_id IS NULL',
+      );
+      if ((left[0]?.c ?? 0) > 0) {
+        throw new Error(
+          `[db] v15 migration left ${left[0]?.c} attachment(s) with no project — refusing to stamp the version`,
+        );
+      }
+    },
+  },
+  {
+    // §5-5 (Ocean 2026-08-08): record when a summary was written. Purely additive — existing
+    // summaries keep a NULL, because there is no honest value to backfill them with.
+    from: 15,
+    to: 16,
+    name: 'add-summary-written-at',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE threads ADD COLUMN summary_at INTEGER');
+      } catch (e) {
+        console.info('[db] summary_at: not added (likely exists)', e);
+      }
+    },
+  },
+  {
+    // 旧账 §5-3 (Ocean 2026-08-13): reminders for dates written inside a block's text. One
+    // CREATE TABLE and nothing else — the dates are re-read from the blocks themselves, so
+    // this step cannot touch a row of the user's library.
+    from: 16,
+    to: 17,
+    name: 'add-date-dismissals',
+    run: async (db) => {
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS date_dismissals (
+           block_id   TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+           due_at     INTEGER NOT NULL,
+           created_at INTEGER NOT NULL,
+           PRIMARY KEY (block_id, due_at)
+         )`,
+      );
     },
   },
 ];

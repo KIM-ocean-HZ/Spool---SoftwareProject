@@ -65,18 +65,18 @@ export default function PackDialog({
 
   // assemble is a synchronous pure function — memoize it so re-renders don't re-pack the
   // whole thread. It's still fast (<1ms on small threads) but this keeps the textarea
-  // diff-free between renders. The range filter runs first; attachments narrow to the
-  // surviving blocks so "Related Files & Links" never points at content the pack omitted.
+  // diff-free between renders.
+  // ⚠️ v15: narrowing the range no longer narrows the files. A file belongs to the project,
+  // not to any block in it, so "the last 20 blocks" says nothing about which files the
+  // project holds — dropping them from a narrowed pack would hide the project's own
+  // material rather than match the slice.
   const { text, packedCount } = useMemo(() => {
     const packedBlocks = filterBlocksForRange(blocks, range);
-    const ids = new Set(packedBlocks.map((b) => b.id));
-    const packedAttachments =
-      range === 'all' ? attachments : attachments.filter((a) => ids.has(a.blockId));
     return {
       text: assemble({
         thread,
         blocks: packedBlocks,
-        attachments: packedAttachments,
+        attachments,
         refTitles,
         refBlocks,
         // B-3: a narrowed pack must say so in its header, or the AI it gets pasted to

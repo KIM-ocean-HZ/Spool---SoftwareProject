@@ -217,7 +217,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,
-  mcpWriteEnabled: false,
+  // §5-B / DESIGN_MCP_WRITE_ROLE M2: ON by default since 2026-08-13. The gate B3 set was
+  // 「add_block 真跑过且没出事」, and it has (08-07, ChatGPT wrote 11 blocks). Writing is
+  // append-only, always source-labelled, and undoable — and it is still a SUB-toggle of
+  // mcpEnabled, so nothing can write until the user turns the MCP server on themselves.
+  // ⚠️ The Rust side has its own default in mcp.rs (mcp_write_enabled) — the key is absent
+  // from settings.json until someone touches the toggle, so both have to agree.
+  mcpWriteEnabled: true,
   aiEngineActionsEnabled: true,
   aiEngineTimeoutSecs: 300,
   aiEngine: null,

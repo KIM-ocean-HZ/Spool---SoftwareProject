@@ -22,8 +22,14 @@ import {
   MIN_SIDEBAR_WIDTH,
   resolveLayout,
 } from '@/lib/layout';
-import { getFirstRunThreadId, retranslateTutorial, setSeedLanguage } from '@/lib/db/client';
+import {
+  drainMigrationNotices,
+  getFirstRunThreadId,
+  retranslateTutorial,
+  setSeedLanguage,
+} from '@/lib/db/client';
 import { t } from '@/lib/i18n';
+import { toast } from '@/stores/toastStore';
 import { useAutoMaintain } from '@/hooks/useAutoMaintain';
 import { useCapture } from '@/hooks/useCapture';
 import { useOverlayDbHost } from '@/hooks/useOverlayDbHost';
@@ -192,6 +198,14 @@ export default function App() {
       // v2.7: backfill text extraction for legacy file attachments (§9.6). Runs after
       // settings load so it honours the auto-extract switch; background, never blocks UI.
       void useBlocksStore.getState().backfillExtractions();
+      // v15 (DESIGN_PROJECT_FILES §5.1 ③ point 2): if the migration removed the retired
+      // `url` attachments, the user hears about it exactly once. Links must not evaporate
+      // silently — a toast is the cheapest honest form of "I deleted something of yours".
+      for (const n of drainMigrationNotices()) {
+        if (n.kind === 'url-attachments-removed') {
+          toast.notice(t('这次更新去掉了「附加链接」，你原来加的 {n} 个链接已经删掉了。', { n: n.count }));
+        }
+      }
       const { captureShortcut, searchShortcut } = useSettingsStore.getState();
       try {
         await invoke('set_shortcuts', { capture: captureShortcut, search: searchShortcut });

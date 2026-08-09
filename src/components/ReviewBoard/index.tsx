@@ -1,6 +1,7 @@
 import { CalendarRange, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
+import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { listRunsForAction, type EngineRun } from '@/lib/db/engineRuns';
 import { canShowEngineActions } from '@/lib/engine/gate';
 import { dateLocale, useT } from '@/lib/i18n';
@@ -161,8 +162,12 @@ function Review({ run }: { run: EngineRun }) {
         <span>· {cost ?? t('花费未知')}</span>
       </div>
       {text ? (
+        // §10.1 — a review is the longest Markdown any AI writes into Spool (「## 截止日期」,
+        // one section per project), and it was the last surface still showing the raw `##`.
+        // Same renderer as the block feed: its sizes are in em, so the hierarchy survives the
+        // step down to 13px here.
         <div className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2">
-          {text}
+          <MarkdownContent content={text} />
         </div>
       ) : (
         <div className="mt-1.5 text-xs italic text-muted">

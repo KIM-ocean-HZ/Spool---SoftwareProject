@@ -21,9 +21,11 @@ export const NOTE_MARKER = 'note: ';
 // other marker: 硬规则 12's exception covers what is a contract with the receiving model
 // (交接 §6.4), and this is that.
 export const AI_NOTE_MARKER = 'ai note: ';
-export const FILE_MARKER = '↳ attached file: ';
-export const FOLDER_MARKER = '↳ attached folder: ';
-export const URL_MARKER = '↳ attached URL: ';
+// v15 (DESIGN_PROJECT_FILES §5.1 ②): the per-block `↳ attached …` markers are gone with
+// the ownership they described. A file belongs to the PROJECT now, so it is listed once,
+// under "Related Files & Links", and never under a block.
+// ⚠️ Ocean chose this knowing the cost: the line saying WHICH block a PDF was attached for
+// no longer exists, and it is not recoverable from anywhere else.
 export const REF_MARKER = '→ Referenced project: ';
 // v2.4 (§20.13 D2): block-level citation sub-line — "this block builds on that one".
 // English like every other pack marker (§19.13). The preview keeps the receiving AI
@@ -45,7 +47,6 @@ export const REF_BLOCK_CORRECTS = '↩ corrects one point in: ';
 // (§3.1.1: correcting one sentence must not cost the other 1,900 characters). Without this
 // line the correction would be invisible to anyone reading the old block top-down.
 export const CORRECTED_BY_PREFIX = '⚠️ one point in this block was corrected later — see ';
-export const ATTACHMENT_SEE_BELOW = ' — see Related Files & Links section below';
 
 // --- Section headings -------------------------------------------------------------------
 export const SECTION_PINNED = '## Pinned Blocks';
@@ -196,10 +197,10 @@ Indented under a block:
   still printed here in full and still stands on everything else.
 - \`⚠️ one point in this block was corrected later — see #N\` — the same fact, seen from
   the older block. Read #N before using this one.
-- \`↳ attached file / folder / URL:\` — an artifact belonging to that block. A file whose
-  text Spool extracted is inlined here only when the user opted in; otherwise it appears
-  under "Related Files & Links" marked \`[extracted: yes, not inlined]\`, which means the
-  text exists and you may ask the user for it.
+Files are NOT listed under a block. They belong to the project and are listed once, at the
+end, under "Related Files & Links". A file whose text Spool extracted is printed there only
+when the user opted in; otherwise its row is marked \`[extracted: yes, not inlined]\`, which
+means the text exists and you may ask the user for it.
 
 Any line wrapped in \`[... ...]\` is Spool speaking, not content: it states what was left
 out of this pack and how to get it. Nothing Spool leaves out has been deleted.

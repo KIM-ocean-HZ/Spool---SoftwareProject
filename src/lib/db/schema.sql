@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS threads (
   title              TEXT NOT NULL DEFAULT '',
   summary            TEXT,                        -- active-stage status summary (optional)
   summary_source     TEXT,                        -- 'user' | 'mcp' | NULL; MCP never overwrites a non-'mcp' summary
+  -- v16 (§5-5, Ocean 2026-08-08): when the summary above was last written, ms epoch.
+  -- ⚠️ Deliberately NOT shown in the UI — Ocean asked for it recorded, not displayed. It
+  -- exists so "is this card stale?" stops being a guess. NULL = written before v16.
+  summary_at         INTEGER,
   digest             TEXT,                        -- conclusion summary at completion (optional, may be empty)
   deadline           INTEGER,                     -- optional, ms epoch
   status             TEXT NOT NULL DEFAULT 'active', -- active | parked | done
@@ -110,27 +114,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_thread_seq
 CREATE INDEX IF NOT EXISTS idx_blocks_thread
   ON blocks(thread_id, created_at ASC);
 
--- Attachment: a file, folder, or URL linked to a block.
+-- Attachment: a file or folder belonging to a PROJECT.
 -- v2.7: `extracted_text` added — for `file` kinds with extractable text (PDF, docx, txt,
 -- md, …), Spool auto-extracts the file's content on attach and caches it here.
 -- v2.8 (§20.2): `include_in_pack` splits the formerly-conflated "extract" and "inline into
 -- pack/summary" — extraction stays always-on (cheap, local, powers preview); inlining is
 -- opt-in per attachment (default 0) so the user controls pack length / token cost.
+-- v15 (DESIGN_PROJECT_FILES, Ocean 2026-08-08): an attachment used to hang off ONE BLOCK.
+-- It now belongs to the project. The `url` kind is gone with the same decision — a link is
+-- not a file, and the two entry points that created them are gone from the block action bar.
+-- ⚠️ `target` is only ever written from the system file picker. Nothing may accept a path
+-- from anywhere else — that is the whole reason this shape was allowed at all (§2).
 CREATE TABLE IF NOT EXISTS attachments (
   id              TEXT PRIMARY KEY,
-  block_id        TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-  kind            TEXT NOT NULL,                   -- file | folder | url
-  target          TEXT NOT NULL,                   -- absolute path (file/folder) or the URL
-  label           TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename / domain
+  thread_id       TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  kind            TEXT NOT NULL,                   -- file | folder
+  target          TEXT NOT NULL,                   -- absolute path, from the file picker only
+  label           TEXT NOT NULL DEFAULT '',        -- display name; defaults to basename
   extracted_text  TEXT,                            -- v2.7: nullable; auto-extracted text for file kinds
   extracted_at    INTEGER,                         -- v2.7: ms epoch; null if extraction not attempted
   extraction_kind TEXT,                            -- v2.7: 'pdf' | 'docx' | 'plaintext' | 'failed' | null
   include_in_pack INTEGER NOT NULL DEFAULT 0,      -- v2.8 §20.2: 1 = inline extracted_text into pack/summaries
+  ai_access       INTEGER NOT NULL DEFAULT 0,      -- v15 §5.1 ①: 1 = an AI may ask for this file's text
   created_at      INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_attachments_block
-  ON attachments(block_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_attachments_thread
+  ON attachments(thread_id, created_at ASC);
 
 -- Full-text search over block text AND the user's annotations.
 -- The `trigram` tokenizer indexes every 3-character window, so a keyword is matched
@@ -270,3 +280,21 @@ CREATE TABLE IF NOT EXISTS engine_runs (
 -- project), and the library-wide feed (weekly reviews, cost totals).
 CREATE INDEX IF NOT EXISTS idx_engine_runs_thread ON engine_runs(thread_id, finished_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engine_runs_time ON engine_runs(finished_at DESC);
+
+-- v17 (旧账 §5-3): the dates a user has told Spool to stop reminding them about.
+--
+-- The dates themselves are NOT stored — they are re-read from the block's own text every
+-- time (lib/blocks/dates.ts), so editing a block updates its reminders for free and nothing
+-- can drift out of sync with the words on screen. Only the user's 「别再提这条」 is a fact
+-- worth keeping, and it is keyed by (block, day) because one block can name several dates
+-- and dismissing one must not silence the rest.
+--
+-- ⚠️ Dismissals are the whole state of this feature. That is deliberate: a table of detected
+-- dates would need invalidating on every edit, and a stale reminder is exactly the failure
+-- §5-3 is about.
+CREATE TABLE IF NOT EXISTS date_dismissals (
+  block_id   TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+  due_at     INTEGER NOT NULL,            -- local midnight of the day, ms epoch
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (block_id, due_at)
+);

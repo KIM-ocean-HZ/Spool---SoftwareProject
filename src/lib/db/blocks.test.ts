@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createAttachment, listAttachmentsByBlock } from './attachments';
+import { createAttachment, listAttachmentsByThread } from './attachments';
 import {
   type Block,
   blockStatsByThread,
@@ -155,7 +155,7 @@ describe('mergeBlocks against a real SQLite engine (§20.1)', () => {
     sqlite.close();
   });
 
-  it('merges 3 blocks (pinned, two with attachments, differing sources) into the earliest', async () => {
+  it('merges 3 blocks (pinned, differing sources) into the earliest, leaving the project files alone', async () => {
     const ws = await createWorkspace('工作区');
     const thread = await createThread(ws.id, 'T');
 
@@ -169,23 +169,23 @@ describe('mergeBlocks against a real SQLite engine (§20.1)', () => {
     await new Promise((r) => setTimeout(r, 5));
     const b2 = await createBlock({ threadId: thread.id, content: 'second', source: 'Chrome' });
     await new Promise((r) => setTimeout(r, 5));
-    const b3 = await createBlock({ threadId: thread.id, content: 'third' });
+    await createBlock({ threadId: thread.id, content: 'third' });
 
     // pin the middle block — pinned should propagate to survivor
     await togglePin(b2.id);
 
-    // attachments on the two non-survivors
-    const a2 = await createAttachment({
-      blockId: b2.id,
+    // v15: files belong to the PROJECT, so a merge of its blocks must not move or lose one.
+    const a1 = await createAttachment({
+      threadId: thread.id,
       kind: 'file',
       target: '/x/b2.pdf',
       label: 'b2.pdf',
     });
-    const a3 = await createAttachment({
-      blockId: b3.id,
-      kind: 'url',
-      target: 'https://example.com',
-      label: 'example',
+    const a2 = await createAttachment({
+      threadId: thread.id,
+      kind: 'folder',
+      target: '/x/refs',
+      label: 'refs',
     });
 
     const all = await listBlocksByThread(thread.id);
@@ -219,9 +219,10 @@ describe('mergeBlocks against a real SQLite engine (§20.1)', () => {
     expect(survivor.pinned).toBe(true);
     expect(survivor.annotation).toBeNull();
 
-    // Both non-survivor attachments now belong to the survivor
-    const survivorAttachments = await listAttachmentsByBlock(survivor.id);
-    expect(survivorAttachments.map((a) => a.id).sort()).toEqual([a2.id, a3.id].sort());
+    // ⚠️ The v15 property: merging blocks is not a file operation. Both files are still
+    // the project's, untouched, and neither was re-pointed at anything.
+    const projectFiles = await listAttachmentsByThread(thread.id);
+    expect(projectFiles.map((a) => a.id).sort()).toEqual([a1.id, a2.id].sort());
 
     // FTS sync: searching for content from a merged-away block hits the survivor's row
     const ftsRows = sqlite

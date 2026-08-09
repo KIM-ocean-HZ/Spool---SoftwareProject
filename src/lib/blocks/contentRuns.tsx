@@ -187,15 +187,25 @@ export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
       {runs.map((run, i) => {
         // §10.1: an inline mark composes with everything else — it is a class (and, for
         // code, an element), never a wrapper that would nest inside a hit or a highlight.
+        //
+        // ⚠️ Ocean 2026-08-12「粗体字太粗了」: bold is ONE step above whatever the run already
+        // sits at, not a fixed 600. Most block content is Chinese, and 600 lands on PingFang SC
+        // Semibold, which reads as shouting rather than emphasis. 500 (Medium) is the emphasis
+        // weight there — except inside the spine, which is already 500, so bold has to clear it.
         const markCls =
           run.mark === 'strong'
-            ? 'font-semibold text-ink'
+            ? run.spine
+              ? 'font-semibold'
+              : 'font-medium'
             : run.mark === 'em'
               ? 'italic'
               : run.mark === 'code'
                 ? 'rounded-sm bg-paper-2 px-1 font-mono text-[0.9em] text-ink'
                 : '';
-        const spineCls = `${run.spine ? 'font-medium' : ''} ${markCls}`.trim();
+        // A strong run inside the spine already carries its own weight — emitting both would
+        // leave which one wins up to the order Tailwind happens to write them out in.
+        const spineWeight = run.spine && run.mark !== 'strong' ? 'font-medium' : '';
+        const spineCls = `${spineWeight} ${markCls}`.trim();
         if (run.hit) {
           return (
             <mark

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  drainMigrationNotices,
   __migrateSchemaForTest,
   __seedTutorialThreadForTest,
   __setTestDb,
@@ -62,10 +63,45 @@ const downgradeToV12 = (handle: Sqlite): void => {
 // Rewind past v14: nothing recorded WHO wrote an annotation, and a proposal could not carry
 // the correction relation it wanted the approved block to have.
 const downgradeToV13 = (handle: Sqlite): void => {
+  downgradeToV14(handle);
   handle.exec(`
     ALTER TABLE blocks DROP COLUMN annotation_by;
     ALTER TABLE proposals DROP COLUMN ref_kind;
     PRAGMA user_version = 13;
+  `);
+};
+
+// Rewind past v17: nothing could be told to stop reminding.
+const downgradeToV16 = (handle: Sqlite): void => {
+  handle.exec(`
+    DROP TABLE IF EXISTS date_dismissals;
+    PRAGMA user_version = 16;
+  `);
+};
+
+// Rewind past v16: nothing recorded when a summary was written.
+const downgradeToV15 = (handle: Sqlite): void => {
+  downgradeToV16(handle);
+  handle.exec(`
+    ALTER TABLE threads DROP COLUMN summary_at;
+    PRAGMA user_version = 15;
+  `);
+};
+
+// Rewind past v15: an attachment hung off ONE BLOCK, there was no ai_access, and the `url`
+// kind still existed. ⚠️ This is the only downgrade in the file that has to put a column
+// BACK — every step before v15 was additive, so its inverse was a DROP. It also has to
+// leave block_id nullable: SQLite cannot add a NOT NULL column to a table with rows, and a
+// test that seeds attachments before rewinding would fail on the real constraint.
+const downgradeToV14 = (handle: Sqlite): void => {
+  downgradeToV15(handle);
+  handle.exec(`
+    DROP INDEX IF EXISTS idx_attachments_thread;
+    ALTER TABLE attachments ADD COLUMN block_id TEXT REFERENCES blocks(id) ON DELETE CASCADE;
+    ALTER TABLE attachments DROP COLUMN thread_id;
+    ALTER TABLE attachments DROP COLUMN ai_access;
+    CREATE INDEX IF NOT EXISTS idx_attachments_block ON attachments(block_id, created_at ASC);
+    PRAGMA user_version = 14;
   `);
 };
 
@@ -137,17 +173,28 @@ const downgradeToV2 = (handle: Sqlite): void => {
   `);
 };
 
+const NOW = 1700000000000;
+
+// Workspace / thread / block, in the shape every version of the schema has had. The
+// attachment is seeded separately, because v15 is where its owner column changed and a test
+// has to say which side of that line it is standing on.
 const seedUserData = (handle: Sqlite): void => {
-  const now = 1700000000000;
   handle.exec(`
     INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
-      VALUES ('w1', 'ws', 0, ${now}, ${now});
+      VALUES ('w1', 'ws', 0, ${NOW}, ${NOW});
     INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
-      VALUES ('t1', 'w1', 'thread', ${now}, ${now});
+      VALUES ('t1', 'w1', 'thread', ${NOW}, ${NOW});
     INSERT INTO blocks (id, thread_id, content, created_at)
-      VALUES ('b1', 't1', 'hello block', ${now});
+      VALUES ('b1', 't1', 'hello block', ${NOW});
+  `);
+};
+
+/** Pre-v15: an attachment hung off one block, and `url` was a kind. */
+const seedLegacyAttachments = (handle: Sqlite): void => {
+  handle.exec(`
     INSERT INTO attachments (id, block_id, kind, target, created_at)
-      VALUES ('a1', 'b1', 'url', 'https://example.com', ${now});
+      VALUES ('a1', 'b1', 'file', '/tmp/lecture.pdf', ${NOW}),
+             ('a2', 'b1', 'url',  'https://example.com', ${NOW});
   `);
 };
 
@@ -159,6 +206,9 @@ describe('migrateSchema registry (§19.3)', () => {
     handle = new DatabaseSync(':memory:');
     db = makeAdapter(handle);
     __setTestDb(db);
+    // The notice queue is module state shared by every test in this file — any earlier
+    // migration that removed url rows left one behind.
+    drainMigrationNotices();
   });
 
   afterEach(() => {
@@ -170,10 +220,11 @@ describe('migrateSchema registry (§19.3)', () => {
     applySchema(handle);
     downgradeToV2(handle);
     seedUserData(handle);
+    seedLegacyAttachments(handle);
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -189,8 +240,9 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(handle.prepare('SELECT content FROM blocks').all()).toEqual([
       { content: 'hello block' },
     ]);
-    expect(handle.prepare('SELECT target FROM attachments').all()).toEqual([
-      { target: 'https://example.com' },
+    // v15: the file survives the walk and inherits its old block's project.
+    expect(handle.prepare('SELECT target, thread_id FROM attachments').all()).toEqual([
+      { target: '/tmp/lecture.pdf', thread_id: 't1' },
     ]);
   });
 
@@ -207,7 +259,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -227,7 +279,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -245,7 +297,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -267,7 +319,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -298,7 +350,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -316,6 +368,7 @@ describe('migrateSchema registry (§19.3)', () => {
     applySchema(handle);
     downgradeToV8(handle);
     seedUserData(handle);
+    seedLegacyAttachments(handle);
     handle.exec(`
       UPDATE attachments SET extracted_text = '验证曲线告诉你模型是欠拟合还是过拟合'
        WHERE id = 'a1';
@@ -352,7 +405,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -375,7 +428,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     const cols = columnNames(handle, 'threads');
     expect(cols).toContain('follow_up_brief');
     expect(cols).toContain('follow_up_state');
@@ -386,13 +439,15 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(rows).toEqual([{ follow_up_brief: null, follow_up_state: null }]);
     // Nothing else about the row moved.
     expect(
-      // auto_maintain comes off too: a v10 database walks 10→11→12 in one pass, so the
-      // v12 column is present by the time this runs. It is v12's business, asserted there.
+      // auto_maintain and summary_at come off too: a v10 database walks 10→…→16 in one
+      // pass, so the later columns are present by the time this runs. Each is its own
+      // step's business, asserted there.
       (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
-        const { follow_up_brief, follow_up_state, auto_maintain, ...rest } = r;
+        const { follow_up_brief, follow_up_state, auto_maintain, summary_at, ...rest } = r;
         void follow_up_brief;
         void follow_up_state;
         void auto_maintain;
+        void summary_at;
         return rest;
       }),
     ).toEqual(threadsBefore);
@@ -407,7 +462,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     // The column the whole table exists for (DESIGN_WORKBENCH §1.1: the AI's prose had
     // nowhere to live, so it was thrown away and the user was told "没有新增块").
     const cols = columnNames(handle, 'engine_runs');
@@ -429,8 +484,9 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(blocksSansV13(handle)).toEqual(blocksBefore);
     expect(
       (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
-        const { auto_maintain, ...rest } = r;
+        const { auto_maintain, summary_at, ...rest } = r;
         void auto_maintain;
+        void summary_at;
         return rest;
       }),
     ).toEqual(threadsBefore);
@@ -444,7 +500,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     const cols = columnNames(handle, 'blocks');
     expect(cols).toContain('stale_at');
     expect(cols).toContain('ref_kind');
@@ -468,7 +524,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     expect(columnNames(handle, 'blocks')).toContain('annotation_by');
     expect(columnNames(handle, 'proposals')).toContain('ref_kind');
     // ⚠️ The property this step lives or dies by (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): it
@@ -489,15 +545,96 @@ describe('migrateSchema registry (§19.3)', () => {
     ).toEqual(blocksBefore);
   });
 
+  // ⚠️ The only DESTRUCTIVE step in the registry, so it gets the most specific test in this
+  // file. Everything above is additive and its worst failure is "the column is missing";
+  // this one deletes rows and drops a column, and its worst failure is losing a file.
+  it('v14 → v15 moves every file onto its project and retires the url kind', async () => {
+    applySchema(handle);
+    downgradeToV14(handle);
+    seedUserData(handle);
+    seedLegacyAttachments(handle);
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(17);
+    const cols = columnNames(handle, 'attachments');
+    expect(cols).toContain('thread_id');
+    expect(cols).toContain('ai_access');
+    // §5.1 ②: the old ownership is GONE, not left nullable — Ocean chose 全搬, and a column
+    // still sitting there would let a later writer quietly re-create block-level files.
+    expect(cols).not.toContain('block_id');
+    // The file inherits the project of the block it used to hang off; the url row is gone
+    // (§5.1 ③ (c), Ocean 2026-08-08).
+    expect(handle.prepare('SELECT id, thread_id, kind FROM attachments').all()).toEqual([
+      { id: 'a1', thread_id: 't1', kind: 'file' },
+    ]);
+    // ⚠️ Deleting a user's links silently is the thing §5.1 ③ point 2 forbids. The count
+    // rides out to the UI, which says so once.
+    expect(drainMigrationNotices()).toEqual([{ kind: 'url-attachments-removed', count: 1 }]);
+    // ai_access starts at 0 — no AI has a claim on a file just because it exists (§5.1 ①).
+    expect(handle.prepare('SELECT ai_access FROM attachments').all()).toEqual([{ ai_access: 0 }]);
+  });
+
+  it('v14 → v15 says nothing when the user had no links to lose', async () => {
+    applySchema(handle);
+    downgradeToV14(handle);
+    seedUserData(handle);
+    handle.exec(
+      `INSERT INTO attachments (id, block_id, kind, target, created_at)
+         VALUES ('a1', 'b1', 'file', '/tmp/only.pdf', ${NOW})`,
+    );
+
+    await __migrateSchemaForTest(db);
+
+    // A notice the user cannot act on is noise; the migration only speaks when it removed
+    // something. (The real library is this case — it has zero attachment rows.)
+    expect(drainMigrationNotices()).toEqual([]);
+    expect(handle.prepare('SELECT COUNT(*) AS c FROM attachments').get()).toEqual({ c: 1 });
+  });
+
+  // §5-5 (Ocean 2026-08-08): a summary now records when it was written. Purely additive —
+  // and the point of the test is that an existing summary keeps a NULL rather than being
+  // backfilled with a lie about when it was written.
+  it('v15 → v16 adds summary_at and leaves older summaries unstamped', async () => {
+    applySchema(handle);
+    downgradeToV15(handle);
+    seedUserData(handle);
+    handle.exec("UPDATE threads SET summary = '旧摘要', summary_source = 'user' WHERE id = 't1'");
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(17);
+    expect(columnNames(handle, 'threads')).toContain('summary_at');
+    expect(handle.prepare('SELECT summary, summary_at FROM threads').all()).toEqual([
+      { summary: '旧摘要', summary_at: null },
+    ]);
+  });
+
+  // 旧账 §5-3. The table holds only what the user silenced — no detected dates, so there is
+  // nothing here that can go stale against a block they edit afterwards.
+  it('v16 → v17 adds the dismissal table and touches no user data', async () => {
+    applySchema(handle);
+    downgradeToV16(handle);
+    seedUserData(handle);
+    const blocksBefore = handle.prepare('SELECT * FROM blocks').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(17);
+    expect(columnNames(handle, 'date_dismissals')).toEqual(['block_id', 'due_at', 'created_at']);
+    expect(handle.prepare('SELECT COUNT(*) AS c FROM date_dismissals').get()).toEqual({ c: 0 });
+    expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 14');
+    handle.exec('PRAGMA user_version = 17');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -517,7 +654,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(14);
+    expect(userVersion(handle)).toBe(17);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
+import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
+import DateNotices from './DateNotices';
 import DigestView from './DigestView';
 import LogView from './LogView';
 import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
 
 const EMPTY: readonly Block[] = [];
+const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
 
 export default function ThreadView() {
   const activeId = useThreadsStore((s) => s.activeId);
@@ -17,7 +20,9 @@ export default function ThreadView() {
   const blocks = useBlocksStore((s) =>
     activeId ? s.byThread[activeId] ?? EMPTY : EMPTY,
   );
-  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
+  const attachments = useBlocksStore((s) =>
+    activeId ? s.attachmentsByThread[activeId] ?? EMPTY_ATTACHMENTS : EMPTY_ATTACHMENTS,
+  );
 
   // DESIGN_WORKBENCH §9.4 / §9.13: both the completion panel and the pack dialog are owned
   // by App now — 项目管理 can finish or pack a project that is not the one on screen, so
@@ -72,12 +77,15 @@ export default function ThreadView() {
         viewMode={viewMode}
         onSetViewMode={setViewOverride}
       />
+      {/* 旧账 §5-3: dates written inside this project's blocks. Log mode only — a finished
+          project's dates are nothing to act on, and its screen is a conclusion, not a feed. */}
+      {viewMode === 'log' && <DateNotices threadId={thread.id} blocks={blocks} />}
       {viewMode === 'digest' ? (
         <DigestView
           key={thread.id}
           thread={thread}
           blocks={blocks}
-          attachmentsByBlock={attachmentsByBlock}
+          attachments={attachments}
           onShowLog={() => setViewOverride('log')}
         />
       ) : (

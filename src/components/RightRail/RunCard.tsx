@@ -1,6 +1,7 @@
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useState } from 'react';
 import { dateLocale, useT } from '@/lib/i18n';
+import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import type { EngineRun } from '@/lib/db/engineRuns';
 import { ACTION_LABEL, ENGINE_LABEL, type EngineKind } from '@/stores/engineStore';
 
@@ -124,8 +125,10 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
       </div>
 
       {open && hasText && (
+        // §12.2 — same renderer as the block feed and 周回顾. Its sizes are in em, so a
+        // heading here scales from this card's 11px instead of shouting at the block feed's.
         <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 text-[11px] leading-relaxed text-ink-2">
-          {run.resultText}
+          <MarkdownContent content={run.resultText ?? ''} />
         </div>
       )}
       {open && run.detail && (

@@ -1,26 +1,34 @@
 import { nanoid } from 'nanoid';
 import { getDb } from './client';
 
-export type AttachmentKind = 'file' | 'folder' | 'url';
+// DESIGN_PROJECT_FILES (Ocean 2026-08-08) — a file belongs to a PROJECT, not to one block.
+//
+// ⚠️ The one rule this module exists to hold: `target` is only ever a path the user picked
+// in the system file dialog. Nothing here takes a path from an AI, from a proposal, or from
+// captured web content. That is precisely why 「自动挂本地文件」 was rejected in
+// DESIGN_CONTEXT_HYGIENE §2 and why this shape was allowed instead (§2 of that design):
+// an AI can ask about a file the user already put here, and can never introduce a new one.
+export type AttachmentKind = 'file' | 'folder';
 
 // v2.7: which extractor produced an attachment's cached text (or 'failed').
 export type AttachmentExtractionKind = 'pdf' | 'docx' | 'plaintext' | 'failed' | null;
 
 export interface Attachment {
   id: string;
-  blockId: string;
+  threadId: string;
   kind: AttachmentKind;
-  target: string;                              // absolute path or URL
+  target: string;                              // absolute path, from the file picker only
   label: string;                               // display name
   extractedText: string | null;                // v2.7: auto-extracted text for file kinds
   extractedAt: number | null;                  // v2.7: ms epoch when extraction completed; null if unattempted
   extractionKind: AttachmentExtractionKind;     // v2.7: which extractor handled this (or 'failed')
   includeInPack: boolean;                       // v2.8 §20.2: opt-in flag for inlining extracted_text into pack/summaries
+  aiAccess: boolean;                            // v15 §5.1 ①: the user has let an AI ask for this file's text
   createdAt: number;
 }
 
 export interface CreateAttachmentArgs {
-  blockId: string;
+  threadId: string;
   kind: AttachmentKind;
   target: string;
   label?: string;
@@ -28,7 +36,7 @@ export interface CreateAttachmentArgs {
 
 interface Row {
   id: string;
-  block_id: string;
+  thread_id: string;
   kind: AttachmentKind;
   target: string;
   label: string;
@@ -36,12 +44,13 @@ interface Row {
   extracted_at: number | null;
   extraction_kind: AttachmentExtractionKind;
   include_in_pack: number;
+  ai_access: number;
   created_at: number;
 }
 
 const fromRow = (r: Row): Attachment => ({
   id: r.id,
-  blockId: r.block_id,
+  threadId: r.thread_id,
   kind: r.kind,
   target: r.target,
   label: r.label,
@@ -49,32 +58,34 @@ const fromRow = (r: Row): Attachment => ({
   extractedAt: r.extracted_at,
   extractionKind: r.extraction_kind,
   includeInPack: r.include_in_pack === 1,
+  aiAccess: r.ai_access === 1,
   createdAt: r.created_at,
 });
 
 const SELECT_COLS =
-  'id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at';
+  'id, thread_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, ai_access, created_at';
 
-export const listAttachmentsByBlock = async (blockId: string): Promise<Attachment[]> => {
-  const db = await getDb();
-  const rows = await db.select<Row[]>(
-    `SELECT ${SELECT_COLS} FROM attachments WHERE block_id = $1 ORDER BY created_at ASC`,
-    [blockId],
-  );
-  return rows.map(fromRow);
-};
+const ALL_COLS =
+  '(id, thread_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, ai_access, created_at)';
 
-// Bulk-load every attachment whose block lives in this thread. Used to hydrate the
-// blocks store on thread switch in a single SELECT instead of N per-block queries.
+const allValues = (a: Attachment): unknown[] => [
+  a.id,
+  a.threadId,
+  a.kind,
+  a.target,
+  a.label,
+  a.extractedText,
+  a.extractedAt,
+  a.extractionKind,
+  a.includeInPack ? 1 : 0,
+  a.aiAccess ? 1 : 0,
+  a.createdAt,
+];
+
 export const listAttachmentsByThread = async (threadId: string): Promise<Attachment[]> => {
   const db = await getDb();
   const rows = await db.select<Row[]>(
-    `SELECT a.id, a.block_id, a.kind, a.target, a.label,
-            a.extracted_text, a.extracted_at, a.extraction_kind, a.include_in_pack, a.created_at
-       FROM attachments a
-       JOIN blocks b ON b.id = a.block_id
-      WHERE b.thread_id = $1
-      ORDER BY a.created_at ASC`,
+    `SELECT ${SELECT_COLS} FROM attachments WHERE thread_id = $1 ORDER BY created_at ASC`,
     [threadId],
   );
   return rows.map(fromRow);
@@ -99,9 +110,11 @@ export const createAttachment = async (args: CreateAttachmentArgs): Promise<Atta
   // Extraction columns start NULL — filled in asynchronously by the v2.7 extraction
   // pipeline (see updateAttachmentExtraction). include_in_pack defaults to false (v2.8
   // §20.2): extraction stays always-on for preview, but inlining is opt-in per attachment.
+  // ai_access defaults to false the same way and for a stronger reason (§5.1 ①): an AI
+  // starts with no claim on any file, and only the user can grant one.
   const a: Attachment = {
     id: nanoid(),
-    blockId: args.blockId,
+    threadId: args.threadId,
     kind: args.kind,
     target: args.target,
     label: args.label ?? '',
@@ -109,47 +122,34 @@ export const createAttachment = async (args: CreateAttachmentArgs): Promise<Atta
     extractedAt: null,
     extractionKind: null,
     includeInPack: false,
+    aiAccess: false,
     createdAt: Date.now(),
   };
   await db.execute(
-    `INSERT INTO attachments (id, block_id, kind, target, label, created_at)
+    `INSERT INTO attachments (id, thread_id, kind, target, label, created_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [a.id, a.blockId, a.kind, a.target, a.label, a.createdAt],
+    [a.id, a.threadId, a.kind, a.target, a.label, a.createdAt],
   );
   return a;
 };
 
 // §20.1 forward (copy to thread): INSERT pre-built copy attachments (one multi-row, atomic
-// statement — additive only, same data-safety contract as blocks.insertBlocks). The caller
-// builds the rows with fresh ids pointing at the new copy blocks; every cached field
-// (extracted_text, extracted_at, extraction_kind, include_in_pack) is copied verbatim, so no
-// re-extraction runs.
+// statement — additive only, same data-safety contract as blocks.insertBlocks). Every cached
+// field (extracted_text, extracted_at, extraction_kind, include_in_pack) is copied verbatim,
+// so no re-extraction runs. ⚠️ `ai_access` is copied too — the rows are the same files the
+// user already granted, arriving in a project they chose to copy into.
 export const insertAttachments = async (attachments: Attachment[]): Promise<void> => {
   if (attachments.length === 0) return;
   const db = await getDb();
-  const COLS = 10;
+  const COLS = 11;
   const tuples = attachments
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10})`;
+      return `(${Array.from({ length: COLS }, (_, k) => `$${o + k + 1}`).join(', ')})`;
     })
     .join(', ');
-  const params = attachments.flatMap((a) => [
-    a.id,
-    a.blockId,
-    a.kind,
-    a.target,
-    a.label,
-    a.extractedText,
-    a.extractedAt,
-    a.extractionKind,
-    a.includeInPack ? 1 : 0,
-    a.createdAt,
-  ]);
-  await db.execute(
-    `INSERT INTO attachments (id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at) VALUES ${tuples}`,
-    params,
-  );
+  const params = attachments.flatMap(allValues);
+  await db.execute(`INSERT INTO attachments ${ALL_COLS} VALUES ${tuples}`, params);
 };
 
 // v2.7: record the result of a text-extraction pass on an attachment. Called by the
@@ -181,42 +181,26 @@ export const setIncludeInPack = async (id: string, value: boolean): Promise<void
   ]);
 };
 
+// v15 §5.1 ①: grant or revoke an AI's standing permission to ask for this file. The grant is
+// long-lived on purpose (Ocean 2026-08-08 — approving the same file every time is the
+// approval fatigue DESIGN_MCP_WRITE_ROLE §3.3 is about), which is exactly why revoking it
+// has to be one click in the panel where the file is listed.
+export const setAiAccess = async (id: string, value: boolean): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE attachments SET ai_access = $1 WHERE id = $2', [value ? 1 : 0, id]);
+};
+
 export const deleteAttachment = async (id: string): Promise<void> => {
   const db = await getDb();
   await db.execute('DELETE FROM attachments WHERE id = $1', [id]);
 };
 
 // §9.13 Undo (delete): re-insert an attachment verbatim from an undo snapshot, preserving
-// every column (incl. extracted_text and include_in_pack). Used when undoing a block
-// delete — the forward delete cascade-removed the block's attachments, so they must be
-// recreated rather than re-pointed.
+// every column (incl. extracted_text and include_in_pack).
 export const restoreAttachment = async (a: Attachment): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO attachments
-       (id, block_id, kind, target, label, extracted_text, extracted_at, extraction_kind, include_in_pack, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [
-      a.id,
-      a.blockId,
-      a.kind,
-      a.target,
-      a.label,
-      a.extractedText,
-      a.extractedAt,
-      a.extractionKind,
-      a.includeInPack ? 1 : 0,
-      a.createdAt,
-    ],
+    `INSERT INTO attachments ${ALL_COLS} VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    allValues(a),
   );
-};
-
-// §9.13 Undo (merge): move an attachment back to its original owner block. The forward
-// merge re-pointed it onto the survivor via UPDATE block_id; this is the inverse.
-export const reassignAttachmentBlock = async (
-  id: string,
-  blockId: string,
-): Promise<void> => {
-  const db = await getDb();
-  await db.execute('UPDATE attachments SET block_id = $1 WHERE id = $2', [blockId, id]);
 };

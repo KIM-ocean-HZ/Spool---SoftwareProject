@@ -10,20 +10,16 @@ import {
 } from '@/lib/blocks/highlight';
 import { hasSegmentAnnotations } from '@/lib/blocks/segments';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
-import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { HitOffset } from '@/lib/search/query';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
-import { basename, pickFiles } from '@/lib/utils/openTarget';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
-import { useDropStore } from '@/stores/dropStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
 import BlockActions from './BlockActions';
-import BlockAttachments from './BlockAttachments';
 import CitationLine from './CitationLine';
 import RefBlockItem from './RefBlockItem';
 import SourceBadge from './SourceBadge';
@@ -31,7 +27,6 @@ import SupersedePicker from './SupersedePicker';
 
 interface Props {
   block: Block;
-  attachments: readonly Attachment[];
   // True briefly after a search result navigated here — drives the flash highlight.
   highlight?: boolean;
   // Digest view renders blocks read-only: no hover action bar, no inline edit (§11.2).
@@ -49,17 +44,21 @@ interface Props {
 
 // Collapsed display height for smart truncation (PLAN_EN.md §9.3 / §Phase 6) — a
 // collapsed block shows ~6 lines, with the last fading out (.feed-fade) instead of a
-// hard cut. Step 2: truncation only ENGAGES past TRUNCATE_AT_LINES so a block is never
-// collapsed just to hide 1–2 lines. Overflow is measured via DOM scrollHeight (full
-// content height even under the max-height clamp) against the line height — driving it
-// off `content.split('\n').length` alone misses wrap-long single lines.
+// hard cut.
+//
+// ⚠️ Ocean 2026-08-13 changed WHEN it engages: 「需要超过字数限制才能折叠，字数限制为默认打开
+// 界面的窗口大小，默认右侧边栏关闭的情况下，一个 block 如果占据的位置小于等于这个工作区域的
+// 窗口，就不折叠」. So the cap is one screenful of the feed, not the old flat 8 lines — a block
+// you can read without scrolling past it is shown whole. The screenful is MEASURED off the feed's
+// own scroll container rather than hardcoded off the 1360×840 default window, so the rule stays
+// true after a resize; at the default size the two are the same thing. Overflow is still measured
+// via DOM scrollHeight (full content height even under the max-height clamp), because driving it
+// off `content.split('\n').length` misses wrap-long single lines.
 const COLLAPSED_LINES = 6;
-const TRUNCATE_AT_LINES = 8;
 // Em line-height matching the content's `leading-[1.65]`, used to derive the collapsed
 // max-height from COLLAPSED_LINES without a JS measurement round-trip.
 const LINE_HEIGHT_EM = 1.65;
 
-const isUrl = (s: string): boolean => /^https?:\/\//i.test(s.trim());
 
 // v2.9 §14.3 / §19.19: walk up to the nearest scrollable ancestor (the feed's
 // overflow-y-auto wrapper in LogView). Used to capture and restore scrollTop
@@ -94,9 +93,9 @@ const hitsForField = (
   return out;
 };
 
-// Phase 10: ref blocks have an entirely different UI (no edit, source, annotation,
-// attachments), so dispatch by kind rather than branching mid-component — keeps each
-// renderer's hook order unconditional.
+// Phase 10: ref blocks have an entirely different UI (no edit, source, annotation), so
+// dispatch by kind rather than branching mid-component — keeps each renderer's hook order
+// unconditional.
 export default function BlockItem(props: Props) {
   if (props.block.kind === 'ref') {
     return <RefBlockItem block={props.block} readOnly={props.readOnly} onDelete={props.onDelete} />;
@@ -106,7 +105,6 @@ export default function BlockItem(props: Props) {
 
 function TextBlockItem({
   block,
-  attachments,
   highlight,
   readOnly,
   selected,
@@ -122,18 +120,11 @@ function TextBlockItem({
   const setSupersession = useBlocksStore((s) => s.setSupersession);
   const clearSupersession = useBlocksStore((s) => s.clearSupersession);
   const siblings = useBlocksStore((s) => s.byThread[block.threadId]);
-  const attach = useBlocksStore((s) => s.attach);
-  const detach = useBlocksStore((s) => s.detach);
-  const setIncludeInPack = useBlocksStore((s) => s.setIncludeInPack);
 
   // Action-bar reveal is JS-driven (not CSS group-hover): mouseleave deterministically
   // clears it, so the bar can't get stuck visible when the cursor moves to the block
   // below. See PLAN_EN.md §9.3.
   const [hovered, setHovered] = useState(false);
-
-  // True while a Finder drag hovers *this* block — draws the drop-target ring so the
-  // user can see exactly which block the attachment will land on (§9.6).
-  const isDropTarget = useDropStore((s) => s.targetBlockId === block.id);
 
   // v2.9 §9.3 / §19.18: brief background tint marking the most-recently-acted-upon
   // block, so the user keeps orientation across edit / collapse / annotate cycles.
@@ -175,14 +166,6 @@ function TextBlockItem({
   const [editingAnnotation, setEditingAnnotation] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState(block.annotation ?? '');
   const annotationRef = useRef<HTMLTextAreaElement>(null);
-
-  // URL attach affordance for the 📎 hover action. Files/folders come via drag from
-  // Finder (handled in LogView), so the button is purposefully URL-only — see Phase 6
-  // decision: keeping a hidden file-input would not return absolute paths in a Tauri
-  // webview, and adding plugin-dialog needs PLAN §4 sign-off.
-  const [attachingUrl, setAttachingUrl] = useState(false);
-  const [urlDraft, setUrlDraft] = useState('');
-  const urlRef = useRef<HTMLInputElement>(null);
 
   // Smart truncation: detect overflow against the collapsed cap. Re-measure when the
   // content text changes (the block could just have been edited).
@@ -245,20 +228,23 @@ function TextBlockItem({
     }
   }, [editingAnnotation, editingContent]);
 
-  useEffect(() => {
-    if (attachingUrl && urlRef.current) urlRef.current.focus();
-  }, [attachingUrl]);
-
   useLayoutEffect(() => {
     if (editingContent) return; // measurement only applies to the rendered prose path
-    const el = measureRef.current;
-    if (!el) return;
-    // scrollHeight reports the full content height even under the max-height clamp, so
-    // this is stable across collapse toggles. Step 2: only truncate when the content is
-    // meaningfully longer than the collapsed view (> TRUNCATE_AT_LINES), never to hide a
-    // line or two.
-    const lineHeightPx = parseFloat(getComputedStyle(el).lineHeight) || 24;
-    setNeedsTruncation(el.scrollHeight > lineHeightPx * TRUNCATE_AT_LINES + 1);
+    const measure = (): void => {
+      const el = measureRef.current;
+      if (!el) return;
+      // scrollHeight reports the full content height even under the max-height clamp, so
+      // this is stable across collapse toggles. The cap is the feed viewport itself — a block
+      // that fits on one screen is never truncated. `|| innerHeight` covers both "no scrollable
+      // ancestor found" and a container not laid out yet (clientHeight 0), which would otherwise
+      // collapse everything.
+      const viewportPx = findScrollContainer(el)?.clientHeight || window.innerHeight;
+      setNeedsTruncation(el.scrollHeight > viewportPx + 1);
+    };
+    measure();
+    // The cap moves with the window, so the answer has to be recomputed when it does.
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
   }, [block.content, editingContent]);
 
   // v2.9 §9.10 / §19.17: while this block owns the active search navigation,
@@ -608,47 +594,6 @@ function TextBlockItem({
     window.getSelection()?.removeAllRanges();
   };
 
-  const commitUrl = async (): Promise<void> => {
-    const target = urlDraft.trim();
-    setAttachingUrl(false);
-    setUrlDraft('');
-    if (!target) return;
-    if (!isUrl(target)) {
-      console.warn('[attach] ignored non-URL input:', target);
-      return;
-    }
-    try {
-      // Default label = the URL's host, falling back to the raw string. Domain reads
-      // cleaner than a 200-char share URL in the chip row.
-      let label = target;
-      try {
-        label = new URL(target).host || target;
-      } catch {
-        /* keep raw */
-      }
-      await attach({ blockId: block.id, kind: 'url', target, label });
-    } catch (e) {
-      console.error('[attach] failed', e);
-    }
-  };
-
-  const cancelUrl = (): void => {
-    setUrlDraft('');
-    setAttachingUrl(false);
-  };
-
-  // 📎 action: pick one or more files via the native dialog and attach each to this
-  // block. Folders still come through Finder drag (the open panel can't mix them).
-  const handleAttachFile = async (): Promise<void> => {
-    try {
-      const paths = await pickFiles();
-      for (const p of paths) {
-        await attach({ blockId: block.id, kind: 'file', target: p, label: basename(p) });
-      }
-    } catch (e) {
-      console.error('[attach] file picker failed', e);
-    }
-  };
 
   // W7 (DESIGN_WORKBENCH §7 / DESIGN_CONTEXT_HYGIENE §3.2): a block that carries the
   // user's own note is titled by that note. Only while it is not being edited — the editor
@@ -729,9 +674,9 @@ function TextBlockItem({
               // v2.9 §9.3 / §19.18: passive "I'm looking at this" cue. Interactive
               // children carry their own action handlers — the ones that should
               // trigger orientation (annotate, show more/less, double-click) wire
-              // setActive explicitly; the rest (pin/copy/delete/attach/highlight,
-              // attachment chips, source-badge editor, inline textareas) are
-              // deliberately excluded so a destructive click doesn't tint the row.
+              // setActive explicitly; the rest (pin/delete/highlight, source-badge
+              // editor, inline textareas) are deliberately excluded so a destructive
+              // click doesn't tint the row.
               if ((e.target as HTMLElement).closest('button, a, input, textarea')) return;
               setActive(block.id);
             }
@@ -739,8 +684,8 @@ function TextBlockItem({
       className={`group relative rounded-md px-3.5 py-3 transition-colors hover:bg-paper-2/40 ${
         block.pinned ? 'pl-4' : ''
       } ${block.staleAt != null ? 'opacity-55' : ''} ${
-        isDropTarget ? 'ring-2 ring-accent ring-offset-1 ring-offset-paper' : ''
-      } ${highlight || selfFlash ? 'flash' : ''} ${isActive ? 'block-active' : ''}`}
+        highlight || selfFlash ? 'flash' : ''
+      } ${isActive ? 'block-active' : ''}`}
     >
       {block.pinned && (
         <span className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r bg-accent" />
@@ -815,8 +760,6 @@ function TextBlockItem({
             selectionAlreadyHighlighted={selectionAlreadyHighlighted}
             onTogglePin={() => onTogglePin?.()}
             onEdit={() => enterEditMode(() => setEditingContent(true))}
-            onAttachFile={() => void handleAttachFile()}
-            onAttachUrl={() => setAttachingUrl((v) => !v)}
             onHighlight={() => void runHighlightFromToolbar()}
             onAnnotate={() => {
               setActive(block.id);
@@ -1033,40 +976,6 @@ function TextBlockItem({
         />
       )}
 
-      {attachingUrl && (
-        <div className="mt-2 flex items-center gap-1.5">
-          <input
-            ref={urlRef}
-            value={urlDraft}
-            onChange={(e) => setUrlDraft(e.target.value)}
-            onBlur={() => {
-              if (!urlDraft.trim()) cancelUrl();
-              else void commitUrl();
-            }}
-            onKeyDown={(e) => {
-              if (isImeComposing(e.nativeEvent)) return;
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void commitUrl();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelUrl();
-              }
-            }}
-            placeholder={t('https://…  （Enter 添加，Esc 取消）')}
-            className="flex-1 rounded border border-line-strong bg-paper px-2 py-1 font-ui text-[12px] text-ink outline-none focus:border-accent"
-            spellCheck={false}
-          />
-        </div>
-      )}
-
-      <BlockAttachments
-        attachments={attachments}
-        onDetach={readOnly ? undefined : (aid) => void detach(aid, block.id)}
-        onSetIncludeInPack={
-          readOnly ? undefined : (aid, v) => void setIncludeInPack(aid, block.id, v)
-        }
-      />
     </article>
   );
 }

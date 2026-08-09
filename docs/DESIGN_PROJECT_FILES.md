@@ -224,3 +224,106 @@ AI:  从此 get_pack 里这两个文件的提取文字可以内联进来,直到�
 - **改 pack 渲染要跑满三条基线**,两侧渲染器有 golden 平价测试盯着(交接 §6.1)
 - **golden 重生前必须 `TZ=Europe/London`**(交接 §6.5)
 - **装完新版一定要看一眼窗口** —— 08-05 白屏那次是 zustand selector 每次返新数组(交接 §6.2-bis)
+
+---
+
+## 7. ✅ 落地记录(2026-08-12):一期 + 二期一起落地,三期没做
+
+> 状态更新:本稿开头写的「未开工」作废。**一、二期已落地并全绿**;
+> **三期(`request_file_access`)一行没写** —— 按 §4「一定要按这个顺序」,它单独发。
+
+### 7.1 ⚠️ 一期和二期为什么必须一起发(和 §4 的分期表不一致,这里说清楚)
+
+§4 写着一期二期都「能独立发」。**实际做下来一期不能单独发**:
+一期要删 `attachments.block_id`,而 pack 的两侧渲染器**都在按 block_id 分组**
+(`assemble.ts` 的 `byBlock`、`mcp.rs` 的 `filter(|a| a.block_id == b.id)`)。
+列一删,那两处就不是「显示旧样子」,是**直接跑不起来**。
+→ 所以 §3.1 里那句「迁移和 golden 重生必须同一批做完」是对的,而它实际上把一期二期焊在了一起。
+
+### 7.2 数据:schema v15
+
+| 处 | 变化 |
+|---|---|
+| `schema.sql` | `attachments.thread_id`(NOT NULL + ON DELETE CASCADE)、`ai_access`(默认 0);`block_id` 整列删掉;索引换成 `idx_attachments_thread` |
+| `client.ts` | `SCHEMA_VERSION` 14 → 15,新增迁移 `move-attachments-to-thread` |
+| `mcp.rs` | `EXPECTED_SCHEMA_VERSION` 14 → 15 |
+| `client.test.ts` | 一堆 `toBe(14)` → 15,新增 `downgradeToV14`,新增两个 v14→v15 测试 |
+
+⚠️⚠️ **这是迁移登记表里第一个会毁东西的步骤。** 前面每一步都是纯增量,跑一半和跑完
+没有区别;这一步**删行**(`kind='url'`)**又删列**。所以顺序是写死的:
+
+1. **先**把 `thread_id` 从块上补齐 —— 死在这里,什么都没丢,重跑一遍即可;
+2. 再删 url 行;
+3. **最后**才删索引和 `block_id` 列。
+
+结尾有 §3.1 要求的那条断言:`thread_id IS NULL` 的行数必须是 0,否则**抛错、不盖版本号**。
+
+⚠️ **一个已知并接受的偏差**:走迁移的老库,`thread_id` 是**可空、且没有外键**的;
+全新库(直接读 `schema.sql`)才有 NOT NULL + CASCADE。SQLite 不能给已有列加 NOT NULL 或外键,
+而唯一的办法是**重建整张表** —— 那张表上挂着 FTS 外部内容索引和三个触发器,
+**为了一个从来没生效过的约束去重建它,炸的范围比约束本身大得多**:
+项目里线程是**软删**(`deleted_at`),`ON DELETE CASCADE` 一次都没触发过。
+真正守住不变量的是上面那条断言 + `createAttachment` 是唯一写入口。
+
+⚠️ **不静默**(§5.1 ③ 第 2 条):迁移把删掉的 url 条数塞进 `pendingMigrationNotices`,
+`App.tsx` 启动时 drain 一次、弹一条 toast。**真库删掉 0 条,所以他不会看见** ——
+但代码里这条路是通的,有测试钉着。
+
+### 7.3 界面:块上那两个键没了,右侧栏多了一格
+
+- ✅ **删** `BlockActions` 的 `附加文件` / `附加链接` —— **9 个键变 7 个**
+- ✅ **删** `BlockAttachments.tsx` 整个组件(块底下那排 chip)
+- ➕ **新增** `RightRail/ProjectFiles.tsx`:一个 ＋、一排文件、每个文件一个 ✕
+- ⚠️ **拖放的含义变了**:从 Finder 拖文件进时间线,以前是「拖到某块上就挂那块,
+  拖到空白处就**凭空造一个以文件名为内容的块**」。现在**两者是同一件事**:加进这个项目的文件库。
+  那个凭空造的块存在的唯一理由是「附件总得挂在谁身上」,现在有了别的地方。
+  → 连带删掉 `dropStore` 的 `targetBlockId` 和 `BlockItem` 上那圈 drop ring(没有东西能再点亮它)
+
+⚠️ **`「AI 可读」那个开关有意没做。** 它授的权只有三期的 `request_file_access` 会读,
+**现在放上去就是一个拨了不通电的开关** —— 台账 §3.5 记的正是这种「发了但什么也不干」的功能。
+列已经在库里,开关跟它要喂的东西一起来。
+
+### 7.4 pack:两侧渲染器一起改,golden 重生过
+
+- `↳ attached file / folder / URL:` 三个标记**从格式里删掉**,`ATTACHMENT_SEE_BELOW` 一起
+- 文件只在末尾 **「Related Files & Links」** 出现一次,**提取的正文也搬到那里内联**
+- Notation 里解释 `↳` 的那段话换成「文件不挂在块下面」,**两侧一字不差**
+- ⚠️ **段落标题保留原名 `## Related Files & Links`**,没改成 `## Project Files`:
+  它被**压缩提示词中英两份**当成「原样照抄这一节」的锚点引着,改名的波及面远大于收益
+- ⚠️ **一条规则被反转了**:v13 那条「块被作废,它的附件跟着从 pack 里消失」**删掉了**。
+  当时的理由是「pack 不能指向自己刻意扣下的材料」,前提是附件=某条结论的证据。
+  现在文件是**项目的**,作废一条结论跟项目还留不留这个文件没有关系 ——
+  继续跟着删,等于拿一个不相干的决定把用户自己的材料藏起来。
+  同理,**预算裁剪也不再裁文件**(`budgeted_pack`)、**范围过滤也不再过滤文件**(`PackDialog`)
+
+### 7.5 连带简化(不是顺手改的,是这次改动造出来的孤儿)
+
+| 处 | 为什么没了 |
+|---|---|
+| `blocks.ts` 的 `UPDATE attachments SET block_id = …` | 合并块不再搬文件 |
+| 撤销的三处附件分支(删除/合并/复制) | 删块不再级联删附件、合并不再搬、复制不再带 |
+| `insertAttachments` / `restoreAttachment` / `reassignAttachmentBlock` | 上一行那三处是它们仅有的调用方 |
+| 字典里 6 条 | 按 §6.1-bis 的判据核过:HEAD 里有人用、现在没人用 |
+
+⚠️ **`forwardToThread` 复制块时不再带文件**,这是有意的:文件属于**源项目**,
+把它的一条结论复制去别处,不等于决定把它的文件也复制过去。
+
+### 7.6 MCP 侧跟着动的三处(工具面**仍然是 14 个**)
+
+| 工具 | 变化 |
+|---|---|
+| `get_blocks` | 附件从**每个块一份**挪到**信封上一份** `files`。⚠️ 顺带修好一件事:分页读不再改变能看见哪些文件 |
+| `search_blocks` 的 `attachment_hits` | 一条命中现在报**项目**,不报块。⚠️ **`source` 字段去掉了** —— 项目文件是用户自己放进来的,没有来源标签可称重,硬编一个才是错的 |
+| `list_threads` 的预算聚合 | `JOIN blocks` 去掉,直接按 `a.thread_id` 分组 |
+
+### 7.7 基线
+
+```
+npx tsc --noEmit                                  # 干净
+npx vitest run                                    # 284(282 → 284:v15 迁移两个)
+cargo test --manifest-path src-tauri/Cargo.toml   # 58(改了 4 个既有测试,没加新的)
+node scripts/i18n-check.mjs                       # (none missing)
+```
+
+⚠️ golden 重生用的是 `TZ=Europe/London GOLDEN_WRITE=1`(§6.5),两侧渲染器读同一份 fixture,
+**Rust 那边的平价测试是真正确认两边一致的那一条**。

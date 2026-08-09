@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import PackDialog from './PackDialog';
 import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import type { Attachment } from '@/lib/db/attachments';
+
+const EMPTY_ATTACHMENTS: Attachment[] = [];
 import { listBlocksByIds, type Block } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
 import type { CitedBlock } from '@/lib/pack/assemble';
@@ -31,7 +33,11 @@ export default function PackHost() {
   const blocks = useBlocksStore((s) =>
     packingId ? s.byThread[packingId] ?? EMPTY : EMPTY,
   );
-  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
+  // v15: the project's files, read straight off the by-thread index — there is nothing
+  // left to flatten. ⚠️ Never build the array inside the selector (交接 §6.2-bis).
+  const attachments = useBlocksStore((s) =>
+    packingId ? s.attachmentsByThread[packingId] ?? EMPTY_ATTACHMENTS : EMPTY_ATTACHMENTS,
+  );
   const loadBlocks = useBlocksStore((s) => s.load);
 
   // A project reached from the board has never been opened, so its blocks are not in the
@@ -46,18 +52,6 @@ export default function PackHost() {
       .catch((e) => console.warn('[pack] loading blocks failed', e))
       .finally(() => setLoading(false));
   }, [packingId, loadBlocks]);
-
-  // Flatten every attachment whose owning block is in this thread. PackDialog wants a
-  // single array (assemble() groups by block internally).
-  const attachments = useMemo<Attachment[]>(() => {
-    if (!blocks.length) return [];
-    const out: Attachment[] = [];
-    for (const b of blocks) {
-      const arr = attachmentsByBlock[b.id];
-      if (arr) out.push(...arr);
-    }
-    return out;
-  }, [blocks, attachmentsByBlock]);
 
   // Pack uses ref blocks' refThreadId to look up the *current* title — that's the whole
   // point of @-mention (Phase 9). Built from the loaded threads so the briefing always

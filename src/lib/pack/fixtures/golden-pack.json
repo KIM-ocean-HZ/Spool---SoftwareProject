@@ -196,7 +196,7 @@
   "attachments": [
     {
       "id": "a1",
-      "blockId": "b1",
+      "threadId": "t1",
       "kind": "file",
       "target": "/Users/x/papers/attention.pdf",
       "label": "attention.pdf",
@@ -204,23 +204,12 @@
       "extractedAt": 1746540001000,
       "extractionKind": "pdf",
       "includeInPack": true,
+      "aiAccess": false,
       "createdAt": 1746540002000
     },
     {
-      "id": "a2",
-      "blockId": "b2",
-      "kind": "url",
-      "target": "https://example.edu/course/final",
-      "label": "example.edu",
-      "extractedText": null,
-      "extractedAt": null,
-      "extractionKind": null,
-      "includeInPack": false,
-      "createdAt": 1749100001000
-    },
-    {
       "id": "a3",
-      "blockId": "b2",
+      "threadId": "t1",
       "kind": "file",
       "target": "/Users/x/papers/rubric.docx",
       "label": "  ",
@@ -228,11 +217,12 @@
       "extractedAt": 1749100002000,
       "extractionKind": "docx",
       "includeInPack": false,
+      "aiAccess": false,
       "createdAt": 1749100003000
     },
     {
       "id": "a4",
-      "blockId": "b5",
+      "threadId": "t1",
       "kind": "folder",
       "target": "/Users/x/repos/baseline",
       "label": "baseline",
@@ -240,6 +230,7 @@
       "extractedAt": null,
       "extractionKind": null,
       "includeInPack": false,
+      "aiAccess": false,
       "createdAt": 1749996401000
     }
   ],

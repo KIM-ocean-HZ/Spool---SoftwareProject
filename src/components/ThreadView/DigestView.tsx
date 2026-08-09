@@ -1,6 +1,7 @@
-import { File, Folder, Link as LinkIcon } from 'lucide-react';
+import { File, Folder } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect } from 'react';
+import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import type { Attachment, AttachmentKind } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
@@ -10,28 +11,26 @@ import { toast } from '@/stores/toastStore';
 import BlockItem from './BlockItem';
 import { useT } from '@/lib/i18n';
 
-const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
-
 interface Props {
   thread: Thread;
   blocks: readonly Block[];
-  attachmentsByBlock: Record<string, Attachment[]>;
+  attachments: readonly Attachment[];
   onShowLog: () => void;
 }
 
-// Files & Links is grouped by kind in a fixed order (PLAN_EN.md §11.2).
-const KIND_ORDER: AttachmentKind[] = ['file', 'folder', 'url'];
+// Files is grouped by kind in a fixed order (PLAN_EN.md §11.2). v15: the `url` kind is
+// retired, so there are two.
+const KIND_ORDER: AttachmentKind[] = ['file', 'folder'];
 const KIND_ICON: Record<AttachmentKind, LucideIcon> = {
   file: File,
   folder: Folder,
-  url: LinkIcon,
 };
 
 // The `done`-thread view (PLAN_EN.md §11.2). Strict hierarchy, top to bottom:
 //   1. the conclusion summary — decoration, shown only when present;
-//   2. pinned blocks with their attachments — structural, always shown, read-only;
-//   3. every attachment in the thread, aggregated into one Files & Links list.
-export default function DigestView({ thread, blocks, attachmentsByBlock, onShowLog }: Props) {
+//   2. pinned blocks — structural, always shown, read-only;
+//   3. the project's files (v15: the project's, not each block's).
+export default function DigestView({ thread, blocks, attachments, onShowLog }: Props) {
   const t = useT();
   const load = useBlocksStore((s) => s.load);
 
@@ -43,7 +42,6 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
 
   const digest = thread.digest?.trim() || null;
   const pinned = blocks.filter((b) => b.pinned);
-  const attachments = blocks.flatMap((b) => attachmentsByBlock[b.id] ?? []);
 
   // §14.5: no pins, no attachments, no conclusion — there is nothing to digest.
   if (pinned.length === 0 && attachments.length === 0 && !digest) {
@@ -83,9 +81,12 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
         {digest && (
           <section>
             <div className="mb-1 text-[11px] text-muted">{t('结论')}</div>
-            <p className="whitespace-pre-wrap rounded-md border border-line bg-paper-2/50 px-4 py-3 font-ui text-sm leading-[1.6] text-ink">
-              {digest}
-            </p>
+            {/* §12.2 — the conclusion is AI-written prose, so it goes through the same
+                Markdown renderer as the block feed. ⚠️ A div, not a p: the renderer emits
+                block-level nodes, and a p cannot legally contain them. */}
+            <div className="whitespace-pre-wrap rounded-md border border-line bg-paper-2/50 px-4 py-3 font-ui text-sm leading-[1.6] text-ink">
+              <MarkdownContent content={digest} />
+            </div>
           </section>
         )}
 
@@ -95,21 +96,16 @@ export default function DigestView({ thread, blocks, attachmentsByBlock, onShowL
             <div className="mb-2 text-[11px] text-muted">{t('重点')}</div>
             <div className="space-y-2">
               {pinned.map((b) => (
-                <BlockItem
-                  key={b.id}
-                  block={b}
-                  attachments={attachmentsByBlock[b.id] ?? EMPTY_ATTACHMENTS}
-                  readOnly
-                />
+                <BlockItem key={b.id} block={b} readOnly />
               ))}
             </div>
           </section>
         )}
 
-        {/* 3. Files & Links — every attachment in the thread, files → folders → URLs. */}
+        {/* 3. The project's files, files → folders. */}
         {sortedAttachments.length > 0 && (
           <section>
-            <div className="mb-2 text-[11px] text-muted">{t('文件与链接')}</div>
+            <div className="mb-2 text-[11px] text-muted">{t('项目文件')}</div>
             <ul className="flex flex-col gap-1">
               {sortedAttachments.map((a) => {
                 const Icon = KIND_ICON[a.kind];

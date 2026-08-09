@@ -40,9 +40,10 @@ const textBlock = (id: string, content: string, opts: Partial<Block> = {}): Bloc
   ...opts,
 }) as Block;
 
-const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {}): Attachment => ({
+// v15: an attachment belongs to the project, so the fixture takes no block.
+const attachment = (id: string, opts: Partial<Attachment> = {}): Attachment => ({
   id,
-  blockId,
+  threadId: thread.id,
   kind: 'file',
   target: '/Users/x/Desktop/paper.pdf',
   label: 'paper.pdf',
@@ -50,6 +51,7 @@ const attachment = (id: string, blockId: string, opts: Partial<Attachment> = {})
   extractedAt: null,
   extractionKind: null,
   includeInPack: false,
+  aiAccess: false,
   createdAt: T(0),
   ...opts,
 });
@@ -186,61 +188,55 @@ describe('assemble', () => {
     expect(out).toContain('    note: 这条要重点跟进');
   });
 
-  it('lists a block attachment inline and in the Related Files & Links section', () => {
+  // v15 (DESIGN_PROJECT_FILES §5.1 ②): a file is listed ONCE, in the project's own section,
+  // and never as a sub-line under a block. ⚠️ The `↳ attached …` marker is gone from the
+  // format entirely — this test is what stops it coming back.
+  it('lists a file once, in Related Files & Links, and never under a block', () => {
     const blocks = [textBlock('b1', 'kickoff note')];
-    const attachments = [attachment('a1', 'b1')];
+    const attachments = [attachment('a1')];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain(
-      '    ↳ attached file: paper.pdf — see Related Files & Links section below',
-    );
     expect(out).toContain('## Related Files & Links');
     // §3.1-5: the file name, never the machine path it sits at.
     expect(out).toContain('- paper.pdf');
     expect(out).not.toContain('/Users/x/Desktop/paper.pdf');
+    expect(out).not.toContain('↳ attached');
+    // Exactly one mention — the Related Files row.
+    expect(out.match(/paper\.pdf/g)).toHaveLength(1);
   });
 
-  it('falls back to the pack target when an attachment label is empty', () => {
+  it('falls back to the file name when a label is empty, and prints it once', () => {
     const blocks = [textBlock('b1', 'kickoff note')];
-    const attachments = [
-      attachment('a1', 'b1', { kind: 'url', target: 'https://example.com/spec', label: '' }),
-    ];
+    const attachments = [attachment('a1', { target: '/x/y/spec.pdf', label: '' })];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain(
-      '    ↳ attached URL: https://example.com/spec — https://example.com/spec',
-    );
-    // …and the Related Files row then holds it once, not twice.
-    expect(out).toContain('- https://example.com/spec\n');
+    // The " — target" half is dropped when it would only repeat the label.
+    expect(out).toContain('- spec.pdf\n');
   });
 
   // §3.1-5 (MCP review round 2): a pack is the artifact the user pastes elsewhere, so no
   // line of it may carry the machine's directory layout. The property, not one example.
-  it('never prints a local path — files show their name, URLs travel whole', () => {
+  it('never prints a local path — every file shows its name only', () => {
     const blocks = [textBlock('b1', 'kickoff note')];
     const attachments = [
-      attachment('a1', 'b1', { label: '', target: '/Users/hzjin/Library/files/lecture-03.pdf' }),
-      attachment('a2', 'b1', { kind: 'folder', label: '', target: '/Users/hzjin/repos/baseline/' }),
-      attachment('a3', 'b1', { kind: 'url', label: 'course', target: 'https://e.edu/final' }),
+      attachment('a1', { label: '', target: '/Users/hzjin/Library/files/lecture-03.pdf' }),
+      attachment('a2', { kind: 'folder', label: '', target: '/Users/hzjin/repos/baseline/' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).not.toContain('/Users/hzjin');
-    expect(out).toContain('    ↳ attached file: lecture-03.pdf — see Related Files');
-    expect(out).toContain('    ↳ attached folder: baseline — see Related Files');
     expect(out).toContain('- lecture-03.pdf');
     expect(out).toContain('- baseline');
-    expect(out).toContain('- course — https://e.edu/final');
   });
 
   it("inlines an attachment's extracted text only when include_in_pack === true (§20.2)", () => {
     const blocks = [textBlock('b1', 'see attached')];
     const attachments = [
-      attachment('a1', 'b1', {
+      attachment('a1', {
         extractedText: 'line one\nline two',
         extractionKind: 'pdf',
         includeInPack: true,
       }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain('    ↳ attached file: paper.pdf (pdf)');
+    expect(out).toContain('- paper.pdf (pdf)');
     expect(out).toContain('      line one');
     expect(out).toContain('      line two');
   });
@@ -248,27 +244,23 @@ describe('assemble', () => {
   it('does NOT inline extracted text when include_in_pack === false (default, §20.2)', () => {
     const blocks = [textBlock('b1', 'see attached')];
     const attachments = [
-      attachment('a1', 'b1', {
+      attachment('a1', {
         extractedText: 'should not appear in body',
         extractionKind: 'pdf',
         // includeInPack defaults to false via the factory
       }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    // The chip points at Related Files & Links instead of inlining the body text.
-    expect(out).toContain(
-      '    ↳ attached file: paper.pdf — see Related Files & Links section below',
-    );
     expect(out).not.toContain('should not appear in body');
-    // And Related Files & Links tags the row with the not-inlined marker so the AI
-    // knows content exists but was withheld.
+    // The row says the text exists and was withheld, so the AI knows there is something
+    // to ask the user for.
     expect(out).toContain('- paper.pdf  [extracted: yes, not inlined]');
   });
 
   it('omits the not-inlined marker for files without extracted text', () => {
     const blocks = [textBlock('b1', 'see attached')];
     const attachments = [
-      attachment('a1', 'b1', { label: 'photo.jpg', target: '/x/photo.jpg' }),
+      attachment('a1', { label: 'photo.jpg', target: '/x/photo.jpg' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
     expect(out).toContain('- photo.jpg');
@@ -282,7 +274,7 @@ describe('assemble', () => {
     const long = 'x'.repeat(8500);
     const blocks = [textBlock('b1', 'big file')];
     const attachments = [
-      attachment('a1', 'b1', {
+      attachment('a1', {
         extractedText: long,
         extractionKind: 'pdf',
         includeInPack: true,
@@ -294,42 +286,35 @@ describe('assemble', () => {
     expect(out).not.toContain('x'.repeat(8001));
   });
 
-  it('renders a block with a mix of inlined / extracted-not-inlined / failed / URL attachments', () => {
+  it('renders a mix of inlined / extracted-not-inlined / failed files', () => {
     const blocks = [textBlock('b1', 'mixed bag')];
     const attachments = [
-      attachment('a1', 'b1', {
+      attachment('a1', {
         label: 'notes.pdf',
         target: '/x/notes.pdf',
         extractedText: 'extracted body text',
         extractionKind: 'pdf',
         includeInPack: true,
       }),
-      attachment('a2', 'b1', {
+      attachment('a2', {
         label: 'reference.pdf',
         target: '/x/reference.pdf',
         extractedText: 'extracted but kept out of pack',
         extractionKind: 'pdf',
         // includeInPack: false
       }),
-      attachment('a3', 'b1', {
+      attachment('a3', {
         label: 'photo.jpg',
         target: '/x/photo.jpg',
         extractionKind: 'failed',
       }),
-      attachment('a4', 'b1', { kind: 'url', label: 'spec', target: 'https://e.com/s' }),
     ];
     const out = assemble({ thread, blocks, attachments, now: NOW });
-    expect(out).toContain('    ↳ attached file: notes.pdf (pdf)');
+    expect(out).toContain('- notes.pdf (pdf)');
     expect(out).toContain('      extracted body text');
-    expect(out).toContain(
-      '    ↳ attached file: reference.pdf — see Related Files & Links section below',
-    );
-    expect(out).not.toContain('extracted but kept out of pack');
-    expect(out).toContain(
-      '    ↳ attached file: photo.jpg — see Related Files & Links section below',
-    );
-    expect(out).toContain('    ↳ attached URL: spec — https://e.com/s');
     expect(out).toContain('- reference.pdf  [extracted: yes, not inlined]');
+    expect(out).not.toContain('extracted but kept out of pack');
+    expect(out).toContain('- photo.jpg');
   });
 
   it('renders ref blocks using the refTitles map', () => {
@@ -483,15 +468,19 @@ describe('assemble', () => {
       expect(out).toContain('1 block the user has marked as no longer valid');
     });
 
-    it('drops a retired block’s attachments with it', () => {
+    // ⚠️ v15 REVERSED this. It used to drop a retired block's attachments with it, because a
+    // file was evidence for one conclusion and the pack must not point at material it
+    // withheld. A file is the PROJECT's now, so retiring a conclusion says nothing about
+    // whether the project still holds the file — dropping it would hide the user's own
+    // material on the strength of an unrelated decision.
+    it('keeps the project’s files even when a block is retired', () => {
       const blocks = [
         textBlock('b1', '旧的', { seq: 1, staleAt: T(10) }),
         textBlock('b2', '新的', { seq: 2 }),
       ];
-      const attachments = [attachment('a1', 'b1', { label: 'old.pdf', target: '/x/old.pdf' })];
+      const attachments = [attachment('a1', { label: 'old.pdf', target: '/x/old.pdf' })];
       const out = assemble({ thread, blocks, attachments, now: NOW });
-      // The pack must not point at material it deliberately withheld.
-      expect(out).not.toContain('old.pdf');
+      expect(out).toContain('- old.pdf');
     });
 
     it('marks a wholesale replacement differently from a citation', () => {

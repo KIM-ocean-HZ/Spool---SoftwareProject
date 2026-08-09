@@ -2,6 +2,7 @@ import { Bot, ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import EngineBar from "./EngineBar";
 import LiveRun from "./LiveRun";
+import ProjectFiles from "./ProjectFiles";
 import RunCard from "./RunCard";
 import { createBlock } from "@/lib/db/blocks";
 import type { EngineRun } from "@/lib/db/engineRuns";
@@ -295,6 +296,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               ))}
           </div>
         )}
+
+        {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
+            no files says so and offers the ＋), because this is now the ONLY place a file can
+            be added or seen: the block action bar's 📎 and 🔗 are gone. */}
+        {thread && <ProjectFiles threadId={thread.id} />}
 
         {/* R2's durable half — the one surviving fold, and the only thing in the rail that
             is reference rather than action. Absent entirely in a project no AI has touched

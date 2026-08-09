@@ -159,9 +159,9 @@ const NOTE_MARKER: &str = "note: ";
 // propose_blocks accept an `annotation` — so without a second marker an AI could write
 // itself the highest authority in the pack.
 const AI_NOTE_MARKER: &str = "ai note: ";
-const FILE_MARKER: &str = "↳ attached file: ";
-const FOLDER_MARKER: &str = "↳ attached folder: ";
-const URL_MARKER: &str = "↳ attached URL: ";
+// v15 (DESIGN_PROJECT_FILES §5.1 ②): the per-block `↳ attached …` markers are gone with the
+// ownership they described — a file is listed once, under SECTION_FILES, never under a block.
+// ⚠️ Lockstep with lib/pack/templates.ts; the golden fixture test is what enforces it.
 const REF_MARKER: &str = "→ Referenced project: ";
 // v2.4 (§20.13 D2) — mirrors templates.ts REF_BLOCK_MARKER / REF_BLOCK_MISSING.
 const REF_BLOCK_MARKER: &str = "↩ cites: ";
@@ -175,7 +175,6 @@ const REF_BLOCK_FROM: &str = " — in project: ";
 const REF_BLOCK_SUPERSEDES: &str = "↩ replaces (that block no longer holds): ";
 const REF_BLOCK_CORRECTS: &str = "↩ corrects one point in: ";
 const CORRECTED_BY_PREFIX: &str = "⚠️ one point in this block was corrected later — see ";
-const ATTACHMENT_SEE_BELOW: &str = " — see Related Files & Links section below";
 
 const SECTION_PINNED: &str = "## Pinned Blocks";
 const SECTION_LOG: &str = "## Full Record (chronological)";
@@ -282,10 +281,10 @@ Indented under a block:
   still printed here in full and still stands on everything else.
 - `⚠️ one point in this block was corrected later — see #N` — the same fact, seen from
   the older block. Read #N before using this one.
-- `↳ attached file / folder / URL:` — an artifact belonging to that block. A file whose
-  text Spool extracted is inlined here only when the user opted in; otherwise it appears
-  under "Related Files & Links" marked `[extracted: yes, not inlined]`, which means the
-  text exists and you may ask the user for it.
+Files are NOT listed under a block. They belong to the project and are listed once, at the
+end, under "Related Files & Links". A file whose text Spool extracted is printed there only
+when the user opted in; otherwise its row is marked `[extracted: yes, not inlined]`, which
+means the text exists and you may ask the user for it.
 
 Any line wrapped in `[... ...]` is Spool speaking, not content: it states what was left
 out of this pack and how to get it. Nothing Spool leaves out has been deleted.
@@ -365,7 +364,9 @@ pub struct RefBlock {
 pub type RefBlocks = std::collections::HashMap<String, RefBlock>;
 
 pub struct AttachmentRow {
-    pub block_id: String,
+    /// v15 (DESIGN_PROJECT_FILES): the PROJECT this file belongs to. It used to be the one
+    /// block it hung off; Ocean chose 全搬 on 2026-08-08 and the column is gone.
+    pub thread_id: String,
     pub kind: String,
     pub target: String,
     pub label: String,
@@ -426,12 +427,9 @@ fn base_name(target: &str) -> &str {
     }
 }
 
+// v15: every attachment is a local file or folder, so every target shrinks to its name.
 fn pack_target(a: &AttachmentRow) -> &str {
-    if a.kind == "url" {
-        &a.target
-    } else {
-        base_name(&a.target)
-    }
+    base_name(&a.target)
 }
 
 fn attachment_label(a: &AttachmentRow) -> &str {
@@ -464,25 +462,26 @@ fn render_extracted_text(text: &str, cap: usize) -> String {
         .join("\n")
 }
 
-fn render_attachment(a: &AttachmentRow, extract_cap: usize) -> Vec<String> {
+// One of the project's files, rendered in SECTION_FILES — the only place a file appears now.
+// ⚠️ Mirrors assemble.ts renderProjectFile line for line; the golden fixture is the check.
+fn render_project_file(a: &AttachmentRow, extract_cap: usize) -> Vec<String> {
+    // §3.1-5: file name, not path; the " — target" half is dropped when it would only
+    // repeat the label.
     let label = attachment_label(a);
-    if a.kind == "url" {
-        return vec![format!("{NOTE_INDENT}{URL_MARKER}{label} — {}", pack_target(a))];
-    }
-    if a.kind == "folder" {
-        return vec![format!("{NOTE_INDENT}{FOLDER_MARKER}{label}{ATTACHMENT_SEE_BELOW}")];
-    }
-    // kind == "file"
-    if let Some(text) = a.extracted_text.as_deref() {
+    let target = pack_target(a);
+    let shown = if target == label { String::new() } else { format!(" — {target}") };
+    if a.kind == "file" && a.extracted_text.is_some() {
+        let text = a.extracted_text.as_deref().unwrap_or("");
         if a.include_in_pack {
             let ext_kind = a.extraction_kind.as_deref().unwrap_or("text");
             return vec![
-                format!("{NOTE_INDENT}{FILE_MARKER}{label} ({ext_kind})"),
+                format!("- {label}{shown} ({ext_kind})"),
                 render_extracted_text(text, extract_cap),
             ];
         }
+        return vec![format!("- {label}{shown}  [extracted: yes, not inlined]")];
     }
-    vec![format!("{NOTE_INDENT}{FILE_MARKER}{label}{ATTACHMENT_SEE_BELOW}")]
+    vec![format!("- {label}{shown}")]
 }
 
 // The one block-header line (📌 star, time/source bracket, ref-title fallback) shared
@@ -584,11 +583,9 @@ fn corrections_by_source<'a>(
 
 fn render_block(
     b: &BlockRow,
-    attachments: &[AttachmentRow],
     ref_titles: &std::collections::HashMap<String, String>,
     ref_blocks: &RefBlocks,
     corrected_by: &std::collections::HashMap<&str, Vec<i64>>,
-    extract_cap: usize,
 ) -> Vec<String> {
     let mut lines: Vec<String> = vec![block_head_line(b, ref_titles, None)];
     if let Some(note) = block_note_line(b) {
@@ -612,9 +609,6 @@ fn render_block(
     if let Some(seqs) = corrected_by.get(b.id.as_str()) {
         let list: Vec<String> = seqs.iter().map(|s| format!("#{s}")).collect();
         lines.push(format!("{NOTE_INDENT}{CORRECTED_BY_PREFIX}{}", list.join(", ")));
-    }
-    for a in attachments.iter().filter(|a| a.block_id == b.id) {
-        lines.extend(render_attachment(a, extract_cap));
     }
     lines
 }
@@ -837,14 +831,7 @@ fn assemble_pack_with(
         out.push(EMPTY_PINNED_LINE.to_string());
     } else {
         for b in &pinned {
-            out.extend(render_block(
-                b,
-                attachments,
-                ref_titles,
-                ref_blocks,
-                &corrected_by,
-                extract_cap,
-            ));
+            out.extend(render_block(b, ref_titles, ref_blocks, &corrected_by));
         }
     }
 
@@ -913,14 +900,7 @@ fn assemble_pack_with(
             if b.pinned {
                 out.push(render_pinned_placeholder(b));
             } else {
-                out.extend(render_block(
-                    b,
-                    attachments,
-                    ref_titles,
-                    ref_blocks,
-                    &corrected_by,
-                    extract_cap,
-                ));
+                out.extend(render_block(b, ref_titles, ref_blocks, &corrected_by));
             }
         }
     }
@@ -929,34 +909,16 @@ fn assemble_pack_with(
         out.push(stale_omitted_line(stale_count));
     }
 
-    // Pinned blocks render in full above even when their chronological slot was
-    // omitted, so their attachments stay listed too.
-    let kept_ids: HashSet<&str> = kept
-        .iter()
-        .map(|b| b.id.as_str())
-        .chain(pinned.iter().map(|b| b.id.as_str()))
-        .collect();
-    let listed: Vec<&AttachmentRow> = attachments
-        .iter()
-        .filter(|a| kept_ids.contains(a.block_id.as_str()))
-        .collect();
-    if !listed.is_empty() {
+    // v15: the project's files — all of them, in the one section that lists them.
+    // ⚠️ The filter that dropped an omitted block's attachments is gone with the ownership
+    // it depended on: a file is not evidence for one block any more, so which blocks the
+    // budget kept says nothing about which files the project holds.
+    if !attachments.is_empty() {
         out.push(String::new());
         out.push(SECTION_FILES.to_string());
         out.push(String::new());
-        for a in listed {
-            let not_inlined = if a.kind == "file" && a.extracted_text.is_some() && !a.include_in_pack
-            {
-                "  [extracted: yes, not inlined]"
-            } else {
-                ""
-            };
-            // §3.1-5: file name, not path; the " — target" half is dropped when it
-            // would only repeat the label.
-            let target = pack_target(a);
-            let label = attachment_label(a);
-            let shown = if target == label { String::new() } else { format!(" — {target}") };
-            out.push(format!("- {label}{shown}{not_inlined}"));
+        for a in attachments {
+            out.extend(render_project_file(a, extract_cap));
         }
     }
 
@@ -1044,8 +1006,14 @@ fn mcp_enabled(dir: &std::path::Path) -> bool {
     v.get("mcpEnabled").and_then(Value::as_bool).unwrap_or(false)
 }
 
-// The 「允许 AI 写入」 sub-toggle (§20.13, default OFF — separate consent from reading:
-// a user happy to expose packs may still not want an external AI inserting rows).
+// The 「允许 AI 写入」 sub-toggle (§20.13), still a separate switch the user can turn off,
+// but ON by default since 2026-08-13 (§5-B / DESIGN_MCP_WRITE_ROLE M2 — the review gate is
+// in place and add_block has run for real without incident). It only ever applies once
+// mcpEnabled is on, which is still the user's own deliberate act.
+// ⚠️ The TS side has its own default in settingsStore.ts — the key is absent from
+// settings.json until someone touches the toggle, so both have to agree.
+// ⚠️ A settings.json we cannot read or parse still means NO writing: an unreadable file is
+// not consent.
 fn mcp_write_enabled(dir: &std::path::Path) -> bool {
     let Ok(raw) = std::fs::read_to_string(dir.join("settings.json")) else {
         return false;
@@ -1053,7 +1021,7 @@ fn mcp_write_enabled(dir: &std::path::Path) -> bool {
     let Ok(v) = serde_json::from_str::<Value>(&raw) else {
         return false;
     };
-    v.get("mcpWriteEnabled").and_then(Value::as_bool).unwrap_or(false)
+    v.get("mcpWriteEnabled").and_then(Value::as_bool).unwrap_or(true)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1157,13 +1125,12 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                                    + CASE WHEN pinned = 1 THEN 120 ELSE 0 END
                                    + CASE WHEN ref_block_id IS NOT NULL THEN 80 ELSE 0 END) AS chars
                           FROM blocks GROUP BY thread_id) bc ON bc.thread_id = t.id
-             LEFT JOIN (SELECT b2.thread_id,
+             LEFT JOIN (SELECT a.thread_id,
                                SUM(CASE WHEN a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
                                         THEN MIN(LENGTH(a.extracted_text), 8000) ELSE 0 END
                                    + 2 * COALESCE(LENGTH(a.label), LENGTH(a.target))
                                    + LENGTH(a.target) + 100) AS att_chars
-                          FROM attachments a JOIN blocks b2 ON b2.id = a.block_id
-                         GROUP BY b2.thread_id) ac ON ac.thread_id = t.id
+                          FROM attachments a GROUP BY a.thread_id) ac ON ac.thread_id = t.id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL{title_clause}
              ORDER BY w.sort_order ASC, w.created_at ASC,
                       COALESCE(bc.last_at, t.created_at) DESC, t.id ASC",
@@ -1492,10 +1459,13 @@ fn search_attachments(
     n_chars: usize,
     boundary: bool,
 ) -> Result<Vec<Value>, String> {
+    // ⚠️ v15 (DESIGN_PROJECT_FILES): a file hit names the PROJECT it belongs to. It used to
+    // name the block it hung off — with a preview, a #seq and that block's source label — and
+    // none of those exist for a project file. Reporting a block would mean picking one
+    // arbitrarily, and sending the user to a block whose text does not contain the words is
+    // the exact failure H-3 was written to prevent.
     struct AttHit {
-        block_id: String,
         thread_id: String,
-        content: String,
         created_at: i64,
         thread_title: String,
         workspace: String,
@@ -1503,27 +1473,19 @@ fn search_attachments(
         target: String,
         extraction_kind: Option<String>,
         extracted_text: String,
-        seq: Option<i64>,
-        source: Option<String>,
     }
-    // b.source rides LAST on purpose: `map` reads by position, so appending keeps every
-    // existing index put.
-    let cols = "b.id, b.thread_id, b.content, b.created_at, t.title, w.title,
-                a.label, a.target, a.extraction_kind, a.extracted_text, b.seq, b.source";
+    let cols = "a.thread_id, a.created_at, t.title, w.title,
+                a.label, a.target, a.extraction_kind, a.extracted_text";
     let map = |r: &rusqlite::Row| -> rusqlite::Result<AttHit> {
         Ok(AttHit {
-            block_id: r.get(0)?,
-            thread_id: r.get(1)?,
-            content: r.get(2)?,
-            created_at: r.get(3)?,
-            thread_title: r.get(4)?,
-            workspace: r.get(5)?,
-            label: r.get(6)?,
-            target: r.get(7)?,
-            extraction_kind: r.get(8)?,
-            extracted_text: r.get(9)?,
-            seq: r.get(10)?,
-            source: r.get(11)?,
+            thread_id: r.get(0)?,
+            created_at: r.get(1)?,
+            thread_title: r.get(2)?,
+            workspace: r.get(3)?,
+            label: r.get(4)?,
+            target: r.get(5)?,
+            extraction_kind: r.get(6)?,
+            extracted_text: r.get(7)?,
         })
     };
     // Same two paths as the block search: trigram FTS at ≥3 chars, a LIKE scan below
@@ -1537,8 +1499,7 @@ fn search_attachments(
             .prepare(&format!(
                 "SELECT {cols} FROM attachments_fts
                  JOIN attachments a ON a.rowid = attachments_fts.rowid
-                 JOIN blocks b ON b.id = a.block_id
-                 JOIN threads t ON t.id = b.thread_id
+                 JOIN threads t ON t.id = a.thread_id
                  JOIN workspaces w ON w.id = t.workspace_id
                  WHERE attachments_fts MATCH ?1
                    AND t.deleted_at IS NULL AND w.deleted_at IS NULL
@@ -1554,12 +1515,11 @@ fn search_attachments(
         stmt = conn
             .prepare(&format!(
                 "SELECT {cols} FROM attachments a
-                 JOIN blocks b ON b.id = a.block_id
-                 JOIN threads t ON t.id = b.thread_id
+                 JOIN threads t ON t.id = a.thread_id
                  JOIN workspaces w ON w.id = t.workspace_id
                  WHERE a.extracted_text LIKE ?1 ESCAPE '\\'
                    AND t.deleted_at IS NULL AND w.deleted_at IS NULL
-                 ORDER BY b.created_at DESC LIMIT ?2"
+                 ORDER BY a.created_at DESC LIMIT ?2"
             ))
             .map_err(|e| e.to_string())?;
         stmt.query_map(rusqlite::params![format!("%{escaped}%"), SEARCH_LIKE_SCAN_CAP], map)
@@ -1574,29 +1534,22 @@ fn search_attachments(
         .filter_map(|h| {
             let snippet = snippet_around(&h.extracted_text, query, boundary)?;
             Some(json!({
-                "block_id": h.block_id,
                 "thread_id": h.thread_id,
                 "thread_title": h.thread_title,
                 "workspace": h.workspace,
                 "created_at": format_pack_time(h.created_at),
-                "seq": h.seq,
-                // R6 (third-round debt 2): block hits have carried this since B-6, and the
-                // authority category (📖/🧩/🔄/💭) is read off it. Without it here, a file
-                // hit was the one search result whose weight the caller could not judge —
-                // an institutional PDF and an AI-written draft looked identical.
-                "source": h.source,
                 "matched_in": "attachment",
-                // Which file the sentence is actually in — without this the user opens
-                // the block, cannot find the words, and concludes search is broken.
+                // Which file the sentence is actually in — without this the user is sent
+                // looking for words that are in no block's text, and concludes search is
+                // broken. ⚠️ v15: a file the USER put in the project is the user's own
+                // choice of material, so it carries no source label to weigh; that is why
+                // there is no "source" here where a block hit has one.
                 "attachment": {
                     "label": if h.label.trim().is_empty() { &h.target } else { &h.label },
                     "target": h.target,
                     "extraction_kind": h.extraction_kind,
                 },
                 "snippet": snippet,
-                // The block the file hangs off, so the caller can talk about it without
-                // a second lookup.
-                "block_preview": head_anchor(&h.content),
             }))
         })
         .take(ATTACHMENT_HIT_CAP)
@@ -2626,45 +2579,38 @@ fn get_blocks_json(
     }
     // R6 B-5: get_pack's over-budget message points here ("page the rest with
     // get_blocks") — but get_blocks exposed no attachments at all, so following that
-    // advice silently dropped a 7800-char lecture extraction. Every row now lists its
-    // attachments with the extraction's size; `include_extracted_text` inlines the text
-    // itself (off by default — one PDF would otherwise dominate every page).
-    {
-        let mut att_stmt = conn
-            .prepare(
-                "SELECT kind, target, label, extraction_kind, include_in_pack, extracted_text
-                 FROM attachments WHERE block_id = ?1 ORDER BY created_at ASC",
-            )
-            .map_err(|e| e.to_string())?;
-        for row in &mut rows {
-            let Some(bid) = row["block_id"].as_str().map(String::from) else { continue };
-            let atts: Vec<Value> = att_stmt
-                .query_map([&bid], |r| {
-                    let extracted: Option<String> = r.get(5)?;
-                    let mut a = json!({
-                        "kind": r.get::<_, String>(0)?,
-                        "target": r.get::<_, String>(1)?,
-                        "label": r.get::<_, String>(2)?,
-                        "extraction_kind": r.get::<_, Option<String>>(3)?,
-                        "inlined_in_pack": r.get::<_, i64>(4)? == 1,
-                        "extracted_chars": extracted.as_deref().map(|t| t.chars().count()),
-                    });
-                    if include_extracted_text {
-                        a["extracted_text"] = match &extracted {
-                            Some(t) => json!(t),
-                            None => Value::Null,
-                        };
-                    }
-                    Ok(a)
-                })
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| e.to_string())?;
-            if !atts.is_empty() {
-                row["attachments"] = json!(atts);
+    // advice silently dropped a 7800-char lecture extraction. That fix stands;
+    // ⚠️ v15 (DESIGN_PROJECT_FILES) moves WHERE it hangs. Files belong to the project, so
+    // they ride on the envelope once instead of being repeated under every block — and a
+    // paged read no longer changes which files the caller can see.
+    let mut att_stmt = conn
+        .prepare(
+            "SELECT kind, target, label, extraction_kind, include_in_pack, extracted_text
+             FROM attachments WHERE thread_id = ?1 ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let files: Vec<Value> = att_stmt
+        .query_map([thread_id], |r| {
+            let extracted: Option<String> = r.get(5)?;
+            let mut a = json!({
+                "kind": r.get::<_, String>(0)?,
+                "target": r.get::<_, String>(1)?,
+                "label": r.get::<_, String>(2)?,
+                "extraction_kind": r.get::<_, Option<String>>(3)?,
+                "inlined_in_pack": r.get::<_, i64>(4)? == 1,
+                "extracted_chars": extracted.as_deref().map(|t| t.chars().count()),
+            });
+            if include_extracted_text {
+                a["extracted_text"] = match &extracted {
+                    Some(t) => json!(t),
+                    None => Value::Null,
+                };
             }
-        }
-    }
+            Ok(a)
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
 
     let mut out = json!({
         "thread_id": thread_id,
@@ -2674,6 +2620,9 @@ fn get_blocks_json(
         "limit": limit,
         "blocks": rows,
     });
+    if !files.is_empty() {
+        out["files"] = json!(files);
+    }
     if let Some(ctx) = effective_context {
         out["context"] = json!(ctx);
     }
@@ -2991,21 +2940,20 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
     let blocks = filter_blocks_for_range(blocks, range, now_ms);
     let range_blocks = blocks.len();
 
-    // Attachments narrowed to the surviving blocks — mirrors PackDialog's range behavior
-    // ("Related Files & Links" must not point at content the pack omitted).
+    // v15: the project's files. ⚠️ No longer narrowed by the range — mirrors PackDialog:
+    // "the last 20 blocks" says nothing about which files the PROJECT holds, so narrowing
+    // them would hide the user's own material rather than match the slice.
     let mut stmt = conn
         .prepare(
-            "SELECT a.block_id, a.kind, a.target, a.label, a.extracted_text,
-                    a.extraction_kind, a.include_in_pack
-             FROM attachments a JOIN blocks b ON b.id = a.block_id
-             WHERE b.thread_id = ?1 ORDER BY a.created_at ASC",
+            "SELECT thread_id, kind, target, label, extracted_text,
+                    extraction_kind, include_in_pack
+             FROM attachments WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
-    let block_ids: std::collections::HashSet<&str> = blocks.iter().map(|b| b.id.as_str()).collect();
     let attachments: Vec<AttachmentRow> = stmt
         .query_map([thread_id], |r| {
             Ok(AttachmentRow {
-                block_id: r.get(0)?,
+                thread_id: r.get(0)?,
                 kind: r.get(1)?,
                 target: r.get(2)?,
                 label: r.get(3)?,
@@ -3016,10 +2964,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|a| block_ids.contains(a.block_id.as_str()))
-        .collect();
+        .map_err(|e| e.to_string())?;
 
     let ref_titles = load_ref_titles(conn)?;
 
@@ -3089,12 +3034,13 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // (AI is a librarian, not an author) is enforced structurally. Every MCP-written block
 // carries a source label naming the client ("Claude Desktop · MCP"), so pack category
 // sorting treats AI-provided material as sourced quotes, never as the user's own
-// sourceless writing. Writes are separately gated by mcpWriteEnabled (default OFF).
+// sourceless writing. Writes are separately gated by mcpWriteEnabled (ON by default since
+// 2026-08-13, and only ever reachable once the user turns the MCP server on).
 
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 14;
+const EXPECTED_SCHEMA_VERSION: i64 = 17;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -3307,10 +3253,12 @@ fn create_thread_json(
     let id = new_id()?;
     let now = now_ms();
     conn.execute(
-        "INSERT INTO threads (id, workspace_id, title, summary, summary_source, status,
-                              is_capture_target, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'active', 0, ?6, ?6)",
-        rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now],
+        // v16 (§5-5): a project created WITH a summary has that summary written now; one
+        // created without keeps summary_at NULL alongside its NULL summary.
+        "INSERT INTO threads (id, workspace_id, title, summary, summary_source, summary_at,
+                              status, is_capture_target, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?7, 'active', 0, ?6, ?6)",
+        rusqlite::params![id, ws_id, title, summary, summary.map(|_| "mcp"), now, summary.map(|_| now)],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     Ok(json!({ "thread_id": id, "workspace": ws_title, "title": title }).to_string())
@@ -3354,7 +3302,10 @@ fn set_thread_summary_json(
     reject_raw_ids(conn, &[("summary", summary)])?;
     let now = now_ms();
     conn.execute(
-        "UPDATE threads SET summary = ?1, summary_source = 'mcp', updated_at = ?2 WHERE id = ?3",
+        // v16 (§5-5): summary_at is stamped on every summary write, here and in the GUI's
+        // updateThread. Recorded only — no surface displays it to the user.
+        "UPDATE threads SET summary = ?1, summary_source = 'mcp', summary_at = ?2, updated_at = ?2
+          WHERE id = ?3",
         rusqlite::params![summary, now, thread_id],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
@@ -4375,7 +4326,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and carries the same source label as a block hit, so weigh its authority the same way. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and the project it belongs to \u{2014} a file is one the user put in that project themselves, so it carries no source label of its own. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -5789,12 +5740,20 @@ fn thread_health_report(
     title: &str,
     now_ms: i64,
 ) -> Result<String, String> {
-    let (workspace, status, summary, summary_source): (String, String, Option<String>, Option<String>) =
-        conn.query_row(
-            "SELECT w.title, t.status, t.summary, t.summary_source
+    // v16 (§5-5): summary_at is NULL for every summary written before 2026-08-13, so the
+    // checkup says when it can and stays quiet when it cannot — never a guessed date.
+    let (workspace, status, summary, summary_source, summary_at): (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+    ) = conn
+        .query_row(
+            "SELECT w.title, t.status, t.summary, t.summary_source, t.summary_at
              FROM threads t JOIN workspaces w ON w.id = t.workspace_id WHERE t.id = ?1",
             [thread_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .map_err(|e| e.to_string())?;
 
@@ -5933,8 +5892,8 @@ fn thread_health_report(
             "Current summary: {}",
             match summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                 Some(s) => t!(
-                    "「{s}」(署名:{})",
-                    "\u{201c}{s}\u{201d} (authored by: {})",
+                    "「{s}」(署名:{}{})",
+                    "\u{201c}{s}\u{201d} (authored by: {}{})",
                     match summary_source.as_deref() {
                         Some("mcp") => ts!(
                             "AI(MCP)——可由 set_thread_summary 改写",
@@ -5948,6 +5907,18 @@ fn thread_health_report(
                             "未标注——按用户手写对待,set_thread_summary 会拒绝改写",
                             "unlabelled — treated as the user's, so set_thread_summary will refuse to rewrite it"
                         ),
+                    },
+                    match summary_at {
+                        Some(at) => t!(
+                            " · 写于 {}",
+                            " · written {}",
+                            format_pack_date(at)
+                        ),
+                        None => ts!(
+                            " · 写作时间未记录(v16 之前写的)",
+                            " · written before this was recorded (pre-v16)"
+                        )
+                        .to_string(),
                     }
                 ),
                 None => t!(
@@ -5957,8 +5928,8 @@ fn thread_health_report(
             }
         ),
         t!(
-            "检测口径:重复=字符三元组 Jaccard ≥ 0.6(find_similar_blocks 同一套);裸 id=21 位混合大小写 nanoid 形串与 spool:// 子串(add_block 写入警告同一检测器);悬空=ref_block_id 指向已消失的块。只读报告,Spool 不改任何内容。摘要是否过期需要你判断——Spool 不记录摘要的写作时间。",
-            "How this was detected: duplicate = character-trigram Jaccard \u{2265} 0.6 (the same measure as find_similar_blocks); raw id = a 21-char mixed-case nanoid-shaped run or a spool:// substring (the same detector behind add_block's write warning); dangling = a ref_block_id pointing at a block that is gone. Read-only report — Spool changes nothing. Whether the summary is stale is YOUR call: Spool does not record when a summary was written."
+            "检测口径:重复=字符三元组 Jaccard ≥ 0.6(find_similar_blocks 同一套);裸 id=21 位混合大小写 nanoid 形串与 spool:// 子串(add_block 写入警告同一检测器);悬空=ref_block_id 指向已消失的块。只读报告,Spool 不改任何内容。摘要是否过期仍然需要你判断——上面那个写作日期只说明它写于何时,不说明它还对不对。",
+            "How this was detected: duplicate = character-trigram Jaccard \u{2265} 0.6 (the same measure as find_similar_blocks); raw id = a 21-char mixed-case nanoid-shaped run or a spool:// substring (the same detector behind add_block's write warning); dangling = a ref_block_id pointing at a block that is gone. Read-only report — Spool changes nothing. Whether the summary is stale is still YOUR call: the date above says when it was written, not whether it still holds."
         ),
         String::new(),
     ];
@@ -6313,7 +6284,7 @@ mod tests {
             .unwrap()
             .iter()
             .map(|a| AttachmentRow {
-                block_id: a["blockId"].as_str().unwrap().to_string(),
+                thread_id: a["threadId"].as_str().unwrap().to_string(),
                 kind: a["kind"].as_str().unwrap().to_string(),
                 target: a["target"].as_str().unwrap().to_string(),
                 label: a["label"].as_str().unwrap().to_string(),
@@ -7159,11 +7130,11 @@ mod tests {
                ('b1', 't1', 'text', '12345', '批注九个字符啊啊啊', 1, 1),
                ('b2', 't1', 'text', '1234567890', NULL, 0, 2),
                ('b3', 't3', 'text', '不应计入', NULL, 0, 1);
-             INSERT INTO attachments (id, block_id, kind, target, label, extracted_text,
+             INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
                                       include_in_pack, created_at) VALUES
-               ('a1', 'b1', 'file', '/x/a.pdf', 'a.pdf', '{long}', 1, 1),
-               ('a2', 'b1', 'file', '/x/b.pdf', 'b.pdf', '弃权不内联', 0, 2),
-               ('a3', 'b2', 'file', '/x/c.pdf', 'c.pdf', NULL, 1, 3);"
+               ('a1', 't1', 'file', '/x/a.pdf', 'a.pdf', '{long}', 1, 1),
+               ('a2', 't1', 'file', '/x/b.pdf', 'b.pdf', '弃权不内联', 0, 2),
+               ('a3', 't1', 'file', '/x/c.pdf', 'c.pdf', NULL, 1, 3);"
         ))
         .unwrap();
 
@@ -7337,9 +7308,9 @@ mod tests {
                ('b1', 't1', 'text', '梯度下降第一条', '课程网站 · PDF', 0, 1),
                ('b2', 't1', 'text', '梯度下降第二条', NULL, 0, 2),
                ('b3', 't1', 'text', '梯度下降第三条', NULL, 0, 3);
-             INSERT INTO attachments (id, block_id, kind, target, label, extracted_text,
+             INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
                                       extraction_kind, include_in_pack, created_at)
-               VALUES ('a1', 'b1', 'file', '/x/l3.pdf', 'l3.pdf', '讲义里讲的是梯度下降',
+               VALUES ('a1', 't1', 'file', '/x/l3.pdf', 'l3.pdf', '讲义里讲的是梯度下降',
                        'pdf', 1, 1);",
         )
         .unwrap();
@@ -7350,13 +7321,16 @@ mod tests {
         let first = page(0);
         assert_eq!(first["attachment_total"], 1);
         assert_eq!(first["attachment_hits"].as_array().unwrap().len(), 1);
-        // R6 (third-round debt 2): a file hit carries its block's source label, so the
-        // caller can weigh it (📖 institutional vs 🧩 AI-written) the same way it weighs a
-        // block hit. b1's label rides through; the two sourceless blocks stay 💭 by absence.
+        // ⚠️ v15: a file hit names the PROJECT it belongs to, not a block. It used to carry
+        // the owning block's source label as its authority; a project file has no owning
+        // block, and the user chose it themselves, so there is no label to carry and the
+        // field is gone rather than guessed at.
         let att = &first["attachment_hits"][0];
-        assert_eq!(att["source"], "课程网站 · PDF", "file hit lost its authority label: {att}");
         assert_eq!(att["matched_in"], "attachment");
         assert_eq!(att["attachment"]["label"], "l3.pdf");
+        assert_eq!(att["thread_title"], "机器学习课");
+        assert!(att["source"].is_null(), "a project file must not claim an authority label: {att}");
+        assert!(att["block_id"].is_null(), "a file hit no longer names a block: {att}");
         for off in [1, 2, 99] {
             let p = page(off);
             // The count still shows — the caller must know the file matches exist — but
@@ -8352,8 +8326,10 @@ mod tests {
     }
 
     // v2.4 (C2): over-budget packs render partially — skeleton + full Pinned Blocks,
-    // Full Record filled newest-first, explicit omission line, attachments narrowed to
-    // surviving blocks; deterministic; extreme budgets fall back to None.
+    // Full Record filled newest-first, explicit omission line; deterministic; extreme
+    // budgets fall back to None.
+    // ⚠️ v15: attachments are NO LONGER narrowed with the blocks. They are the project's,
+    // so which blocks the budget could afford says nothing about which files it holds.
     #[test]
     fn budgeted_pack_fills_newest_first() {
         let mk_block = |i: usize, pinned: bool| BlockRow {
@@ -8375,19 +8351,19 @@ mod tests {
             (0..20).map(|i| mk_block(i, i == 0)).collect(); // oldest block pinned
         let attachments = vec![
             AttachmentRow {
-                block_id: "b1".into(), // oldest unpinned — will be omitted
-                kind: "url".into(),
-                target: "https://old.example".into(),
-                label: "old".into(),
+                thread_id: "t1".into(),
+                kind: "file".into(),
+                target: "/x/old.pdf".into(),
+                label: "old.pdf".into(),
                 extracted_text: None,
                 extraction_kind: None,
                 include_in_pack: false,
             },
             AttachmentRow {
-                block_id: "b19".into(), // newest — must survive
-                kind: "url".into(),
-                target: "https://new.example".into(),
-                label: "new".into(),
+                thread_id: "t1".into(),
+                kind: "file".into(),
+                target: "/x/new.pdf".into(),
+                label: "new.pdf".into(),
                 extracted_text: None,
                 extraction_kind: None,
                 include_in_pack: false,
@@ -8454,9 +8430,11 @@ mod tests {
             "a catalogue line is a line, not a body: {}",
             lines[log_idx + 3]
         );
-        // Attachment narrowing: the omitted block's link is gone, the kept one stays.
-        assert!(partial.contains("https://new.example"));
-        assert!(!partial.contains("https://old.example"));
+        // ⚠️ v15: BOTH files survive a budgeted pack. Dropping one because the block it
+        // used to hang off was squeezed out would now be dropping the project's own
+        // material for a reason that has nothing to do with it.
+        assert!(partial.contains("- new.pdf"));
+        assert!(partial.contains("- old.pdf"));
         // Extreme budget: even skeleton + pinned won't fit → None (caller keeps stats).
         assert!(budgeted_pack(&built, 100).is_none());
         // A budget the full text already fits is never reached via the guard, but the
@@ -8498,7 +8476,7 @@ mod tests {
         // Pinned, 40 days old, holding a 7800-char lecture extraction.
         let blocks = vec![mk_block("p", true, 40), mk_block("n", false, 1)];
         let attachments = vec![AttachmentRow {
-            block_id: "p".into(),
+            thread_id: "t1".into(),
             kind: "file".into(),
             target: "/tmp/lecture-03.pdf".into(),
             label: "lecture-03.pdf".into(),

@@ -1,31 +1,19 @@
 import { create } from 'zustand';
 
 // Transient UI state for an in-flight Finder drag (Phase 6 §9.6). The drop bridge in
-// useThreadDropTarget writes it on every `over` event; BlockItem / BlockFeed read it to
-// draw the highlight so the user can see where the drop will land.
+// useThreadDropTarget writes it on every `over` event; BlockFeed reads it to show where the
+// drop will land.
+//
+// v15 (DESIGN_PROJECT_FILES): there is no per-block target any more. A dropped file joins
+// the PROJECT's files, so every point inside the timeline means the same thing and the ring
+// that used to single out one block would have been pointing at nothing.
 interface DropState {
-  // Block currently under the drag cursor — it gets a ring while the drag hovers it.
-  targetBlockId: string | null;
-  // True when the drag is inside the timeline but over no block: a drop here creates
-  // a new block carrying the dropped artifacts.
-  overEmpty: boolean;
-  setTarget: (blockId: string | null, overEmpty: boolean) => void;
-  clear: () => void;
+  // True while a drag is inside the timeline. A drop here adds the files to this project.
+  overThread: boolean;
+  setOverThread: (value: boolean) => void;
 }
 
 export const useDropStore = create<DropState>((set) => ({
-  targetBlockId: null,
-  overEmpty: false,
-  setTarget: (targetBlockId, overEmpty) =>
-    set((s) =>
-      s.targetBlockId === targetBlockId && s.overEmpty === overEmpty
-        ? s
-        : { targetBlockId, overEmpty },
-    ),
-  clear: () =>
-    set((s) =>
-      s.targetBlockId === null && !s.overEmpty
-        ? s
-        : { targetBlockId: null, overEmpty: false },
-    ),
+  overThread: false,
+  setOverThread: (overThread) => set((s) => (s.overThread === overThread ? s : { overThread })),
 }));

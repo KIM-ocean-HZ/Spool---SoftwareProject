@@ -540,12 +540,15 @@ export const computeMergedFields = (blocks: Block[]): MergedFields => {
   };
 };
 
-// Merge multiple blocks: re-points attachments to survivor, writes merged fields onto
-// survivor, deletes non-survivors. Steps run sequentially (no BEGIN/COMMIT — see
-// threads.ts:141 on why tauri-plugin-sql's connection pool makes explicit transactions
-// unreliable). Order is safety-driven: attachments are moved BEFORE non-survivor blocks
-// are dropped, so the FK cascade can never strand a moved attachment. The FTS sync
-// triggers (schema.sql blocks_au/blocks_ad) keep blocks_fts current across both writes.
+// Merge multiple blocks: writes merged fields onto the survivor, deletes non-survivors.
+// Steps run sequentially (no BEGIN/COMMIT — see threads.ts:141 on why tauri-plugin-sql's
+// connection pool makes explicit transactions unreliable). The FTS sync triggers
+// (schema.sql blocks_au/blocks_ad) keep blocks_fts current across both writes.
+//
+// ⚠️ v15 (DESIGN_PROJECT_FILES): the re-point that used to run first is gone. Attachments
+// belonged to a block, so a merge had to move them onto the survivor before the FK cascade
+// took them; they belong to the PROJECT now, and merging two of its blocks does not move a
+// file anywhere.
 export const mergeBlocks = async (
   survivorId: string,
   content: string,
@@ -556,12 +559,6 @@ export const mergeBlocks = async (
 ): Promise<void> => {
   if (nonSurvivorIds.length === 0) return;
   const db = await getDb();
-
-  const repointPlaceholders = nonSurvivorIds.map((_, i) => `$${i + 2}`).join(', ');
-  await db.execute(
-    `UPDATE attachments SET block_id = $1 WHERE block_id IN (${repointPlaceholders})`,
-    [survivorId, ...nonSurvivorIds],
-  );
 
   await db.execute(
     'UPDATE blocks SET content = $1, annotation = $2, pinned = $3, source = $4 WHERE id = $5',

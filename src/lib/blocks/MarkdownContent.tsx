@@ -19,13 +19,34 @@ interface Props {
   withSpine?: boolean;
 }
 
+// Ocean 2026-08-12, after reading real blocks in the first version of this renderer:
+// 「粗体字太粗了，大小区分不明显，字看起来太挤了，参照标准的 markdown 渲染来做」— which put
+// the headings on the standard (GitHub-ish) scale, up to 1.45em for an h1.
+//
+// Ocean 2026-08-13, after reading the result: 「标题字体太太大了，改回原来的」. So the sizes are
+// the ORIGINAL six steps again — 17/16/15/14/13/13px against a 15px body — but expressed in em,
+// because the other half of §12 stands: the same renderer runs at 15px in the block feed and at
+// 13px in 周回顾, and a heading has to keep its proportion in both. Spacing and bold weight are
+// untouched; the complaint was about size alone.
 const HEADING_CLS: Record<number, string> = {
-  1: 'mt-3 font-ui text-[17px] font-semibold leading-snug text-ink first:mt-0',
-  2: 'mt-3 font-ui text-[16px] font-semibold leading-snug text-ink first:mt-0',
-  3: 'mt-2.5 font-ui text-[15px] font-semibold leading-snug text-ink first:mt-0',
-  4: 'mt-2 font-ui text-[14px] font-semibold leading-snug text-ink-2 first:mt-0',
-  5: 'mt-2 font-ui text-[13px] font-semibold leading-snug text-ink-2 first:mt-0',
-  6: 'mt-2 font-ui text-[13px] font-semibold leading-snug text-muted first:mt-0',
+  1: 'font-ui text-[1.13em] font-semibold leading-[1.3] text-ink',
+  2: 'font-ui text-[1.07em] font-semibold leading-[1.35] text-ink',
+  3: 'font-ui text-[1em] font-semibold leading-[1.4] text-ink',
+  4: 'font-ui text-[0.93em] font-semibold leading-[1.45] text-ink',
+  5: 'font-ui text-[0.87em] font-semibold leading-[1.45] text-ink-2',
+  6: 'font-ui text-[0.87em] font-semibold leading-[1.45] text-muted',
+};
+
+// Vertical rhythm, also in em, and TOP margins only: adjacent margins collapse, so the gap
+// between any two blocks is one number rather than the sum of a mb and an mt.
+// ⚠️ Each value is relative to the element's OWN font-size — a heading's em is the bigger
+// one, which is why 1.15em there lands near 1.5 body-em, the standard gap above a heading.
+const gapFor = (b: MdBlock, prev: MdBlock | undefined): string => {
+  if (!prev) return '';
+  // Rows of one list belong together — the gap between them is not a paragraph gap.
+  if (b.kind === 'item' && prev.kind === 'item') return 'mt-[0.3em]';
+  if (b.kind === 'heading') return 'mt-[1.15em]';
+  return 'mt-[0.9em]';
 };
 
 export function MarkdownContent({
@@ -67,9 +88,10 @@ export function MarkdownContent({
   return (
     <Fragment>
       {doc.blocks.map((b, i) => {
+        const gap = gapFor(b, doc.blocks[i - 1]);
         if (b.kind === 'heading') {
           return (
-            <div key={i} className={HEADING_CLS[b.level] ?? HEADING_CLS[6]!}>
+            <div key={i} className={`${HEADING_CLS[b.level] ?? HEADING_CLS[6]!} ${gap}`}>
               {runsFor(b)}
             </div>
           );
@@ -78,8 +100,8 @@ export function MarkdownContent({
           return (
             <div
               key={i}
-              className="flex gap-1.5"
-              style={{ paddingLeft: `${b.indent * 1.1}rem` }}
+              className={`flex gap-[0.5em] ${gap}`}
+              style={{ paddingLeft: `${b.indent * 1.2}em` }}
             >
               <span className="flex-none select-none text-muted">{b.marker}</span>
               <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{runsFor(b)}</span>
@@ -90,14 +112,14 @@ export function MarkdownContent({
           return (
             <pre
               key={i}
-              className="my-1.5 overflow-x-auto rounded border border-line bg-paper-2/60 px-2 py-1.5 font-mono text-[12px] leading-[1.5] text-ink-2"
+              className={`overflow-x-auto rounded border border-line bg-paper-2/60 px-3 py-2 font-mono text-[0.85em] leading-[1.55] text-ink-2 ${gap}`}
             >
               {runsFor(b)}
             </pre>
           );
         }
         return (
-          <div key={i} className="whitespace-pre-wrap break-words [&:not(:first-child)]:mt-2">
+          <div key={i} className={`whitespace-pre-wrap break-words ${gap}`}>
             {runsFor(b)}
           </div>
         );

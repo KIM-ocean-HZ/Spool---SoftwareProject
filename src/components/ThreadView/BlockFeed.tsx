@@ -1,6 +1,6 @@
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, PenLine } from 'lucide-react';
 import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
-import type { Attachment } from '@/lib/db/attachments';
+import { isUserWritten } from '@/lib/blocks/annotationAuthor';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
@@ -43,7 +43,6 @@ const intersectsRect = (
 // render and trip React's useSyncExternalStore "snapshot is unstable" guard — the same
 // trap that produced the Phase 3 "Maximum update depth exceeded" loop.
 const EMPTY: readonly Block[] = [];
-const EMPTY_ATTACHMENTS: readonly Attachment[] = [];
 
 type SortMode = 'time' | 'source';
 
@@ -92,8 +91,7 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   const togglePin = useBlocksStore((s) => s.togglePin);
   const remove = useBlocksStore((s) => s.remove);
   const blocks = useBlocksStore((s) => s.byThread[threadId] ?? EMPTY);
-  const attachmentsByBlock = useBlocksStore((s) => s.attachmentsByBlock);
-  const overEmpty = useDropStore((s) => s.overEmpty);
+  const overEmpty = useDropStore((s) => s.overThread);
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
   // 拍板点 2/5: the empty state forks on the capture grant, and the first successful
   // capture gets a one-time closing line under it.
@@ -140,6 +138,9 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   }, [threadId, clearSelection]);
 
   const [sortMode, setSortMode] = useState<SortMode>('time');
+  // §4.4 filter. Local state, and LogView is keyed by thread id, so switching projects
+  // starts from "show everything" rather than a filter the user forgot they left on.
+  const [mineOnly, setMineOnly] = useState(false);
   // Tail-window size for this thread. Reset on thread switch so a previously expanded
   // history doesn't carry into a different (possibly tiny) thread.
   const [windowSize, setWindowSize] = useState(WINDOW_SIZE);
@@ -151,7 +152,13 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     void load(threadId);
   }, [threadId, load]);
 
-  const ordered = useMemo(() => sortBlocks(blocks, sortMode), [blocks, sortMode]);
+  const ordered = useMemo(() => {
+    const sorted = sortBlocks(blocks, sortMode);
+    if (!mineOnly) return sorted;
+    // ⚠️ The search destination survives the filter. 「跳到命中处」 must land somewhere, and a
+    // jump into a feed that silently dropped the target is the one failure worth code here.
+    return sorted.filter((b) => isUserWritten(b) || b.id === highlightBlockId);
+  }, [blocks, sortMode, mineOnly, highlightBlockId]);
 
   // If a search result targets a block outside the current tail window, widen so it's
   // mounted before the scrollIntoView below runs. Runs before the highlight effect so
@@ -404,7 +411,30 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
           cycles the two modes, current mode in the tooltip, instead of a labeled
           pill row claiming a whole line. */}
-      <div className="mb-2 flex items-center justify-end">
+      <div className="mb-2 flex items-center justify-end gap-0.5">
+        {/* §4.4 「只看我写的」 — same low-frequency treatment as the sort control next to it:
+            one icon, the state in the tooltip, and it colours in while it is on so a
+            half-empty feed always has a visible reason. */}
+        <button
+          type="button"
+          onClick={() => setMineOnly((v) => !v)}
+          title={
+            mineOnly
+              ? t('只看我写的：开着 — 点击看全部')
+              : t('只看我写的：你自己写的块，加上你亲手批注过的')
+          }
+          aria-label={
+            mineOnly
+              ? t('只看我写的：开着 — 点击看全部')
+              : t('只看我写的：你自己写的块，加上你亲手批注过的')
+          }
+          aria-pressed={mineOnly}
+          className={`rounded p-1 transition-colors hover:text-accent ${
+            mineOnly ? 'text-accent' : 'text-muted'
+          }`}
+        >
+          <PenLine size={13} />
+        </button>
         <button
           type="button"
           onClick={() => setSortMode(sortMode === 'time' ? 'source' : 'time')}
@@ -423,6 +453,11 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
           <ArrowUpDown size={13} />
         </button>
       </div>
+      {mineOnly && ordered.length === 0 && (
+        <p className="py-8 text-center text-sm italic text-muted">
+          {t('这个项目里还没有你自己写下的东西。')}
+        </p>
+      )}
       {hiddenCount > 0 && (
         <div className="mb-2 flex items-center justify-center">
           <button
@@ -450,7 +485,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
               {showDivider && <DateDivider ts={b.createdAt} />}
               <BlockItem
                 block={b}
-                attachments={attachmentsByBlock[b.id] ?? EMPTY_ATTACHMENTS}
                 highlight={b.id === highlightBlockId}
                 selected={selectedBlockIds.has(b.id)}
                 anySelected={anySelected}

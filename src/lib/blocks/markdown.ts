@@ -107,7 +107,9 @@ export function parseMarkdown(content: string): MdDoc {
       hidden.push({ start: pos, end: textStart });
       blocks.push({
         kind: 'item',
-        marker: bullet ? '·' : m[2]!,
+        // A middot is what a `·` list marker looks like at body size: almost nothing. The
+        // bullet standard Markdown draws is `•`.
+        marker: bullet ? '•' : m[2]!,
         indent: indentOf(m[1]!),
         text: { start: textStart, end: lineEnd },
       });

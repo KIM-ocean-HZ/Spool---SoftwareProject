@@ -3,7 +3,6 @@
 // wraps this with reactive state + the actual reversal logic; this file only owns the
 // buffer mechanics (push / peek / pop / invalidate / clear) and the entry types.
 
-import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 
 export type UndoOpKind =
@@ -24,9 +23,11 @@ export interface CapturePayload {
   content: string; // snapshot for the toast preview (block is deleted on undo)
 }
 
+// ⚠️ v15 (DESIGN_PROJECT_FILES): the block, and nothing else. Deleting a block used to
+// cascade-delete its attachments, so undo had to carry them back; files now belong to the
+// project and a block's deletion never touches one.
 export interface DeletePayload {
   block: Block;
-  attachments: Attachment[];
 }
 
 export interface MergePayload {
@@ -35,9 +36,6 @@ export interface MergePayload {
   // Full pre-merge rows of every source block (survivor + non-survivors). Restored
   // verbatim on undo.
   sourceBlocks: Block[];
-  // Attachments the forward merge re-pointed onto the survivor, with the block they
-  // originally belonged to — so undo can move each back to its owner.
-  movedAttachments: { id: string; originalBlockId: string }[];
 }
 
 // Step 6 §20.5: a select-to-highlight gesture mutated stored content. Reversal restores
@@ -64,13 +62,12 @@ export interface WorkspaceDeletePayload {
 }
 
 // §20.1 forward (copy to another thread): the forward is purely additive — it INSERTed these
-// NEW copy blocks (+ their copied attachments) into a target thread; the originals were never
-// touched. Reversal deletes ONLY the copies (their attachments cascade with them); redo
-// re-inserts them verbatim, so both arrays hold the copies, not the originals.
+// NEW copy blocks into a target thread; the originals were never touched. Reversal deletes
+// ONLY the copies; redo re-inserts them verbatim, so the array holds the copies, not the
+// originals. (v15: a copy carries no files — see blocksStore.forwardToThread.)
 export interface ForwardPayload {
   threadId: string; // target thread — for feed refresh on undo/redo
   blocks: Block[];
-  attachments: Attachment[];
 }
 
 interface BaseEntry {

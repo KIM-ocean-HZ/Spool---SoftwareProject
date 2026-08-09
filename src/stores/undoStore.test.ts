@@ -1,11 +1,7 @@
 import { createRequire } from 'node:module';
 import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createAttachment,
-  insertAttachments,
-  listAttachmentsByBlock,
-} from '@/lib/db/attachments';
+import { createAttachment, listAttachmentsByThread } from '@/lib/db/attachments';
 import {
   computeMergedFields,
   createBlock,
@@ -82,7 +78,7 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect(await listBlocksByThread(thread.id)).toHaveLength(0);
   });
 
-  it('undo(delete) restores the block and its attachments', async () => {
+  it('undo(delete) restores the block, and never touched the project\u2019s files', async () => {
     const ws = await createWorkspace('W');
     const thread = await createThread(ws.id, 'T');
     const block = await createBlock({
@@ -91,22 +87,22 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
       annotation: 'my note',
       source: 'Chrome',
     });
-    await createAttachment({
-      blockId: block.id,
-      kind: 'url',
-      target: 'https://example.com',
-      label: 'example',
+    const file = await createAttachment({
+      threadId: thread.id,
+      kind: 'file',
+      target: '/x/notes.pdf',
+      label: 'notes.pdf',
     });
 
-    // Snapshot pre-state (as blocksStore.remove does), then delete (cascades attachments).
+    // Snapshot pre-state (as blocksStore.remove does), then delete.
     const snapshot = (await listBlocksByThread(thread.id))[0]!;
-    const snapshotAttachments = await listAttachmentsByBlock(block.id);
     await deleteBlock(block.id);
     expect(await listBlocksByThread(thread.id)).toHaveLength(0);
+    // ⚠️ v15: the FK cascade that used to take the block's attachments with it is gone —
+    // the file is the project's, and deleting one of its blocks is not a reason to lose it.
+    expect((await listAttachmentsByThread(thread.id)).map((a) => a.id)).toEqual([file.id]);
 
-    useUndoStore.getState().pushUndo(
-      buildDeleteUndo({ block: snapshot, attachments: snapshotAttachments }),
-    );
+    useUndoStore.getState().pushUndo(buildDeleteUndo({ block: snapshot }));
     const entry = await useUndoStore.getState().undo();
     expect(entry?.kind).toBe('delete');
 
@@ -116,12 +112,10 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect(after[0]!.content).toBe('to be deleted');
     expect(after[0]!.annotation).toBe('my note');
     expect(after[0]!.source).toBe('Chrome');
-    const restoredAtt = await listAttachmentsByBlock(block.id);
-    expect(restoredAtt).toHaveLength(1);
-    expect(restoredAtt[0]!.target).toBe('https://example.com');
+    expect((await listAttachmentsByThread(thread.id)).map((a) => a.id)).toEqual([file.id]);
   });
 
-  it('undo(merge) restores all source blocks with original attachments + annotations', async () => {
+  it('undo(merge) restores all source blocks with their annotations, files untouched', async () => {
     const ws = await createWorkspace('W');
     const thread = await createThread(ws.id, 'T');
 
@@ -136,26 +130,16 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     await tick();
     const b3 = await createBlock({ threadId: thread.id, content: 'third' });
     await togglePin(b2.id);
-    const a2 = await createAttachment({
-      blockId: b2.id,
+    const file = await createAttachment({
+      threadId: thread.id,
       kind: 'file',
       target: '/x/b2.pdf',
       label: 'b2.pdf',
-    });
-    const a3 = await createAttachment({
-      blockId: b3.id,
-      kind: 'url',
-      target: 'https://e.com',
-      label: 'e',
     });
 
     // Snapshot pre-merge state (as blocksStore.mergeBlocks does).
     const sourceBlocks = await listBlocksByThread(thread.id);
     const merged = computeMergedFields(sourceBlocks);
-    const movedAttachments = [
-      { id: a2.id, originalBlockId: b2.id },
-      { id: a3.id, originalBlockId: b3.id },
-    ];
     await mergeBlocks(
       merged.survivorId,
       merged.content,
@@ -167,12 +151,7 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect(await listBlocksByThread(thread.id)).toHaveLength(1);
 
     useUndoStore.getState().pushUndo(
-      buildMergeUndo({
-        survivorId: merged.survivorId,
-        threadId: thread.id,
-        sourceBlocks,
-        movedAttachments,
-      }),
+      buildMergeUndo({ survivorId: merged.survivorId, threadId: thread.id, sourceBlocks }),
     );
     const entry = await useUndoStore.getState().undo();
     expect(entry?.kind).toBe('merge');
@@ -186,14 +165,12 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect(survivor.annotation).toBe('note A');
     expect(survivor.source).toBe('Notion');
 
-    // The middle block keeps its pin; attachments are back on their original owners.
+    // The middle block keeps its pin. v15: the merge moved no file, so undoing it has no
+    // file to move back — the project still holds exactly what it held before.
     const restored2 = after.find((b) => b.id === b2.id)!;
     expect(restored2.pinned).toBe(true);
     expect(restored2.content).toBe('second');
-    expect((await listAttachmentsByBlock(b2.id)).map((a) => a.id)).toEqual([a2.id]);
-    expect((await listAttachmentsByBlock(b3.id)).map((a) => a.id)).toEqual([a3.id]);
-    // Survivor should no longer hold the re-pointed attachments.
-    expect(await listAttachmentsByBlock(b1.id)).toHaveLength(0);
+    expect((await listAttachmentsByThread(thread.id)).map((a) => a.id)).toEqual([file.id]);
   });
 
   it('redo() re-creates a captured block after its undo deleted it', async () => {
@@ -241,7 +218,6 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
         survivorId: merged.survivorId,
         threadId: thread.id,
         sourceBlocks,
-        movedAttachments: [],
       }),
     );
 
@@ -332,18 +308,17 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     await togglePin(b2.id);
     await tick();
     const b3 = await createBlock({ threadId: source.id, content: 'three' });
-    const att = await createAttachment({
-      blockId: b3.id,
-      kind: 'url',
-      target: 'https://e.com',
-      label: 'e',
+    const file = await createAttachment({
+      threadId: source.id,
+      kind: 'file',
+      target: '/x/e.pdf',
+      label: 'e.pdf',
     });
 
     // Build the copies exactly as blocksStore.forwardToThread does: fresh ids, target
     // thread_id, verbatim fields, now-based created_at (+i ms). Then INSERT them (additive)
     // and record the forward undo entry. The copy of b3 (the 3rd source, index 2) is copy-2.
     const sources = await listBlocksByThread(source.id);
-    const srcAtts = await listAttachmentsByBlock(b3.id);
     const base = Date.now();
     const copyBlocks = sources.map((src, i) => ({
       ...src,
@@ -351,25 +326,18 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
       threadId: target.id,
       createdAt: base + i,
     }));
-    const copyAttachments = srcAtts.map((a, i) => ({
-      ...a,
-      id: `copyatt-${i}`,
-      blockId: 'copy-2',
-      createdAt: base,
-    }));
     await insertBlocks(copyBlocks);
-    await insertAttachments(copyAttachments);
 
-    // Copies landed in the target with pin / annotation / attachment preserved, appended in
-    // source order — with brand-new ids.
+    // Copies landed in the target with pin / annotation preserved, appended in source order
+    // — with brand-new ids.
     const copies = await listBlocksByThread(target.id);
     expect(copies.map((c) => c.content)).toEqual(['one', 'two', 'three']);
     expect(copies.every((c) => ![b1.id, b2.id, b3.id].includes(c.id))).toBe(true);
     expect(copies.find((c) => c.content === 'one')!.annotation).toBe('note one');
     expect(copies.find((c) => c.content === 'two')!.pinned).toBe(true);
-    const copy3Atts = await listAttachmentsByBlock('copy-2');
-    expect(copy3Atts.map((a) => a.target)).toEqual(['https://e.com']);
-    expect(copy3Atts[0]!.id).not.toBe(att.id); // a fresh attachment row
+    // ⚠️ v15: no file travelled. A file belongs to the SOURCE project, and copying one of
+    // its conclusions elsewhere is not a decision to copy its files there.
+    expect(await listAttachmentsByThread(target.id)).toHaveLength(0);
 
     // The source is strictly read-only through the forward.
     expect((await listBlocksByThread(source.id)).map((b) => b.id).sort()).toEqual(
@@ -377,7 +345,7 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     );
 
     useUndoStore.getState().pushUndo(
-      buildForwardUndo({ threadId: target.id, blocks: copyBlocks, attachments: copyAttachments }),
+      buildForwardUndo({ threadId: target.id, blocks: copyBlocks }),
     );
     const entry = await useUndoStore.getState().undo();
     expect(entry?.kind).toBe('forward');
@@ -388,7 +356,7 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
     expect(sourceAfter.map((b) => b.id).sort()).toEqual([b1.id, b2.id, b3.id].sort());
     expect(sourceAfter.find((b) => b.id === b2.id)!.pinned).toBe(true);
     expect(sourceAfter.find((b) => b.id === b1.id)!.annotation).toBe('note one');
-    expect((await listAttachmentsByBlock(b3.id)).map((a) => a.id)).toEqual([att.id]);
+    expect((await listAttachmentsByThread(source.id)).map((a) => a.id)).toEqual([file.id]);
   });
 
   it('undo(workspace_delete) restores only the threads that delete removed', async () => {

@@ -4,14 +4,11 @@ import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import {
   AI_NOTE_MARKER,
-  ATTACHMENT_SEE_BELOW,
   CORRECTED_BY_PREFIX,
   EMPTY_LOG_LINE,
   EMPTY_PINNED_LINE,
   EXTRACT_CHAR_CAP,
   EXTRACT_INDENT,
-  FILE_MARKER,
-  FOLDER_MARKER,
   INSTRUCTION_HEADER,
   NOTE_INDENT,
   NOTE_MARKER,
@@ -31,7 +28,6 @@ import {
   SOURCE_MARKER,
   staleOmittedLine,
   UNKNOWN_THREAD,
-  URL_MARKER,
   truncationMarker,
 } from './templates';
 
@@ -150,8 +146,8 @@ const baseName = (target: string): string => {
   return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed;
 };
 
-const packTarget = (a: Attachment): string =>
-  a.kind === 'url' ? a.target : baseName(a.target);
+// v15: every attachment is a local file or folder now, so every target shrinks to its name.
+const packTarget = (a: Attachment): string => baseName(a.target);
 
 // An attachment's display text falls back to its target when the label is empty.
 const attachmentLabel = (a: Attachment): string => a.label.trim() || packTarget(a);
@@ -171,27 +167,26 @@ const renderExtractedText = (text: string): string => {
     .join('\n');
 };
 
-// One attachment, rendered as the indented sub-lines beneath its block. File attachments
-// inline their extracted text ONLY when the user opted in (v2.8 §20.2: include_in_pack).
-// Everything else — opted-out files, files without extracted text, folders — points at
-// the Related Files section. `extractedText` is populated by the v2.7 extraction pipeline
-// (extractor.ts); `includeInPack` is the v2.8 split that controls inlining specifically.
-const renderAttachment = (a: Attachment): string[] => {
+// v15 (DESIGN_PROJECT_FILES): one of the project's files, rendered in the Related Files
+// section — the ONE place a file appears now that it no longer hangs off a block.
+//
+// The v2.8 §20.2 rule is unchanged and moves here with it: extracted text is inlined ONLY
+// when the user opted that file in. A file whose text exists but was withheld says so
+// (`[extracted: yes, not inlined]`), because a receiving AI that knows the text exists can
+// ask for it, and one that does not know assumes there is nothing to ask for.
+const renderProjectFile = (a: Attachment): string[] => {
+  // §3.1-5: file name, not path. The " — target" half is dropped when it would only
+  // repeat the label (the common case, since the label defaults to the file name).
   const label = attachmentLabel(a);
-  if (a.kind === 'url') {
-    return [`${NOTE_INDENT}${URL_MARKER}${label} — ${packTarget(a)}`];
+  const target = packTarget(a);
+  const shown = target === label ? '' : ` — ${target}`;
+  if (a.kind === 'file' && a.extractedText != null) {
+    if (a.includeInPack) {
+      return [`- ${label}${shown} (${a.extractionKind ?? 'text'})`, renderExtractedText(a.extractedText)];
+    }
+    return [`- ${label}${shown}  [extracted: yes, not inlined]`];
   }
-  if (a.kind === 'folder') {
-    return [`${NOTE_INDENT}${FOLDER_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
-  }
-  // kind === 'file'
-  if (a.extractedText != null && a.includeInPack) {
-    return [
-      `${NOTE_INDENT}${FILE_MARKER}${label} (${a.extractionKind ?? 'text'})`,
-      renderExtractedText(a.extractedText),
-    ];
-  }
-  return [`${NOTE_INDENT}${FILE_MARKER}${label}${ATTACHMENT_SEE_BELOW}`];
+  return [`- ${label}${shown}`];
 };
 
 // v9 (DESIGN_SCHEMA_V9 H-1): the block's human-visible number, the same "#12" shown in
@@ -214,7 +209,6 @@ const refBlockMarker = (kind: Block['refKind']): string => {
 
 const renderBlock = (
   b: Block,
-  byBlock: Map<string, Attachment[]>,
   refTitles: Map<string, string> | undefined,
   refBlocks: Map<string, CitedBlock> | undefined,
   // v13: the newer blocks that corrected a point inside THIS one, by seq. Rendered under
@@ -257,9 +251,6 @@ const renderBlock = (
     lines.push(
       `${NOTE_INDENT}${CORRECTED_BY_PREFIX}${corrections.map((s) => `#${s}`).join(', ')}`,
     );
-  }
-  for (const a of byBlock.get(b.id) ?? []) {
-    lines.push(...renderAttachment(a));
   }
   return lines;
 };
@@ -383,14 +374,6 @@ export function assemble({
     out.push(INSTRUCTION_HEADER);
   }
 
-  // Group attachments by their owning block so each block lists its own inline.
-  const byBlock = new Map<string, Attachment[]>();
-  for (const a of attachments ?? []) {
-    const list = byBlock.get(a.blockId);
-    if (list) list.push(a);
-    else byBlock.set(a.blockId, [a]);
-  }
-
   // Pinned Blocks: blocks the user explicitly marked as core context, rendered with the
   // full block format (pinned blocks also appear again, in order, in the Full Record).
   out.push('');
@@ -400,7 +383,7 @@ export function assemble({
   if (pinned.length === 0) {
     out.push(EMPTY_PINNED_LINE);
   } else {
-    for (const b of pinned) out.push(...renderBlock(b, byBlock, refTitles, refBlocks, correctedBy));
+    for (const b of pinned) out.push(...renderBlock(b, refTitles, refBlocks, correctedBy));
   }
 
   // Full Record: every block in chronological order. A block's annotation and its
@@ -414,7 +397,7 @@ export function assemble({
   } else {
     for (const b of blocks) {
       if (b.pinned) out.push(renderPinnedPlaceholder(b));
-      else out.push(...renderBlock(b, byBlock, refTitles, refBlocks, correctedBy));
+      else out.push(...renderBlock(b, refTitles, refBlocks, correctedBy));
     }
   }
   // v13: the gap is declared, never silent (§2.3 — a store that drops a fact without
@@ -423,33 +406,17 @@ export function assemble({
     out.push(staleOmittedLine(staleCount));
   }
 
-  // Related Files & Links: every attachment in the thread, collected so the user can
-  // scan at a glance what artifacts belong to the project. v2.8 §9.5: a file attachment
-  // whose extracted_text exists but was NOT inlined (include_in_pack === false) carries
-  // a "[extracted: yes, not inlined]" tag, so the receiving AI knows content exists but
-  // was deliberately withheld for length — and can ask the user to inline it if needed.
-  // v13: an attachment whose block was retired goes with it — the section must not point
-  // at material the pack deliberately withheld (same rule the budgeted omission follows).
-  const liveIds = new Set(blocks.map((b) => b.id));
-  const all = staleCount > 0
-    ? (attachments ?? []).filter((a) => liveIds.has(a.blockId))
-    : attachments ?? [];
-  if (all.length > 0) {
+  // Related Files & Links: the project's files — v15, so this is the ONLY place they
+  // appear, and it lists all of them.
+  // ⚠️ The v13 filter that dropped an attachment whose block had been retired is gone with
+  // the ownership it depended on: a file is no longer evidence for one conclusion, so
+  // retiring a conclusion says nothing about whether the project still holds the file.
+  const files = attachments ?? [];
+  if (files.length > 0) {
     out.push('');
     out.push(SECTION_FILES);
     out.push('');
-    for (const a of all) {
-      const notInlined =
-        a.kind === 'file' && a.extractedText != null && !a.includeInPack
-          ? '  [extracted: yes, not inlined]'
-          : '';
-      // §3.1-5: file name, not path. The " — target" half is dropped when it would only
-      // repeat the label (the common case, since the label defaults to the file name).
-      const target = packTarget(a);
-      const label = attachmentLabel(a);
-      const shown = target === label ? '' : ` — ${target}`;
-      out.push(`- ${label}${shown}${notInlined}`);
-    }
+    for (const a of files) out.push(...renderProjectFile(a));
   }
 
   // Output Language: the closing directive asking the AI to respond in the user's language.

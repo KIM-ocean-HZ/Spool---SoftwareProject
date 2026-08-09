@@ -17,9 +17,10 @@ import { t } from '@/lib/i18n';
 
 interface BlocksState {
   byThread: Record<string, Block[]>;
-  // Attachments keyed by their owning block id. Hydrated alongside blocks on thread
-  // load so BlockItem can render chips without per-block queries.
-  attachmentsByBlock: Record<string, Attachment[]>;
+  // v15 (DESIGN_PROJECT_FILES): attachments keyed by the PROJECT they belong to, not by a
+  // block. Hydrated alongside the blocks on thread load, and read by the right rail's
+  // 「项目文件」 panel — which is now the only place files are seen or added.
+  attachmentsByThread: Record<string, Attachment[]>;
   // v2.8 §20.1: multi-select state for the merge action. Global (single set), cleared
   // on thread switch so a stale selection from a previous thread can't survive.
   selectedBlockIds: Set<string>;
@@ -42,10 +43,14 @@ interface BlocksState {
   setContent: (id: string, content: string) => Promise<void>;
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
-  detach: (attachmentId: string, blockId: string) => Promise<void>;
+  detach: (attachmentId: string, threadId: string) => Promise<void>;
   // v2.8 §20.2: per-attachment toggle for inlining extracted_text into pack/summaries.
-  // Persists immediately and patches the in-memory index so the chip reflects state.
-  setIncludeInPack: (attachmentId: string, blockId: string, value: boolean) => Promise<void>;
+  // Persists immediately and patches the in-memory index so the row reflects state.
+  setIncludeInPack: (attachmentId: string, threadId: string, value: boolean) => Promise<void>;
+  // v15 §5.1 ①: the standing permission for an AI to ask for this file. Same shape as
+  // setIncludeInPack and deliberately NOT the same flag — one is "put the text in the pack
+  // I am building", the other is "an AI may ask for this at all".
+  setAiAccess: (attachmentId: string, threadId: string, value: boolean) => Promise<void>;
   // v2.7: one-time startup pass that extracts text for legacy file attachments created
   // before the extraction pipeline existed (PLAN §8.1, §9.6).
   backfillExtractions: () => Promise<void>;
@@ -69,30 +74,39 @@ interface BlocksState {
   forwardToThread: (ids: string[], targetThreadId: string) => Promise<number>;
 }
 
-const removeAttachmentsForBlock = (
-  map: Record<string, Attachment[]>,
-  blockId: string,
-): Record<string, Attachment[]> => {
-  if (!(blockId in map)) return map;
-  const { [blockId]: _drop, ...rest } = map;
-  return rest;
+// Patch one field of one attachment in the by-thread index. A no-op if that project is not
+// loaded — the row is already persisted, and the next load reads it back.
+const patchAttachment = (
+  s: { attachmentsByThread: Record<string, Attachment[]> },
+  threadId: string,
+  attachmentId: string,
+  fields: Partial<Attachment>,
+): Partial<BlocksState> => {
+  const list = s.attachmentsByThread[threadId];
+  if (!list) return s;
+  return {
+    attachmentsByThread: {
+      ...s.attachmentsByThread,
+      [threadId]: list.map((a) => (a.id === attachmentId ? { ...a, ...fields } : a)),
+    },
+  };
 };
 
-// v2.7: patch one attachment's extraction fields in the by-block index. A no-op if the
-// block is not currently loaded (e.g. a backfilled attachment in an unopened thread — it
-// picks up the cached text from the DB the next time that thread loads).
+// v2.7: patch one attachment's extraction fields in the by-thread index. A no-op if the
+// thread is not currently loaded (e.g. a backfilled attachment in an unopened project — it
+// picks up the cached text from the DB the next time that project loads).
 const applyExtraction = (
   map: Record<string, Attachment[]>,
-  blockId: string,
+  threadId: string,
   attachmentId: string,
   extractedText: string | null,
   extractionKind: AttachmentExtractionKind,
 ): Record<string, Attachment[]> => {
-  const list = map[blockId];
+  const list = map[threadId];
   if (!list) return map;
   return {
     ...map,
-    [blockId]: list.map((a) =>
+    [threadId]: list.map((a) =>
       a.id === attachmentId
         ? { ...a, extractedText, extractedAt: Date.now(), extractionKind }
         : a,
@@ -127,7 +141,13 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const text = result.ok ? result.text : null;
       await adb.updateAttachmentExtraction(a.id, text, result.kind);
       set((s) => ({
-        attachmentsByBlock: applyExtraction(s.attachmentsByBlock, a.blockId, a.id, text, result.kind),
+        attachmentsByThread: applyExtraction(
+          s.attachmentsByThread,
+          a.threadId,
+          a.id,
+          text,
+          result.kind,
+        ),
       }));
       if (!result.ok && !result.reason.startsWith('unsupported extension')) {
         console.error('[extract] failed for', a.target, '—', result.reason);
@@ -141,7 +161,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
   return {
     byThread: {},
-    attachmentsByBlock: {},
+    attachmentsByThread: {},
     selectedBlockIds: new Set<string>(),
 
     load: async (threadId) => {
@@ -149,24 +169,13 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         db.listBlocksByThread(threadId),
         adb.listAttachmentsByThread(threadId),
       ]);
-      // Reset attachments for blocks in this thread (so refresh doesn't keep stale rows
-      // for deleted blocks), then index the fresh ones.
-      const blockIds = new Set(list.map((b) => b.id));
-      set((s) => {
-        const nextAttach: Record<string, Attachment[]> = {};
-        for (const [bId, arr] of Object.entries(s.attachmentsByBlock)) {
-          if (!blockIds.has(bId)) nextAttach[bId] = arr;
-        }
-        for (const a of attachments) {
-          const arr = nextAttach[a.blockId];
-          if (arr) arr.push(a);
-          else nextAttach[a.blockId] = [a];
-        }
-        return {
-          byThread: { ...s.byThread, [threadId]: list },
-          attachmentsByBlock: nextAttach,
-        };
-      });
+      // v15: one project's files replace that project's entry wholesale. There is no
+      // per-block bookkeeping left to reconcile — the query already returned exactly the
+      // set that belongs here.
+      set((s) => ({
+        byThread: { ...s.byThread, [threadId]: list },
+        attachmentsByThread: { ...s.attachmentsByThread, [threadId]: attachments },
+      }));
     },
 
     append: async (args) => {
@@ -191,8 +200,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
     },
 
     remove: async (id) => {
-      // §9.13: snapshot the block + its attachments BEFORE the destructive delete so the
-      // undo entry captures pre-state (the FK cascade will drop the attachment rows).
+      // §9.13: snapshot the block BEFORE the destructive delete so the undo entry captures
+      // pre-state. ⚠️ v15: deleting a block no longer takes any file with it — files belong
+      // to the project now, so there is nothing else to snapshot and nothing to restore.
       const before = get();
       let snapshot: Block | undefined;
       for (const list of Object.values(before.byThread)) {
@@ -202,27 +212,17 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           break;
         }
       }
-      const snapshotAttachments = before.attachmentsByBlock[id] ?? [];
 
       await db.deleteBlock(id);
 
-      if (snapshot) {
-        useUndoStore.getState().pushUndo(
-          buildDeleteUndo({ block: snapshot, attachments: snapshotAttachments }),
-        );
-      }
+      if (snapshot) useUndoStore.getState().pushUndo(buildDeleteUndo({ block: snapshot }));
 
       const state = get();
       const next: Record<string, Block[]> = {};
       for (const [tId, list] of Object.entries(state.byThread)) {
         next[tId] = list.filter((b) => b.id !== id);
       }
-      // Drop the block's attachments from the index — DB does it via ON DELETE CASCADE,
-      // we mirror it here so the UI doesn't render orphan chips.
-      set({
-        byThread: next,
-        attachmentsByBlock: removeAttachmentsForBlock(state.attachmentsByBlock, id),
-      });
+      set({ byThread: next });
     },
 
     setSource: async (id, source) => {
@@ -302,9 +302,9 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
     attach: async (args) => {
       const a = await adb.createAttachment(args);
       set((s) => ({
-        attachmentsByBlock: {
-          ...s.attachmentsByBlock,
-          [a.blockId]: [...(s.attachmentsByBlock[a.blockId] ?? []), a],
+        attachmentsByThread: {
+          ...s.attachmentsByThread,
+          [a.threadId]: [...(s.attachmentsByThread[a.threadId] ?? []), a],
         },
       }));
       // v2.7: kick off background text extraction for file attachments (§9.6). Fire-and-
@@ -316,36 +316,28 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       return a;
     },
 
-    detach: async (attachmentId, blockId) => {
+    detach: async (attachmentId, threadId) => {
       await adb.deleteAttachment(attachmentId);
       set((s) => {
-        const list = s.attachmentsByBlock[blockId];
+        const list = s.attachmentsByThread[threadId];
         if (!list) return s;
-        const filtered = list.filter((a) => a.id !== attachmentId);
-        if (filtered.length === 0) {
-          const { [blockId]: _drop, ...rest } = s.attachmentsByBlock;
-          return { attachmentsByBlock: rest };
-        }
         return {
-          attachmentsByBlock: { ...s.attachmentsByBlock, [blockId]: filtered },
+          attachmentsByThread: {
+            ...s.attachmentsByThread,
+            [threadId]: list.filter((a) => a.id !== attachmentId),
+          },
         };
       });
     },
 
-    setIncludeInPack: async (attachmentId, blockId, value) => {
+    setIncludeInPack: async (attachmentId, threadId, value) => {
       await adb.setIncludeInPack(attachmentId, value);
-      set((s) => {
-        const list = s.attachmentsByBlock[blockId];
-        if (!list) return s;
-        return {
-          attachmentsByBlock: {
-            ...s.attachmentsByBlock,
-            [blockId]: list.map((a) =>
-              a.id === attachmentId ? { ...a, includeInPack: value } : a,
-            ),
-          },
-        };
-      });
+      set((s) => patchAttachment(s, threadId, attachmentId, { includeInPack: value }));
+    },
+
+    setAiAccess: async (attachmentId, threadId, value) => {
+      await adb.setAiAccess(attachmentId, value);
+      set((s) => patchAttachment(s, threadId, attachmentId, { aiAccess: value }));
     },
 
     backfillExtractions: async () => {
@@ -435,19 +427,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
       const merged = computeMergedFields(found.map((x) => x.block));
 
-      // §9.13: snapshot pre-merge state for undo. sourceBlocks are the full rows BEFORE
-      // the merge mutates the survivor; movedAttachments are the attachments the forward
-      // merge re-points from each non-survivor onto the survivor (the attachmentsByBlock
-      // index is fully hydrated for the active thread, which is the only thread merge can
-      // select from).
+      // §9.13: snapshot pre-merge state for undo — the full rows BEFORE the merge mutates
+      // the survivor. ⚠️ v15: a merge no longer moves any file. Files belong to the project,
+      // and merging two of its blocks does not change which project they are in.
       const sourceBlocks = found.map((x) => x.block);
-      const movedAttachments: { id: string; originalBlockId: string }[] = [];
-      for (const { block: b } of found) {
-        if (b.id === merged.survivorId) continue;
-        for (const a of get().attachmentsByBlock[b.id] ?? []) {
-          movedAttachments.push({ id: a.id, originalBlockId: b.id });
-        }
-      }
 
       try {
         await db.mergeBlocks(
@@ -465,15 +448,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       }
 
       useUndoStore.getState().pushUndo(
-        buildMergeUndo({
-          survivorId: merged.survivorId,
-          threadId,
-          sourceBlocks,
-          movedAttachments,
-        }),
+        buildMergeUndo({ survivorId: merged.survivorId, threadId, sourceBlocks }),
       );
       // Clear selection and reload — simpler and safer than reconstructing the merged
-      // block + reparented attachments in-memory across two indexes.
+      // block in-memory.
       set((s) => (s.selectedBlockIds.size === 0 ? s : { selectedBlockIds: new Set() }));
       await get().load(threadId);
     },
@@ -496,12 +474,13 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
       // Build the NEW rows: fresh ids, target thread_id, now-based created_at (+i ms per
       // block to preserve order → they append to the target's bottom chronologically). Every
-      // other field is copied verbatim. Attachments come from the hydrated index — the source
-      // thread is fully loaded (same assumption as mergeBlocks). Nothing here reads back or
-      // mutates a source row; the originals are strictly read-only.
+      // other field is copied verbatim. Nothing here reads back or mutates a source row; the
+      // originals are strictly read-only.
+      // ⚠️ v15: no file travels with a copied block. Files belong to the source PROJECT, and
+      // copying one of its conclusions into another project is not a reason to copy its
+      // files there — if the destination needs a file, the user adds it in that project.
       const base = Date.now();
       const copyBlocks: Block[] = [];
-      const copyAttachments: Attachment[] = [];
       sources.forEach((src, i) => {
         const newId = nanoid();
         copyBlocks.push({
@@ -528,27 +507,12 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           staleAt: src.staleAt,
           refKind: src.refKind,
         });
-        for (const a of state.attachmentsByBlock[src.id] ?? []) {
-          copyAttachments.push({
-            id: nanoid(),
-            blockId: newId,
-            kind: a.kind,
-            target: a.target,
-            label: a.label,
-            extractedText: a.extractedText,
-            extractedAt: a.extractedAt,
-            extractionKind: a.extractionKind,
-            includeInPack: a.includeInPack,
-            createdAt: base + i,
-          });
-        }
       });
 
-      // INSERT-only, blocks before attachments (FK). A failure leaves at worst orphan copy
-      // blocks (cleaned up by the forward undo) — never a touched original.
+      // INSERT-only. A failure leaves at worst orphan copy blocks (cleaned up by the forward
+      // undo) — never a touched original.
       try {
         await db.insertBlocks(copyBlocks);
-        await adb.insertAttachments(copyAttachments);
       } catch (e) {
         console.error('[forward] copy failed', e);
         toast.error(t('复制失败：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
@@ -556,11 +520,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       }
 
       useUndoStore.getState().pushUndo(
-        buildForwardUndo({
-          threadId: targetThreadId,
-          blocks: copyBlocks,
-          attachments: copyAttachments,
-        }),
+        buildForwardUndo({ threadId: targetThreadId, blocks: copyBlocks }),
       );
 
       // Clear the selection and refresh the TARGET feed so the copies show if it's open. The

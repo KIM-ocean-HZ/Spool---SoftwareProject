@@ -115,7 +115,7 @@ export default function McpConfig() {
         <div className="min-w-0">
           <div className="text-sm text-ink">{t('MCP 服务（实验）')}</div>
           <div className="mt-0.5 text-xs text-muted">
-            {t('让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。默认只读,仅本机。')}
+            {t('让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。只在本机,不出网。')}
           </div>
         </div>
         <Toggle checked={mcpEnabled} onChange={(v) => void update({ mcpEnabled: v })} />
