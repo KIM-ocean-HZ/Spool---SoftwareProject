@@ -197,6 +197,26 @@ describe('follow-up brief suggestions (决定 5)', () => {
     expect(await listBriefSuggestions()).toEqual([]);
   });
 
+  it('moves the project clock, because list_threads now reports what is watched', async () => {
+    // DESIGN_MCP_INTENT_ROUTING §1.1 + §4.3 C. This was harmless until 2026-08-09: nothing
+    // outside the follow-up screen could observe a brief, so a silent change told no lies.
+    // list_threads now returns `following_up`, under a description that promises updated_at
+    // moves on any change at all — leaving the clock still would make the tool state a fact
+    // about the project that the project's own timestamp denies.
+    // Backdated on purpose: createThread and applyBriefSuggestion land in the same
+    // millisecond in a test this fast, and "did not move" would pass either way.
+    const before = 1_700_000_000_000;
+    handle.prepare('UPDATE threads SET updated_at = ?1 WHERE id = ?2').run(before, threadId);
+    park('盯截止日期，也盯先修课要求');
+    await applyBriefSuggestion(threadId);
+    const after = (
+      handle.prepare('SELECT updated_at FROM threads WHERE id = ?1').get(threadId) as {
+        updated_at: number;
+      }
+    ).updated_at;
+    expect(after).toBeGreaterThan(before);
+  });
+
   it('leaves the live brief untouched when dismissed', async () => {
     park('盯别的东西');
     await dismissBriefSuggestion(threadId);

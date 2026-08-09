@@ -1090,6 +1090,26 @@ fn pack_skeleton_chars() -> i64 {
     })
 }
 
+// The pack-size estimator, as SQL. Two readers now (list_threads for every project,
+// get_project_overview for one), so it lives in one place: approx_pack_chars is compared
+// straight against get_pack's max_chars, and a model told two different numbers for the
+// same project by two tools has no way to tell which one to trust.
+// ⚠️ Unqualified column names — the caller supplies `FROM blocks`.
+const PACK_CHARS_BLOCKS: &str = "SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)
+                                     + COALESCE(LENGTH(source), 0)
+                                     + 30
+                                     + CASE WHEN annotation IS NOT NULL THEN 11 ELSE 0 END
+                                     + CASE WHEN pinned = 1 THEN 120 ELSE 0 END
+                                     + CASE WHEN ref_block_id IS NOT NULL THEN 80 ELSE 0 END)";
+
+// ⚠️ Qualified with `a.` — the caller supplies `FROM attachments a`. The 8000 mirrors the
+// per-file inline cap in the renderer.
+const PACK_CHARS_ATTACHMENTS: &str =
+    "SUM(CASE WHEN a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
+              THEN MIN(LENGTH(a.extracted_text), 8000) ELSE 0 END
+         + 2 * COALESCE(LENGTH(a.label), LENGTH(a.target))
+         + LENGTH(a.target) + 100)";
+
 fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<String, String> {
     // R3 friction #1: "title → id" without pulling the whole list. Same matching
     // idiom as get_blocks' source_contains (instr + ASCII case-folding).
@@ -1100,6 +1120,9 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
     }
     // v2.4 (6a): the per-row correlated subqueries scanned blocks once per thread —
     // O(threads × blocks). Two GROUP BY aggregates walk blocks/attachments once each.
+    // ⚠️ The two SUM expressions live in PACK_CHARS_* (§4.5 E) — get_project_overview
+    // reports the same number for one project, and two hand-copied estimator formulas
+    // would drift the first time either is tuned.
     // Equivalence guards: blocks carry no soft-delete (thread/workspace filtering stays
     // in the outer WHERE); the per-attachment 8k inline cap and the
     // include_in_pack + extracted-text conditions live inside the aggregate.
@@ -1111,25 +1134,26 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                     COALESCE(bc.pinned, 0),
                     COALESCE(bc.chars, 0) + COALESCE(ac.att_chars, 0),
                     t.summary_source,
-                    bc.last_at
+                    bc.last_at,
+                    t.follow_up_brief,
+                    COALESCE(ac.files, 0),
+                    COALESCE(ac.files_locked, 0)
              FROM threads t
              JOIN workspaces w ON w.id = t.workspace_id
              LEFT JOIN (SELECT thread_id,
                                COUNT(*) AS blocks,
                                SUM(pinned) AS pinned,
                                MAX(created_at) AS last_at,
-                               SUM(LENGTH(content) + COALESCE(LENGTH(annotation), 0)
-                                   + COALESCE(LENGTH(source), 0)
-                                   + 30
-                                   + CASE WHEN annotation IS NOT NULL THEN 11 ELSE 0 END
-                                   + CASE WHEN pinned = 1 THEN 120 ELSE 0 END
-                                   + CASE WHEN ref_block_id IS NOT NULL THEN 80 ELSE 0 END) AS chars
+                               {PACK_CHARS_BLOCKS} AS chars
                           FROM blocks GROUP BY thread_id) bc ON bc.thread_id = t.id
              LEFT JOIN (SELECT a.thread_id,
-                               SUM(CASE WHEN a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
-                                        THEN MIN(LENGTH(a.extracted_text), 8000) ELSE 0 END
-                                   + 2 * COALESCE(LENGTH(a.label), LENGTH(a.target))
-                                   + LENGTH(a.target) + 100) AS att_chars
+                               {PACK_CHARS_ATTACHMENTS} AS att_chars,
+                               -- §4.3 C: two more counters on an aggregate that was already
+                               -- being walked — no extra pass over attachments.
+                               COUNT(*) AS files,
+                               SUM(CASE WHEN a.include_in_pack = 0 AND a.ai_access = 0
+                                             AND a.extracted_text IS NOT NULL
+                                        THEN 1 ELSE 0 END) AS files_locked
                           FROM attachments a GROUP BY a.thread_id) ac ON ac.thread_id = t.id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL{title_clause}
              ORDER BY w.sort_order ASC, w.created_at ASC,
@@ -1187,6 +1211,25 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                 // the measured fixed skeleton. Compare it straight against max_chars.
                 "pinned": r.get::<_, i64>(7)?,
                 "approx_pack_chars": r.get::<_, i64>(8)? + pack_skeleton_chars(),
+                // DESIGN_MCP_INTENT_ROUTING §4.3 C (§2.6): before these three, "is anything
+                // being watched here" and "does this project hold files" could only be
+                // answered by calling get_follow_up_brief once per project and reading a
+                // get_blocks payload — so a model that did not already know the answer
+                // defaulted to not asking, which is exactly how the file request and the
+                // brief were missed in the real run.
+                // ⚠️ following_up is a BOOLEAN and stays one. The brief's text belongs to
+                // get_follow_up_brief / get_project_overview: this call has to stay cheap
+                // enough to sweep the whole library, and four projects' briefs inlined here
+                // would end that.
+                "following_up": r.get::<_, Option<String>>(11)?
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|s| !s.is_empty()),
+                "files": r.get::<_, i64>(12)?,
+                // Files whose text Spool holds but the user has not opened up — the ones
+                // request_file_access exists for. Not "files you cannot see": a file with no
+                // extractable text is nobody's to unlock.
+                "files_locked": r.get::<_, i64>(13)?,
             }))
         })
         .map_err(|e| e.to_string())?
@@ -2647,15 +2690,29 @@ fn get_blocks_json(
                     (Some(t), true) => json!(t),
                     _ => Value::Null,
                 };
-                if !readable && extracted.is_some() {
-                    a["locked"] = json!(t!(
-                        "用户还没有让 AI 读这个文件。想读就用 request_file_access 拿着这个 attachment_id 申请,\
-                         说清楚要核对什么;他在 Spool 里点头之后你才读得到。",
-                        "The user has not let an AI read this file. To read it, ask with \
-                         request_file_access using this attachment_id and say what you need to \
-                         check; it becomes readable once they say yes inside Spool."
-                    ));
-                }
+            }
+            // ⚠️ DESIGN_MCP_INTENT_ROUTING §4.1 A-1 — this hint used to live INSIDE the
+            // `if` above, and that one indent level is the whole defect. Asked "what files
+            // are in this project", a model's natural move is to read the listing WITHOUT
+            // turning the text switch on; it then met the only door in the building with no
+            // handle on it, and told Ocean to go upload the PDF somewhere else (§2.1). The
+            // way out was written in `include_extracted_text`'s own parameter description —
+            // i.e. on the path it had already decided not to take. A locked file now says
+            // how to ask whether or not the switch is on.
+            if !readable && extracted.is_some() {
+                a["locked"] = json!(t!(
+                    "用户还没有让 AI 读这个文件。想读就用 request_file_access 拿着这个 attachment_id 申请,\
+                     说清楚要核对什么;他在 Spool 里点头之后,再调一次 get_blocks 并把 \
+                     include_extracted_text 设成 true,正文才会跟着回来(那个开关对已经可读的文件也一样:\
+                     不传就只报大小,不给正文)。别叫用户换个地方把文件发给你 —— 文件就在 Spool 里,开口要就行。",
+                    "The user has not let an AI read this file. To read it, ask with \
+                     request_file_access using this attachment_id and say what you need to \
+                     check; once they say yes inside Spool, call get_blocks again with \
+                     include_extracted_text=true and the text rides along (that switch works \
+                     the same way for files that are already readable: without it you get \
+                     their size and no text). Do not ask the user to send you the file some \
+                     other way — Spool already has it; ask for it."
+                ));
             }
             Ok(a)
         })
@@ -2752,6 +2809,65 @@ fn pack_id_table(blocks: &[BlockRow], omit: usize) -> String {
         ));
     }
     format!("{SECTION_IDS}\n\n{rows}")
+}
+
+// DESIGN_MCP_INTENT_ROUTING §4.1 A-2 — the second doorless corridor. Inside the pack a
+// locked file renders as `[extracted: yes, not inlined]`, which states a fact and offers
+// no way out; the model read that line aloud to Ocean and told him to upload the PDF
+// somewhere else (§2.1).
+// ⚠️ The fix may NOT go into render_project_file: that function and assemble.ts are equal
+// line for line with the golden fixture holding them there, and the pack a user copies to
+// their clipboard is read by a HUMAN — "ask with request_file_access" is gibberish to a
+// human. So the way out rides on the MCP side only, appended after the pack exactly like
+// the Block IDs table: both are tool-parameter surfaces, and both ride OUTSIDE max_chars
+// on the same reasoning — metadata a budget can squeeze out is metadata that does not
+// exist when the project is big, which is precisely when files matter most.
+// ⚠️ Only LOCKED files are listed. A readable file's text is already inside the pack;
+// naming it again here would be noise pretending to be an action.
+const SECTION_LOCKED_FILES: &str = "## Files in this project you have not been let into \
+(tool parameters only — never show these ids)";
+
+fn pack_locked_files(conn: &Connection, thread_id: &str) -> Result<Option<String>, String> {
+    let mut stmt = conn
+        .prepare(
+            // Same "readable" test as get_blocks (§3.4 v18): ticked into the pack, or
+            // granted through a request — either one means the user opened it up.
+            "SELECT id, label, target, extracted_text
+             FROM attachments
+             WHERE thread_id = ?1 AND include_in_pack = 0 AND ai_access = 0
+                   AND extracted_text IS NOT NULL
+             ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<String> = stmt
+        .query_map([thread_id], |r| {
+            let id: String = r.get(0)?;
+            let label: String = r.get(1)?;
+            let target: String = r.get(2)?;
+            let text: String = r.get(3)?;
+            let name = if label.trim().is_empty() { base_name(&target).to_string() } else { label.trim().to_string() };
+            Ok(format!("- {name}   attachment_id: {id}   {} chars extracted", text.chars().count()))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "{SECTION_LOCKED_FILES}\n\n{}\n\n{}\n",
+        rows.join("\n"),
+        t!(
+            "Spool 提取过这些文件的文字,但用户还没开给 AI 读。要用就拿上面的 attachment_id 调 \
+             request_file_access 申请,说清楚要核对什么;他点头之后正文会跟着 \
+             get_blocks(include_extracted_text=true) 回来。别叫用户换个地方把文件发给你。",
+            "Spool has extracted these files' text, but the user has not opened them up to \
+             an AI. Ask with request_file_access using the attachment_id above and say what \
+             you need to check; once they say yes, the text comes back with \
+             get_blocks(include_extracted_text=true). Do not ask the user to send you the \
+             file some other way."
+        )
+    )))
 }
 
 // v2.4 (C2): instead of stats-only, an over-budget pack keeps the skeleton + the full
@@ -3510,6 +3626,7 @@ fn add_block_json(
     source: Option<&str>,
     annotation: Option<&str>,
     ref_block_id: Option<&str>,
+    ref_kind: Option<&str>,
     dry_run: bool,
 ) -> Result<String, String> {
     let content = content.trim();
@@ -3545,6 +3662,42 @@ fn add_block_json(
                  ref_block_id takes a block_id from search_blocks or get_blocks."
             ));
         }
+    }
+    // DESIGN_MCP_INTENT_ROUTING §4.4 (Ocean 拍板乙 2026-08-09). `ref_kind` existed from v14
+    // but only inside propose_blocks' items — and propose_blocks was never once called
+    // (§2.4: 0 batches since it shipped). So a model that HAD noticed an old conclusion was
+    // wrong had nowhere to say so on the path it actually walks: three blocks in the real
+    // library open with the word 更正 in their body, carry ref_block_id, and carry no
+    // ref_kind. The pack renderer keys on the column, not on the word, so every one of
+    // those old blocks still renders as a live conclusion. Same rules as propose_blocks —
+    // copied, not reinvented, so the two paths cannot drift.
+    let ref_kind = ref_kind.map(str::trim).filter(|s| !s.is_empty());
+    match ref_kind {
+        None | Some("corrects") => {}
+        Some("supersedes") => {
+            return Err(t!(
+                "ref_kind=\"supersedes\" 这里给不了。整条作废只有用户能定 —— 那会让旧块从今后每一份 \
+                 pack 里消失,判断错了就等于悄悄删掉一条正确的结论。你能写的只有 \"corrects\":\
+                 指出旧块里的某一处不成立,旧块原文照常保留。",
+                "ref_kind=\"supersedes\" is not available here. Retiring a block whole is the \
+                 user's call alone — it drops the old block out of every future pack, so a wrong \
+                 guess silently deletes a correct conclusion. What you may write is \"corrects\": \
+                 one point in the older block is wrong, and it keeps rendering in full."
+            ))
+        }
+        Some(other) => {
+            return Err(t!(
+                "ref_kind 是 \"{other}\",不认识。这里只接受 \"corrects\"。",
+                "ref_kind \"{other}\" is not a thing. Only \"corrects\" is accepted here."
+            ))
+        }
+    }
+    if ref_kind == Some("corrects") && ref_block_id.is_none() {
+        return Err(t!(
+            "写了 ref_kind=\"corrects\" 却没给 ref_block_id —— 更正总得说清更正的是哪一块。",
+            "ref_kind=\"corrects\" with no ref_block_id — a correction has to name the block it \
+             corrects."
+        ));
     }
     let now = now_ms();
     // §20.13 v2.1 (P0-1, field report A4): the client label is an invariant, not a
@@ -3613,6 +3766,7 @@ fn add_block_json(
             "annotation": annotation,
             "source": source,
             "ref_block_id": ref_block_id,
+            "ref_kind": ref_kind,
         })
         .to_string());
     }
@@ -3626,10 +3780,10 @@ fn add_block_json(
         // carries a note the user wrote — and making it a column the caller could set would
         // hand back the exact authority this fix takes away.
         "INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by,
-                             ref_block_id, source, pinned, seq, created_at)
-         VALUES (?1, ?2, 'text', ?3, ?4, 'ai', ?5, ?6, 0,
-                 (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?2), ?7)",
-        rusqlite::params![id, thread_id, content, annotation, ref_block_id, source, now],
+                             ref_block_id, ref_kind, source, pinned, seq, created_at)
+         VALUES (?1, ?2, 'text', ?3, ?4, 'ai', ?5, ?6, ?7, 0,
+                 (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = ?2), ?8)",
+        rusqlite::params![id, thread_id, content, annotation, ref_block_id, ref_kind, source, now],
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     tx.execute(
@@ -4223,6 +4377,191 @@ fn get_follow_up_brief_json(conn: &Connection, thread_id: &str) -> Result<String
     .to_string())
 }
 
+// DESIGN_MCP_INTENT_ROUTING §4.5 E (Ocean 拍板乙 2026-08-09). "How is ‹X› doing" used to
+// cost list_threads + get_pack + get_follow_up_brief, and the model had no way to know
+// whether the last two were worth paying for — so it skipped them, which is how both the
+// locked file and the follow-up brief went unseen in the real run (§2.6).
+//
+// ⚠️ Data only, never a verdict. No `suggested_next`, no `recommended_action`, no "this
+// looks stale": what to DO about a project is the model's job talking to the user, and
+// Spool inventing an opinion here would be the same mistake DESIGN_CONTEXT_HYGIENE §8.6
+// already declined once.
+// ⚠️ Budget target: under ~2,000 chars. Block bodies are not here — `newest` gives one
+// line each; get_blocks has the text and get_pack has all of it. A tool that grows into a
+// second pack has no reason to exist.
+const OVERVIEW_NEWEST_BLOCKS: i64 = 5;
+
+fn get_project_overview_json(conn: &Connection, thread_id: &str) -> Result<String, String> {
+    let (title, workspace, status, summary, summary_source, summary_at, brief, suggested): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT t.title, w.title, t.status, t.summary, t.summary_source, t.summary_at,
+                    t.follow_up_brief, t.follow_up_brief_suggested
+             FROM threads t JOIN workspaces w ON w.id = t.workspace_id
+             WHERE t.id = ?1 AND t.deleted_at IS NULL AND w.deleted_at IS NULL",
+            [thread_id],
+            |r| {
+                Ok((
+                    r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?,
+                    r.get(7)?,
+                ))
+            },
+        )
+        .map_err(|_| no_such_thread())?;
+
+    let has_summary = summary.as_deref().map(str::trim).is_some_and(|s| !s.is_empty());
+    let summary_json = if has_summary {
+        json!({
+            "text": summary,
+            // Same normalisation as list_threads: anything but 'mcp' under a non-empty
+            // summary belongs to the user and set_thread_summary will refuse to touch it.
+            "source": match summary_source.as_deref() {
+                Some("mcp") => "mcp",
+                _ => "user",
+            },
+            // v16: NULL for every summary written before 2026-08-13. Say nothing rather
+            // than guess a date.
+            "written_at": summary_at.map(format_pack_time),
+        })
+    } else {
+        Value::Null
+    };
+
+    // ⚠️ The brief comes back as LINES here, where get_follow_up_brief returns the raw
+    // text. Deliberate: a brief IS 3-5 standing lines, and this payload is already
+    // structured, while that tool's whole job is to hand over the text the user approved,
+    // verbatim, for reading back to them.
+    let brief_lines: Option<Vec<String>> = brief.as_deref().map(|b| {
+        b.lines().map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    });
+
+    let (total, pinned, stale, block_chars): (i64, i64, i64, i64) = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*), COALESCE(SUM(pinned), 0),
+                        COALESCE(SUM(CASE WHEN stale_at IS NOT NULL THEN 1 ELSE 0 END), 0),
+                        COALESCE({PACK_CHARS_BLOCKS}, 0)
+                 FROM blocks WHERE thread_id = ?1"
+            ),
+            [thread_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    let att_chars: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COALESCE({PACK_CHARS_ATTACHMENTS}, 0)
+                 FROM attachments a WHERE a.thread_id = ?1"
+            ),
+            [thread_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut newest_stmt = conn
+        .prepare(
+            "SELECT seq, created_at, source, content FROM blocks
+             WHERE thread_id = ?1 AND stale_at IS NULL
+             ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let newest: Vec<Value> = newest_stmt
+        .query_map(rusqlite::params![thread_id, OVERVIEW_NEWEST_BLOCKS], |r| {
+            Ok(json!({
+                "seq": r.get::<_, Option<i64>>(0)?,
+                "when": format_pack_time(r.get::<_, i64>(1)?),
+                "source": r.get::<_, Option<String>>(2)?,
+                // ⚠️ Genuinely the FIRST LINE, not head_anchor's one-line preview of the
+                // whole block: since §10.1 a block's opening line is usually its markdown
+                // heading, i.e. the thing that reads as its title. Collapsing the body into
+                // it would spend the same 40 characters saying less.
+                "first_line": anchor_n(
+                    r.get::<_, String>(3)?.lines().next().unwrap_or_default(),
+                    PLACEHOLDER_HEAD_CHARS,
+                ),
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut file_stmt = conn
+        .prepare(
+            "SELECT id, label, target, extracted_text, include_in_pack, ai_access
+             FROM attachments WHERE thread_id = ?1 ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let files: Vec<Value> = file_stmt
+        .query_map([thread_id], |r| {
+            let label: String = r.get(1)?;
+            let target: String = r.get(2)?;
+            let extracted: Option<String> = r.get(3)?;
+            let readable = r.get::<_, i64>(4)? == 1 || r.get::<_, i64>(5)? == 1;
+            Ok(json!({
+                "attachment_id": r.get::<_, String>(0)?,
+                "label": if label.trim().is_empty() { base_name(&target).to_string() } else { label.trim().to_string() },
+                "extracted_chars": extracted.as_deref().map(|t| t.chars().count()),
+                "ai_readable": readable,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // Counts only — the same detectors thread_health runs, which is where the details are.
+    // ⚠️ `due_for_recheck` belongs here too and is deliberately absent: it needs the
+    // recheck_after column (§4.6 F, schema v20), which is a separate window's work.
+    let dup: Value =
+        serde_json::from_str(&find_similar_blocks_json(conn, Some(thread_id), None, None)?)
+            .map_err(|e| e.to_string())?;
+    let duplicate_groups = dup["groups"].as_array().map_or(0, Vec::len);
+    let dangling: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM blocks b
+             WHERE b.thread_id = ?1 AND b.ref_block_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM blocks c JOIN threads ct ON ct.id = c.thread_id
+                               WHERE c.id = b.ref_block_id AND ct.deleted_at IS NULL)",
+            [thread_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(json!({
+        "project": title,
+        "workspace": workspace,
+        "status": status,
+        "summary": summary_json,
+        "follow_up": {
+            // Same rule as get_follow_up_brief: no brief is the off switch, not an empty
+            // brief. A model that reads "" concludes follow-up is on and watching nothing.
+            "following_up": brief_lines.is_some(),
+            "brief": brief_lines,
+            "suggestion_waiting_for_user": suggested.is_some(),
+        },
+        "files": files,
+        "blocks": {
+            "total": total,
+            "pinned": pinned,
+            "approx_pack_chars": block_chars + att_chars + pack_skeleton_chars(),
+            "newest": newest,
+        },
+        "needs_attention": {
+            "duplicate_groups": duplicate_groups,
+            "dangling_citations": dangling,
+            "stale_blocks": stale,
+        },
+    })
+    .to_string())
+}
+
 fn suggest_follow_up_brief_json(
     conn: &Connection,
     thread_id: &str,
@@ -4642,7 +4981,7 @@ fn tools_descriptor() -> Value {
     json!([
         {
             "name": "list_threads",
-            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts and approx_pack_chars. Two clocks per project: last_block_at is when a block was last added (null if the project has none) and is what the rows are ordered by inside each workspace; updated_at moves on any change at all, including an AI-written summary. Neither distinguishes your own writes from the user's. approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
+            "description": "List every workspace and live project in Spool (思簿), with project ids, status, one-line summary, summary_source ('user' = a summary you may never overwrite / 'mcp' = AI-written, rewritable / null = none yet), block and pinned counts and approx_pack_chars. Two clocks per project: last_block_at is when a block was last added (null if the project has none) and is what the rows are ordered by inside each workspace; updated_at moves on any change at all — an AI-written summary, an approved change to what the project watches. Neither distinguishes your own writes from the user's. Three cheap flags ride along so you need not ask project by project: following_up (true = this project has a follow-up brief, i.e. Spool searches the web by it — read the lines with get_follow_up_brief), files (how many files the user put here) and files_locked (how many of those hold text you have not been let into — request_file_access is how you ask). approx_pack_chars estimates the WHOLE pack (block text + annotations + inlined attachment text + the fixed skeleton) — compare it straight against get_pack's max_chars. Call this first: both to pick a project and to budget reads. Pass title_contains to resolve a known title straight to its id. Ids are tool parameters only; when talking to the user, name projects by their titles.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -4802,7 +5141,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "add_block",
-            "description": "Append one text block to an existing project. Write only what the library cannot already produce: a conclusion that took real reasoning to reach, or the user's own words they asked you to keep — yes. A summary of blocks that are already here — no: you would be feeding yourself back a downgraded copy of your own output (packs mark AI-written text as 🧩 Synthesis = framing, not fact), and it silently goes stale as new blocks arrive. The block is attributed to this AI client via its source label (never pass yourself off as the user). Keep it to the ONE thing worth keeping; do not bulk-import chat logs. Blocks are append-only: there is no edit or delete tool, so a mis-written block is permanent — pass dry_run=true first to see exactly what would be stored. A text carrying an internal id (a 21-char run) is refused outright, nothing written; cite other blocks with ref_block_id. Requires MCP writes enabled in Spool's settings.",
+            "description": "Append one text block to an existing project. Write only what the library cannot already produce: a conclusion that took real reasoning to reach, or the user's own words they asked you to keep — yes. A summary of blocks that are already here — no: you would be feeding yourself back a downgraded copy of your own output (packs mark AI-written text as 🧩 Synthesis = framing, not fact), and it silently goes stale as new blocks arrive. The block is attributed to this AI client via its source label (never pass yourself off as the user). Keep it to the ONE thing worth keeping; do not bulk-import chat logs. Blocks are append-only to YOU: you have no edit or delete tool, so a block you write is permanent as far as you are concerned — pass dry_run=true first to see exactly what would be stored. That is a limit on your side of the wall, not on the product: the user edits, retires and deletes blocks inside Spool whenever they like, so never tell them a block cannot be changed. A text carrying an internal id (a 21-char run) is refused outright, nothing written; cite other blocks with ref_block_id. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -4812,6 +5151,7 @@ fn tools_descriptor() -> Value {
                     "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
                     "source": { "type": "string", "description": "Optional detail appended after the enforced '<client> · MCP' label (e.g. a paper id or URL the content came from). The client identity itself cannot be overridden. It is a one-line label shown in the block header on every surface, so it is capped at 120 characters — anything you want to SAY belongs in the annotation." },
                     "ref_block_id": { "type": "string", "description": "Optional citation: the block_id (from search_blocks / get_blocks) this finding builds on. Renders in packs as an '↩ cites:' line with the cited block's preview. Use this instead of ever writing ids into content." },
+                    "ref_kind": { "type": "string", "enum": ["corrects"], "description": "Set to \"corrects\" when this block says that ONE point inside the block named by ref_block_id is wrong (ref_block_id is then required). The old block is never edited and keeps rendering in full; Spool hangs a line under it pointing here, and marks this one as the correction. ⚠️ A block whose text merely opens with '更正' or 'Correction' does nothing at all — Spool keys on this field, not on your wording, and without it the old block goes on being read as a live conclusion in every future briefing. Omit for an ordinary citation. \"supersedes\" (retiring a block whole) is not available to you: it removes the old block from every future briefing, so only the user may decide it." },
                     "dry_run": { "type": "boolean", "description": "Validate and preview without writing: returns the exact content, annotation, source label and block number (#n) this call WOULD store, plus written=false. Nothing lands in the library. Use it whenever the content was assembled from parameters you are not certain about — a written block cannot be edited or taken back. Default false." }
                 },
                 "required": ["thread_id", "content"],
@@ -4820,7 +5160,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "propose_blocks",
-            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. It has TWO jobs. FIRST: the user hands you a passage — or asks you to file THIS WHOLE CONVERSATION — and it belongs in several different projects, so you split it up. ⚠️ For a whole conversation there is one extra rule and it is not optional: `source_text` holds the USER'S OWN turns only, their questions in order, never your replies. Your replies are already becoming the items; storing them twice makes one document-sized block that eats a tenth of the project's context budget and says nothing the items do not. SECOND: you have found that one point inside a block already in the library no longer holds — propose a block stating what is actually the case, with ref_block_id naming that block and ref_kind=\"corrects\". The old block is never edited and keeps rendering in full; your block simply hangs a line beneath it saying one point was corrected. Retiring a block as a whole is the user's decision alone — no tool here can do it, and you may not ask for it. Anything smaller than these — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. It has TWO jobs. FIRST: the user hands you a passage — or asks you to file THIS WHOLE CONVERSATION — and it belongs in several different projects, so you split it up. ⚠️ For a whole conversation there is one extra rule and it is not optional: `source_text` holds the USER'S OWN turns only, their questions in order, never your replies. Your replies are already becoming the items; storing them twice makes one document-sized block that eats a tenth of the project's context budget and says nothing the items do not. SECOND: you have found that one point inside a block already in the library no longer holds — propose a block stating what is actually the case, with ref_block_id naming that block and ref_kind=\"corrects\". The old block is never edited and keeps rendering in full; your block simply hangs a line beneath it saying one point was corrected. Retiring a block as a whole is the user's decision alone — no tool here can do it, and you may not ask for it; they do it in Spool in two clicks, so it is not something the product cannot do, it is simply not yours. Anything smaller than these — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -4857,6 +5197,19 @@ fn tools_descriptor() -> Value {
                 "type": "object",
                 "properties": {
                     "thread_id": { "type": "string", "description": "Project id from list_threads." }
+                },
+                "required": ["thread_id"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "get_project_overview",
+            "description": "Everything about ONE project in a single call — answers '‹X› 现在什么情况 / how is X doing' without a get_pack. Returns its one-line summary (with who wrote it and when), its follow-up brief as lines (following_up false = Spool watches nothing for this project), every file with its attachment_id and whether you have been let into it, block counts + approx_pack_chars, the newest 5 blocks as ONE line each, and needs_attention counts (duplicate_groups, dangling_citations, stale_blocks — the details live in thread_health). No block bodies: read them with get_blocks, or the whole briefing with get_pack. This tool reports facts and never a recommendation — what to do about the project is yours to say, not Spool's.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Project id from list_threads / search_blocks." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -4971,6 +5324,12 @@ fn handle_tool_call(params: &Value) -> Value {
                     .and_then(Value::as_str)
                     .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
             ),
+            "get_project_overview" => get_project_overview_json(
+                &open_db(&dir)?,
+                args.get("thread_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+            ),
             // H-2: the three v2.5 prompts, reachable as tools too — the model calls them
             // from what the user said, in the clients that never show a prompt menu.
             "weekly_review" | "thread_health" | "distill" => guidance_text(name, &args),
@@ -5013,10 +5372,19 @@ fn handle_tool_call(params: &Value) -> Value {
                 let max_chars = num("max_chars").unwrap_or(PACK_DEFAULT_MAX_CHARS);
                 let include_ids =
                     args.get("include_ids").and_then(Value::as_bool).unwrap_or(false);
-                let built = build_pack(&open_db(&dir)?, thread_id, range)?;
+                let conn = open_db(&dir)?;
+                let built = build_pack(&conn, thread_id, range)?;
+                // §4.1 A-2: what the caller may still ask for. Unconditional — unlike the
+                // id table it is not opt-in, because a model that does not know a door
+                // exists cannot decide to open it.
+                let locked = pack_locked_files(&conn, thread_id)?;
                 // R3 friction #2: the id side-table covers rendered blocks only and
                 // rides outside the max_chars accounting (bounded by what was shown).
                 let with_ids = |text: String, omit: usize| {
+                    let text = match &locked {
+                        Some(note) => format!("{text}\n---\n\n{note}"),
+                        None => text,
+                    };
                     if include_ids {
                         let table = pack_id_table(&built.blocks, omit);
                         format!("{text}\n---\n\n{table}")
@@ -5135,6 +5503,7 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("source").and_then(Value::as_str),
                         args.get("annotation").and_then(Value::as_str),
                         args.get("ref_block_id").and_then(Value::as_str),
+                        args.get("ref_kind").and_then(Value::as_str),
                         args.get("dry_run").and_then(Value::as_bool).unwrap_or(false),
                     )
                 }
@@ -6525,13 +6894,51 @@ fn thread_health_report(
 // The last paragraph is what closes it: on the first turn the model volunteers what it
 // can now do, using the user's OWN project titles rather than an abstract feature list.
 // English on purpose (§19.13) — this is addressed to the model, not to the user.
+//
+// ⚠️ 2026-08-09, DESIGN_MCP_INTENT_ROUTING §4.2 B-1 — the rule this table exists under:
+// THIS IS THE ROUTER, tools/list is the manual. A model decides HERE which tool handles
+// a sentence, and only then opens the manual to see how to call it. A tool that is
+// missing here is missing, however well its description is written. Proof: 08-09 shipped
+// three new tools with good descriptions, full annotations and a passing stdio run, and
+// touched neither this string nor the instructions blob below — in Ocean's real ChatGPT
+// session two of the three were never reached (§2.2). So: adding a tool means adding a
+// line here, in the same commit.
+// ⚠️ The triggers are bilingual, the prose around them stays English. §19.13 keeps the
+// instructions English because they address the MODEL — but these are samples of what
+// the USER says out loud, and the user speaks Chinese ("最近在忙什么" was already here,
+// which is the precedent). Translating the arrows' right-hand side would be the error.
+// The rules half of the `initialize` instructions — how to read Spool's data and what
+// writing back means. OPENERS above is the other half: which tool a sentence goes to.
+// ⚠️ Lifted out of the json! literal on 2026-08-09 (DESIGN_MCP_INTENT_ROUTING §4.2 B-2)
+// so that a test can read it. Nothing about the text changed in the move; what changed
+// is that `every_tool_is_reachable_from_the_routing_text` can now see it.
+const INSTRUCTION_BODY: &str = "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. One case is not a write at all: when a passage the user handed you belongs in several DIFFERENT projects, propose_blocks queues the split for them to approve inside Spool, and saves nothing — pass source_text so the pieces cite the passage they came from, and tell the user \\\"N items are waiting for you in Spool\\\", never that you saved them. Splitting a few findings across projects is that same one case — two add_block calls into two projects is the wrong shape for it, however small it looks. What a project WATCHES is not a block either: it lives in that project's follow-up brief, and a block titled 当前跟进 / current follow-up is wrong twice over — it is permanent, and nothing reads it when a follow-up actually runs. Change what is watched with suggest_follow_up_brief, which queues the change for the user. Correcting ONE point inside a block already in the library is ref_kind:\"corrects\" naming that block, in add_block or propose_blocks — a block whose text merely opens with 更正 / Correction does nothing at all: only ref_kind makes Spool hang the correction under the old block, and without it the old one keeps rendering as a live conclusion in every future briefing. And a yes covers the one thing you asked for and nothing else: being let into a file is not permission to write blocks. A file you cannot read is a request you have not made yet — never tell the user to send it another way, Spool already has it; ask for it with request_file_access(attachment_id). If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.";
+
 const OPENERS: &str = "The user speaks plain language, not tool names. Typical openers, \
 and what to call:\n\
-  \"what have I been up to\" / \"sum up my week\"          \u{2192} get_digest, then weekly_review\n\
-  \"where am I stuck on X\" / \"what have I settled\"      \u{2192} search_blocks \u{2192} get_pack, or distill\n\
-  \"save this back\" / \"remember this for me\"            \u{2192} add_block (ask which project first)\n\
-  a pasted slab that belongs in several projects       \u{2192} propose_blocks (the user approves it in Spool)\n\
-  \"is X getting messy\" / \"any duplicates in X\"         \u{2192} thread_health\n\
+\"what have I been up to\" / \"最近在忙什么\" / \"sum up my week\" \u{2192} get_digest, then weekly_review\n\
+\"where am I stuck on X\" / \"我在 X 上定了什么\" \u{2192} search_blocks \u{2192} get_pack, or distill\n\
+\"save this back\" / \"记下来\" / \"存进去\" \u{2192} add_block (ask which project first)\n\
+\"这些分别存进不同项目\" / \"flux 相关的存 flux,其他存 Y\" / a pasted slab that belongs in \
+several projects \u{2192} propose_blocks, NOT one add_block per project (the user approves the \
+split in Spool)\n\
+\"把这场对话整理进我的项目\" / \"file this whole conversation\" \u{2192} propose_blocks, with \
+source_text = the USER'S turns only\n\
+\"what files are in X\" / \"有哪些文件\" / \"里面写了什么\" \u{2192} get_blocks, then \
+request_file_access for every file with ai_readable:false \u{2014} never tell the user to send \
+the file some other way\n\
+\"what are you watching for me\" / \"现在在盯什么\" \u{2192} get_follow_up_brief (read the lines \
+back verbatim)\n\
+\"跟进一下\" / \"follow up on X\" \u{2192} get_follow_up_brief FIRST, read those lines back, then \
+go and check THOSE lines \u{2014} 跟进 is ambiguous in Chinese (it can also mean \"push my \
+project forward\"), so if the brief is not what they seem to mean, ask which one before \
+doing anything\n\
+\"改一下跟进目标\" / \"换成更有用的跟进\" \u{2192} suggest_follow_up_brief \u{2014} not add_block, \
+not set_thread_summary; what a project watches is its own thing\n\
+\"看看〈X〉现在怎么样\" / \"这个项目什么情况\" / \"how is X doing\" \u{2192} get_project_overview \
+(one call: summary, what it watches, its files, the newest lines, what needs attention)\n\
+\"is X getting messy\" / \"有没有重复\" \u{2192} thread_health\n\
+\"体检一下\" / \"check my library\" \u{2192} check_library\n\
 If this is your first turn with Spool connected and the user has not asked for anything \
 specific, say in ONE sentence what you can now do for them, naming their real projects \
 \u{2014} call list_threads first so the examples are theirs, not invented.";
@@ -6561,7 +6968,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "serverInfo": { "name": "spool", "version": env!("CARGO_PKG_VERSION") },
                 // The identity leads: a client that truncates instructions keeps the one
                 // line that says which library this is.
-                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters; cite the block it builds on via ref_block_id; create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. One case is not a write at all: when a passage the user handed you belongs in several DIFFERENT projects, propose_blocks queues the split for them to approve inside Spool, and saves nothing — pass source_text so the pieces cite the passage they came from, and tell the user \\\"N items are waiting for you in Spool\\\", never that you saved them. If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.")
+                "instructions": format!("{}\n\n{}\n\n{}", library_identity(), OPENERS, INSTRUCTION_BODY)
             }))
         }
         "ping" => Ok(json!({})),
@@ -7097,7 +7504,7 @@ mod tests {
         let before: i64 = conn
             .query_row("SELECT updated_at FROM threads WHERE id = ?1", [&tid], |r| r.get(0))
             .unwrap();
-        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注"), None, false).unwrap();
+        let out = add_block_json(&mut conn, &tid, "  结论内容  ", None, Some("批注"), None, None, false).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP");
         let (content, source, annotation): (String, String, String) = conn
@@ -7116,23 +7523,23 @@ mod tests {
         assert!(after >= before);
         // v2.1 (P0-1): a custom source is a suffix — the client label survives.
         let out =
-            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None, None, false).unwrap();
+            add_block_json(&mut conn, &tid, "引用内容", Some("lecture-11.pdf"), None, None, None, false).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["source"], "TestClient · MCP — lecture-11.pdf");
         // deleted / missing thread refuses
-        assert!(add_block_json(&mut conn, "nope", "x", None, None, None, false).is_err());
+        assert!(add_block_json(&mut conn, "nope", "x", None, None, None, None, false).is_err());
         // empty content refuses
-        assert!(add_block_json(&mut conn, &tid, "   ", None, None, None, false).is_err());
+        assert!(add_block_json(&mut conn, &tid, "   ", None, None, None, None, false).is_err());
 
         // v2.4 (D2): ref_block_id — validated live at write time, stored, echoed by
         // get_blocks, and rendered as the ↩ cites line (live + dangling) in the pack.
         let cited: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "被引的原始结论", None, None, None, false).unwrap(),
+            &add_block_json(&mut conn, &tid, "被引的原始结论", None, None, None, None, false).unwrap(),
         )
         .unwrap();
         let cited_id = cited["block_id"].as_str().unwrap().to_string();
         let citing: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "站在前一块上的新结论", None, None, Some(&cited_id), false)
+            &add_block_json(&mut conn, &tid, "站在前一块上的新结论", None, None, Some(&cited_id), None, false)
                 .unwrap(),
         )
         .unwrap();
@@ -7145,7 +7552,7 @@ mod tests {
             .unwrap();
         assert_eq!(stored, cited_id);
         let err =
-            add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope"), false).unwrap_err();
+            add_block_json(&mut conn, &tid, "引用不存在的块", None, None, Some("nope"), None, false).unwrap_err();
         assert!(err.contains("ref_block_id"), "{err}");
         let page: Value = serde_json::from_str(
             &get_blocks_json(&conn, &tid, None, None, None, None, &NO_FILTERS, false).unwrap(),
@@ -7187,17 +7594,17 @@ mod tests {
                 .unwrap();
         let other_tid = other["thread_id"].as_str().unwrap().to_string();
         let far: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &other_tid, "别处的证据", None, None, None, false).unwrap(),
+            &add_block_json(&mut conn, &other_tid, "别处的证据", None, None, None, None, false).unwrap(),
         )
         .unwrap();
         let far_id = far["block_id"].as_str().unwrap().to_string();
-        add_block_json(&mut conn, &tid, "引用别处", None, None, Some(&far_id), false).unwrap();
+        add_block_json(&mut conn, &tid, "引用别处", None, None, Some(&far_id), None, false).unwrap();
         let near: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "本项目的证据", None, None, None, false).unwrap(),
+            &add_block_json(&mut conn, &tid, "本项目的证据", None, None, None, None, false).unwrap(),
         )
         .unwrap();
         let near_id = near["block_id"].as_str().unwrap().to_string();
-        add_block_json(&mut conn, &tid, "引用本项目", None, None, Some(&near_id), false).unwrap();
+        add_block_json(&mut conn, &tid, "引用本项目", None, None, Some(&near_id), None, false).unwrap();
         let pack = build_pack(&conn, &tid, "all").unwrap().text;
         // the ↩ cites: line sits directly beneath its block's header line
         fn line_after(pack: &str, needle: &str) -> String {
@@ -7428,12 +7835,12 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
-        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"), None, false)
+        add_block_json(&mut conn, &tid, "量子退火的调参结论", Some("论文"), Some("再核对"), None, None, false)
             .unwrap();
         // Word-boundary fodder (v2.1, field report A3): "ai" inside a word must not
         // hit; standalone "AI" must.
-        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None, None, false).unwrap();
-        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None, None, false).unwrap();
+        add_block_json(&mut conn, &tid, "the obtained results were stable", None, None, None, None, false).unwrap();
+        add_block_json(&mut conn, &tid, "AI 分类器的结论", None, None, None, None, false).unwrap();
 
         // FTS path (≥3 codepoints): {total, hits} with a **marked** snippet.
         let res: Value =
@@ -7610,9 +8017,9 @@ mod tests {
         // R3 BUG-1: the boundary must hold on the trigram path too — a 3+ char Latin
         // word must not hit substrings ("GRE" inside "degree"), while the standalone
         // word still matches; CJK keeps substring semantics.
-        add_block_json(&mut conn, &tid, "a degree of freedom in Great Deluge", None, None, None, false)
+        add_block_json(&mut conn, &tid, "a degree of freedom in Great Deluge", None, None, None, None, false)
             .unwrap();
-        add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None, false).unwrap();
+        add_block_json(&mut conn, &tid, "GRE 填空的高频词", None, None, None, None, false).unwrap();
         let res: Value =
             serde_json::from_str(&search_blocks_json(&conn, "GRE", None, None).unwrap()).unwrap();
         assert_eq!(res["total"], 1, "{res}");
@@ -8155,7 +8562,7 @@ mod tests {
 
         // Clean content writes, and says which project and which number it landed on.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None, None, false).unwrap(),
+            &add_block_json(&mut conn, &tid, "普通结论,没有 id", None, None, None, None, false).unwrap(),
         )
         .unwrap();
         assert_eq!(v["thread_title"], "拒绝测试");
@@ -8170,7 +8577,7 @@ mod tests {
             ("结论", None, Some("对应 sbC2zgTo9dWyq_x1XPLNM")),
             ("结论", Some("依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM"), None),
         ] {
-            let err = add_block_json(&mut conn, &tid, content, source, annotation, None, false)
+            let err = add_block_json(&mut conn, &tid, content, source, annotation, None, None, false)
                 .unwrap_err();
             assert!(err.contains("没有写入任何东西"), "{err}");
             // §3.1-3: the refusal never echoes the id it refused.
@@ -8188,6 +8595,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             false,
         )
         .unwrap_err();
@@ -8196,7 +8604,7 @@ mod tests {
         assert_eq!(count(&conn), 1);
         // The project's own id, too.
         let err =
-            add_block_json(&mut conn, &tid, &format!("项目 {tid} 的结论"), None, None, None, false)
+            add_block_json(&mut conn, &tid, &format!("项目 {tid} 的结论"), None, None, None, None, false)
                 .unwrap_err();
         assert!(err.contains("项目〈拒绝测试〉"), "{err}");
         assert_eq!(count(&conn), 1);
@@ -8219,7 +8627,7 @@ mod tests {
         // §3.1-2 dry_run: full verdict, zero rows. Including the verdict "this would be
         // refused" — a dry run that passed what the real call rejects would be useless.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "  预演内容  ", Some("笔记"), Some("批注"), Some(&cited_id), true)
+            &add_block_json(&mut conn, &tid, "  预演内容  ", Some("笔记"), Some("批注"), Some(&cited_id), None, true)
                 .unwrap(),
         )
         .unwrap();
@@ -8231,13 +8639,13 @@ mod tests {
         assert_eq!(v["annotation"], "批注");
         assert_eq!(v["source"].as_str().unwrap(), mcp_source_label() + " — 笔记");
         assert_eq!(count(&conn), 1, "dry_run must not write");
-        assert!(add_block_json(&mut conn, &tid, "预演 sbC2zgTo9dWyq_x1XPLNM", None, None, None, true)
+        assert!(add_block_json(&mut conn, &tid, "预演 sbC2zgTo9dWyq_x1XPLNM", None, None, None, None, true)
             .is_err());
         // And the headline says out loud that nothing happened.
         let line = human_headline(
             "add_block",
             &json!({ "thread_id": tid, "content": "预演内容", "dry_run": true }),
-            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, true).unwrap(),
+            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, None, true).unwrap(),
         )
         .unwrap();
         assert!(line.contains("还没有写进 Spool"), "{line}");
@@ -8246,7 +8654,7 @@ mod tests {
         // The real call still works after all that, and lands on the number the dry run
         // promised.
         let v: Value = serde_json::from_str(
-            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, false).unwrap(),
+            &add_block_json(&mut conn, &tid, "预演内容", None, None, None, None, false).unwrap(),
         )
         .unwrap();
         assert_eq!(v["seq"], 2);
@@ -8257,16 +8665,16 @@ mod tests {
         // purpose. The error has to name the limit, per R8's rule that any adjustment the
         // server makes is stated out loud.
         let long = "x".repeat(SOURCE_DETAIL_CHAR_CAP + 1);
-        let err = add_block_json(&mut conn, &tid, "正文", Some(&long), None, None, false).unwrap_err();
+        let err = add_block_json(&mut conn, &tid, "正文", Some(&long), None, None, None, false).unwrap_err();
         assert!(err.contains(&SOURCE_DETAIL_CHAR_CAP.to_string()), "{err}");
         assert!(err.contains("annotation"), "{err}");
         assert_eq!(count(&conn), 2, "an over-long source must not write");
         // Exactly at the cap still passes — the boundary is inclusive.
         let at_cap = "y".repeat(SOURCE_DETAIL_CHAR_CAP);
-        assert!(add_block_json(&mut conn, &tid, "正文", Some(&at_cap), None, None, false).is_ok());
+        assert!(add_block_json(&mut conn, &tid, "正文", Some(&at_cap), None, None, None, false).is_ok());
         // Counted in chars, not bytes: 120 CJK chars are 360 bytes and must still pass.
         let cjk = "来".repeat(SOURCE_DETAIL_CHAR_CAP);
-        assert!(add_block_json(&mut conn, &tid, "正文", Some(&cjk), None, None, false).is_ok());
+        assert!(add_block_json(&mut conn, &tid, "正文", Some(&cjk), None, None, None, false).is_ok());
     }
 
     // DESIGN_MCP_WRITE_ROLE §4 (M1). The three claims the triage queue makes, each
@@ -8676,6 +9084,290 @@ mod tests {
         let many: Vec<Value> =
             (0..FILE_REQUEST_MAX_FILES + 1).map(|_| json!("att_locked")).collect();
         assert!(request_file_access_json(&mut conn, "th1", &many, "都要", now).is_err());
+    }
+
+    // DESIGN_MCP_INTENT_ROUTING §2.2, as a test. The 08-09 window shipped three tools with
+    // good descriptions, full annotations and a clean stdio run, and did not touch either
+    // routing string — in Ocean's real ChatGPT session two of the three were never reached.
+    // `tools/list` is the manual; a model picks the tool from the instructions. So: a tool
+    // absent from BOTH routing strings does not exist to a third-party client, and this
+    // fails the moment someone adds one and forgets. Sibling of
+    // `every_tool_declares_its_read_write_annotation` — same class of defect (invisible
+    // locally, fatal in someone else's client), same kind of guard.
+    #[test]
+    fn every_tool_is_reachable_from_the_routing_text() {
+        for tool in tools_descriptor().as_array().unwrap() {
+            let name = tool["name"].as_str().unwrap();
+            assert!(
+                OPENERS.contains(name) || INSTRUCTION_BODY.contains(name),
+                "{name} is in tools/list but in neither OPENERS nor INSTRUCTION_BODY — a \
+                 third-party client will never route a user's sentence to it. Add a line \
+                 naming it (in the words the USER would say) before shipping."
+            );
+        }
+    }
+
+    // §4.1 A — the two corridors with no handle on the door. Both defects were one
+    // sentence's worth of code and cost a whole feature in the real run: asked what was in
+    // his project, the model read the file's name off a listing that offered no way in, and
+    // told Ocean to go upload the PDF somewhere else.
+    #[test]
+    fn a_locked_file_says_how_to_ask_without_being_asked_twice() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-locked-doors-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+               VALUES ('th1', 'ws1', '申请规划', 'active', 0, 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, seq, created_at)
+               VALUES ('b1', 'th1', 'text', '申请材料清单', 1, 1);
+             INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
+                                      extraction_kind, include_in_pack, ai_access, created_at)
+               VALUES ('att_locked', 'th1', 'file', '/x/方案.pdf', '方案.pdf',
+                       '秋季学期的必修课一共八门', 'pdf', 0, 0, 1),
+                      ('att_open', 'th1', 'file', '/x/陈述.docx', '陈述.docx',
+                       '个人陈述的第三稿', 'docx', 0, 1, 1),
+                      ('att_inlined', 'th1', 'file', '/x/清单.txt', '清单.txt',
+                       '材料清单正文', 'text', 1, 0, 1),
+                      ('att_empty', 'th1', 'folder', '/x/材料夹', '材料夹', NULL, NULL, 0, 0, 1);",
+        )
+        .unwrap();
+
+        // A-1. The switch is OFF — the listing read by a model asked "what files are here".
+        // Before this fix the hint hung INSIDE `if include_extracted_text`, so this exact
+        // call was the one that answered with a fact and no way out.
+        let read = get_blocks_json(
+            &conn,
+            "th1",
+            None,
+            None,
+            None,
+            None,
+            &BlockFilters { pinned: None, has_annotation: None, source_contains: None, stale: None },
+            false,
+        )
+        .unwrap();
+        let r: Value = serde_json::from_str(&read).unwrap();
+        let files = r["files"].as_array().unwrap();
+        let locked = files.iter().find(|f| f["label"] == "方案.pdf").unwrap();
+        assert!(
+            locked["locked"].as_str().unwrap().contains("request_file_access"),
+            "the default read still offers no way in: {locked}"
+        );
+        // The other half of §4.1 A-1's wording rule: knowing how to ask is not enough if the
+        // model then cannot find the text it was granted.
+        assert!(locked["locked"].as_str().unwrap().contains("include_extracted_text"));
+        assert!(locked["extracted_text"].is_null(), "no text without the switch");
+        // A file the user opened up is not a locked file, whichever way they opened it.
+        for label in ["陈述.docx", "清单.txt"] {
+            let open = files.iter().find(|f| f["label"] == label).unwrap();
+            assert_eq!(open["ai_readable"], true, "{label}");
+            assert!(open["locked"].is_null(), "{label} was called locked");
+        }
+        // Nothing to unlock: a folder holds no extracted text, so telling the model to ask
+        // for it would send it to the user with a request that cannot be granted.
+        let empty = files.iter().find(|f| f["label"] == "材料夹").unwrap();
+        assert!(empty["locked"].is_null());
+
+        // A-2. The pack's own line says `[extracted: yes, not inlined]` and stops there —
+        // and it must keep saying exactly that, because the clipboard pack is read by a
+        // human and the golden fixture holds it equal to assemble.ts. So the way out rides
+        // beside the pack instead.
+        let tail = pack_locked_files(&conn, "th1").unwrap().unwrap();
+        assert!(tail.contains("att_locked"), "no attachment_id to ask with: {tail}");
+        assert!(tail.contains("方案.pdf"));
+        assert!(tail.contains("request_file_access"));
+        assert!(!tail.contains("陈述.docx"), "a readable file was listed as unreachable");
+        assert!(!tail.contains("清单.txt"), "an inlined file was listed as unreachable");
+        assert!(!tail.contains("材料夹"), "a folder was listed as unreachable");
+        // Nothing locked, nothing said. An empty section is noise on every project that has
+        // no files at all.
+        conn.execute("UPDATE attachments SET ai_access = 1 WHERE id = 'att_locked'", []).unwrap();
+        assert!(pack_locked_files(&conn, "th1").unwrap().is_none());
+    }
+
+    // §4.4 D (Ocean 拍板乙) — `ref_kind` existed from v14 but only inside propose_blocks,
+    // which was never once called. The real library holds three blocks whose bodies open
+    // with the word 更正, carry ref_block_id and carry no ref_kind: the renderer keys on the
+    // column, so every one of the blocks they correct still reads as a live conclusion.
+    #[test]
+    fn add_block_can_hang_a_correction_but_never_retire_a_block() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-corrects-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+               VALUES ('th1', 'ws1', '申请规划', 'active', 0, 1, 1);",
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let old: Value = serde_json::from_str(
+            &add_block_json(&mut conn, "th1", "MIIAS 与 MSSM 重叠,不纳入", None, None, None, None, false)
+                .unwrap(),
+        )
+        .unwrap();
+        let old_id = old["block_id"].as_str().unwrap().to_string();
+
+        // Retiring a block whole stays the user's alone (交接 §4-1). The refusal names what
+        // the caller may do instead — a model told only "no" writes a plain block and the
+        // correction is lost in prose.
+        let err = add_block_json(
+            &mut conn,
+            "th1",
+            "旧结论不成立",
+            None,
+            None,
+            Some(&old_id),
+            Some("supersedes"),
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("corrects"), "{err}");
+        assert!(err.contains("只有用户能定"), "{err}");
+        let err = add_block_json(&mut conn, "th1", "x", None, None, Some(&old_id), Some("replaces"), false)
+            .unwrap_err();
+        assert!(err.contains("replaces"), "{err}");
+        // A correction that names nothing is just a block with an opinion.
+        let err = add_block_json(&mut conn, "th1", "更正:其实要并行评估", None, None, None, Some("corrects"), false)
+            .unwrap_err();
+        assert!(err.contains("ref_block_id"), "{err}");
+
+        // The one that works, end to end: the column is set, and the pack renderer (v14,
+        // untouched) hangs the correction under the old block from both sides.
+        let out = add_block_json(
+            &mut conn,
+            "th1",
+            "MIIAS 应与 MSSM 并行评估",
+            None,
+            None,
+            Some(&old_id),
+            Some("corrects"),
+            false,
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let new_id = v["block_id"].as_str().unwrap().to_string();
+        let stored: Option<String> = conn
+            .query_row("SELECT ref_kind FROM blocks WHERE id = ?1", [&new_id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some("corrects"));
+        let pack = build_pack(&conn, "th1", "all").unwrap().text;
+        assert!(pack.contains(REF_BLOCK_CORRECTS), "the correction did not render: {pack}");
+        assert!(
+            pack.contains(CORRECTED_BY_PREFIX),
+            "the OLD block still reads as a live conclusion: {pack}"
+        );
+
+        // dry_run has to show it too — it is the one place a caller can check what would
+        // land, and a silently dropped ref_kind is exactly the failure this feature is for.
+        let dry: Value = serde_json::from_str(
+            &add_block_json(&mut conn, "th1", "预演", None, None, Some(&old_id), Some("corrects"), true)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(dry["ref_kind"], "corrects");
+        assert_eq!(dry["written"], false);
+    }
+
+    // §4.3 C + §4.5 E — the two calls that answer "what is going on with this project"
+    // without a get_pack. §2.6: a model that cannot tell cheaply whether a project is being
+    // watched or holds files defaults to not asking, and both of the 08-09 misses came
+    // through that gap.
+    #[test]
+    fn one_call_says_what_is_watched_and_what_is_locked() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-overview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at, summary, summary_source, summary_at,
+                                  follow_up_brief, follow_up_brief_suggested)
+               VALUES ('th1', 'ws1', '申请规划', 'active', 0, 1, 1, '在核项目清单', 'mcp',
+                       1700000000000, '盯 CMU 的截止日期有没有改
+盯 MIT 的开放时间', NULL),
+                      ('th2', 'ws1', 'Flux', 'active', 0, 1, 1, NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO blocks (id, thread_id, kind, content, seq, created_at, stale_at)
+               VALUES ('b1', 'th1', 'text', '第一条结论
+第二行不该出现在首行里', 1, 100, NULL),
+                      ('b2', 'th1', 'text', '这条用户已经作废了', 2, 200, 300);
+             INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
+                                      extraction_kind, include_in_pack, ai_access, created_at)
+               VALUES ('a_lock', 'th1', 'file', '/x/方案.pdf', '方案.pdf', '正文', 'pdf', 0, 0, 1),
+                      ('a_open', 'th1', 'file', '/x/陈述.docx', '陈述.docx', '正文', 'docx', 0, 1, 1);",
+        )
+        .unwrap();
+
+        // C: the whole-library sweep now carries the three flags, so deciding whether a
+        // per-project call is worth making costs nothing.
+        let list: Value = serde_json::from_str(&list_threads_json(&conn, None).unwrap()).unwrap();
+        let rows = list.as_array().unwrap();
+        let a = rows.iter().find(|t| t["title"] == "申请规划").unwrap();
+        assert_eq!(a["following_up"], true);
+        assert_eq!(a["files"], 2);
+        assert_eq!(a["files_locked"], 1, "only the one the user has not opened up");
+        let b = rows.iter().find(|t| t["title"] == "Flux").unwrap();
+        assert_eq!(b["following_up"], false, "no brief is the off switch, not an empty brief");
+        assert_eq!(b["files"], 0);
+
+        // E: one call, and it answers in data — never in advice.
+        let v: Value =
+            serde_json::from_str(&get_project_overview_json(&conn, "th1").unwrap()).unwrap();
+        assert_eq!(v["project"], "申请规划");
+        assert_eq!(v["summary"]["text"], "在核项目清单");
+        assert_eq!(v["summary"]["source"], "mcp");
+        assert!(v["summary"]["written_at"].is_string());
+        assert_eq!(v["follow_up"]["following_up"], true);
+        assert_eq!(v["follow_up"]["brief"].as_array().unwrap().len(), 2, "one line per thing watched");
+        assert_eq!(v["follow_up"]["suggestion_waiting_for_user"], false);
+        assert_eq!(v["files"].as_array().unwrap().len(), 2);
+        let locked = v["files"].as_array().unwrap().iter().find(|f| f["label"] == "方案.pdf").unwrap();
+        assert_eq!(locked["ai_readable"], false);
+        assert_eq!(locked["attachment_id"], "a_lock", "without the id there is nothing to ask with");
+        assert_eq!(v["blocks"]["total"], 2);
+        assert_eq!(v["needs_attention"]["stale_blocks"], 1);
+        assert_eq!(v["needs_attention"]["dangling_citations"], 0);
+        // ⚠️ The budget promise: a table of contents, not a second pack. `newest` gives one
+        // line per block and skips what the user retired.
+        let newest = v["blocks"]["newest"].as_array().unwrap();
+        assert_eq!(newest.len(), 1, "a retired block is not what the project is up to");
+        assert_eq!(newest[0]["first_line"], "第一条结论");
+        assert!(
+            get_project_overview_json(&conn, "th1").unwrap().chars().count() < 2000,
+            "the overview outgrew its budget — at that size get_pack is the better call"
+        );
+        // ⚠️ 稿子 §4.5: no verdicts. Spool reports; the model advises.
+        for banned in ["suggested_next", "recommended_action"] {
+            assert!(v.get(banned).is_none(), "{banned} is the model's job, not Spool's");
+        }
+        // A project nobody watches says so in the shape that cannot be misread as "watching
+        // nothing in particular".
+        let flux: Value =
+            serde_json::from_str(&get_project_overview_json(&conn, "th2").unwrap()).unwrap();
+        assert_eq!(flux["follow_up"]["following_up"], false);
+        assert!(flux["follow_up"]["brief"].is_null(), "an empty brief reads as follow-up being on");
+        assert!(flux["summary"].is_null());
+        assert!(get_project_overview_json(&conn, "nope").is_err());
     }
 
     // 决定 5 — the whole point of this pair is the thing it CANNOT do. A suggested brief must

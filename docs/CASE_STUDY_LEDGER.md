@@ -646,6 +646,49 @@ editing or deleting"* — while the app has had both, with undo, all along. A se
 **you** cannot do will be repeated as a sentence about what **the software** cannot do. Write
 the subject in.
 
+### 3.17 The same rule, broken twice, made into an assertion the second time (2026-08-09)
+
+§3.16 is the diagnosis; this is what fixing it taught, and the lesson is not the fix.
+
+Two defects of one class have now landed in this project within two days of each other. Both
+are rules that were known, written down and agreed before the code was written. Both were
+broken anyway, by the person who wrote the rule. Both are **completely invisible in the
+developer's own environment** and fatal in somebody else's:
+
+| The rule | How it broke | What it cost |
+|---|---|---|
+| Every tool must declare `annotations` (§3.9) | One tool shipped without them | That tool was uncallable on one third-party client; local tests and a protocol smoke run were green |
+| Every tool must be named in the routing text (§3.16) | Three tools shipped without a line | Two of three features unreachable in a real session; local tests, annotations and a stdio run were green |
+
+The instinct after the first one was to write the rule down more emphatically. It was written
+down. The second break happened anyway, in a window that had the first one's write-up open.
+
+What actually changed the outcome, both times, was converting the rule into an assertion that
+fails the build: one test walks the tool list and refuses any tool without a read/write
+annotation; its sibling now refuses any tool whose name appears in neither routing string. The
+second test is four lines long and would have caught the whole of §3.16 before it left the
+machine. **A rule that only a human can enforce is a rule that gets broken on the day the work
+is otherwise finished** — which is exactly when nobody re-reads the rules.
+
+Two smaller findings from the same repair, both about affordances rather than mechanisms.
+
+**The defect was one level of indentation.** The sentence telling a model how to ask for a
+locked file sat inside `if include_extracted_text`, i.e. behind the flag a model sets only when
+it has already decided to read file contents. Asked *what files are here*, it never sets that
+flag, so it met the one description of the way in that it had no reason to read. The mechanism,
+the permission model and the review screen were all correct; the feature was unreachable
+because a true sentence was in the wrong branch.
+
+**A renderer with two audiences cannot carry either audience's affordance.** The obvious place
+to put "ask for this file with `request_file_access`" was the project briefing, next to the line
+that already says the file's text exists but is not included. That briefing is also what a human
+copies to their clipboard, and it is held byte-identical to a second implementation by a golden
+fixture. Telling a person to call a tool is gibberish; forking the two renderers would end the
+one guarantee that keeps them equal. The affordance had to ride *beside* the artifact instead of
+inside it — appended after the briefing, outside its size budget, on the machine-facing path
+only. When one output serves a person and a program, an affordance for one of them is noise to
+the other, and the shared renderer is the wrong home for both.
+
 ---
 
 ## 4. Boundaries stated on purpose
@@ -680,6 +723,14 @@ Read tools (10): `list_threads`, `get_digest`, `get_pack`, `search_blocks`,
 `distill`.
 Write tools (4, behind a second consent switch): `create_thread`, `add_block`,
 `propose_blocks`, `set_thread_summary`.
+
+**Superseding count, 2026-08-09 — 18 tools (12 read / 6 write).** Appended rather than
+edited, per this ledger's append-only rule. Added since the count above: read —
+`get_follow_up_brief`, `get_project_overview`; write — `request_file_access`,
+`suggest_follow_up_brief`. Two of the six "write" tools store nothing in the library at all:
+they queue a request for the user to answer on the review screen. They are declared as writes
+because they change durable state and need the same consent, which is the honest answer to
+what the annotation means to a client.
 
 ---
 

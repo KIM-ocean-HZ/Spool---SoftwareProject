@@ -244,14 +244,20 @@ const CLEAR_SUGGESTION =
   'follow_up_brief_suggested = NULL, follow_up_brief_suggested_by = NULL, follow_up_brief_suggested_at = NULL';
 
 /** The user said yes: the parked text becomes the brief, in one statement so a project can
- *  never end up with both a live suggestion and the brief it was already applied to. */
+ *  never end up with both a live suggestion and the brief it was already applied to.
+ *
+ *  ⚠️ `updated_at` moves too (DESIGN_MCP_INTENT_ROUTING §1.1 + §4.3 C). It did not until
+ *  2026-08-09, and that was harmless only because nothing outside this file could observe
+ *  what a project watches. `list_threads` now reports `following_up`, and its own
+ *  description promises "updated_at moves on any change at all" — leaving it still would
+ *  make the tool state a fact about the project that its clock denies. */
 export const applyBriefSuggestion = async (id: string): Promise<void> => {
   const db = await getDb();
   await db.execute(
     `UPDATE threads
-        SET follow_up_brief = follow_up_brief_suggested, ${CLEAR_SUGGESTION}
+        SET follow_up_brief = follow_up_brief_suggested, updated_at = $2, ${CLEAR_SUGGESTION}
       WHERE id = $1 AND follow_up_brief_suggested IS NOT NULL`,
-    [id],
+    [id, Date.now()],
   );
 };
 

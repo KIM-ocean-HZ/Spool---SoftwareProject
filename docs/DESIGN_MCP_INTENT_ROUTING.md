@@ -1,10 +1,12 @@
 # 设计稿 — MCP 意图路由(让模型听懂用户在说什么)
 
-> 状态:**未开工,但 §6 的三题 Ocean 已经全部拍板(2026-08-09,三题都选乙)。**
+> 状态:**A / B / C / D / E 已全部落地(2026-08-09 晚,见 §8);F 仍未开工,单独一窗。**
+> §6 的三题 Ocean 已经全部拍板(2026-08-09,三题都选乙)。
 > 全稿基于 2026-08-09 晚 Ocean 在 ChatGPT(Codex)里跑的那一场真实测试,
 > 以及**同一时刻真库里的写入取证**(`~/Library/Application Support/com.oceanjin.spool/spool.db`,
 > v19,46 块)。
-> ⚠️ 本稿只做**分析 + 设计**,一行代码都没改。落地留给下一窗。
+> ⚠️ §0–§7 是 08-09 白天写的分析 + 设计,**保留原样**,一个字没回改 ——
+> 它是 case-study 里那条「机制对、路由没接上」的原始取证。落地记录另起一节写在 §8。
 > 前置阅读:`DESIGN_FOLLOW_UP.md` §4.3、`DESIGN_PROJECT_FILES.md` §8、
 > `DESIGN_CONTEXT_HYGIENE.md` §9.5.1 —— 这三份分别是 08-09 那三个新工具的全稿。
 
@@ -501,3 +503,54 @@ Claude Desktop 的写入侧**至今没真跑过**(交接 §6.2-ter 末尾)。
 1. **告诉 Ocean:Flux 里那两块「我会这样写 / 你同意吗」可以直接删**(§2.7),
    模型上一场告诉他删不掉,那是假的。
 2. **交接 §5-B 那条判断要改**:「Ocean 结构上永远落在 add_block 那侧」已被 08-09 证伪(§2.4)。
+
+---
+
+## 8. ✅ 落地记录(2026-08-09 晚)—— A / B / C / D / E 五件
+
+**schema 一个字没动(仍是 v19),两侧渲染器一个字没动,golden fixture 一次没重生。**
+这是 §7 定的判据,兑现了。工具面 **17 → 18**,提示词面仍是 5。
+基线:`tsc` 干净 / vitest **313 → 314** / cargo **61 → 65** / i18n 无漏译。
+
+| 件 | 落在哪 | 备注 |
+|---|---|---|
+| **B-1** 路由表重写 | `mcp.rs` `OPENERS` | 5 行 → 13 行,触发词**中英并列**,18 个工具全部有归属 |
+| **B-2** 三句规矩 | `mcp.rs` `INSTRUCTION_BODY` | 跟进不是块 / 更正走 `ref_kind` / 授权一次一件事;顺带把 A-3 那条文件铁律也写进去了 |
+| **B-3** 两处措辞 | `add_block`、`propose_blocks` 描述 | 「there is no edit or delete tool」→「**you** have no…」,并明说用户在 Spool 里随时能改能删 |
+| **A-1** 默认路给出路 | `get_blocks` 的 `files` | `locked` 提示**移出** `if include_extracted_text`;措辞同时教了「怎么申请」和「拿到之后要开那个开关」 |
+| **A-2** pack 尾巴 | `pack_locked_files()` | ⚠️ **`render_project_file` 一个字没动**;尾巴挂在 MCP 侧,和 `include_ids` 侧表同一个位置、同样**不进 `max_chars`**;**只列锁着的** |
+| **C** 三个字段 | `list_threads` | `following_up` / `files` / `files_locked`,全部长在**已经在走的那个聚合**上;`applyBriefSuggestion` 开始动 `updated_at` |
+| **D** 更正直写 | `add_block` 的 `ref_kind` | 只认 `corrects`;`supersedes` 当场拒(措辞照抄 `propose_blocks`);`corrects` 必须带 `ref_block_id` |
+| **E** 一次看完 | `get_project_overview` | 只给数据不给判断;真跑一次 **665 字**(预算目标 2,000) |
+
+### 8.1 落地时和稿子不一样的三处(都记下来了)
+
+1. **§4.2 B-2 说的「`INSTRUCTION_HEADER` 的 WRITING 那一段」指错了地方。**
+   `INSTRUCTION_HEADER` 是 **pack 的授权表头**,里面没有 WRITING。WRITING 在
+   `initialize` instructions 那个 4,000 字的内联字面量里(稿子 §2.2 自己指对了:`mcp.rs:6564`)。
+   改的是后者。⚠️ 顺手把它**抽成了 `INSTRUCTION_BODY` 常量** —— 不是为了好看,
+   是因为它内联在 `json!` 里的时候**任何测试都读不到它**,而这一稿的教训正需要一条测试。
+2. **`needs_attention` 少一个 `due_for_recheck`。** 它要 `recheck_after` 那一列,
+   而那是 §4.6 F 的 schema v20。**F 没做,这个字段就不能有** —— 留了注释说明它属于哪一摊。
+3. **`first_line` 真的是首行。** 现成的 `head_anchor()` 会把整块压成一行再截 40 字,
+   那样字段名就在撒谎;§10.1 之后块的第一行通常就是它的 markdown 标题,
+   取首行比压全块在同样 40 字里说得更多。
+
+### 8.2 ⭐ 这一稿真正留下来的东西:一条测试,不是一次修复
+
+`every_tool_is_reachable_from_the_routing_text` —— 走一遍 `tools_descriptor()`,
+任何一个工具只要**在 `OPENERS` 和 `INSTRUCTION_BODY` 里都找不到自己的名字**,当场红。
+
+⚠️ **这是同一类缺陷的第二例**(第一例是 `annotations`,台账 §3.9)。两次都是
+「规矩写下来了、当事人知道、照样破」,而且两次都**在本机毫无症状**。
+第一次的反应是把规矩写得更醒目 —— 没用,第二次照破。
+**把规矩变成一条会让构建失败的断言,才是唯一有效的那一步。** 全文台账 §3.17。
+
+### 8.3 F(schema v20)还欠着什么
+
+⚠️ **别在 F 里顺手改别的** —— A–E 的判据是「golden 一次没重生」,F 一进来就毁掉这条判据,
+出问题时分不清是谁弄的(§4.6 末尾已经写过,这里再钉一次)。F 落地时要连带补上:
+
+- `get_project_overview` 的 `needs_attention.due_for_recheck`(§4.6 兑现口 1,代码里留了注释);
+- pack 里过期那条的块头标注(兑现口 2);
+- `source` 描述改成「短标签」,URL 从此进 `source_url`。
