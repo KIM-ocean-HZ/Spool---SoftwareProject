@@ -24,6 +24,15 @@
 > was corrected with them: §3.11 said the withdrawn tier was re-checked "three weeks later" when
 > both entries landed the same day. No figure, finding, or wording other than these was touched.
 >
+> **⚠️ A second authorised exception, 2026-08-09 — §5's tool counts.** §5 tells the reader to run
+> a command and then states what it prints: 14 tools, 10 read and 4 write. Four tools shipped that
+> day and the printed answer became 18. The correction was first appended as a superseding line
+> under the stale one, which is what this file's rule asks for; on the owner's explicit call it was
+> then edited in place instead, on the same reasoning as the dates above — §5 is not a historical
+> claim but a *reproduction recipe*, and a recipe that disagrees with its own command fails the
+> first check anyone makes. The old figure is kept as a trend line rather than deleted. **This
+> remains an exception, not a repeal: a figure that changes still gets a new dated row.**
+>
 > **Disclosure rule.** What may be published is *shape and count*, never content. The live
 > library holds real graduate-application material — deadlines, personal documents. Every figure
 > below is a number, a source label, or a one-line description of a mechanism. If a row cannot be
@@ -718,19 +727,22 @@ printf '%s\n' \
   | /Applications/Spool.app/Contents/MacOS/spool --mcp
 ```
 
-Read tools (10): `list_threads`, `get_digest`, `get_pack`, `search_blocks`,
-`find_similar_blocks`, `get_blocks`, `check_library`, `weekly_review`, `thread_health`,
-`distill`.
-Write tools (4, behind a second consent switch): `create_thread`, `add_block`,
-`propose_blocks`, `set_thread_summary`.
+**18 tools as of 2026-08-09** (the count this command prints today; see the correction note
+in the header for why this was edited in place rather than appended).
 
-**Superseding count, 2026-08-09 — 18 tools (12 read / 6 write).** Appended rather than
-edited, per this ledger's append-only rule. Added since the count above: read —
-`get_follow_up_brief`, `get_project_overview`; write — `request_file_access`,
-`suggest_follow_up_brief`. Two of the six "write" tools store nothing in the library at all:
-they queue a request for the user to answer on the review screen. They are declared as writes
-because they change durable state and need the same consent, which is the honest answer to
-what the annotation means to a client.
+Read tools (12): `list_threads`, `get_digest`, `get_pack`, `search_blocks`,
+`find_similar_blocks`, `get_blocks`, `check_library`, `weekly_review`, `thread_health`,
+`distill`, `get_follow_up_brief`, `get_project_overview`.
+Write tools (6, behind a second consent switch): `create_thread`, `add_block`,
+`propose_blocks`, `request_file_access`, `suggest_follow_up_brief`, `set_thread_summary`.
+
+Two of the six writes store nothing in the library at all: `request_file_access` queues a
+permission request and `suggest_follow_up_brief` parks a text, both for the user to answer on
+the review screen. They are still declared as writes, because they change durable state and
+need the same consent — which is what the annotation means to a client, and what keeps them
+out of any "safe to run unasked" path.
+
+Growth, for the trend: **14 tools at v0.4.0 (2026-08-08) → 18 (2026-08-09).**
 
 ---
 
