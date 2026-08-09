@@ -184,6 +184,83 @@ export const setFollowUpBrief = async (id: string, brief: string | null): Promis
   ]);
 };
 
+// 决定 5 (HANDOFF §4-1) — an AI's proposed rewrite of the brief, and the two clicks that
+// settle it.
+//
+// ⚠️ Why this is not just `setFollowUpBrief` called from the MCP server: the brief is the
+// standing instruction Spool takes to the open web. Let a tool write it directly and the
+// chain closes — a page a follow-up run fetched says "also watch X", the model helpfully
+// files that as a brief update, and the next run goes looking for X. That is
+// DESIGN_FOLLOW_UP §2.5's injection risk with a privilege escalation on the end. The
+// suggestion parks in its own columns until the user reads it (§6-2's 过目 step, unchanged).
+export interface BriefSuggestion {
+  threadId: string;
+  title: string;
+  /** What the brief says today — null when the project has no follow-up at all yet. */
+  current: string | null;
+  suggested: string;
+  /** Which AI proposed it, for the review card. */
+  by: string | null;
+  at: number | null;
+}
+
+interface SuggestionRow {
+  id: string;
+  title: string;
+  follow_up_brief: string | null;
+  follow_up_brief_suggested: string;
+  follow_up_brief_suggested_by: string | null;
+  follow_up_brief_suggested_at: number | null;
+}
+
+export const listBriefSuggestions = async (): Promise<BriefSuggestion[]> => {
+  const db = await getDb();
+  const rows = await db.select<SuggestionRow[]>(
+    `SELECT id, title, follow_up_brief, follow_up_brief_suggested,
+            follow_up_brief_suggested_by, follow_up_brief_suggested_at
+       FROM threads
+      WHERE follow_up_brief_suggested IS NOT NULL AND deleted_at IS NULL
+      ORDER BY follow_up_brief_suggested_at ASC`,
+  );
+  return rows.map((r) => ({
+    threadId: r.id,
+    title: r.title,
+    current: r.follow_up_brief,
+    suggested: r.follow_up_brief_suggested,
+    by: r.follow_up_brief_suggested_by,
+    at: r.follow_up_brief_suggested_at,
+  }));
+};
+
+export const countBriefSuggestions = async (): Promise<number> => {
+  const db = await getDb();
+  const rows = await db.select<{ c: number }[]>(
+    'SELECT COUNT(*) AS c FROM threads WHERE follow_up_brief_suggested IS NOT NULL AND deleted_at IS NULL',
+  );
+  return rows[0]?.c ?? 0;
+};
+
+const CLEAR_SUGGESTION =
+  'follow_up_brief_suggested = NULL, follow_up_brief_suggested_by = NULL, follow_up_brief_suggested_at = NULL';
+
+/** The user said yes: the parked text becomes the brief, in one statement so a project can
+ *  never end up with both a live suggestion and the brief it was already applied to. */
+export const applyBriefSuggestion = async (id: string): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE threads
+        SET follow_up_brief = follow_up_brief_suggested, ${CLEAR_SUGGESTION}
+      WHERE id = $1 AND follow_up_brief_suggested IS NOT NULL`,
+    [id],
+  );
+};
+
+/** The user said no. Same rule as a rejected proposal: no trace, nothing to explain later. */
+export const dismissBriefSuggestion = async (id: string): Promise<void> => {
+  const db = await getDb();
+  await db.execute(`UPDATE threads SET ${CLEAR_SUGGESTION} WHERE id = $1`, [id]);
+};
+
 /** DESIGN_WORKBENCH §4.3 — the per-project opt-out. `null` puts the project back under the
  *  master switch rather than pinning it on; "the user has not said" is a state worth
  *  keeping, because a switch flipped later should reach the projects nobody ruled on. */

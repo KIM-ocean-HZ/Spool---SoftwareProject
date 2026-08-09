@@ -35,7 +35,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 19;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -571,6 +571,52 @@ const MIGRATIONS: Migration[] = [
            PRIMARY KEY (block_id, due_at)
          )`,
       );
+    },
+  },
+  {
+    // DESIGN_PROJECT_FILES §3.4 (phase three) — the queue an AI's request to read a file
+    // waits in. One CREATE TABLE, nothing else: no existing row is read or touched, and a
+    // database that stops halfway is indistinguishable from one that never started.
+    from: 17,
+    to: 18,
+    name: 'add-file-access-requests',
+    run: async (db) => {
+      await db.execute(
+        `CREATE TABLE IF NOT EXISTS file_access_requests (
+           id            TEXT PRIMARY KEY,
+           request_id    TEXT NOT NULL,
+           client        TEXT NOT NULL DEFAULT '',
+           thread_id     TEXT NOT NULL,
+           attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+           why           TEXT NOT NULL DEFAULT '',
+           created_at    INTEGER NOT NULL,
+           expires_at    INTEGER NOT NULL
+         )`,
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_file_access_requests ON file_access_requests(request_id, created_at ASC)',
+      );
+    },
+  },
+  {
+    // 决定 5 (HANDOFF §4-1) — where an AI's proposed rewrite of the follow-up brief waits.
+    // Purely additive, and deliberately three columns nobody backfills: a project with no
+    // suggestion is NULL everywhere, which is every project the moment this lands.
+    from: 18,
+    to: 19,
+    name: 'add-follow-up-brief-suggestion',
+    run: async (db) => {
+      for (const col of [
+        'follow_up_brief_suggested TEXT',
+        'follow_up_brief_suggested_by TEXT',
+        'follow_up_brief_suggested_at INTEGER',
+      ]) {
+        try {
+          await db.execute(`ALTER TABLE threads ADD COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] ${col}: not added (likely exists)`, e);
+        }
+      }
     },
   },
 ];

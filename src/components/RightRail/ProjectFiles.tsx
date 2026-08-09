@@ -16,10 +16,20 @@ import { toast } from '@/stores/toastStore';
 // in this list — which is the entire reason 「自动挂本地文件」 was rejected in
 // DESIGN_CONTEXT_HYGIENE §2 and this shape was not.
 //
-// ⚠️ Deliberately NOT here yet: the 「AI 可读」 switch (§5.1 ①). The permission it grants is
-// only consumed by `request_file_access`, which is phase THREE — a switch that flips a
-// column nothing reads is the shipped-but-inert control this project already recorded once
-// (CASE_STUDY_LEDGER §3.5). The column exists; the switch arrives with the thing it feeds.
+// ⭐ 2026-08-14: the 「AI 可读」 switch (§5.1 ①) is HERE now, and it arrived with phase three
+// — the thing that reads it (`request_file_access`) shipped in the same build. It was held
+// back on purpose until then: a switch that flips a column nothing reads is the
+// shipped-but-inert control this project already recorded once (CASE_STUDY_LEDGER §3.5).
+//
+// ⚠️ Why the switch has to exist at all, and not just the approve button on the review
+// screen: the grant an AI asks for is STANDING (Ocean 2026-08-08 ①) — one yes and it can
+// read that file from then on. §5.1 ① is explicit that the price of skipping approval
+// fatigue is that the permission must be visible and revocable where the file is listed.
+// This row IS that. Nothing else in the app shows what an AI may read.
+//
+// ⚠️ It is NOT the same thing as 「打包时带上这个文件的文字」 sitting above it, and merging
+// them would be wrong in both directions: that one is the user putting text into a pack
+// they are building; this one is whether an AI may go and ask for the file at all.
 
 const EMPTY: readonly Attachment[] = [];
 
@@ -29,6 +39,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
   const attach = useBlocksStore((s) => s.attach);
   const detach = useBlocksStore((s) => s.detach);
   const setIncludeInPack = useBlocksStore((s) => s.setIncludeInPack);
+  const setAiAccess = useBlocksStore((s) => s.setAiAccess);
 
   const add = async (): Promise<void> => {
     try {
@@ -100,15 +111,34 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                   </button>
                 </div>
                 {canInline && (
-                  <label className="flex cursor-pointer items-center gap-1 pl-[18px] text-[10px] text-muted">
-                    <input
-                      type="checkbox"
-                      checked={a.includeInPack}
-                      onChange={(e) => void setIncludeInPack(a.id, threadId, e.target.checked)}
-                      className="h-2.5 w-2.5 accent-[var(--accent)]"
-                    />
-                    {t('打包时带上这个文件的文字')}
-                  </label>
+                  <div className="space-y-0.5 pl-[18px]">
+                    <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted">
+                      <input
+                        type="checkbox"
+                        checked={a.includeInPack}
+                        onChange={(e) => void setIncludeInPack(a.id, threadId, e.target.checked)}
+                        className="h-2.5 w-2.5 accent-[var(--accent)]"
+                      />
+                      {t('打包时带上这个文件的文字')}
+                    </label>
+                    {/* §5.1 ①: on = the AI may read it from now on, off = one click takes
+                        it back. Coloured when on, because a standing permission that looks
+                        exactly like a permission you never gave is the failure mode. */}
+                    <label
+                      className={`flex cursor-pointer items-center gap-1 text-[10px] ${
+                        a.aiAccess ? 'text-accent' : 'text-muted'
+                      }`}
+                      title={t('关掉之后，AI 想再读它就得重新问你一次。')}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={a.aiAccess}
+                        onChange={(e) => void setAiAccess(a.id, threadId, e.target.checked)}
+                        className="h-2.5 w-2.5 accent-[var(--accent)]"
+                      />
+                      {a.aiAccess ? t('AI 可以读这个文件') : t('AI 不能读这个文件')}
+                    </label>
+                  </div>
                 )}
               </li>
             );

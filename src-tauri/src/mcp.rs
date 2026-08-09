@@ -1465,6 +1465,7 @@ fn search_attachments(
     // arbitrarily, and sending the user to a block whose text does not contain the words is
     // the exact failure H-3 was written to prevent.
     struct AttHit {
+        id: String,
         thread_id: String,
         created_at: i64,
         thread_title: String,
@@ -1472,20 +1473,24 @@ fn search_attachments(
         label: String,
         target: String,
         extraction_kind: Option<String>,
+        readable: bool,
         extracted_text: String,
     }
-    let cols = "a.thread_id, a.created_at, t.title, w.title,
-                a.label, a.target, a.extraction_kind, a.extracted_text";
+    let cols = "a.id, a.thread_id, a.created_at, t.title, w.title,
+                a.label, a.target, a.extraction_kind, a.include_in_pack, a.ai_access,
+                a.extracted_text";
     let map = |r: &rusqlite::Row| -> rusqlite::Result<AttHit> {
         Ok(AttHit {
-            thread_id: r.get(0)?,
-            created_at: r.get(1)?,
-            thread_title: r.get(2)?,
-            workspace: r.get(3)?,
-            label: r.get(4)?,
-            target: r.get(5)?,
-            extraction_kind: r.get(6)?,
-            extracted_text: r.get(7)?,
+            id: r.get(0)?,
+            thread_id: r.get(1)?,
+            created_at: r.get(2)?,
+            thread_title: r.get(3)?,
+            workspace: r.get(4)?,
+            label: r.get(5)?,
+            target: r.get(6)?,
+            extraction_kind: r.get(7)?,
+            readable: r.get::<_, i64>(8)? == 1 || r.get::<_, i64>(9)? == 1,
+            extracted_text: r.get(10)?,
         })
     };
     // Same two paths as the block search: trigram FTS at ≥3 chars, a LIKE scan below
@@ -1533,12 +1538,21 @@ fn search_attachments(
         // any length, so a Latin query without this hits "GRE" inside "degree".
         .filter_map(|h| {
             let snippet = snippet_around(&h.extracted_text, query, boundary)?;
+            // ⚠️ v18 (§3.4): a hit inside a file the user has not opened up says WHICH file
+            // matched and nothing of what it says. Dropping the hit entirely would be worse
+            // than either extreme — an AI that cannot tell the file is relevant has no reason
+            // to ask for it, and 「申请访问」 becomes a door with no handle. Keeping the
+            // snippet would make the permission decorative: ±80 chars around the exact phrase
+            // is the part of a document somebody looking for it wants most.
+            let locked = !h.readable;
             Some(json!({
                 "thread_id": h.thread_id,
                 "thread_title": h.thread_title,
                 "workspace": h.workspace,
                 "created_at": format_pack_time(h.created_at),
                 "matched_in": "attachment",
+                "attachment_id": h.id,
+                "ai_readable": h.readable,
                 // Which file the sentence is actually in — without this the user is sent
                 // looking for words that are in no block's text, and concludes search is
                 // broken. ⚠️ v15: a file the USER put in the project is the user's own
@@ -1549,7 +1563,18 @@ fn search_attachments(
                     "target": h.target,
                     "extraction_kind": h.extraction_kind,
                 },
-                "snippet": snippet,
+                "snippet": if locked { Value::Null } else { json!(snippet) },
+                "locked": if locked {
+                    json!(t!(
+                        "命中在这个文件里,但用户还没有让 AI 读它 —— 所以这里不显示原文。\
+                         要看就用 request_file_access 拿着 attachment_id 申请。",
+                        "The match is inside this file, but the user has not let an AI read it, so \
+                         the text is not shown. Ask for it with request_file_access using this \
+                         attachment_id."
+                    ))
+                } else {
+                    Value::Null
+                },
             }))
         })
         .take(ATTACHMENT_HIT_CAP)
@@ -2583,28 +2608,54 @@ fn get_blocks_json(
     // ⚠️ v15 (DESIGN_PROJECT_FILES) moves WHERE it hangs. Files belong to the project, so
     // they ride on the envelope once instead of being repeated under every block — and a
     // paged read no longer changes which files the caller can see.
+    // ⚠️ v18 (DESIGN_PROJECT_FILES §3.4): this is where the file gate actually lives. Until
+    // phase three there was none — `include_extracted_text=true` handed over every file's
+    // full text, which made 「MCP 可以申请访问文件,默认不看」 (Ocean 2026-08-08) true of the
+    // pack and false of the tool right beside it. A file is readable when the USER said so,
+    // in either of the two ways they can say it:
+    //   * `include_in_pack` — they ticked "put this file's text in the pack", i.e. they were
+    //     already handing it to whichever AI reads the pack;
+    //   * `ai_access` — they answered a request_file_access card, or ticked the ✓ themselves.
+    // Everything else comes back with its name, its size and `ai_readable: false`, which is
+    // exactly what an AI needs to decide whether to ask — and none of its content.
     let mut att_stmt = conn
         .prepare(
-            "SELECT kind, target, label, extraction_kind, include_in_pack, extracted_text
+            "SELECT id, kind, target, label, extraction_kind, include_in_pack, ai_access,
+                    extracted_text
              FROM attachments WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
     let files: Vec<Value> = att_stmt
         .query_map([thread_id], |r| {
-            let extracted: Option<String> = r.get(5)?;
+            let extracted: Option<String> = r.get(7)?;
+            let inlined = r.get::<_, i64>(5)? == 1;
+            let readable = inlined || r.get::<_, i64>(6)? == 1;
             let mut a = json!({
-                "kind": r.get::<_, String>(0)?,
-                "target": r.get::<_, String>(1)?,
-                "label": r.get::<_, String>(2)?,
-                "extraction_kind": r.get::<_, Option<String>>(3)?,
-                "inlined_in_pack": r.get::<_, i64>(4)? == 1,
+                // The parameter request_file_access takes. Nothing else in the payload can
+                // name a file, so without this an AI could see a file and never ask for it.
+                "attachment_id": r.get::<_, String>(0)?,
+                "kind": r.get::<_, String>(1)?,
+                "target": r.get::<_, String>(2)?,
+                "label": r.get::<_, String>(3)?,
+                "extraction_kind": r.get::<_, Option<String>>(4)?,
+                "inlined_in_pack": inlined,
                 "extracted_chars": extracted.as_deref().map(|t| t.chars().count()),
+                "ai_readable": readable,
             });
             if include_extracted_text {
-                a["extracted_text"] = match &extracted {
-                    Some(t) => json!(t),
-                    None => Value::Null,
+                a["extracted_text"] = match (&extracted, readable) {
+                    (Some(t), true) => json!(t),
+                    _ => Value::Null,
                 };
+                if !readable && extracted.is_some() {
+                    a["locked"] = json!(t!(
+                        "用户还没有让 AI 读这个文件。想读就用 request_file_access 拿着这个 attachment_id 申请,\
+                         说清楚要核对什么;他在 Spool 里点头之后你才读得到。",
+                        "The user has not let an AI read this file. To read it, ask with \
+                         request_file_access using this attachment_id and say what you need to \
+                         check; it becomes readable once they say yes inside Spool."
+                    ));
+                }
             }
             Ok(a)
         })
@@ -3040,7 +3091,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 17;
+const EXPECTED_SCHEMA_VERSION: i64 = 19;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -3645,6 +3696,13 @@ const PROPOSAL_MAX_ITEMS: usize = 24;
 // a header. Refused rather than truncated, for the same reason.
 const PROPOSAL_NOTE_CHAR_CAP: usize = 200;
 
+// Where a passage stops being context for the pieces and starts being a document.
+// DESIGN_CONTEXT_HYGIENE §9.1 measured a typical MCP-written block at ~345 chars against a
+// 50,000-char project budget; a passage past this is worth a sentence of warning, and is
+// still never refused (§9.5 route A is a rule about what to send, not a size limit — the
+// legitimate long-article case has the same shape as the mistake).
+const PASSAGE_HEAVY_CHARS: usize = 2000;
+
 struct PendingProposal<'a> {
     thread_id: &'a str,
     thread_title: String,
@@ -3896,17 +3954,321 @@ fn propose_blocks_json(
         }
     }
     let source_project = source_thread_title.map(|(_, title)| title);
+    let source_chars = source_text.map_or(0, |s| s.chars().count());
     Ok(json!({
         "queued": pending.len(),
         "written": false,
         "projects": projects,
         "expires_in_days": PROPOSAL_TTL_DAYS,
         "source_text_project": source_project,
+        // DESIGN_CONTEXT_HYGIENE §9.5. The passage is the one thing in a batch that can be
+        // document-sized, and «把整场对话分流进项目» is the case that makes it so. The size is
+        // reported rather than refused, in both directions on purpose: a long article the
+        // user handed over is a legitimate passage, and the person who should weigh the room
+        // it takes is the one reading the review screen — where the same number is shown.
+        "source_text_chars": source_chars,
+        "source_text_note": (source_chars > PASSAGE_HEAVY_CHARS).then(|| t!(
+            "⚠️ 这段原文 {source_chars} 字,会当成一整块长期占着这个项目的上下文预算。\
+             如果它是整场对话:只留用户自己说过的话(他的提问),你的回答已经各自成块了。\
+             告诉用户这一条有多大,让他在待审面上自己决定。",
+            "\u{26a0}\u{fe0f} This passage is {source_chars} chars and is stored as one block that \
+             takes that much of the project's context budget from now on. If it is a whole \
+             conversation: keep the user's own turns only — your answers are already the items. \
+             Tell the user how big it is and let them decide on the review screen."
+        )),
         // Found in the 2026-08-05 self-review: `queued` counts PROPOSALS, and approving
         // also stores the passage — so "2 waiting" becomes 3 blocks in 3 projects, one of
         // which the caller never named to the user. Both numbers are reported, because
         // they answer different questions and the second one is what actually lands.
         "blocks_on_approval": pending.len() + usize::from(source_text.is_some()),
+    })
+    .to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// request_file_access — DESIGN_PROJECT_FILES §3.4, the third and last phase of the project
+// file library, and the only part of it with a security surface.
+//
+// The shape is deliberately the weakest one that is still useful:
+//
+//   AI:    request_file_access(thread_id, attachment_ids[], why)   → reads NOTHING, queues
+//   Spool: one card on the review screen the user already knows    → [可以读] [不给]
+//   AI:    from then on the file's text comes back with get_blocks(include_extracted_text)
+//
+// Two invariants hold the whole thing up, and both are enforced here rather than described:
+//
+//   1. ⚠️ **The parameter is an attachment_id, never a path** (§2). An AI can ask about a
+//      file the user picked in the system file dialog; it cannot name a new one. This is
+//      what makes the feature acceptable where 「自动挂本地文件」 was rejected outright in
+//      DESIGN_CONTEXT_HYGIENE §2 — an injected instruction can at most ask for a file the
+//      user already chose to put in that project.
+//   2. ⚠️ **The id must belong to the project it was asked for.** Without that check the
+//      tool would be an oracle for probing ids across the whole library.
+// ---------------------------------------------------------------------------------------
+
+// A card the user cannot judge at a glance is one they approve unread — the same reasoning
+// PROPOSAL_MAX_ITEMS is sized by, one order of magnitude smaller because each row here is a
+// standing permission rather than one stored block.
+const FILE_REQUEST_MAX_FILES: usize = 8;
+
+// `why` is the only thing the user has to judge the request by, so it is required — and it
+// is one paragraph on a card, so it is capped like every other one-line surface.
+const FILE_REQUEST_WHY_CAP: usize = 300;
+
+struct RequestedFile {
+    id: String,
+    label: String,
+    chars: usize,
+}
+
+fn request_file_access_json(
+    conn: &mut Connection,
+    thread_id: &str,
+    attachment_ids: &[Value],
+    why: &str,
+    now: i64,
+) -> Result<String, String> {
+    let title = live_thread_title(conn, thread_id)?;
+    let why = why.trim();
+    if why.is_empty() {
+        return Err(t!(
+            "缺少 why —— 用户在待审面上看到的就是这一句,他要靠它判断该不该让你读。\
+             写清楚你打算拿这些文件核对什么。",
+            "why is missing — it is the one sentence the user reads on the review card, and \
+             what they decide by. Say what you intend to check in these files."
+        ));
+    }
+    let why_len = why.chars().count();
+    if why_len > FILE_REQUEST_WHY_CAP {
+        return Err(t!(
+            "why 太长了({why_len} 字,上限 {FILE_REQUEST_WHY_CAP})。它是卡片上的一句话,\
+             说清楚要拿它核对什么就够了。",
+            "why is too long ({why_len} chars, limit {FILE_REQUEST_WHY_CAP}). It is one line on \
+             a card — saying what you need to check is enough."
+        ));
+    }
+    if attachment_ids.is_empty() {
+        return Err(t!(
+            "attachment_ids 是空的。文件 id 从 get_blocks 的 files 那一节、\
+             或 search_blocks 的 attachment_hits 里取 —— 这个工具只认这个项目里已有的文件,\
+             不接受任何路径。",
+            "attachment_ids is empty. Take file ids from the `files` section of get_blocks or \
+             from search_blocks' attachment_hits — this tool only accepts files already in this \
+             project, and never a path of any kind."
+        ));
+    }
+    if attachment_ids.len() > FILE_REQUEST_MAX_FILES {
+        return Err(t!(
+            "一次最多申请 {FILE_REQUEST_MAX_FILES} 个文件({} 个太多了)。\
+             用户要一眼判断「该不该让它读这些」,列太长他只会全批。",
+            "At most {FILE_REQUEST_MAX_FILES} files per request ({} is too many). The user has \
+             to judge \u{201c}should it be allowed to read these\u{201d} at a glance; a long list \
+             just gets waved through.",
+            attachment_ids.len()
+        ));
+    }
+
+    // Resolve every id BEFORE writing anything, and classify it. A half-queued request would
+    // put a card in front of the user that misstates what saying yes does.
+    let mut to_queue: Vec<RequestedFile> = Vec::new();
+    let mut already: Vec<String> = Vec::new();
+    let mut no_text: Vec<String> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for (i, raw) in attachment_ids.iter().enumerate() {
+        let n = i + 1;
+        let id = raw
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                t!(
+                    "第 {n} 个 attachment_id 不是字符串。这里只接受文件 id,\
+                     ⚠️ 永远不接受路径。",
+                    "attachment_id {n} is not a string. This takes file ids only — \u{26a0}\u{fe0f} \
+                     never a path."
+                )
+            })?;
+        if seen.iter().any(|s| s == id) {
+            continue; // the same file named twice is one request, not two rows
+        }
+        seen.push(id.to_string());
+        // The ownership check (invariant 2) and the read are one query: a file that is not
+        // in THIS project does not exist as far as this tool is concerned.
+        let row: Option<(String, String, Option<String>, i64)> = conn
+            .query_row(
+                "SELECT label, target, extracted_text, ai_access
+                   FROM attachments WHERE id = ?1 AND thread_id = ?2",
+                [id, thread_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .ok();
+        let Some((label, target, extracted, ai_access)) = row else {
+            return Err(t!(
+                "〈{title}〉里没有第 {n} 个 attachment_id 对应的文件。\
+                 只能申请这个项目文件库里已经有的文件 —— 先用 get_blocks 看一眼 files 那一节。",
+                "\u{2039}{title}\u{203a} has no file matching attachment_id {n}. You may only ask \
+                 for files already in this project's library — read the `files` section of \
+                 get_blocks first."
+            ));
+        };
+        let name = if label.trim().is_empty() { base_name(&target).to_string() } else { label };
+        let chars = extracted.as_deref().map_or(0, |t| t.chars().count());
+        if ai_access == 1 {
+            already.push(name);
+        } else if chars == 0 {
+            // Nothing was ever extracted out of it (a folder, an image, a failed parse).
+            // Granting access to it would grant access to nothing.
+            no_text.push(name);
+        } else {
+            to_queue.push(RequestedFile { id: id.to_string(), label: name, chars });
+        }
+    }
+
+    if to_queue.is_empty() {
+        // Answering with an empty queue and no explanation is how a model ends up telling
+        // the user "I asked" when nothing was asked.
+        return Err(if !already.is_empty() && no_text.is_empty() {
+            t!(
+                "不用申请:{} 已经是可读的了,直接用 get_blocks 加 include_extracted_text=true 读。",
+                "No need to ask: {} is already readable — just call get_blocks with \
+                 include_extracted_text=true.",
+                already.join(ts!("、", ", "))
+            )
+        } else {
+            t!(
+                "没有可申请的:{} 里没有 Spool 能读出来的文字(文件夹、图片、或者解析失败的文件都是这样)。\
+                 就算用户点头也读不到东西。",
+                "Nothing to ask for: Spool extracted no text out of {} (that is what a folder, an \
+                 image, or a file that failed to parse looks like). Even a yes would hand you \
+                 nothing.",
+                no_text.join(ts!("、", ", "))
+            )
+        });
+    }
+
+    // The reason lands on a card the user reads, so it goes through the same id hygiene as
+    // anything else that becomes visible text.
+    reject_raw_ids(conn, &[("why", why)])?;
+
+    let request_id = new_id()?;
+    let client = mcp_source_label();
+    let expires_at = now + PROPOSAL_TTL_MS;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for f in &to_queue {
+        tx.execute(
+            "INSERT INTO file_access_requests (id, request_id, client, thread_id, attachment_id,
+                                               why, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![new_id()?, request_id, client, thread_id, f.id, why, now, expires_at],
+        )
+        .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(json!({
+        "asked_for": to_queue.len(),
+        // The word this tool exists to make impossible to get wrong. Nothing was read.
+        "read_anything": false,
+        "project": title,
+        "files": to_queue.iter().map(|f| json!({ "label": f.label, "extracted_chars": f.chars }))
+            .collect::<Vec<_>>(),
+        "already_readable": already,
+        "no_extractable_text": no_text,
+        "expires_in_days": PROPOSAL_TTL_DAYS,
+    })
+    .to_string())
+}
+
+// ---------------------------------------------------------------------------------------
+// The follow-up brief, read and proposed — 决定 5 (HANDOFF §4-1).
+//
+// ⚠️ The write half is a SUGGESTION and can never be anything else, and that is a security
+// property, not a nicety. The brief is the standing instruction Spool takes to the open web
+// (DESIGN_FOLLOW_UP §3.2). A tool that wrote it directly would close a loop with a name:
+// a page a follow-up fetched says "also watch X" → the model files that as a brief update →
+// the next run goes looking for X. Web content would be steering the machine's own searches.
+// So the suggestion parks in `follow_up_brief_suggested` and only the user's click on the
+// review screen moves it across — the same 过目 step Ocean 拍板过 on 2026-08-06 (§6-2).
+// ---------------------------------------------------------------------------------------
+
+// Three to five lines is what the drafting prompt asks for; this is the ceiling that keeps
+// a "brief" from becoming an essay nobody rereads before approving.
+const BRIEF_CHAR_CAP: usize = 1200;
+
+fn follow_up_brief_row(
+    conn: &Connection,
+    thread_id: &str,
+) -> Result<(String, Option<String>, Option<String>), String> {
+    let title = live_thread_title(conn, thread_id)?;
+    let (brief, suggested): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT follow_up_brief, follow_up_brief_suggested FROM threads WHERE id = ?1",
+            [thread_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok((title, brief.filter(|b| !b.trim().is_empty()), suggested))
+}
+
+fn get_follow_up_brief_json(conn: &Connection, thread_id: &str) -> Result<String, String> {
+    let (title, brief, suggested) = follow_up_brief_row(conn, thread_id)?;
+    Ok(json!({
+        "project": title,
+        "brief": brief,
+        // No brief is not an empty brief: it is the off switch (§3.2), and a model that
+        // reads "" would reasonably think follow-up is on and looking for nothing.
+        "following_up": brief.is_some(),
+        "suggestion_waiting_for_user": suggested.is_some(),
+    })
+    .to_string())
+}
+
+fn suggest_follow_up_brief_json(
+    conn: &Connection,
+    thread_id: &str,
+    brief: &str,
+    now: i64,
+) -> Result<String, String> {
+    let (title, current, previous) = follow_up_brief_row(conn, thread_id)?;
+    let brief = brief.trim();
+    if brief.is_empty() {
+        return Err(t!(
+            "brief 是空的。想让用户关掉这个项目的跟进,就直接跟他说 —— \
+             这个工具只能提建议,关不掉任何东西。",
+            "brief is empty. If you think the user should stop following this project up, say so \
+             to them — this tool only proposes text, and can switch nothing off."
+        ));
+    }
+    let len = brief.chars().count();
+    if len > BRIEF_CHAR_CAP {
+        return Err(t!(
+            "brief 太长了({len} 字,上限 {BRIEF_CHAR_CAP})。它是 3 到 5 行「要盯什么」,\
+             不是一篇说明。",
+            "brief is too long ({len} chars, limit {BRIEF_CHAR_CAP}). It is 3–5 lines naming what \
+             to WATCH, not an essay."
+        ));
+    }
+    reject_raw_ids(conn, &[("brief", brief)])?;
+    conn.execute(
+        "UPDATE threads
+            SET follow_up_brief_suggested = ?1,
+                follow_up_brief_suggested_by = ?2,
+                follow_up_brief_suggested_at = ?3
+          WHERE id = ?4",
+        rusqlite::params![brief, mcp_source_label(), now, thread_id],
+    )
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
+    Ok(json!({
+        "project": title,
+        // Said in the payload as well as the headline: this changed nothing about what Spool
+        // will actually go looking for.
+        "applied": false,
+        "waiting_for_user": true,
+        "current_brief": current,
+        "suggested": brief,
+        // Last suggestion wins — but silently replacing one the user has not seen yet would
+        // be this tool quietly editing its own earlier proposal.
+        "replaced_an_earlier_suggestion": previous.is_some(),
     })
     .to_string())
 }
@@ -4326,7 +4688,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and the project it belongs to \u{2014} a file is one the user put in that project themselves, so it carries no source label of its own. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and the project it belongs to \u{2014} a file is one the user put in that project themselves, so it carries no source label of its own. \u{26a0}\u{fe0f} A hit inside a file the user has not opened up to AI carries `ai_readable: false`, no snippet and a `locked` note: you learn WHICH file holds the phrase and nothing of what it says \u{2014} ask with request_file_access(attachment_id) to read it. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -4369,7 +4731,7 @@ fn tools_descriptor() -> Value {
                     "has_annotation": { "type": "boolean", "description": "Only blocks with (true) / without (false) a user annotation." },
                     "source_contains": { "type": "string", "description": "Only blocks whose source label contains this text, case-insensitive (e.g. 'MCP', 'PDF'). User-typed blocks have no source and never match." },
                     "stale": { "type": "boolean", "description": "true = ONLY blocks the user marked as no longer valid — the way to ask 'what did I used to think, and when did I change my mind'. false = only the ones still standing. Omit for both (the default: this tool hides nothing)." },
-                    "include_extracted_text": { "type": "boolean", "description": "Inline the full text extracted from attached files (PDF/docx/…) into each attachment entry. Default false — attachments always report extracted_chars, so read that first and only turn this on when you need the text. One lecture PDF can be 8000+ chars." }
+                    "include_extracted_text": { "type": "boolean", "description": "Inline the text extracted from the project's files (PDF/docx/…) into each entry of `files`. Default false — every file always reports extracted_chars and ai_readable, so read those first and only turn this on when you need the text. One lecture PDF can be 8000+ chars. ⚠️ Text comes back only for files the user opened up (ai_readable true); the rest return extracted_text null plus `locked`, and the way in is request_file_access with that file's attachment_id." }
                 },
                 "required": ["thread_id"],
                 "additionalProperties": false
@@ -4458,7 +4820,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "propose_blocks",
-            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. It has TWO jobs. FIRST: the user hands you a passage that belongs in several different projects and you split it up. SECOND: you have found that one point inside a block already in the library no longer holds — propose a block stating what is actually the case, with ref_block_id naming that block and ref_kind=\"corrects\". The old block is never edited and keeps rendering in full; your block simply hangs a line beneath it saying one point was corrected. Retiring a block as a whole is the user's decision alone — no tool here can do it, and you may not ask for it. Anything smaller than these — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "description": "Queue several blocks for the user to approve in Spool, in ONE batch. This does NOT save anything. It queues proposals for the user to approve in Spool. Tell the user they have N items waiting for review — never that you saved them. It has TWO jobs. FIRST: the user hands you a passage — or asks you to file THIS WHOLE CONVERSATION — and it belongs in several different projects, so you split it up. ⚠️ For a whole conversation there is one extra rule and it is not optional: `source_text` holds the USER'S OWN turns only, their questions in order, never your replies. Your replies are already becoming the items; storing them twice makes one document-sized block that eats a tenth of the project's context budget and says nothing the items do not. SECOND: you have found that one point inside a block already in the library no longer holds — propose a block stating what is actually the case, with ref_block_id naming that block and ref_kind=\"corrects\". The old block is never edited and keeps rendering in full; your block simply hangs a line beneath it saying one point was corrected. Retiring a block as a whole is the user's decision alone — no tool here can do it, and you may not ask for it. Anything smaller than these — one conclusion they asked you to keep — goes through add_block instead, where you read it back in the chat and they say yes on the spot; a review screen for one block is ceremony. Pass source_text with the whole original passage and source_thread_id for where it should live: Spool stores that passage as a block of its own, labelled as the user's words passed on by you, and points every approved item back at it with a citation, so a block read three weeks later can still be checked against the context it was cut from. Proposals never enter the library until approval: they are invisible to get_pack, get_digest, search_blocks and every other read, so do not expect to read back what you proposed. Unapproved batches expire after 7 days. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
             "inputSchema": {
                 "type": "object",
@@ -4479,11 +4841,57 @@ fn tools_descriptor() -> Value {
                             "additionalProperties": false
                         }
                     },
-                    "source_text": { "type": "string", "description": "The whole passage these items were cut from, verbatim — their words, not yours: never put your own writing here. On approval it is stored as a block sourced to you and marked as the user's own passage, and cited by every item. Needs source_thread_id." },
+                    "source_text": { "type": "string", "description": "The passage these items were cut from, verbatim — their words, not yours: never put your own writing here. Filing a whole conversation means the user's turns only, in order. On approval it is stored as a block sourced to you and marked as the user's own passage, and cited by every item. It is stored whole and counts against the project's context budget every time that project is read, so send what the items need context from, not the transcript. Needs source_thread_id." },
                     "source_thread_id": { "type": "string", "description": "Project id for the original passage — ask the user which project, or use their inbox-shaped one. Required with source_text." },
                     "note": { "type": "string", "description": "One line for the top of the review screen: where this batch came from and how you split it. Max 200 characters." }
                 },
                 "required": ["items"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "get_follow_up_brief",
+            "description": "Read what one project is watching for on the open web — its follow-up brief. The brief is 3-5 standing lines the user approved, and every follow-up run Spool makes searches by them and nothing else. Returns {project, brief, following_up, suggestion_waiting_for_user}: brief is null and following_up false when the project has no follow-up at all (that is the off switch — there is no separate enabled flag). Read this before suggesting a change with suggest_follow_up_brief, and when the user asks what Spool is keeping an eye on for them.",
+            "annotations": { "readOnlyHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Project id from list_threads." }
+                },
+                "required": ["thread_id"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "request_file_access",
+            "description": "Ask the user to let you read files they put in one of their projects. This reads NOTHING: it queues one card on Spool's review screen naming the files and your reason, and the user answers there. Files are listed by get_blocks (the `files` section) and by search_blocks (attachment_hits), each with an attachment_id and ai_readable — call this only for the ones where ai_readable is false. The parameter is an attachment_id and never a path: you can ask about a file the user chose in their own file dialog, and you can never name a new one; a file that is not in the project you name does not exist to this tool. If they say yes the grant is standing — that file's text then rides along with get_blocks(include_extracted_text=true) until they untick it in Spool. Tell the user a request is waiting for them; never that you read anything. Unanswered requests expire after 7 days. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Project id the files belong to (list_threads / search_blocks)." },
+                    "attachment_ids": {
+                        "type": "array",
+                        "description": "The files you want to read, by attachment_id, at most 8. Ids only — a path in here is refused. Files already readable, and files Spool could extract no text from, are reported back rather than queued.",
+                        "items": { "type": "string" }
+                    },
+                    "why": { "type": "string", "description": "One line: what you intend to check in them. Required — it is the only thing the user judges the request by, and it is shown on the card verbatim. Max 300 characters." }
+                },
+                "required": ["thread_id", "attachment_ids", "why"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "suggest_follow_up_brief",
+            "description": "Propose a new follow-up brief for one project — the standing lines every future follow-up run searches by. This does NOT change what Spool watches: the text waits on the review screen, where the user sees their current brief beside yours and picks. That gate is deliberate and cannot be bypassed from here: the brief decides what this machine goes and fetches next, so a page you read must never be able to rewrite it. Read the project first (get_follow_up_brief, plus get_pack for what it is actually about) and write 3-5 lines, one per line, each naming something to WATCH ('whether this program's deadline moves', not 'this program'). Tell the user a suggestion is waiting for them in Spool. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread_id": { "type": "string", "description": "Project id from list_threads." },
+                    "brief": { "type": "string", "description": "The proposed brief: 3-5 lines, one thing to watch per line, max 1200 characters. Plain lines — no preamble and no headings; the user reads exactly this text." }
+                },
+                "required": ["thread_id", "brief"],
                 "additionalProperties": false
             }
         },
@@ -4557,6 +4965,12 @@ fn handle_tool_call(params: &Value) -> Value {
                 search_blocks_json(&open_db(&dir)?, query, num("limit"), num("offset"))
             }
             "check_library" => check_library_json(&open_db(&dir)?, now_ms()),
+            "get_follow_up_brief" => get_follow_up_brief_json(
+                &open_db(&dir)?,
+                args.get("thread_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+            ),
             // H-2: the three v2.5 prompts, reachable as tools too — the model calls them
             // from what the user said, in the clients that never show a prompt menu.
             "weekly_review" | "thread_health" | "distill" => guidance_text(name, &args),
@@ -4628,7 +5042,14 @@ fn handle_tool_call(params: &Value) -> Value {
             // propose_blocks queues rather than writes, but it rides the same consent:
             // approving a batch inserts blocks, and a user who has not turned writing on
             // has not agreed to an AI putting text in front of them to approve either.
-            "create_thread" | "add_block" | "set_thread_summary" | "propose_blocks" => {
+            // request_file_access and suggest_follow_up_brief store nothing in the library
+            // either, and ride the same switch for the same reason: both put something in
+            // front of the user that changes what an AI may do to their library the moment
+            // they click. A user who has not turned writing on has not agreed to that
+            // conversation happening at all — and both are still reachable by hand (the ✓ in
+            // 项目文件, the 跟进 panel), so the switch closes nothing off to the user.
+            "create_thread" | "add_block" | "set_thread_summary" | "propose_blocks"
+            | "request_file_access" | "suggest_follow_up_brief" => {
                 if !mcp_write_enabled(&dir) {
                     // propose_blocks stores nothing, so a caller could reasonably read the
                     // shared refusal as Spool being confused. Say why the switch still
@@ -4671,6 +5092,29 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("source_text").and_then(Value::as_str),
                         args.get("source_thread_id").and_then(Value::as_str),
                         args.get("note").and_then(Value::as_str),
+                        now_ms(),
+                    )
+                } else if name == "request_file_access" {
+                    let ids = args
+                        .get("attachment_ids")
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| t!("缺少 attachment_ids 参数(要一个数组)。", "Missing the attachment_ids argument (an array)."))?;
+                    request_file_access_json(
+                        &mut conn,
+                        args.get("thread_id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+                        ids,
+                        args.get("why").and_then(Value::as_str).unwrap_or(""),
+                        now_ms(),
+                    )
+                } else if name == "suggest_follow_up_brief" {
+                    suggest_follow_up_brief_json(
+                        &conn,
+                        args.get("thread_id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| t!("缺少 thread_id 参数。", "Missing the thread_id argument."))?,
+                        args.get("brief").and_then(Value::as_str).ok_or_else(|| t!("缺少 brief 参数。", "Missing the brief argument."))?,
                         now_ms(),
                     )
                 } else if name == "set_thread_summary" {
@@ -4933,6 +5377,53 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             "Updated the one-line summary of \u{2039}{}\u{203a} in the catalogue.",
             v.get("title").and_then(Value::as_str).unwrap_or_default()
         )),
+        // DESIGN_PROJECT_FILES §3.4. Same job as propose_blocks' headline, one register
+        // stronger: the sentence a model is most likely to reach for here is "I read your
+        // PDF", and it read nothing at all.
+        "request_file_access" => {
+            let project = v.get("project").and_then(Value::as_str).unwrap_or_default();
+            Some(t!(
+                "一个字都没读到:向用户申请读〈{project}〉里的 {} 个文件,已经排进 Spool 的待审面。\
+                 跟他说「Spool 里有一条申请等你过目」,让他去点「可以读」——他点头之前你读不到里面任何内容。\
+                 {} 天内没处理就作废。",
+                "Nothing was read: a request to read {} file(s) in \u{2039}{project}\u{203a} is now \
+                 queued on Spool's review screen. Tell the user \u{201c}there is a request waiting \
+                 for you in Spool\u{201d} and let them press \u{201c}let it read them\u{201d} — \
+                 until they do, none of that content is available to you. Unanswered requests \
+                 expire after {} days.",
+                n("asked_for"),
+                n("expires_in_days")
+            ))
+        }
+        // 决定 5: same failure to head off — "I updated what Spool watches for" when the
+        // brief has not moved a character.
+        "suggest_follow_up_brief" => {
+            let project = v.get("project").and_then(Value::as_str).unwrap_or_default();
+            Some(t!(
+                "还没有生效:给〈{project}〉建议的跟进目标已经排进 Spool 的待审面,等用户过目。\
+                 跟他说「Spool 里有一条跟进目标的改动等你看」,别说已经改好了 —— \
+                 他点「就按这个找」之后才作数。",
+                "Not in effect yet: the follow-up target you suggested for \
+                 \u{2039}{project}\u{203a} is queued on Spool's review screen for the user. Tell \
+                 them \u{201c}there is a change to what Spool watches waiting for you\u{201d} — \
+                 never that it is done; it counts only once they press \u{201c}search by this\u{201d}."
+            ))
+        }
+        "get_follow_up_brief" => {
+            let project = v.get("project").and_then(Value::as_str).unwrap_or_default();
+            Some(if v.get("following_up").and_then(Value::as_bool) == Some(true) {
+                t!(
+                    "看了一眼〈{project}〉在盯什么。",
+                    "Looked at what \u{2039}{project}\u{203a} is watching for."
+                )
+            } else {
+                t!(
+                    "〈{project}〉现在没有开跟进 —— 它不会自己去网上查任何东西。",
+                    "\u{2039}{project}\u{203a} has no follow-up set — nothing about it is being \
+                     looked up on the web."
+                )
+            })
+        }
         // get_pack: see above.
         _ => None,
     }
@@ -5384,6 +5875,24 @@ fn distill_prompt_text(title: &str, pack: &str, id_table: &str, gate: &str) -> S
     )
 }
 
+// 决定 4 (HANDOFF §13) — 「把整场对话分流进项目」, on route A.
+//
+// This is a prompt and not a tool because nothing here is Spool's to compute: the material
+// is the conversation the client is already holding, and the only thing Spool contributes is
+// the recipe. §9.5 is what the recipe is FOR — the naive shape of this feature (dump the
+// transcript into source_text) turns MCP from the cheapest writer in the library into the
+// most expensive one, and fills a project in three or four goes. Route A keeps the passage
+// at the size of the user's own questions, and lets every conclusion cite it.
+//
+// ⚠️ The project list is NOT embedded. The model is told to call list_threads instead, so a
+// prompt fetched at the top of a long session cannot hand out a stale set of ids.
+fn triage_conversation_prompt_text(gate: &str) -> String {
+    t!(
+        "用户想把这一整场对话分流进 Spool 的项目里。\n\n# 你要做的\n1. 先调 list_threads 看有哪些项目。判断这场对话里的结论分别该进哪个项目;如果有一条哪个项目都不合适,问用户,别自己新建。\n2. 挑出**值得留下来的结论** —— 一条一块,一块只说一件事。这场对话里推理出来的、库里还没有的东西才留;能从库里现成读到的不要留。上限 24 条,通常 3 到 8 条就够了。\n3. ⚠️ **原文块只放用户自己说过的话** —— 把他这一场里的提问按顺序拼起来,当作 source_text,并用 source_thread_id 指定放哪个项目(问他,或者放他当收件箱用的那个)。**绝对不要把你自己的回答也塞进 source_text**:你的结论已经各自成块了,再存一份就是同一段话占两次地方,而原文块是文档级的,会长期吃掉这个项目的上下文预算。\n4. 用 **propose_blocks 一次提交**(不是 add_block)。每条只写 content(必要时加一句 annotation 说明为什么值得留),thread_id 指定进哪个项目 —— 引用原文那一步 Spool 自动做。\n5. 提完之后告诉用户:「Spool 里有 N 条待你过目」。⚠️ **不要说已经存好了** —— 他点头之前一个字都没进库。顺便告诉他那段原文有多少字。\n6. 全程用项目标题称呼项目,绝不把 id 说出来或写进正文。\n{gate}",
+        "The user wants this whole conversation filed into their Spool projects.\n\n# What to do\n1. Call list_threads first and see what projects exist. Work out which project each conclusion belongs in; if one fits nowhere, ask the user rather than inventing a project.\n2. Pick out the conclusions **worth keeping** — one block each, one idea per block. Keep what this conversation worked out and the library does not already hold; skip anything that could simply be read back out of it. At most 24, and usually 3 to 8 is right.\n3. \u{26a0}\u{fe0f} **The passage holds the user's own words only** — their turns from this conversation, in order, as source_text, with source_thread_id naming where it should live (ask them, or use the project they treat as an inbox). **Never put your own replies in source_text**: your conclusions are already the items, so a second copy stores the same thinking twice — and the passage is a document-sized block that keeps costing this project's context budget from then on.\n4. Send it as ONE propose_blocks call (not add_block). Each item needs content (and an annotation if it is worth saying why it is worth keeping) plus the thread_id it lands in; Spool wires up the citation back to the passage itself.\n5. Then tell the user: \u{201c}there are N items waiting for you in Spool\u{201d}. \u{26a0}\u{fe0f} **Never say you saved them** — until they approve, nothing is in the library. Tell them how long the passage is, too.\n6. Refer to projects by title throughout, and never say an id out loud or write one into a block.\n{gate}"
+    )
+}
+
 // DESIGN_FOLLOW_UP §3.2 — drafting the follow-up brief.
 //
 // The brief is the "search rules" (§2.2, borrowed from LangChain Open Deep Research's
@@ -5656,6 +6165,9 @@ fn guidance_text_for(name: &str, args: &Value, headless: bool) -> Result<String,
             let report = thread_health_report(conn, &id, &title, now_ms())?;
             Ok(thread_health_prompt_text(&report, write_gate_line(dir)))
         }),
+        // 决定 4. No project argument and no material to assemble: what it needs is the
+        // conversation the client already has, and the live project list it is told to fetch.
+        "triage_conversation" => prompt_body(|dir, _| Ok(triage_conversation_prompt_text(write_gate_line(dir)))),
         "distill" => prompt_body(|dir, conn| {
             let Some(key) = project else {
                 return project_chooser_text(
@@ -6124,6 +6636,11 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                         { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and Spool answers with the project list to pick from.", "required": false },
                         { "name": "range", "description": "all (default) / pinned / last7 / last30 — which blocks to distill.", "required": false }
                     ]
+                },
+                {
+                    "name": "triage_conversation",
+                    "description": "File this whole conversation into Spool: split what it worked out into blocks per project and queue them for the user to approve (the user's own questions are kept as the passage they cite; nothing is saved until they say yes).",
+                    "arguments": []
                 }
             ]
         })),
@@ -6135,6 +6652,7 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "weekly_review" => "Review the recent window across projects, then offer to file it.",
                 "thread_health" => "Health-check one Spool project; disposal stays with the user.",
                 "distill" => "Distill one Spool project into a single conclusion block.",
+                "triage_conversation" => "Split this conversation into blocks per project and queue them for approval.",
                 _ => return Err((-32602, format!("unknown prompt: {name}"))),
             };
             let text = guidance_text(name, &args).map_err(|e| (-32603, e))?;
@@ -6399,9 +6917,21 @@ mod tests {
             .filter(|t| t["annotations"]["readOnlyHint"] == json!(false))
             .map(|t| t["name"].as_str().unwrap())
             .collect();
+        // ⚠️ Two of these six store nothing in the library: request_file_access queues a
+        // permission request and suggest_follow_up_brief parks a text for the user to accept.
+        // They are still declared as writers, which is the honest answer to what the hint
+        // means to a client — they change durable state and they need the user's write
+        // consent — and it is what keeps them out of any "safe to run unasked" path.
         assert_eq!(
             writers,
-            ["create_thread", "add_block", "propose_blocks", "set_thread_summary"]
+            [
+                "create_thread",
+                "add_block",
+                "propose_blocks",
+                "request_file_access",
+                "suggest_follow_up_brief",
+                "set_thread_summary"
+            ]
         );
     }
 
@@ -7978,6 +8508,325 @@ mod tests {
         assert!(pv["source_text_project"].is_null());
         let plain_line = human_headline("propose_blocks", &json!({}), &plain).unwrap();
         assert!(!plain_line.contains("原文"), "{plain_line}");
+    }
+
+    // DESIGN_PROJECT_FILES §3.4 (phase three) — the four claims this feature makes, each
+    // asserted rather than trusted:
+    //   1. asking reads NOTHING and grants nothing;
+    //   2. a file outside the project it was asked for does not exist to the tool;
+    //   3. the text of a file the user has not opened up never comes back from any read tool;
+    //   4. only the user's click flips ai_access — nothing on this side can.
+    //
+    // ⚠️ Claim 3 is the one that was FALSE before this window: get_blocks(include_extracted_text)
+    // handed over every file's full text, which made 「默认不看」 true of the pack and false of
+    // the tool beside it. That is why the gate is tested through the read tools, not through
+    // request_file_access.
+    #[test]
+    fn file_access_is_asked_for_and_never_taken() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-file-access-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+               VALUES ('th1', 'ws1', '申请规划', 'active', 0, 1, 1),
+                      ('th2', 'ws1', '别的项目', 'active', 0, 1, 1);
+             INSERT INTO blocks (id, thread_id, kind, content, seq, created_at)
+               VALUES ('b1', 'th1', 'text', '申请材料清单', 1, 1);
+             INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
+                                      extraction_kind, include_in_pack, ai_access, created_at)
+               VALUES ('att_locked', 'th1', 'file', '/x/课程表.pdf', '课程表.pdf',
+                       '秋季学期的必修课一共八门', 'pdf', 0, 0, 1),
+                      ('att_open', 'th1', 'file', '/x/陈述.docx', '陈述.docx',
+                       '个人陈述的第三稿在这里', 'docx', 0, 1, 1),
+                      ('att_empty', 'th1', 'folder', '/x/材料夹', '材料夹',
+                       NULL, NULL, 0, 0, 1),
+                      ('att_other', 'th2', 'file', '/x/无关.pdf', '无关.pdf',
+                       '这份属于别的项目', 'pdf', 0, 0, 1);",
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let now = 1_800_000_000_000;
+        let queued = |c: &Connection| -> i64 {
+            c.query_row("SELECT COUNT(*) FROM file_access_requests", [], |r| r.get(0)).unwrap()
+        };
+        let granted = |c: &Connection, id: &str| -> i64 {
+            c.query_row("SELECT ai_access FROM attachments WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+
+        // `why` is what the user judges the request by, so a request without one cannot be
+        // shown — and is refused rather than queued with a blank card.
+        let err =
+            request_file_access_json(&mut conn, "th1", &[json!("att_locked")], "  ", now).unwrap_err();
+        assert!(err.contains("why"), "{err}");
+        assert_eq!(queued(&conn), 0);
+
+        // Claim 2. Without this the tool is an oracle for probing ids across the library —
+        // and the refusal must not confirm that the id exists somewhere else.
+        let err = request_file_access_json(&mut conn, "th1", &[json!("att_other")], "核对课程", now)
+            .unwrap_err();
+        assert!(err.contains("申请规划"), "{err}");
+        assert_eq!(queued(&conn), 0);
+
+        // The ordinary case, with the two kinds that cannot be asked for mixed in, plus the
+        // same file named twice.
+        let out = request_file_access_json(
+            &mut conn,
+            "th1",
+            &[json!("att_locked"), json!("att_open"), json!("att_empty"), json!("att_locked")],
+            "核对 CMU 的课程表",
+            now,
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["asked_for"], 1, "only the one that is neither open nor empty");
+        assert_eq!(v["read_anything"], false);
+        assert_eq!(v["project"], "申请规划");
+        assert_eq!(v["already_readable"], json!(["陈述.docx"]));
+        assert_eq!(v["no_extractable_text"], json!(["材料夹"]));
+        assert_eq!(queued(&conn), 1, "one row: the duplicate is one request, not two");
+        // Claim 1 + 4: asking changed no permission at all.
+        assert_eq!(granted(&conn, "att_locked"), 0);
+        assert_eq!(granted(&conn, "att_empty"), 0);
+
+        // The sentence the user actually hears. The failure this guards is a model saying
+        // "I read your PDF" when it read nothing.
+        let line = human_headline("request_file_access", &json!({}), &out).unwrap();
+        assert!(line.contains("一个字都没读到"), "{line}");
+        assert!(line.contains("待审面"), "{line}");
+
+        // Claim 3, through the read tool that used to hand everything over.
+        let read = get_blocks_json(
+            &conn,
+            "th1",
+            None,
+            None,
+            None,
+            None,
+            &BlockFilters { pinned: None, has_annotation: None, source_contains: None, stale: None },
+            true,
+        )
+        .unwrap();
+        let r: Value = serde_json::from_str(&read).unwrap();
+        let files = r["files"].as_array().unwrap();
+        let locked = files.iter().find(|f| f["label"] == "课程表.pdf").unwrap();
+        assert_eq!(locked["ai_readable"], false);
+        assert!(locked["extracted_text"].is_null(), "locked file leaked its text");
+        assert!(locked["locked"].as_str().unwrap().contains("request_file_access"));
+        // ⚠️ …but its NAME, its size and its id still come back. An AI that cannot see the
+        // file exists has no way to ask for it, and 「申请访问」 becomes a door with no handle.
+        assert_eq!(locked["attachment_id"], "att_locked");
+        assert_eq!(locked["extracted_chars"], 12);
+        let open = files.iter().find(|f| f["label"] == "陈述.docx").unwrap();
+        assert_eq!(open["ai_readable"], true);
+        assert_eq!(open["extracted_text"], "个人陈述的第三稿在这里");
+
+        // Same line, held on the other read path: a search hit inside a locked file says
+        // WHICH file matched and nothing of what it says.
+        let hits: Value =
+            serde_json::from_str(&search_blocks_json(&conn, "必修课", None, None).unwrap()).unwrap();
+        let hit = &hits["attachment_hits"][0];
+        assert_eq!(hit["attachment_id"], "att_locked");
+        assert_eq!(hit["ai_readable"], false);
+        assert!(hit["snippet"].is_null(), "a locked file's text leaked through search");
+        assert!(hit["locked"].as_str().unwrap().contains("request_file_access"));
+        let open_hits: Value =
+            serde_json::from_str(&search_blocks_json(&conn, "第三稿", None, None).unwrap()).unwrap();
+        assert!(open_hits["attachment_hits"][0]["snippet"].as_str().unwrap().contains("第三稿"));
+
+        // Asking for something already open is not an error the user should ever see on a
+        // card — it is a fact the caller needs back, with what to do instead.
+        let err = request_file_access_json(&mut conn, "th1", &[json!("att_open")], "再看一眼", now)
+            .unwrap_err();
+        assert!(err.contains("include_extracted_text"), "{err}");
+        // Neither is asking for a folder: a yes would hand over nothing.
+        let err = request_file_access_json(&mut conn, "th1", &[json!("att_empty")], "看看", now)
+            .unwrap_err();
+        assert!(err.contains("文件夹"), "{err}");
+        assert_eq!(queued(&conn), 1, "neither of those queued a card");
+
+        // Claim 4, the other half: once the user says yes (this is what the review screen
+        // does), the same read comes back with the text — no second request needed.
+        conn.execute("UPDATE attachments SET ai_access = 1 WHERE id = 'att_locked'", []).unwrap();
+        let read = get_blocks_json(
+            &conn,
+            "th1",
+            None,
+            None,
+            None,
+            None,
+            &BlockFilters { pinned: None, has_annotation: None, source_contains: None, stale: None },
+            true,
+        )
+        .unwrap();
+        let r: Value = serde_json::from_str(&read).unwrap();
+        let now_open = r["files"].as_array().unwrap().iter().find(|f| f["label"] == "课程表.pdf").unwrap().clone();
+        assert_eq!(now_open["ai_readable"], true);
+        assert_eq!(now_open["extracted_text"], "秋季学期的必修课一共八门");
+
+        // A card nobody can read is a card nobody judges.
+        let many: Vec<Value> =
+            (0..FILE_REQUEST_MAX_FILES + 1).map(|_| json!("att_locked")).collect();
+        assert!(request_file_access_json(&mut conn, "th1", &many, "都要", now).is_err());
+    }
+
+    // 决定 5 — the whole point of this pair is the thing it CANNOT do. A suggested brief must
+    // never become the brief without the user, because the brief is what Spool takes to the
+    // open web: web content able to rewrite it is web content steering the next fetch
+    // (DESIGN_FOLLOW_UP §2.5, with a privilege escalation on the end).
+    #[test]
+    fn a_suggested_brief_never_becomes_the_brief_by_itself() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-brief-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at, follow_up_brief)
+               VALUES ('th1', 'ws1', 'Flux', 'active', 0, 1, 1, NULL),
+                      ('th2', 'ws1', '申请规划', 'active', 0, 1, 1, '盯 CMU 的截止日期有没有改');",
+        )
+        .unwrap();
+        drop(conn);
+        let conn = open_db_rw(&tmp).unwrap();
+        let now = 1_800_000_000_000;
+        let live_brief = |id: &str| -> Option<String> {
+            conn.query_row("SELECT follow_up_brief FROM threads WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+
+        // No brief is not an empty brief — it is the off switch, and a model told "" would
+        // reasonably think follow-up is on and looking for nothing.
+        let v: Value =
+            serde_json::from_str(&get_follow_up_brief_json(&conn, "th1").unwrap()).unwrap();
+        assert_eq!(v["project"], "Flux");
+        assert!(v["brief"].is_null());
+        assert_eq!(v["following_up"], false);
+        assert_eq!(v["suggestion_waiting_for_user"], false);
+
+        // The suggestion lands, and the brief does NOT move. This assertion is the feature.
+        let out = suggest_follow_up_brief_json(&conn, "th2", "  盯 CMU 有没有新的截止日期\n盯有没有新的先修课要求  ", now)
+            .unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["applied"], false);
+        assert_eq!(v["waiting_for_user"], true);
+        assert_eq!(v["replaced_an_earlier_suggestion"], false);
+        assert_eq!(v["current_brief"], "盯 CMU 的截止日期有没有改");
+        assert_eq!(
+            live_brief("th2").as_deref(),
+            Some("盯 CMU 的截止日期有没有改"),
+            "the live brief must not have moved a character"
+        );
+        let parked: Option<String> = conn
+            .query_row("SELECT follow_up_brief_suggested FROM threads WHERE id = 'th2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(parked.as_deref(), Some("盯 CMU 有没有新的截止日期\n盯有没有新的先修课要求"));
+
+        // The headline is the other half of the same defence: the sentence the user hears
+        // must not be "I updated what Spool watches for".
+        let line = human_headline("suggest_follow_up_brief", &json!({}), &out).unwrap();
+        assert!(line.contains("还没有生效"), "{line}");
+        assert!(line.contains("待审面"), "{line}");
+
+        // The read tool now says something is waiting — so a model does not queue a second
+        // one on top without knowing.
+        let v: Value =
+            serde_json::from_str(&get_follow_up_brief_json(&conn, "th2").unwrap()).unwrap();
+        assert_eq!(v["following_up"], true);
+        assert_eq!(v["suggestion_waiting_for_user"], true);
+        let v: Value = serde_json::from_str(
+            &suggest_follow_up_brief_json(&conn, "th2", "换一版:只盯截止日期", now).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["replaced_an_earlier_suggestion"], true);
+
+        // An empty brief is not "turn follow-up off": switching it off is the user's, and a
+        // tool that could do it by sending "" would be an off switch nobody pressed.
+        let err = suggest_follow_up_brief_json(&conn, "th2", "   ", now).unwrap_err();
+        assert!(err.contains("空"), "{err}");
+        assert!(suggest_follow_up_brief_json(&conn, "th2", &"长".repeat(BRIEF_CHAR_CAP + 1), now)
+            .is_err());
+        assert_eq!(live_brief("th2").as_deref(), Some("盯 CMU 的截止日期有没有改"));
+        // A deleted project has no brief to suggest for.
+        assert!(suggest_follow_up_brief_json(&conn, "nope", "随便", now).is_err());
+    }
+
+    // 决定 4 (§9.5) — 「把整场对话分流进项目」 on route A. Nothing here refuses a big passage:
+    // the legitimate case (a long article the user handed over) has exactly the same shape as
+    // the mistake (the whole transcript). What the server owes the caller is the size and the
+    // rule, and what it owes the user is that same number on the review screen.
+    #[test]
+    fn a_document_sized_passage_is_reported_not_refused() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-passage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '升学', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+               VALUES ('th1', 'ws1', '申请规划', 'active', 0, 1, 1);",
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let now = 1_800_000_000_000;
+        let items = json!([{ "thread_id": "th1", "content": "结论一" }]);
+
+        let short = propose_blocks_json(
+            &mut conn,
+            items.as_array().unwrap(),
+            Some("我想问的是选哪个项目"),
+            Some("th1"),
+            None,
+            now,
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&short).unwrap();
+        assert_eq!(v["source_text_chars"], 10);
+        assert!(v["source_text_note"].is_null(), "a normal passage needs no lecture");
+
+        let transcript = "问".repeat(PASSAGE_HEAVY_CHARS + 1);
+        let heavy = propose_blocks_json(
+            &mut conn,
+            items.as_array().unwrap(),
+            Some(&transcript),
+            Some("th1"),
+            None,
+            now,
+        )
+        .unwrap();
+        let v: Value = serde_json::from_str(&heavy).unwrap();
+        assert_eq!(v["source_text_chars"], PASSAGE_HEAVY_CHARS as i64 + 1);
+        let note = v["source_text_note"].as_str().unwrap();
+        assert!(note.contains("用户自己说过的话"), "{note}");
+        // Refusing was the alternative and it is the wrong one — it lands, and the user is
+        // the one who gets to weigh what it costs.
+        let stored: i64 = conn
+            .query_row("SELECT COUNT(*) FROM proposal_batches WHERE source_text IS NOT NULL", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, 2);
     }
 
     // 存量数据卫生 (2026-07-12): check_library — read-only, deterministic, disposal

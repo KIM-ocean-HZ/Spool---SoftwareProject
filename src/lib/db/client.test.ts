@@ -47,6 +47,22 @@ const blocksSansV13 = (handle: Sqlite): Record<string, unknown>[] =>
     return rest;
   });
 
+// v19's three columns, off a `threads` row — the same job blocksSansV13 does for blocks:
+// a test that rewinds below v19 compares rows across a migration that legitimately added
+// them, and only these three may differ.
+const stripBriefSuggestion = (r: Record<string, unknown>): Record<string, unknown> => {
+  const {
+    follow_up_brief_suggested,
+    follow_up_brief_suggested_by,
+    follow_up_brief_suggested_at,
+    ...rest
+  } = r;
+  void follow_up_brief_suggested;
+  void follow_up_brief_suggested_by;
+  void follow_up_brief_suggested_at;
+  return rest;
+};
+
 const columnNames = (handle: Sqlite, table: string): string[] =>
   (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
@@ -71,8 +87,29 @@ const downgradeToV13 = (handle: Sqlite): void => {
   `);
 };
 
+// Rewind past v19: a project had nowhere to park an AI's proposed rewrite of its brief.
+const downgradeToV18 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE threads DROP COLUMN follow_up_brief_suggested;
+    ALTER TABLE threads DROP COLUMN follow_up_brief_suggested_by;
+    ALTER TABLE threads DROP COLUMN follow_up_brief_suggested_at;
+    PRAGMA user_version = 18;
+  `);
+};
+
+// Rewind past v18: an AI had no way to ask for a file, so nothing queued one.
+const downgradeToV17 = (handle: Sqlite): void => {
+  downgradeToV18(handle);
+  handle.exec(`
+    DROP INDEX IF EXISTS idx_file_access_requests;
+    DROP TABLE IF EXISTS file_access_requests;
+    PRAGMA user_version = 17;
+  `);
+};
+
 // Rewind past v17: nothing could be told to stop reminding.
 const downgradeToV16 = (handle: Sqlite): void => {
+  downgradeToV17(handle);
   handle.exec(`
     DROP TABLE IF EXISTS date_dismissals;
     PRAGMA user_version = 16;
@@ -224,7 +261,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -259,7 +296,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -279,7 +316,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -297,7 +334,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -319,7 +356,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -350,7 +387,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -405,7 +442,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -428,7 +465,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const cols = columnNames(handle, 'threads');
     expect(cols).toContain('follow_up_brief');
     expect(cols).toContain('follow_up_state');
@@ -443,7 +480,8 @@ describe('migrateSchema registry (§19.3)', () => {
       // pass, so the later columns are present by the time this runs. Each is its own
       // step's business, asserted there.
       (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
-        const { follow_up_brief, follow_up_state, auto_maintain, summary_at, ...rest } = r;
+        const { follow_up_brief, follow_up_state, auto_maintain, summary_at, ...rest } =
+          stripBriefSuggestion(r);
         void follow_up_brief;
         void follow_up_state;
         void auto_maintain;
@@ -462,7 +500,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     // The column the whole table exists for (DESIGN_WORKBENCH §1.1: the AI's prose had
     // nowhere to live, so it was thrown away and the user was told "没有新增块").
     const cols = columnNames(handle, 'engine_runs');
@@ -484,7 +522,7 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(blocksSansV13(handle)).toEqual(blocksBefore);
     expect(
       (handle.prepare('SELECT * FROM threads').all() as Record<string, unknown>[]).map((r) => {
-        const { auto_maintain, summary_at, ...rest } = r;
+        const { auto_maintain, summary_at, ...rest } = stripBriefSuggestion(r);
         void auto_maintain;
         void summary_at;
         return rest;
@@ -500,7 +538,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const cols = columnNames(handle, 'blocks');
     expect(cols).toContain('stale_at');
     expect(cols).toContain('ref_kind');
@@ -524,7 +562,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(columnNames(handle, 'blocks')).toContain('annotation_by');
     expect(columnNames(handle, 'proposals')).toContain('ref_kind');
     // ⚠️ The property this step lives or dies by (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): it
@@ -556,7 +594,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const cols = columnNames(handle, 'attachments');
     expect(cols).toContain('thread_id');
     expect(cols).toContain('ai_access');
@@ -603,7 +641,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(columnNames(handle, 'threads')).toContain('summary_at');
     expect(handle.prepare('SELECT summary, summary_at FROM threads').all()).toEqual([
       { summary: '旧摘要', summary_at: null },
@@ -620,21 +658,69 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(columnNames(handle, 'date_dismissals')).toEqual(['block_id', 'due_at', 'created_at']);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM date_dismissals').get()).toEqual({ c: 0 });
     expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
   });
 
+  // DESIGN_PROJECT_FILES §3.4 (phase three). The queue starts empty and grants nothing: a
+  // migration that flipped one ai_access would be handing an AI a file the user never
+  // agreed to, which is the one thing this whole feature exists to prevent.
+  it('v17 → v18 adds the file-request queue and grants nothing', async () => {
+    applySchema(handle);
+    downgradeToV17(handle);
+    seedUserData(handle);
+    handle.exec(
+      `INSERT INTO attachments (id, thread_id, kind, target, label, created_at)
+         VALUES ('a1', 't1', 'file', '/tmp/notes.pdf', 'notes.pdf', ${NOW})`,
+    );
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(19);
+    expect(handle.prepare('SELECT COUNT(*) AS c FROM file_access_requests').get()).toEqual({
+      c: 0,
+    });
+    expect(handle.prepare('SELECT ai_access FROM attachments').all()).toEqual([{ ai_access: 0 }]);
+  });
+
+  // 决定 5. Three nullable columns and no backfill: a project that has never been offered a
+  // new brief must not come out of the migration looking like it has one waiting.
+  it('v18 → v19 parks brief suggestions without inventing any', async () => {
+    applySchema(handle);
+    downgradeToV18(handle);
+    seedUserData(handle);
+    handle.exec("UPDATE threads SET follow_up_brief = '盯 CMU 的截止日期' WHERE id = 't1'");
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(19);
+    expect(
+      handle
+        .prepare(
+          'SELECT follow_up_brief, follow_up_brief_suggested, follow_up_brief_suggested_by, follow_up_brief_suggested_at FROM threads',
+        )
+        .all(),
+    ).toEqual([
+      {
+        follow_up_brief: '盯 CMU 的截止日期',
+        follow_up_brief_suggested: null,
+        follow_up_brief_suggested_by: null,
+        follow_up_brief_suggested_at: null,
+      },
+    ]);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
-    handle.exec('PRAGMA user_version = 17');
+    handle.exec('PRAGMA user_version = 19');
     seedUserData(handle);
 
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -654,7 +740,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(17);
+    expect(userVersion(handle)).toBe(19);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

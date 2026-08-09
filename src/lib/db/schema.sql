@@ -40,7 +40,19 @@ CREATE TABLE IF NOT EXISTS threads (
   -- NULL = follow the master switch; 0 = never touch this project automatically.
   -- Deliberately not a boolean defaulting to 1: "the user has not said" and "the user said
   -- yes" are different states, and only the first should follow a switch flipped later.
-  auto_maintain      INTEGER
+  auto_maintain      INTEGER,
+  -- v19 (决定 5, HANDOFF §4-1): an AI's proposed rewrite of `follow_up_brief`, parked until
+  -- the user reads it. It is NEVER written into `follow_up_brief` by the tool.
+  --
+  -- ⚠️ This column exists because the brief is not content — it is the standing instruction
+  -- Spool goes out to the open web with. A page a follow-up run fetched could otherwise
+  -- rewrite what the next run goes looking for (web page → brief → next search), which is
+  -- exactly the injection-to-privilege chain DESIGN_FOLLOW_UP §2.5 draws. Parking the
+  -- suggestion here keeps the human step §6-2 拍板 in place: the user reads it on the review
+  -- screen, and only their click moves it across.
+  follow_up_brief_suggested    TEXT,
+  follow_up_brief_suggested_by TEXT,     -- the client that proposed it, for the review card
+  follow_up_brief_suggested_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_threads_workspace
@@ -298,3 +310,31 @@ CREATE TABLE IF NOT EXISTS date_dismissals (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (block_id, due_at)
 );
+
+-- v18 (DESIGN_PROJECT_FILES §3.4, phase three): the files an AI has ASKED to read.
+--
+-- Every attachment starts at `ai_access = 0` — nobody reads the user's files unless they
+-- say so. This table is the only way that changes without the user going to the file panel
+-- themselves: an AI names files ALREADY in a project, says why, and the request waits on
+-- the review screen beside the block proposals. Approval sets `ai_access = 1` on those
+-- attachments and deletes these rows; refusal just deletes them (§4.3's rule for the
+-- proposal queue — what the user turned away leaves no trace).
+--
+-- ⚠️ One row per requested FILE, grouped by `request_id`, because one call may name several
+-- and the review screen must show it as ONE decision, not three.
+-- ⚠️ No path can ever arrive here: `attachment_id` points at a row the user created from
+-- the system file dialog (§2). An AI can ask about a file the user put in a project and can
+-- never introduce a new one — that is the whole reason this feature was allowed at all.
+CREATE TABLE IF NOT EXISTS file_access_requests (
+  id            TEXT PRIMARY KEY,
+  request_id    TEXT NOT NULL,             -- groups the files named in one request_file_access call
+  client        TEXT NOT NULL DEFAULT '',  -- who asked, shown on the card
+  thread_id     TEXT NOT NULL,
+  attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+  why           TEXT NOT NULL DEFAULT '',  -- the reason the user judges the request by
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL           -- same 7 days as a proposal batch
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_access_requests
+  ON file_access_requests(request_id, created_at ASC);

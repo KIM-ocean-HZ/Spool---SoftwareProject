@@ -280,6 +280,12 @@ const EN: Record<string, string> = {
     'No files in this project yet. Anything you add here is read by nobody by default, and its text stays out of packs.',
   '从这个项目里去掉（文件本身不动）': 'Remove from this project (the file itself is untouched)',
   '打包时带上这个文件的文字': 'Include this file\u2019s text when packing',
+  // DESIGN_PROJECT_FILES §5.1 ① — the standing grant, shown where the file is listed
+  // because that is the only place it can be taken back.
+  'AI 可以读这个文件': 'An AI may read this file',
+  'AI 不能读这个文件': 'No AI may read this file',
+  '关掉之后，AI 想再读它就得重新问你一次。':
+    'Turn it off and an AI has to ask you again before it can read this file.',
   '添加文件失败：{msg}': 'Could not add the file: {msg}',
   '这次更新去掉了「附加链接」，你原来加的 {n} 个链接已经删掉了。':
     'This update removed the \u201cattach link\u201d feature. The {n} link(s) you had added have been deleted.',
@@ -543,6 +549,28 @@ const EN: Record<string, string> = {
   '清掉': 'Clear',
   '存进去了 {n} 块': 'Stored {n} block(s)',
   '存不进去：{msg}': 'Could not store: {msg}',
+  // DESIGN_PROJECT_FILES §3.4 — an AI asking to read files the user put in a project.
+  '{client} 想读〈{title}〉里的 {n} 个文件': '{client} wants to read {n} file(s) in ‹{title}›',
+  '它说要干什么': 'What it says it needs them for',
+  '答应了就是长期的：以后它随时能读这几个文件。要收回，去这个项目右边的「项目文件」里点掉那一行。':
+    'Saying yes is standing permission: it can read these files from now on. To take it back, untick the file under “Project files” on the right of this project.',
+  '可以读': 'Let it read them',
+  '不给': 'No',
+  '{n} 个文件现在 AI 可以读了。随时可以在项目文件那一栏点掉。':
+    '{n} file(s) are now readable by an AI. You can untick them under Project files at any time.',
+  '没能打开权限：{msg}': 'Could not grant it: {msg}',
+
+  // 决定 5 — an AI proposing a rewrite of a project's follow-up brief. Both texts are shown:
+  // this is approval of a change to what Spool will go looking for on the open web.
+  '{client} 建议改〈{title}〉要盯的东西': '{client} suggests changing what ‹{title}› watches for',
+  '现在盯的是': 'Watching for now',
+  '它建议换成': 'It suggests instead',
+  '它建议开始盯这些': 'It suggests starting to watch for',
+  '这几行就是以后「跟进」出去查东西时照着找的规则。换了之后想再改，去项目里的「这个项目要盯什么」。':
+    'These lines are the rules every future follow-up searches by. To edit them later, open “What this project watches for” inside the project.',
+  '不用': 'No thanks',
+  '跟进目标已经换成新的了': 'Follow-up target updated',
+
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',

@@ -13,6 +13,17 @@
 > the evidence. Design rationale, open decisions, and the plan for the public page live in
 > `DESIGN_CASE_STUDY.md`; this file holds only what is settled and checkable.
 >
+> **⚠️ One authorised exception to "never rewrite", 2026-08-09.** Thirteen dates in this file
+> ran ahead of the calendar — entries written on 2026-08-07 / 08 / 09 were labelled 08-10
+> through 08-13, and the v0.4.0 release was recorded as published two days after it actually
+> was. They were corrected in place rather than annotated, on the owner's explicit call, because
+> this file's whole purpose is that a claim can be checked: a reader comparing §1.2 against the
+> git tag would have found the ledger wrong on the first thing they tested. **Every corrected
+> date was taken from the commit that first recorded the claim** (`git log -S"<phrase>" --date=short
+> -- docs/CASE_STUDY_LEDGER.md`) or, for the release, from the `v0.4.0` tag. One consequence
+> was corrected with them: §3.11 said the withdrawn tier was re-checked "three weeks later" when
+> both entries landed the same day. No figure, finding, or wording other than these was touched.
+>
 > **Disclosure rule.** What may be published is *shape and count*, never content. The live
 > library holds real graduate-application material — deadlines, personal documents. Every figure
 > below is a number, a source label, or a one-line description of a mechanism. If a row cannot be
@@ -22,7 +33,7 @@
 
 ## 1. Project scale
 
-Measured 2026-08-09, at the v0.4.0 close-out. Run each command from the repository root.
+Measured 2026-08-07, at the v0.4.0 close-out. Run each command from the repository root.
 
 | Figure | Value | How to recompute |
 |---|---|---|
@@ -38,9 +49,12 @@ Measured 2026-08-09, at the v0.4.0 close-out. Run each command from the reposito
 | Database schema migrations | **14**, each with a named registry entry and a pre-migration snapshot | `PRAGMA user_version` on any live database; registry in `src/lib/db/client.ts` |
 | MCP tool surface | **14** (10 read, 4 write-gated) | `tools/list` against `spool --mcp`; see §5 for the exact invocation |
 | Localisation | **2 languages**, machine-checked for gaps | `node scripts/i18n-check.mjs` → `(none missing)` |
+| Automated tests *(2026-08-09)* | **313 Vitest + 61 cargo = 374** | same commands |
+| Database schema migrations *(2026-08-09)* | **16** (schema v19) | same |
+| MCP tool surface *(2026-08-09)* | **17** (11 read, 6 write-gated) | same. Two of the six write-gated ones store nothing in the library: they queue a permission request and a proposed search rule for the user to answer |
 
-**Version history**: v0.3.0 (2026-07-30, first packaged release) → v0.4.0 (2026-08-09 close-out,
-published 2026-08-10 — see §1.2).
+**Version history**: v0.3.0 (2026-07-30, first packaged release) → v0.4.0 (2026-08-07 close-out,
+published 2026-08-08 — see §1.2).
 
 ### 1.1 What the test count does and does not prove
 
@@ -64,7 +78,7 @@ once, at submission, and there is no later query that recovers them.
 
 | Field | v0.4.0 |
 |---|---|
-| Published | **2026-08-10** |
+| Published | **2026-08-08** |
 | Tagged commit | `84625db` |
 | Signing identity | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
 | **Notarisation — `.app`** | submission `89ebaceb-f883-4b1c-a6eb-86392769d132` · **Accepted** |
@@ -160,7 +174,7 @@ which the engine layer parses from the CLI's output.
 
 ### 2.5 What a free AI tier is actually worth as infrastructure
 
-2026-08-10, evaluating whether a free API tier could power the maintenance engine for users
+2026-08-08, evaluating whether a free API tier could power the maintenance engine for users
 with no paid subscription. Run against a copy of the live library — real material, real
 prompts, isolated working directory and home directory.
 
@@ -350,7 +364,7 @@ Both are documented because neither would ever surface as an error, and both cos
 - **A raw-string delimiter closed early.** The instruction header is a Rust `r##"…"##` literal,
   not `r#"…"#`, because the text itself contains `"#12"` — and `"#` would terminate `r#"`.
 
-### 3.8 A tier of the product was designed on a number that was wrong by 75× (2026-08-10)
+### 3.8 A tier of the product was designed on a number that was wrong by 75× (2026-08-08)
 
 The plan to support users without a paid AI subscription rested on one figure written into the
 design document: a free API allowance of **1,500 requests per day**. It was recorded with a
@@ -382,7 +396,7 @@ The general form, and the reason this entry exists: **a documented figure with a
 is still an unverified figure.** The warning did not prevent a design being built on top of it.
 Only running the thing did.
 
-### 3.9 One missing metadata field made two tools uncallable on one client (2026-08-11)
+### 3.9 One missing metadata field made two tools uncallable on one client (2026-08-08)
 
 The user reported that a weekly review had come back saying it could not read his projects:
 *"I tried to read the full records for two projects, but the reads were cancelled."*
@@ -413,7 +427,7 @@ invisible to every local check, whose only witness is a third-party client refus
 The guard added afterwards asserts the property rather than the values — every tool must
 declare, and only the four writers may declare that they write.
 
-### 3.10 A parser's complaint impersonating the program it was parsing (2026-08-11)
+### 3.10 A parser's complaint impersonating the program it was parsing (2026-08-08)
 
 The same session's second report was a maintenance action failing with:
 
@@ -435,10 +449,10 @@ never invent a message.**
 The engine also prints its diagnostics above the structured output rather than only within it,
 so parsing the stream as a whole fails on text the engine considers ordinary.
 
-### 3.11 A product tier removed by its vendor between design and use (2026-06-18 → 2026-08-11)
+### 3.11 A product tier removed by its vendor between design and use (2026-06-18 → 2026-08-08)
 
-§3.8 recorded a free allowance measured at 20 requests per day against a documented 1,500. Three
-weeks later the same tier was checked again, and the finding had changed category: the free
+§3.8 recorded a free allowance measured at 20 requests per day against a documented 1,500. Later
+the same day the same tier was checked again, and the finding had changed category: the free
 sign-in route no longer exists at all. The vendor's own response to a run:
 
 ```
@@ -456,7 +470,7 @@ verify once, but a claim with a shelf life. The feature that relied on it is ret
 changed is that the product no longer describes it as the route for users without a
 subscription.
 
-### 3.12 Everything passed, and the typography was still wrong (2026-08-12)
+### 3.12 Everything passed, and the typography was still wrong (2026-08-09)
 
 A Markdown renderer was written for block bodies, in response to a user complaint that the raw
 `**`, `#` and `-` markers looked untidy. It shipped with four green baselines, eighteen new
@@ -485,7 +499,7 @@ different shape of the same gap. The renderer was attached to the surface that p
 complaint, and the surface where the AI writes its *longest* Markdown was not checked, because
 nobody had looked at it either.
 
-### 3.13 The fix for §3.12 overshot, and a second invented number turned up beside it (2026-08-13)
+### 3.13 The fix for §3.12 overshot, and a second invented number turned up beside it (2026-08-09)
 
 The response to "the heading sizes did not separate" was to put them on the standard editorial
 scale — the one a Markdown document on the web is set in, topping out at 1.45em for a level 1.
@@ -510,7 +524,7 @@ convention says" and "what seemed about right" are both sources that cannot be c
 produced a value that a single glance at the real screen overturned. Where a rule can be stated
 instead — *fits on screen* — the rule survives contact and the constant does not.
 
-### 3.14 The same day, a third invented number — and the probe that settled it in one run (2026-08-13)
+### 3.14 The same day, a third invented number — and the probe that settled it in one run (2026-08-09)
 
 Hours after §3.13 was written, a feature shipped with a fourth-generation instance of the same
 mistake. Dates written inside a note's text had never been surfaced anywhere; the new reminder
@@ -544,6 +558,93 @@ all"* is a pure function over data that is sitting right there — and that laye
 run against the real library, in seconds, before touching a line of interface code. The three
 earlier entries were each closed by the user noticing something. This one was closed by
 measurement, one round trip after the report.
+
+### 3.15 A permission designed for a door that was already open (2026-08-09)
+
+The project file library was specified in three phases, and the third was the only one with a
+security surface: an AI may **ask** to read a file the user put in a project, the user answers
+on a review screen, and a yes is a standing grant. The design document opens with a survey of
+the current state, and one row of that survey read: *no tool can read an attachment's text;
+`get_pack` carries the text of files the user ticked, and that is all.* Every argument for the
+feature's shape rests on that row.
+
+It had stopped being true. Phase **two**, shipped six days earlier, moved files from blocks to
+projects and rebuilt how `get_blocks` reports them — and gave that tool an
+`include_extracted_text` flag that returned **every file's full text, for every file, with no
+condition attached**. Nothing was hidden and nothing failed: the flag was documented, tested,
+and did exactly what its own description said. It simply meant the permission being built in
+phase three would have guarded a door that the tool beside it had already opened.
+
+Two things are worth separating here.
+
+The first is the failure mode: **a design document's "current state" section ages, and it ages
+against your own later work.** The row was accurate when it was written. What made it dangerous
+was that it was still being *read* as accurate a week later, by the same author, while
+implementing the feature that depended on it.
+
+The second is what the fix had to weigh. The obvious repair — refuse file text unless the user
+granted access — breaks the path by which an AI would ever know a file is worth asking for. If
+a search hit inside an ungranted file is dropped entirely, no model can ask a question it has
+no way to form, and the request tool becomes a door with no handle. The rule that shipped
+splits the difference along the line that actually matters: **a locked file still reports its
+name, its size, and its id; it reports no word of its contents.** A search hit inside one says
+*the phrase you are looking for is in this file* and shows no snippet. That is enough to ask
+with, and nothing to read.
+
+The check that would have caught it is cheap and is now the habit: when implementing phase *n*
+of a plan, re-verify the "today it works like this" claims phases 1…*n*−1 were allowed to
+change — against the code, not against the document.
+
+---
+
+### 3.16 Three tools shipped, three tools invisible — the router nobody updated (2026-08-09)
+
+Three new tools went out the same afternoon: ask to read a file, read what a project is
+watching, propose a change to it. Each got a careful description, the mandatory annotations,
+its own tests, and a live stdio run against the real binary. That evening the owner exercised
+all three from a third-party client for the first time. **All three mechanisms worked. Two of
+the three were never reached.**
+
+The forensics are unusually clean, because the library records what happened: over that
+half-hour the model wrote twelve blocks by direct append and queued **zero** proposals — while
+the user had said, in as many words, *"put the Flux ones in Flux and the rest in the other
+project,"* which is the split-and-review tool's entire reason to exist. Asked what a project
+was watching, the model never read the brief; it invented a plan and appended that instead, as
+two permanent blocks titled *"current follow-up."* Asked what a file said, it named the file
+correctly and then told the user to go upload the PDF somewhere else.
+
+Two separate causes, and the second is the one worth keeping.
+
+**The affordance was written on a path the model had no reason to walk.** A locked file's "here
+is how to ask for it" sentence is emitted only when the caller has already opted into
+`include_extracted_text=true`. A model answering *what files are in this project* does not set
+that flag — it wants the catalogue, not the contents. So it received a file marked unreadable
+with no stated way in, plus, from the project briefing, the line `[extracted: yes, not
+inlined]`. Its reply to the user was a faithful paraphrase of that line. §3.15 above had argued
+that a locked file must still report its name and size, because otherwise the request tool
+becomes *a door with no handle*. The handle was built — on one of the three corridors that lead
+to that door.
+
+**And the routing table was never updated.** The server's `initialize` instructions carry a
+short list of what the user might say and which tool answers it; a comment above them notes,
+correctly, that this is the one surface every client reads. Thirteen of seventeen tools are
+named there. The four that are not include all three shipped that day. The full tool schemas —
+thirty thousand characters of them — were complete and correct, and a model reads those as a
+manual it consults *after* deciding whom to ask, not as the thing that decides.
+
+The generalisation: **a capability is not shipped when its mechanism works; it is shipped when
+the surface that routes intent to it names it.** Descriptions, tests and a protocol-level smoke
+run all passed while two of three features were, in practice, unreachable. What found it was
+one person talking to the tool in their own words — and the tell was in the database, not in
+the transcript: the tool-call counts said plainly which doors had been opened and which had
+been walked past.
+
+A smaller, related note on honesty in error messages. `add_block`'s description says *"there is
+no edit or delete tool, so a mis-written block is permanent."* True of the model's toolbox.
+The model relayed it to the owner as a property of the product — *"Spool does not support
+editing or deleting"* — while the app has had both, with undo, all along. A sentence about what
+**you** cannot do will be repeated as a sentence about what **the software** cannot do. Write
+the subject in.
 
 ---
 
@@ -592,7 +693,7 @@ Tracked here so the gaps are visible rather than discovered late. Plan and seque
 - [ ] **Screenshots** — the current set is stale: the block feed, the right-hand rail, and the
       project board all changed appearance in v0.4.0. Each replacement has to depict a real
       usage scenario, not a feature.
-- [x] **Notarisation receipt** — captured 2026-08-10 at the v0.4.0 release; both submission ids
+- [x] **Notarisation receipt** — captured 2026-08-08 at the v0.4.0 release; both submission ids
       are in §1.2.
 - [ ] **Target-user section** — the only part of the public page with no existing source
       material; it has to be written from scratch.
