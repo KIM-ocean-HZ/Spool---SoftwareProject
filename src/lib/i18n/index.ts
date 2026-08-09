@@ -328,7 +328,7 @@ const EN: Record<string, string> = {
   '明天': 'tomorrow',
   // 旧账 §5-3: dates found inside a block's own text (DateNotices).
   '去看这一块': 'Go to this block',
-  '别再提这条': "Don't remind me about this one",
+  '先收起，一周后再提醒我': 'Hide for now — remind me again in a week',
   '还有 {n} 个日子在这个项目里': '{n} more dates in this project',
   '逾期{n}天': '{n}d overdue',
   '刚刚': 'just now',

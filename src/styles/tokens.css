@@ -29,6 +29,12 @@
   --block-active-bg:           #f7f1de;
   --block-active-bg-fade-ms:   3000ms;
 
+  /* 旧账 §5-3 (Ocean 2026-08-13): the date-reminder strip that rides inside the block feed.
+     「做一个暖色，透明一点的」 — a wash of the amber family over the paper rather than a
+     filled bar, so it reads as something laid on the page and the blocks stay the subject. */
+  --notice-warm:      rgba(251, 191, 36, 0.13);
+  --notice-warm-edge: rgba(180, 83, 9, 0.20);
+
   /* status colors */
   --status-active:   #6b7c5a;
   --status-parked:   #a8632c;

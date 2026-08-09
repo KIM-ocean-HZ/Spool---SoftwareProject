@@ -4,7 +4,6 @@ import type { Block } from '@/lib/db/blocks';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
-import DateNotices from './DateNotices';
 import DigestView from './DigestView';
 import LogView from './LogView';
 import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
@@ -77,9 +76,6 @@ export default function ThreadView() {
         viewMode={viewMode}
         onSetViewMode={setViewOverride}
       />
-      {/* 旧账 §5-3: dates written inside this project's blocks. Log mode only — a finished
-          project's dates are nothing to act on, and its screen is a conclusion, not a feed. */}
-      {viewMode === 'log' && <DateNotices threadId={thread.id} blocks={blocks} />}
       {viewMode === 'digest' ? (
         <DigestView
           key={thread.id}

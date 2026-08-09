@@ -13,23 +13,27 @@ import { useSearchStore } from '@/stores/searchStore';
 // Ocean's 〈申请规划〉 holds a block that is nothing but Cornell application deadlines.
 //
 // ⚠️ Ocean chose the shape (2026-08-13), against a launch-time popup: 「不弹窗，只在项目顶上挂
-// 一条」. So this is a strip above the feed, visible while the project is open, and it never
-// interrupts. The cost he accepted with that choice is real and worth remembering: a project
-// he does not open still says nothing.
+// 一条」. So it never interrupts — it is part of the project's own page. The cost he accepted
+// with that choice is real: a project he does not open still says nothing.
 //
-// ⚠️ He also chose auto-detect + 「别再提这条」 over asking him to confirm each date, on the
-// grounds that a feature which does nothing until you click something does nothing. Which
-// means over-matching is EXPECTED here (「第 8/13 页」 is a date to the detector) and the ✕ is
-// the designed answer to it, not a fallback.
+// ⚠️ He also chose auto-detect + a ✕ over confirming each date, on the grounds that a feature
+// which does nothing until you click something does nothing. So over-matching is EXPECTED here
+// (「第 8/13 页」 is a date to the detector) and the ✕ is the designed answer, not a fallback.
+//
+// ⚠️ It does NOT sit at the top of the window — 「不要固定在顶部，需要可以跟随 blocks 滑动」
+// (third round). It is rendered inside the feed's scroll container, above the first block, so
+// it scrolls away like anything else on the page. That is why it is a card with its own margin
+// rather than a full-width bar with a bottom border.
 
-// ⚠️ There is NO cutoff on how far ahead a date may be, and that is a decision, not an
-// omission (Ocean 2026-08-13, second round). The first build only raised dates within 7 days;
-// run against his real library that showed **nothing at all** — his nearest date was 23 days
-// out and the application deadlines this feature exists for are 114–170 days out. A window
-// wide enough for those is indistinguishable from no window, so the window went instead.
-//
-// What keeps it from becoming wallpaper is the row cap plus the ✕, not a date range: a project
-// shows its THREE nearest upcoming dates and says how many more it is holding.
+// How far ahead a date starts being raised — 「在一个月前再弹出提醒吧」 (Ocean, third round,
+// after living with a version that had no cutoff at all and showed every project three
+// permanent rows). ⚠️ The history behind this number is worth keeping: the FIRST build used 7
+// days, which against his real library showed nothing at all — his nearest date was 23 days out
+// and the application deadlines this exists for are 114–170 days out. So 7 was too tight to
+// ever fire and unbounded was too loud; 30 is his answer after seeing both.
+const NOTICE_WINDOW_DAYS = 30;
+
+// Rows past this fold into a "+N more" count: it is a note above the feed, not a panel.
 const MAX_ROWS = 3;
 
 // Display only — how far ahead still reads better as a countdown than as a date. Nothing is
@@ -69,10 +73,10 @@ export default function DateNotices({ threadId, blocks }: Props) {
     for (const b of blocks) {
       for (const hit of findDates(b.content, b.createdAt)) {
         const days = daysUntil(hit.at, now);
-        // Today onwards. A date that has already gone by is not raised: there is nothing left
-        // to do about it, and his library is full of them (every source line carries the day
-        // it was captured), which would bury the ones that still matter.
-        if (days < 0) continue;
+        // Today through the month ahead. A date that has already gone by is not raised: there
+        // is nothing left to do about it, and his library is full of them (every source line
+        // carries the day it was captured), which would bury the ones that still matter.
+        if (days < 0 || days > NOTICE_WINDOW_DAYS) continue;
         if (dismissed.has(`${b.id}:${hit.at}`)) continue;
         out.push({ blockId: b.id, at: hit.at, line: hit.line, days });
       }
@@ -83,8 +87,8 @@ export default function DateNotices({ threadId, blocks }: Props) {
   if (notices.length === 0) return null;
 
   const onDismiss = (n: Notice): void => {
-    // Optimistic: the row goes now, the row stays gone. A failed write would only mean it
-    // comes back next launch, which is a far smaller harm than a ✕ that appears not to work.
+    // Optimistic: the row goes now. A failed write would only mean it comes back sooner than a
+    // week, which is a far smaller harm than a ✕ that appears not to work.
     setDismissed((prev) => new Set(prev).add(`${n.blockId}:${n.at}`));
     void dismissDate(n.blockId, n.at);
   };
@@ -106,7 +110,15 @@ export default function DateNotices({ threadId, blocks }: Props) {
   };
 
   return (
-    <div className="flex-none border-b border-line bg-paper-2 px-6 py-1.5">
+    <div
+      // Warm and translucent (「做一个暖色，透明一点的」): a wash over the paper, no filled
+      // background and no full-width rule, so it sits ON the feed instead of capping it.
+      style={{
+        background: 'var(--notice-warm)',
+        borderColor: 'var(--notice-warm-edge)',
+      }}
+      className="mb-2 rounded-md border px-3 py-1.5"
+    >
       {notices.slice(0, MAX_ROWS).map((n) => (
         <div key={`${n.blockId}:${n.at}`} className="flex items-center gap-2 py-0.5 text-xs">
           <CalendarClock size={12} className="flex-none text-accent" />
@@ -122,8 +134,8 @@ export default function DateNotices({ threadId, blocks }: Props) {
           <button
             type="button"
             onClick={() => onDismiss(n)}
-            title={t('别再提这条')}
-            aria-label={t('别再提这条')}
+            title={t('先收起，一周后再提醒我')}
+            aria-label={t('先收起，一周后再提醒我')}
             className="flex-none rounded p-0.5 text-muted transition-colors hover:text-accent"
           >
             <X size={12} />

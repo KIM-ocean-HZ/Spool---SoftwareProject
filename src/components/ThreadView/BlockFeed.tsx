@@ -8,6 +8,7 @@ import { useDropStore } from '@/stores/dropStore';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { useSearchStore } from '@/stores/searchStore';
 import BlockItem from './BlockItem';
+import DateNotices from './DateNotices';
 import { dateLocale, useT } from '@/lib/i18n';
 
 // Tail-window cap for large threads (PLAN_EN.md §15 / Phase 12 — "enable virtual
@@ -408,6 +409,10 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   return (
     <div onMouseDown={handleMouseDown} className="px-6 py-3">
+      {/* 旧账 §5-3: dates written inside this project's own blocks. It lives HERE, inside the
+          scroll container, because Ocean asked for 「不要固定在顶部，需要可以跟随 blocks 滑动」
+          — mounted a level up (in ThreadView) it sat outside the scrolling area and stuck. */}
+      <DateNotices threadId={threadId} blocks={blocks} />
       {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
           cycles the two modes, current mode in the tooltip, instead of a labeled
           pill row claiming a whole line. */}
