@@ -1,9 +1,9 @@
 import { CalendarClock, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { daysUntil, findDates, TEXT_DATE_NOTICE_DAYS } from '@/lib/blocks/dates';
+import { daysUntil, findDates } from '@/lib/blocks/dates';
 import type { Block } from '@/lib/db/blocks';
 import { dismissDate, listDismissals } from '@/lib/db/dateDismissals';
-import { useT } from '@/lib/i18n';
+import { dateLocale, useT } from '@/lib/i18n';
 import { useSearchStore } from '@/stores/searchStore';
 
 // 旧账 §5-3 — 「块正文里的截止日期没人管」, closed 2026-08-13.
@@ -22,8 +22,19 @@ import { useSearchStore } from '@/stores/searchStore';
 // means over-matching is EXPECTED here (「第 8/13 页」 is a date to the detector) and the ✕ is
 // the designed answer to it, not a fallback.
 
-// Rows past this fold into a "+N more" count: the strip is a line above the feed, not a panel.
+// ⚠️ There is NO cutoff on how far ahead a date may be, and that is a decision, not an
+// omission (Ocean 2026-08-13, second round). The first build only raised dates within 7 days;
+// run against his real library that showed **nothing at all** — his nearest date was 23 days
+// out and the application deadlines this feature exists for are 114–170 days out. A window
+// wide enough for those is indistinguishable from no window, so the window went instead.
+//
+// What keeps it from becoming wallpaper is the row cap plus the ✕, not a date range: a project
+// shows its THREE nearest upcoming dates and says how many more it is holding.
 const MAX_ROWS = 3;
+
+// Display only — how far ahead still reads better as a countdown than as a date. Nothing is
+// hidden by this; 「12/1」 is more use than 「114天后」, and 「3天后」 more use than 「8/12」.
+const COUNTDOWN_DAYS = 7;
 
 interface Props {
   threadId: string;
@@ -58,10 +69,10 @@ export default function DateNotices({ threadId, blocks }: Props) {
     for (const b of blocks) {
       for (const hit of findDates(b.content, b.createdAt)) {
         const days = daysUntil(hit.at, now);
-        // Today through the notice window. A date that has already gone by is not raised:
-        // there is nothing left to do about it, and a project full of last year's dates
-        // would bury the one that still matters.
-        if (days < 0 || days > TEXT_DATE_NOTICE_DAYS) continue;
+        // Today onwards. A date that has already gone by is not raised: there is nothing left
+        // to do about it, and his library is full of them (every source line carries the day
+        // it was captured), which would bury the ones that still matter.
+        if (days < 0) continue;
         if (dismissed.has(`${b.id}:${hit.at}`)) continue;
         out.push({ blockId: b.id, at: hit.at, line: hit.line, days });
       }
@@ -78,15 +89,28 @@ export default function DateNotices({ threadId, blocks }: Props) {
     void dismissDate(n.blockId, n.at);
   };
 
-  const when = (days: number): string =>
-    days === 0 ? t('今天') : days === 1 ? t('明天') : t('{n}天后', { n: days });
+  const when = (n: Notice): string => {
+    if (n.days === 0) return t('今天');
+    if (n.days === 1) return t('明天');
+    if (n.days <= COUNTDOWN_DAYS) return t('{n}天后', { n: n.days });
+    const d = new Date(n.at);
+    // The year only earns its space when it is not this one — most of his deadlines are
+    // 2026, and 「2027/1/5」 among them is exactly the one that needs saying.
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(
+      dateLocale(),
+      sameYear
+        ? { month: 'numeric', day: 'numeric' }
+        : { year: 'numeric', month: 'numeric', day: 'numeric' },
+    );
+  };
 
   return (
     <div className="flex-none border-b border-line bg-paper-2 px-6 py-1.5">
       {notices.slice(0, MAX_ROWS).map((n) => (
         <div key={`${n.blockId}:${n.at}`} className="flex items-center gap-2 py-0.5 text-xs">
           <CalendarClock size={12} className="flex-none text-accent" />
-          <span className="flex-none font-medium text-ink">{when(n.days)}</span>
+          <span className="flex-none font-medium text-ink">{when(n)}</span>
           <button
             type="button"
             onClick={() => highlight(n.blockId)}

@@ -510,6 +510,41 @@ convention says" and "what seemed about right" are both sources that cannot be c
 produced a value that a single glance at the real screen overturned. Where a rule can be stated
 instead — *fits on screen* — the rule survives contact and the constant does not.
 
+### 3.14 The same day, a third invented number — and the probe that settled it in one run (2026-08-13)
+
+Hours after §3.13 was written, a feature shipped with a fourth-generation instance of the same
+mistake. Dates written inside a note's text had never been surfaced anywhere; the new reminder
+raised any that fell **within seven days**. Seven was chosen the same way the others were: it
+sounded like a reasonable amount of notice.
+
+The user installed it and reported: *I don't see this thing.*
+
+What is worth recording is not the mistake a third time, but the response. Rather than reason
+about the interface or start editing it, a **throwaway probe** was written — a temporary test
+that opened the real library read-only, fed every note's text to the *actual* detector the
+feature uses, and printed each date found, how many days away it was, and whether the feature
+would show it. It ran in three seconds and was deleted immediately. One screen of output
+settled every open question at once:
+
+- the detector was **not** broken — it found 31 dates, including every application deadline
+  across four institutions;
+- the user's **nearest upcoming date was 23 days out**;
+- the deadlines the feature exists for were **114 to 170 days out**;
+- so under a 7-day window, showing nothing was the *correct* behaviour, and would have stayed
+  correct until sixteen days later.
+
+A window wide enough for a 170-day deadline is not a window, so the window was deleted rather
+than widened. What replaced it is again a rule with a bound that is not a date at all: a
+project shows its **three nearest upcoming dates**, says how many more it holds, and every row
+can be silenced individually.
+
+The transferable part is the probe. This project cannot screenshot itself (§3.2, §3.12), so
+"what does it look like" genuinely requires the user. But *"why would it show anything at
+all"* is a pure function over data that is sitting right there — and that layer can always be
+run against the real library, in seconds, before touching a line of interface code. The three
+earlier entries were each closed by the user noticing something. This one was closed by
+measurement, one round trip after the report.
+
 ---
 
 ## 4. Boundaries stated on purpose

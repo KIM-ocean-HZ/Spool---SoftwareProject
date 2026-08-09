@@ -119,15 +119,6 @@ export const findDates = (content: string, from: number): DateHit[] => {
   return out;
 };
 
-/** How much notice a date buried in text gets.
- *
- *  ⚠️ Wider than DUE_SOON_DAYS (3), on purpose: a project deadline the user set is already
- *  visible — it colours its card in 项目管理 and rides in 周回顾. A date inside a block has no
- *  other surface at all, so three days' notice would often be the first AND last time it is
- *  ever mentioned. A week is enough to act on and short enough that the banner does not
- *  become wallpaper. */
-export const TEXT_DATE_NOTICE_DAYS = 7;
-
 /** Whole days from `now` to `at`, both taken at local midnight (same rule as dueInDays). */
 export const daysUntil = (at: number, now: number): number => {
   const today = new Date(now);
