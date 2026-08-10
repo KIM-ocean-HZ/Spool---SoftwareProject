@@ -945,6 +945,47 @@ session: *open the document and read its dependencies section.* It was skipped t
 because the row already said unblocked, which is the same trap as §3.23 — a confident record
 of an answer nobody re-derived.
 
+### 3.25 The same rule, written twice — once in a language with two truth values, once in a language with three (2026-08-10)
+
+A sidebar widget was added that shows, permanently, how much the library holds. Two of its
+numbers already existed as rules elsewhere in the code, and both had to be re-expressed as SQL
+to be affordable at that frequency. Re-expressing them cost more than it looked like it would.
+
+**The cheap query that was only cheap because nobody looked at it.** "How many things have I
+captured" was implemented as *fetch every capture row, build an object for each, return the
+length of the array*. That was a defensible implementation: its only caller was a one-time hint
+that fires on a library young enough for "every capture row" to be a handful, and routing it
+through the list function kept a single definition of what counts as a capture. Putting the
+same number on a widget that is on screen all day made it a full table read per repaint. The
+comment above it said what it was for — and what it was for had quietly changed.
+
+**A predicate is not portable between two type systems.** The second number — how many
+characters in the library are the user's own words — depends on a rule that already exists in
+TypeScript: an annotation belongs to the user unless a column says otherwise, and on rows
+written before that column existed, the block's source decides. Translated literally into SQL,
+that rule returns the wrong answer without complaining, because SQL comparisons against NULL
+produce NULL rather than false, and `NOT (NULL)` is NULL, which fails a `CASE WHEN`. The rows
+it drops are the rows from before the column existed — which is to say, the most common kind
+of row in the library, and precisely the ones the TypeScript fallback was written to rescue.
+Nothing about the literal translation looks wrong when it is read. What makes the difference
+is not noticing it once: the test fixture carries two such rows, so the guard has something
+holding it down rather than a comment asking the next person to remember.
+
+Two things generalise, and the second is the one worth carrying.
+
+**"Is this query cheap" is a question about its callers, not about the query.** The cost of the
+old implementation was bounded by a condition — a young library — that lived in a different
+file from the code that relied on it. Reusing a function is also inheriting its assumptions,
+and the assumptions are usually in a comment rather than in the signature.
+
+**When one rule must exist in two languages, move the values, not the words.** The tutorial's
+provenance labels had to be excluded in SQL, and the honest way to do it was to bind the
+existing list as query parameters rather than retype the labels inside a string. The list stays
+the single source of truth; the SQL contains no copy of it to drift. Where that trick is not
+available — as with the NULL-vs-false rule above — the second expression needs a test that
+holds both expressions against the same rows, which is what this repository already does for
+its one other duplicated predicate (§3.17).
+
 ---
 
 ## 4. Boundaries stated on purpose

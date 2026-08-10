@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { AnnotationAuthor } from '@/lib/blocks/annotationAuthor';
 import { joinSegments, type Segment } from '@/lib/blocks/segments';
-import { getDb, isTutorialSource } from './client';
+import { getDb, tutorialSourceLabels } from './client';
 
 export type BlockKind = 'text' | 'ref';
 
@@ -217,39 +217,103 @@ export const duplicateCountsByThread = async (): Promise<Record<string, number>>
   return out;
 };
 
-/** What the user captured since `since` — newest first. Feeds the sidebar's 「今天读了什么」
- *  card (首日价值, DESIGN_NEXT_STAGE §4.5) and the pack hint's capture count.
+/** 「什么算一条捕捉」 — the one definition, as a WHERE clause plus the values it binds.
  *
  *  A capture is a block that came from somewhere ELSE. There is no column that says so, so
  *  the rule is read off `source`: it must be present (the composer writes null), it must not
  *  be the MCP label (the AI wrote that block — the user never read it), and it must not be
- *  the tutorial's (seeded at first launch, captured by nobody). A source the user typed by
+ *  the tutorial's (seeded at first launch, captured by nobody — without this a fresh install
+ *  opens on 「你攒了 6 条」 before the user has done anything). A source the user typed by
  *  hand on the badge does count: they labelled it 「Chrome」 because that is where they read
  *  it, and the foreground-app detection missing is not the user's fault.
  *
- *  ⚠️ The tutorial half is filtered in TS rather than SQL on purpose — `TUTORIAL_SOURCES`
- *  holds both languages' labels and is already the single source of truth for that rule.
- *  A second spelling in SQL is exactly the drift the MCP predicate above warns about.
+ *  ⚠️ The tutorial labels are BOUND, never spelled out here: `tutorialSourceLabels()` holds
+ *  both languages' copy and stays the single source of truth for that rule. A second
+ *  spelling in a SQL literal is exactly the drift the MCP predicate above warns about. */
+const captureClause = (): { sql: string; params: string[] } => {
+  const labels = tutorialSourceLabels();
+  const holes = labels.map((_, i) => `$${i + 1}`).join(', ');
+  return {
+    sql: `source IS NOT NULL AND NOT (${MCP_SOURCE_PREDICATE}) AND source NOT IN (${holes})`,
+    params: labels,
+  };
+};
+
+/** What the user captured since `since` — newest first. Feeds the sidebar card's
+ *  「今天读了 N 条」 line (首日价值, DESIGN_NEXT_STAGE §4.5) and its 打包 target.
  *
  *  ⚠️ `rowid DESC` breaks the tie on `created_at`, which is milliseconds and therefore not
  *  unique: three captures pasted in a burst share a timestamp, and without it the card's
- *  「最近三条」 and its 打包 target would be whatever order SQLite felt like returning. */
+ *  今天 count and its 打包 target would be whatever order SQLite felt like returning. */
 export const listCapturesSince = async (since: number): Promise<Block[]> => {
   const db = await getDb();
+  const { sql, params } = captureClause();
   const rows = await db.select<Row[]>(
     `SELECT ${SELECT_COLS} FROM blocks
-      WHERE created_at >= $1 AND source IS NOT NULL AND NOT (${MCP_SOURCE_PREDICATE})
+      WHERE ${sql} AND created_at >= $${params.length + 1}
       ORDER BY created_at DESC, rowid DESC`,
-    [since],
+    [...params, since],
   );
-  return rows.map(fromRow).filter((b) => !isTutorialSource(b.source));
+  return rows.map(fromRow);
 };
 
-/** How many the user has captured, ever. Only the pack hint asks, and only while its
- *  one-shot flag is still armed — i.e. on a library young enough that "every capture row"
- *  is a handful. Counting through listCapturesSince keeps ONE definition of "a capture". */
-export const countCaptures = async (): Promise<number> =>
-  (await listCapturesSince(0)).length;
+/** How many the user has captured, ever.
+ *
+ *  ⚠️ This used to be `listCapturesSince(0).length`, which reads every capture row in the
+ *  library into an object to learn one number. That was written for the pack hint, which
+ *  asks once and only while its one-shot flag is still armed (i.e. on a library young enough
+ *  that "every capture row" is a handful). 首日价值二期 §2.3 put the same number on the
+ *  spool meter, which is on screen ALL the time — so it has to be one COUNT(*). */
+export const countCaptures = async (): Promise<number> => {
+  const db = await getDb();
+  const { sql, params } = captureClause();
+  const rows = await db.select<{ c: number }[]>(
+    `SELECT COUNT(*) AS c FROM blocks WHERE ${sql}`,
+    params,
+  );
+  return rows[0]?.c ?? 0;
+};
+
+// Whether a block's annotation was written by an AI — the SQL spelling of annotationIsAi()
+// (lib/blocks/annotationAuthor.ts): `annotation_by` is authoritative when set, and NULL (every
+// row written before v14) falls back to the block's source.
+//
+// ⚠️ Both COALESCEs are load-bearing. Written the way the TS reads — `annotation_by = 'ai'`,
+// and the MCP predicate applied to any row — each is NULL rather than false on exactly the
+// rows they exist for (a pre-v14 row, a sourceless one), and a NULL makes NOT(...) NULL,
+// which fails the CASE and silently drops the user's own words from the count. The commonest
+// block in the library is exactly that: no source, an annotation, written before v14.
+// blocks.test.ts holds two such rows against this query for that reason.
+const AI_ANNOTATION_PREDICATE =
+  `COALESCE(annotation_by, '') = 'ai'
+   OR (annotation_by IS NULL AND source IS NOT NULL AND (${MCP_SOURCE_PREDICATE}))`;
+
+/** How many characters in the library are the user's OWN words (首日价值二期 §2.2).
+ *
+ *  Ocean picked 口径乙 (2026-08-10): annotations he wrote, PLUS the body of blocks he typed
+ *  himself. Not 甲 (annotations only — his hand-written blocks would count for nothing) and
+ *  not 丙 (all bodies — that counts what he PASTED, which is the opposite of the point:
+ *  he asked for this number to 「鼓励用户多写个人的 notes」).
+ *
+ *  「他自己打的」 is read off the same absent-source rule isUserWritten() uses, and the
+ *  tutorial's rows are excluded whole: they arrive annotated, so counting them would open a
+ *  fresh install on 「我写了 700 字」 — the same lie the tutorial exclusion above prevents for
+ *  the capture count. */
+export const countUserWrittenChars = async (): Promise<number> => {
+  const db = await getDb();
+  const labels = tutorialSourceLabels();
+  const holes = labels.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await db.select<{ chars: number | null }[]>(
+    `SELECT SUM(
+        CASE WHEN TRIM(COALESCE(source, '')) = '' THEN LENGTH(content) ELSE 0 END
+      + CASE WHEN TRIM(COALESCE(annotation, '')) <> '' AND NOT (${AI_ANNOTATION_PREDICATE})
+             THEN LENGTH(annotation) ELSE 0 END
+      ) AS chars
+       FROM blocks WHERE COALESCE(source, '') NOT IN (${holes})`,
+    labels,
+  );
+  return rows[0]?.chars ?? 0;
+};
 
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();

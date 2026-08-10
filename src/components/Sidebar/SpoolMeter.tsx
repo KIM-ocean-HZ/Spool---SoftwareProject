@@ -1,0 +1,85 @@
+import { SPOOL_STEPS } from '@/lib/blocks/spoolProgress';
+
+// 首日价值二期 §2.3 — the spool, wound.
+//
+// This is the first time the product's name is a thing on screen that moves: `spool` is a
+// 线轴, and the library winding onto one is the whole metaphor. Drawn as inline SVG rather
+// than an image for the reason every other mark here is (tokens.css owns the palette, and a
+// bitmap would need a second copy for Retina), and viewed the way a real one is: two end
+// flanges, an axle between them, and coils that thicken as thread goes on.
+//
+// ⚠️ The animation is the STEP, never a resting state (§2.3). The sidebar is always on
+// screen; something that moves continuously there spends the user's attention every minute
+// of the day to say what a static picture already says.
+// ⚠️ The barrel is what an EMPTY spool is, and a fresh install opens on exactly that
+// (§4-3: the card no longer hides itself). Drawn any thinner it stops reading as a spool at
+// all and becomes a capital H between two bars — measured by looking at it, WKWebView,
+// HANDOFF §6.2-sexies.
+const CENTER_Y = 18;
+const AXLE_HALF = 4.5;
+const FULL_HALF = 14; // stays inside the flanges (y 2…34)
+const COIL_X = [9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
+
+/** How thick the wound thread is at this step, as a fraction of a full spool. Step 1 has to
+ *  clear the axle — thread that renders *inside* the axle is a step the user cannot see, and
+ *  an invisible first step is the same complaint the 9 档 decision answered. */
+const windFraction = (level: number): number =>
+  level <= 0 ? 0 : (AXLE_HALF + (level / SPOOL_STEPS) * (FULL_HALF - AXLE_HALF)) / FULL_HALF;
+
+interface Props {
+  /** 0 … SPOOL_STEPS, from spoolState(). */
+  level: number;
+  /** Wound full and nothing captured since — flash once, then leave it alone. */
+  full: boolean;
+  label: string;
+}
+
+export default function SpoolMeter({ level, full, label }: Props) {
+  return (
+    <svg
+      viewBox="0 0 40 36"
+      width={40}
+      height={36}
+      className={`flex-none rounded ${full ? 'flash' : ''}`}
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      {/* axle — what an empty spool is */}
+      <rect
+        x={6}
+        y={CENTER_Y - AXLE_HALF}
+        width={28}
+        height={AXLE_HALF * 2}
+        rx={1}
+        fill="var(--line)"
+      />
+      {/* the thread. Drawn once at full thickness and squashed to the current step, because
+          scaling one group is the only part of an SVG that transitions the same way in every
+          engine — animating each line's y1/y2 does not. */}
+      <g
+        style={{
+          transform: `translateY(${CENTER_Y}px) scaleY(${windFraction(level)}) translateY(${-CENTER_Y}px)`,
+          transition: 'transform 450ms ease-out',
+        }}
+      >
+        {COIL_X.map((x) => (
+          <line
+            key={x}
+            x1={x}
+            y1={CENTER_Y - FULL_HALF}
+            x2={x}
+            y2={CENTER_Y + FULL_HALF}
+            stroke="var(--accent)"
+            strokeWidth={1.4}
+            strokeLinecap="round"
+            opacity={0.85}
+          />
+        ))}
+      </g>
+      {/* flanges last, so the thread is wound BEHIND their edges the way it is on a real one */}
+      <rect x={3} y={2} width={4} height={32} rx={2} fill="var(--line-strong)" />
+      <rect x={33} y={2} width={4} height={32} rx={2} fill="var(--line-strong)" />
+    </svg>
+  );
+}

@@ -8,6 +8,7 @@ import {
   computeMergedFields,
   countCaptures,
   countMcpBlocks,
+  countUserWrittenChars,
   createBlock,
   deleteBlock,
   listBlocksByThread,
@@ -327,8 +328,74 @@ describe('listCapturesSince', () => {
     await createBlock({ threadId: thread.id, content: '今天读的', source: 'Chrome' });
 
     expect((await listCapturesSince(cutoff)).map((b) => b.content)).toEqual(['今天读的']);
-    // The all-time count is what the pack hint asks, and it still sees both.
+    // The all-time count is the spool's number (首日价值二期 §2.3) and the pack hint's, and
+    // it still sees both. ⚠️ It is a COUNT(*) now, not this list's length — the two must
+    // keep agreeing on what a capture is, which is what these assertions pin.
     expect(await countCaptures()).toBe(2);
+  });
+});
+
+// 首日价值二期 §2.2 — 「我写了多少字」, the one number in the card whose job is to change
+// behaviour rather than report it (Ocean: 「鼓励用户多写个人的 notes」). It is 口径乙: the
+// annotations the user wrote, plus the bodies of the blocks they typed themselves.
+//
+// Every row below is here because it would have been counted wrong by an obvious version of
+// the query. The NULL `annotation_by` cases are pre-v14 rows and are the commonest thing in
+// a real library — an SQL NOT() over an untreated NULL silently drops them.
+describe('countUserWrittenChars', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  it('counts the user own words and nothing else', async () => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, 'T');
+    const make = async (
+      args: { content: string; source: string | null; annotation?: string | null },
+      annotationBy: 'user' | 'ai' | null = 'user',
+    ): Promise<void> => {
+      const b = await createBlock({ threadId: thread.id, ...args });
+      if (annotationBy === null) {
+        // A row written before v14, when nobody recorded who wrote the annotation.
+        sqlite.prepare('UPDATE blocks SET annotation_by = NULL WHERE id = ?').run(b.id);
+      } else if (annotationBy === 'ai') {
+        sqlite.prepare("UPDATE blocks SET annotation_by = 'ai' WHERE id = ?").run(b.id);
+      }
+    };
+
+    // ✓ typed into the composer — 12 characters of his own
+    await make({ content: '手打的一整块内容，十二字', source: null });
+    // ✓ his note on something he captured (4) — the body is what he READ, never counted
+    await make({ content: '一段读到的很长很长的正文', source: 'Safari', annotation: '我的批注' });
+    // ✗ an AI wrote both the block and the note
+    await make({ content: 'AI 写的', source: 'Claude · MCP', annotation: 'AI 的批注' }, 'ai');
+    // ✗ pre-v14 MCP row: no annotation_by, so the source is what says the AI wrote it
+    await make({ content: 'AI 写的', source: 'MCP', annotation: 'AI 的旧批注' }, null);
+    // ✓ pre-v14 capture: no annotation_by and a source that is not MCP — his words (3)
+    await make({ content: '读到的', source: 'Chrome', annotation: '旧批注' }, null);
+    // ✓ pre-v14 composer row: sourceless body (3) + his note (3)
+    await make({ content: '旧手打', source: null, annotation: '旧的注' }, null);
+    // ✗ the tutorial arrives annotated — counting it opens a fresh install on 「我写了 700 字」
+    await make({ content: '教程正文', source: 'Spool 指南', annotation: '教程的批注' });
+    // ✗ whitespace is not writing
+    await make({ content: '又一段读到的', source: 'Safari', annotation: '   ' });
+
+    expect(await countUserWrittenChars()).toBe(12 + 4 + 3 + 3 + 3);
+  });
+
+  it('reports 0 on an empty library rather than null', async () => {
+    // SUM() over no rows is NULL in SQLite, and 「我写了 null 字」 is what that looks like on
+    // a fresh install — the one library where this card is guaranteed to be read.
+    expect(await countUserWrittenChars()).toBe(0);
   });
 });
 

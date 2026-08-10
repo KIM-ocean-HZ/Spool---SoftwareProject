@@ -994,6 +994,11 @@ const TUTORIAL_SOURCES: ReadonlySet<string> = new Set(
 export const isTutorialSource = (source: string | null): boolean =>
   source !== null && TUTORIAL_SOURCES.has(source);
 
+/** The same labels, for a query that has to ask the question in SQL (lib/db/blocks.ts binds
+ *  them as parameters). Handing over the VALUES keeps this set the one definition of
+ *  「哪些是教程种下的」 — a second spelling in a SQL literal is what drifts. */
+export const tutorialSourceLabels = (): string[] => [...TUTORIAL_SOURCES];
+
 // Switching the UI language re-translates the tutorial threads in place (Ocean,
 // 2026-08-03: "教程的语言…需要随切换语言变化"). These are database rows, not UI strings,
 // so the rule that keeps this from eating anyone's work is: **only rewrite what is still
