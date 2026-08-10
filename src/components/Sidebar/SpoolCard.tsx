@@ -103,38 +103,34 @@ export default function SpoolCard() {
 
   return (
     <div className="mb-2 rounded-md border border-line bg-paper px-3 py-2">
-      <div className="flex items-center gap-3">
-        <SpoolMeter
-          level={spool.level}
-          full={spool.full}
-          label={t('线轴：每 100 条捕捉缠满一轴')}
-        />
-        <div className="min-w-0 flex-1 leading-snug">
-          <div className="truncate text-xs text-ink">
-            {t('你攒了 {n} 条', { n: stats.captures })}
-          </div>
-          <div className="truncate text-[11px] text-muted">
-            {t('AI 写回 {n} 条', { n: stats.mcp })}
-          </div>
-          <div className="truncate text-[11px] text-muted">
-            {t('我写了 {n} 字', { n: stats.chars.toLocaleString() })}
-          </div>
-        </div>
+      {/* ⚠️ The reel spans the card and the numbers sit UNDER it in two columns. The first
+          build put a 40px spool on the left with three short lines beside it; Ocean's verdict
+          was 「右边全空,不平衡」 (2026-08-10). Nothing here may go back to one narrow column. */}
+      <SpoolMeter level={spool.level} full={spool.full} label={t('线轴：每 100 条捕捉缠满一轴')} />
+
+      <div className="mt-1 truncate text-[11px]">
+        {spool.full ? (
+          <span className="text-accent">{t('这一轴缠满了')}</span>
+        ) : (
+          <span className="text-muted">{t('还差 {n} 条缠满', { n: untilFull(spool) })}</span>
+        )}
       </div>
 
-      <div className="mt-1.5 flex items-baseline gap-2 text-[11px]">
-        {spool.full ? (
-          <span className="min-w-0 flex-1 truncate text-accent">
-            {t('第 {n} 轴缠满了', { n: spool.filled })}
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-muted">
-            {t('第 {n} 轴 · 还差 {r} 条缠满', { n: spool.filled + 1, r: untilFull(spool) })}
-          </span>
-        )}
-        {spool.filled > 0 && !spool.full && (
-          <span className="flex-none text-muted">{t('已缠满 {n} 轴', { n: spool.filled })}</span>
-        )}
+      {/* Four numbers, four cells — the grid stays the same shape on an empty library, so a
+          zero reads as a number that has not moved yet rather than a hole in the panel. */}
+      <div className="mt-1 grid grid-cols-2 gap-x-2 leading-snug">
+        <span className="truncate text-xs text-ink">
+          {t('你攒了 {n} 条', { n: stats.captures })}
+        </span>
+        <span className="truncate text-xs text-ink">
+          {t('我写了 {n} 字', { n: stats.chars.toLocaleString() })}
+        </span>
+        <span className="truncate text-[11px] text-muted">
+          {t('AI 写回 {n} 条', { n: stats.mcp })}
+        </span>
+        <span className="truncate text-[11px] text-muted">
+          {t('已缠满 {n} 轴', { n: spool.filled })}
+        </span>
       </div>
 
       {stats.todayCount > 0 && (

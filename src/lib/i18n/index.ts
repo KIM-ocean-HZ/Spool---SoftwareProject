@@ -337,9 +337,9 @@ const EN: Record<string, string> = {
   'AI 写回 {n} 条': '{n} written back by AI',
   '我写了 {n} 字': '{n} characters of my own',
   '线轴：每 100 条捕捉缠满一轴': 'One spool holds 100 captures',
-  '第 {n} 轴 · 还差 {r} 条缠满': 'Spool #{n} · {r} to go',
+  '还差 {n} 条缠满': '{n} more to fill it',
+  '这一轴缠满了': 'This spool is full',
   '已缠满 {n} 轴': '{n} spools filled',
-  '第 {n} 轴缠满了': 'Spool #{n} is full',
   '今天读了 {n} 条': '{n} read today',
   '打个包试试 →': 'Try packing it →',
   '现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。':

@@ -9,11 +9,16 @@
 /** Captures per spool. */
 export const SPOOL_CAPACITY = 100;
 
-/** How many wound steps there are between empty and full — 9 档 = 空 + 8 (拍板 2, and he
- *  took the cost: eight states to draw). Every 12.5 captures move the thread, so a user who
- *  captures two or three sees the widget change; at 4 档 they could capture a dozen and
- *  watch nothing happen, which is the disease this widget exists to treat. */
-export const SPOOL_STEPS = 8;
+/** How many wound steps there are between empty and full.
+ *
+ *  ⚠️ Ocean raised this from 8 to **20** after seeing it installed (2026-08-10): 「线轴的状态
+ *  增加,变成 20 个」. One step is now **5 captures**, so a user who captures a handful sees the
+ *  thread move — which is the whole disease this widget treats.
+ *
+ *  ⚠️ 20 steps is what forced the meter's shape to change (SpoolMeter.tsx). At 8 steps the
+ *  wound thread grew in thickness; split twenty ways that growth is half a CSS pixel per
+ *  step, i.e. a state the user cannot see. One step now adds one whole turn of thread. */
+export const SPOOL_STEPS = 20;
 
 export interface SpoolState {
   /** How many spools have been wound full, ever. §2.4: DERIVED, never stored — a stored
@@ -22,7 +27,7 @@ export interface SpoolState {
   filled: number;
   /** How many captures are on the spool being wound now (SPOOL_CAPACITY when it is full). */
   onSpool: number;
-  /** 0 (bare axle) … SPOOL_STEPS (wound full). */
+  /** 0 (bare axle) … SPOOL_STEPS (wound full) — one turn of thread per step. */
   level: number;
   /** The moment worth saying something about: a spool just came up full and nothing has
    *  been captured since. It is a property of the count, not an event — so it survives a

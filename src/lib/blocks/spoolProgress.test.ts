@@ -2,17 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { SPOOL_CAPACITY, SPOOL_STEPS, spoolState, untilFull } from './spoolProgress';
 
 // 首日价值二期 §2.3/§2.4 — the two cases worth pinning are the ones a screenshot hides:
-// what "exactly 100" shows, and where the eight steps actually change.
+// what "exactly 100" shows, and where the twenty steps actually change.
 describe('spoolState', () => {
   it('starts empty and stays empty until the first step is earned', () => {
     expect(spoolState(0)).toEqual({ filled: 0, onSpool: 0, level: 0, full: false });
-    expect(spoolState(12).level).toBe(0);
-    expect(spoolState(13).level).toBe(1); // 12.5 rounded up to the next whole capture
+    expect(spoolState(4).level).toBe(0);
+    expect(spoolState(5).level).toBe(1);
   });
 
-  it('moves one step every 12.5 captures, so nine states cover a spool', () => {
-    const levels = [0, 13, 25, 38, 50, 63, 75, 88, 100].map((n) => spoolState(n).level);
-    expect(levels).toEqual([0, 1, 2, 3, 4, 5, 6, 7, SPOOL_STEPS]);
+  it('lays down one turn of thread every 5 captures (Ocean 2026-08-10: 20 档)', () => {
+    expect(SPOOL_STEPS).toBe(20);
+    const levels = [0, 5, 25, 50, 95, 99, 100].map((n) => spoolState(n).level);
+    expect(levels).toEqual([0, 1, 5, 10, 19, 19, SPOOL_STEPS]);
   });
 
   it('shows the 100th capture as a FULL spool, not an empty next one', () => {
