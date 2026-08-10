@@ -117,7 +117,7 @@ Spool is one binary that runs in three modes, over local channels only.
         │   ┌───────▼──────┐  ┌────▼──────────────┐                  │
         │   │ spool --mcp  │  │ CLI engine slot   │                  │
         │   │ stdio server │  │ spawns claude /   │                  │
-        │   │ 14 tools     │  │ codex subprocess  │                  │
+        │   │ 18 tools     │  │ codex subprocess  │                  │
         │   └───────┬──────┘  └────┬──────────────┘                  │
         └───────────┼──────────────┼─────────────────────────────────┘
                     │ stdio        │ stdio
@@ -143,7 +143,7 @@ account, no sync, no telemetry. Deleting one directory deletes the product's ent
 you.
 
 **The MCP server is the same binary, not a bridge.** `spool --mcp` speaks the Model Context
-Protocol over stdio to whatever AI client you already use — fourteen tools, ten of them read-only.
+Protocol over stdio to whatever AI client you already use — eighteen tools, twelve of them read-only.
 It listens on no network port, so there is nothing to expose or misconfigure. What it hands the
 model is the *same* deterministic pack the GUI produces, from a renderer that exists twice — once
 in TypeScript, once in Rust — with a test that fails unless both produce identical bytes.

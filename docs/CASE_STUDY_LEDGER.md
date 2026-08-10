@@ -728,6 +728,63 @@ each side; the golden fixture keeps doing the job it can do.
 Both halves generalise past this feature: *a test's exclusions are part of its specification*,
 and a green suite says nothing about the axis it deliberately does not look at.
 
+### 3.19 The routing fix, measured on the client that failed (2026-08-10)
+
+§3.16 recorded three tools that shipped working and stayed invisible, because the two blocks of
+prose that tell a client what the user is likely to say had not been updated alongside them. The
+fix was prose. Prose is exactly the kind of change that cannot be shown to work by a test suite,
+so the entry closed with the fix unverified — the honest state, and an uncomfortable one.
+
+It has now been run against the client that produced the original failure, one sentence per
+door, judged on the tool-call event stream rather than on how convincing the model's summary
+read. Four of the five sentences were sent and all four landed on the intended tool. The one
+worth a number is the sentence that had failed hardest: *"file these separately into A and B."*
+Before the fix, that phrasing produced **zero** calls to the batching tool and **twelve** calls
+to the single-block one — the model had reached for the tool it knew and simply done it twice.
+After, the same shape of sentence produced **one** call to the batching tool and **zero** to the
+other. Two more results are worth keeping: asked what was in a project's files, the model
+requested access through the proper channel instead of telling the user to send the file by
+some other means; asked to follow up, it read back the user's own standing brief before going
+anywhere, rather than inventing a goal.
+
+The transcript also shows what the fix does not reach. The model's *first* instinct on the file
+question was to shell out and search the local filesystem for anything named like the project —
+it found the right tool only after listing what it had. Routing prose moved the model to the
+right door once it started looking; it did not make looking the first move.
+
+The generalisable part is a measurement discipline, not a feature: **when the failure was
+"the model never chose this", the fix is only demonstrated by the model choosing it**, on the
+same client, in the user's own phrasing, read off the call log. The suite was green before the
+fix and green after; it had no opinion either way.
+
+### 3.20 A verification that silently pointed at the wrong program (2026-08-10)
+
+Checking a build that cannot be screenshotted on this machine means assembling indirect
+evidence: the process is alive and idle, it holds the library open, its error stream is clean,
+its window exists at a real size. Two copies of the application were running — the one just
+installed for the user, and an isolated build under a throwaway bundle identifier, seeded with
+test data. They share a process name.
+
+The window-inspection query was therefore addressed by process id, which is the one identifier
+that cannot be ambiguous. It returned the *other* process. Asked to filter by numeric id, the
+scripting bridge quietly ignored the filter and handed back the first matching name — and the
+text it dumped was the production library's real projects, which is precisely what a passing
+result would have looked like if the isolated build had rendered correctly. The check would
+have certified an untested build using a screenshot of the shipped one.
+
+What caught it was cheap and should be routine: **the target was asked to state its own
+identity** — its process id and the bundle path it was launched from — and the answer named a
+different application than the one requested. Only after that did the mismatch between the
+listed projects and the seeded ones become legible; before it, the output looked entirely
+plausible.
+
+Two things generalise. First, **an identifier-based lookup is not self-verifying**: a filter
+that is ignored fails open, and a silent narrowing failure returns a neighbour rather than an
+error. Second, when two instances of the same program run side by side, every observation of
+"the program" is ambiguous until something in the observation itself distinguishes them —
+which is a specific instance of the rule already running through §3.4, §3.9, §3.10 and §3.16:
+**the instrument is part of the experiment, and it has to be checked too.**
+
 ---
 
 ## 4. Boundaries stated on purpose
