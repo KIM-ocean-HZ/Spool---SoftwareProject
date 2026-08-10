@@ -522,6 +522,44 @@ describe('assemble', () => {
       expect(out).not.toContain('no longer valid'); // b1 was never retired
     });
 
+    // v21 (Ocean 2026-08-10, 拍板「标到哪句话」). The v13 line said one point in a long block
+    // was wrong and left the reader to find it; with a quote it says which sentence.
+    it('names the corrected sentence when the correction quoted it', () => {
+      const long = '课程要求:复现一篇论文,截止 4 月 30 日,占总分 40%,可以两人一组';
+      const blocks = [
+        textBlock('b1', long, { seq: 1 }),
+        textBlock('b2', '占分是 30% 不是 40%', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '占总分 40%',
+        }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).toContain(
+        '⚠️ one point in this block was corrected later — see #2 (\u201c占总分 40%\u201d)',
+      );
+      expect(out).toContain(long); // still whole — a quote marks, it does not retire
+    });
+
+    // ⚠️ The degradation that makes storing the QUOTE (not offsets) the right call: the
+    // user edited the sentence away, so the pack stops naming it rather than naming words
+    // that are no longer there. The block-level warning survives on its own.
+    it('drops a quote that no longer occurs in the corrected block', () => {
+      const blocks = [
+        textBlock('b1', '课程要求:占总分 30%', { seq: 1 }),
+        textBlock('b2', '占分是 30% 不是 40%', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '占总分 40%',
+        }),
+      ];
+      const out = assemble({ thread, blocks, now: NOW });
+      expect(out).toContain('⚠️ one point in this block was corrected later — see #2');
+      expect(out).not.toContain('占总分 40%\u201d');
+    });
+
     it('does not warn about a correction the user has since retired', () => {
       const blocks = [
         textBlock('b1', '原文', { seq: 1 }),

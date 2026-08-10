@@ -84,7 +84,8 @@ Indented under a block:
 - `↩ corrects one point in:` — one point in the older block is wrong. The older block is
   still printed here in full and still stands on everything else.
 - `⚠️ one point in this block was corrected later — see #N` — the same fact, seen from
-  the older block. Read #N before using this one.
+  the older block. Read #N before using this one. When #N said which sentence it was
+  correcting, that sentence is quoted after it — the rest of this block is unaffected.
 Files are NOT listed under a block. They belong to the project and are listed once, at the
 end, under "Related Files & Links". A file whose text Spool extracted is printed there only
 when the user opted in; otherwise its row is marked `[extracted: yes, not inlined]`, which
@@ -111,7 +112,7 @@ out of this pack and how to get it. Nothing Spool leaves out has been deleted.
 #2 [2025-06-05 06:06 · from Safari] 课程要求:期末项目要复现一篇 2024 年后的论文
 截止 4 月 30 日
 占总分 40%
-    ⚠️ one point in this block was corrected later — see #11
+    ⚠️ one point in this block was corrected later — see #11 (“占总分 40%”)
 #3 [2025-06-06 09:53] → Referenced project: 实验设计
 #4 [2025-06-07 13:40] → Referenced project: 已删除脉络的标题快照
 #5 [2025-06-15 15:06] 我的想法:先复现 baseline 再谈改进,别一上来就魔改

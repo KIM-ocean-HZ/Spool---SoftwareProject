@@ -169,6 +169,8 @@ const EN: Record<string, string> = {
   '取消这条更正关系': 'Undo this correction link',
   '取代了': 'replaces',
   '更正了其中一处：': 'corrects one point in:',
+  '其中一处已被更正：': 'one point in this was corrected:',
+  '点一下跳到那一块': 'Click to jump to that block',
   '这一条更正了项目里的哪一条？': 'Which block in this project does this one correct?',
   '输入几个字找那一条': 'Type a few words to find it',
   '没有匹配的块': 'No block matches',

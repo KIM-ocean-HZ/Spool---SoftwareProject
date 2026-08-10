@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { ContentRuns, type HitRange } from './contentRuns';
-import { isPlainParagraph, parseMarkdown, type MdBlock, type MdDoc } from './markdown';
+import { isPlainParagraph, parseMarkdown, type MdBlock, type MdDoc, type MdSpan } from './markdown';
 
 // DESIGN_WORKBENCH §10.1 — the read-mode renderer for block content.
 //
@@ -17,6 +17,8 @@ interface Props {
   hits?: readonly HitRange[];
   activeHitIndex?: number;
   withSpine?: boolean;
+  /** v21: sentences a later block corrected, as ranges in `content`. */
+  corrected?: readonly MdSpan[];
 }
 
 // Ocean 2026-08-12, after reading real blocks in the first version of this renderer:
@@ -54,6 +56,7 @@ export function MarkdownContent({
   hits,
   activeHitIndex = -1,
   withSpine = false,
+  corrected,
 }: Props): ReactNode {
   const doc: MdDoc = parseMarkdown(content);
   // Nothing structural in this block: render exactly what the old path rendered, down to
@@ -65,6 +68,7 @@ export function MarkdownContent({
         hits={hits}
         activeHitIndex={activeHitIndex}
         withSpine={withSpine}
+        corrected={corrected}
       />
     );
   }
@@ -78,6 +82,7 @@ export function MarkdownContent({
       hits={hits}
       activeHitIndex={activeHitIndex}
       withSpine={spine}
+      corrected={corrected}
       from={b.text.start}
       to={b.text.end}
       raw={doc.raw}

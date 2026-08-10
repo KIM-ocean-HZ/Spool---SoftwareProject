@@ -213,7 +213,8 @@ Indented under a block:
 - \`↩ corrects one point in:\` — one point in the older block is wrong. The older block is
   still printed here in full and still stands on everything else.
 - \`⚠️ one point in this block was corrected later — see #N\` — the same fact, seen from
-  the older block. Read #N before using this one.
+  the older block. Read #N before using this one. When #N said which sentence it was
+  correcting, that sentence is quoted after it — the rest of this block is unaffected.
 Files are NOT listed under a block. They belong to the project and are listed once, at the
 end, under "Related Files & Links". A file whose text Spool extracted is printed there only
 when the user opted in; otherwise its row is marked \`[extracted: yes, not inlined]\`, which

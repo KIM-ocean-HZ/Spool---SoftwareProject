@@ -35,7 +35,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -637,6 +637,25 @@ const MIGRATIONS: Migration[] = [
           } catch (e) {
             console.info(`[db] ${table}.${col}: not added (likely exists)`, e);
           }
+        }
+      }
+    },
+  },
+  {
+    // v21 (Ocean 2026-08-10, 拍板「标到哪句话」) — which sentence in the cited block a
+    // correction is aimed at. One nullable column on each of the two tables that carry a
+    // correction, no backfill: NULL is what every existing row means (nobody said), and it
+    // renders exactly as v13 did. Same class as v20 — a half-run and a complete run are
+    // indistinguishable, not the 2026-05-29 wipe class (§6.3-9).
+    from: 20,
+    to: 21,
+    name: 'add-corrected-quote',
+    run: async (db) => {
+      for (const table of ['blocks', 'proposals']) {
+        try {
+          await db.execute(`ALTER TABLE ${table} ADD COLUMN corrected_quote TEXT`);
+        } catch (e) {
+          console.info(`[db] ${table}.corrected_quote: not added (likely exists)`, e);
         }
       }
     },

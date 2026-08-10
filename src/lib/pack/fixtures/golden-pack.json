@@ -29,7 +29,8 @@
       "pinned": true,
       "createdAt": 1746540000000,
       "refBlockId": null,
-      "seq": 1
+      "seq": 1,
+      "correctedQuote": null
     },
     {
       "id": "b2",
@@ -42,7 +43,8 @@
       "pinned": false,
       "createdAt": 1749100000000,
       "refBlockId": null,
-      "seq": 2
+      "seq": 2,
+      "correctedQuote": null
     },
     {
       "id": "b3",
@@ -55,7 +57,8 @@
       "pinned": false,
       "createdAt": 1749200000000,
       "refBlockId": null,
-      "seq": 3
+      "seq": 3,
+      "correctedQuote": null
     },
     {
       "id": "b4",
@@ -68,7 +71,8 @@
       "pinned": false,
       "createdAt": 1749300000000,
       "refBlockId": null,
-      "seq": 4
+      "seq": 4,
+      "correctedQuote": null
     },
     {
       "id": "b5",
@@ -81,7 +85,8 @@
       "pinned": false,
       "createdAt": 1749996400000,
       "refBlockId": null,
-      "seq": 5
+      "seq": 5,
+      "correctedQuote": null
     },
     {
       "id": "b6",
@@ -94,7 +99,8 @@
       "source": "Claude · MCP",
       "pinned": false,
       "createdAt": 1749997000000,
-      "seq": 6
+      "seq": 6,
+      "correctedQuote": null
     },
     {
       "id": "b7",
@@ -107,7 +113,8 @@
       "source": "Claude · MCP",
       "pinned": false,
       "createdAt": 1749998000000,
-      "seq": 7
+      "seq": 7,
+      "correctedQuote": null
     },
     {
       "id": "b8",
@@ -120,7 +127,8 @@
       "source": "Claude · MCP",
       "pinned": false,
       "createdAt": 1749999000000,
-      "seq": 8
+      "seq": 8,
+      "correctedQuote": null
     },
     {
       "id": "b9",
@@ -134,7 +142,8 @@
       "pinned": true,
       "createdAt": 1749999100000,
       "seq": 9,
-      "staleAt": 1749999500000
+      "staleAt": 1749999500000,
+      "correctedQuote": null
     },
     {
       "id": "b10",
@@ -151,7 +160,8 @@
       "seq": 10,
       "sourceUrl": "https://admissions.example.edu/deadlines",
       "retrievedAt": 1749513600000,
-      "recheckAfter": 1748736000000
+      "recheckAfter": 1748736000000,
+      "correctedQuote": null
     },
     {
       "id": "b11",
@@ -166,7 +176,8 @@
       "pinned": false,
       "createdAt": 1749999700000,
       "seq": 11,
-      "retrievedAt": 1747699200000
+      "retrievedAt": 1747699200000,
+      "correctedQuote": "占总分 40%"
     },
     {
       "id": "b12",
@@ -183,7 +194,8 @@
       "seq": 12,
       "sourceUrl": "https://cs.example.edu/courses/6.7900/prereqs",
       "retrievedAt": 1749686400000,
-      "recheckAfter": 1772323200000
+      "recheckAfter": 1772323200000,
+      "correctedQuote": null
     },
     {
       "id": "b13",
@@ -197,7 +209,8 @@
       "source": "Codex · MCP",
       "pinned": true,
       "createdAt": 1749999900000,
-      "seq": 13
+      "seq": 13,
+      "correctedQuote": null
     }
   ],
   "attachments": [

@@ -133,7 +133,27 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- round-trip to the same characters the caller sent.
   source_url    TEXT,
   retrieved_at  INTEGER,
-  recheck_after INTEGER
+  recheck_after INTEGER,
+  -- v21 (Ocean 2026-08-10, after §7 sentence 5 ran on ChatGPT): the sentence in the CITED
+  -- block that this block corrects — quoted verbatim from it, by whoever wrote the
+  -- correction. Meaningful only on a row whose ref_kind is 'corrects'.
+  --
+  -- v13 gave a correction a target (`ref_block_id`) but no aim. Ocean read the result in
+  -- the real library: 「展开也不知道到底是哪里被修改了」— a 1,900-character block flagged as
+  -- containing one wrong point, and no way to find which. The §3.1.1 bargain (correcting a
+  -- sentence must not cost a re-paste of the other 1,900 characters) is what makes that
+  -- unavoidable without this column: the correction never contains the old text.
+  --
+  -- Stored as the quote and matched by substring at render time rather than as offsets.
+  -- Offsets would be a lie the moment the user edits the cited block by one character,
+  -- and they would be a lie SILENTLY — pointing at the wrong words is worse than pointing
+  -- at none. A quote that no longer matches simply stops being drawn, and the block-level
+  -- 「one point in this block was corrected later」 warning stands on its own.
+  --
+  -- NULL on every pre-v21 row, every hand-written correction (SupersedePicker has no input
+  -- for it and does not get one — same reasoning as v20's三列), and every model that does
+  -- not fill it in. All three degrade to exactly the v13 behaviour.
+  corrected_quote TEXT
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
@@ -276,6 +296,10 @@ CREATE TABLE IF NOT EXISTS proposals (
   source_url    TEXT,
   retrieved_at  INTEGER,
   recheck_after INTEGER,
+  -- v21: the quoted sentence a `corrects` proposal aims at, riding the queue for the same
+  -- reason the three above do — the caller that read the old block is gone by the time the
+  -- user approves, and nothing left here could reconstruct which sentence it meant.
+  corrected_quote TEXT,
   sort_order   INTEGER NOT NULL
 );
 

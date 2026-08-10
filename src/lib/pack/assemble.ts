@@ -248,7 +248,7 @@ const renderBlock = (
   refBlocks: Map<string, CitedBlock> | undefined,
   // v13: the newer blocks that corrected a point inside THIS one, by seq. Rendered under
   // the old block, which stays in the pack in full (§3.1.1).
-  correctedBy: Map<string, number[]> | undefined,
+  correctedBy: Map<string, Correction[]> | undefined,
   now: number,
 ): string[] => {
   const time = formatPackTime(b.createdAt);
@@ -290,24 +290,55 @@ const renderBlock = (
   const corrections = correctedBy?.get(b.id);
   if (corrections && corrections.length > 0) {
     lines.push(
-      `${NOTE_INDENT}${CORRECTED_BY_PREFIX}${corrections.map((s) => `#${s}`).join(', ')}`,
+      // v21: 「#6」 says a point is wrong; 「#6 (\u201c…\u201d)」 says WHICH. Same 40-char anchor
+      // ladder as every other preview in the pack — this points into the body printed
+      // directly above, it does not reprint it. Byte-for-byte with mcp.rs render_block.
+      `${NOTE_INDENT}${CORRECTED_BY_PREFIX}${corrections
+        .map((c) => (c.quote ? `#${c.seq} (\u201c${headAnchor(c.quote)}\u201d)` : `#${c.seq}`))
+        .join(', ')}`,
     );
   }
   return lines;
 };
 
-// v13 (DESIGN_CONTEXT_HYGIENE §3.1.1): old block id → the #seq of each newer block that
-// corrected a point inside it. Derived from the pack's own block list, so a correction
-// written in another project is not claimed here — the pack only speaks for what it holds.
-// Blocks with no seq (pre-v9 rows) cannot be pointed at and are skipped: a warning naming
-// nothing is worse than no warning.
-const correctionsBySource = (blocks: Block[]): Map<string, number[]> => {
-  const out = new Map<string, number[]>();
+// v13 (DESIGN_CONTEXT_HYGIENE §3.1.1): old block id → each newer block that corrected a
+// point inside it. Derived from the pack's own block list, so a correction written in
+// another project is not claimed here — the pack only speaks for what it holds. Blocks
+// with no seq (pre-v9 rows) cannot be pointed at and are skipped: a warning naming nothing
+// is worse than no warning.
+//
+// ⚠️ 2026-08-10: exported, because the GUI needs the same warning under the same blocks
+// (Ocean: 「展开也不知道到底是哪里被修改了」— the pack had this line from v13 and the feed
+// never did). One rule, one function: 「哪些块算更正了这一块」 is exactly the kind of predicate
+// that gets copied and then drifts.
+//
+// Carries `id` as well as `seq` because the feed's version is clickable and the pack's is
+// not — the pack names a block, the GUI has to be able to go there.
+//
+// v21: and the quote, so both surfaces can name the SENTENCE. Kept only while it still
+// occurs in the block being warned about — the user may have edited that block since, and a
+// quote pointing at words that are no longer there is worse than naming none. Mirrors
+// mcp.rs corrections_by_source.
+export interface Correction {
+  id: string;
+  seq: number;
+  quote: string | null;
+}
+
+export const correctionsBySource = (blocks: Block[]): Map<string, Correction[]> => {
+  const out = new Map<string, Correction[]>();
   for (const b of blocks) {
     if (b.refKind !== 'corrects' || !b.refBlockId || b.seq == null) continue;
+    const q = b.correctedQuote?.trim();
+    const target = blocks.find((t) => t.id === b.refBlockId);
+    const entry: Correction = {
+      id: b.id,
+      seq: b.seq,
+      quote: q && target?.content.includes(q) ? q : null,
+    };
     const list = out.get(b.refBlockId);
-    if (list) list.push(b.seq);
-    else out.set(b.refBlockId, [b.seq]);
+    if (list) list.push(entry);
+    else out.set(b.refBlockId, [entry]);
   }
   return out;
 };

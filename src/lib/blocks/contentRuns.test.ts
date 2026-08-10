@@ -126,4 +126,29 @@ describe('tokenizeContent · inline markdown', () => {
     const runs = tokenizeContent(content, { hidden: [{ start: 0, end: 2 }] });
     expect(runs.map((r) => r.text).join('')).toBe('标题');
   });
+
+  // v21 — the sentence a later block corrected. One more independent attribute: it has to
+  // survive landing on top of a ==highlight== or a search hit, because those are exactly
+  // the blocks a user is reading when a correction matters.
+  it('flags a corrected span without disturbing the text', () => {
+    const content = '截止 4 月 30 日,占总分 40%,可以两人一组';
+    const start = content.indexOf('占总分 40%');
+    const runs = tokenizeContent(content, {
+      corrected: [{ start, end: start + '占总分 40%'.length }],
+    });
+    expect(runs.map((r) => r.text).join('')).toBe(content);
+    expect(runs.find((r) => r.corrected)?.text).toBe('占总分 40%');
+    expect(runs.filter((r) => r.corrected)).toHaveLength(1);
+  });
+
+  it('composes a correction with a highlight over the same words', () => {
+    const content = '占总分 ==40%== 整';
+    const start = content.indexOf('==40%==');
+    const runs = tokenizeContent(content, {
+      corrected: [{ start, end: start + '==40%=='.length }],
+    });
+    const inner = runs.find((r) => r.text === '40%');
+    expect(inner?.highlight).toBe(true);
+    expect(inner?.corrected).toBe(true);
+  });
 });

@@ -33,6 +33,9 @@ export interface Proposal {
   sourceUrl: string | null;
   retrievedAt: number | null;
   recheckAfter: number | null;
+  /** v21: the sentence in the corrected block this item is aimed at, quoted verbatim.
+   *  Only meaningful alongside refKind 'corrects'; null everywhere else. */
+  correctedQuote: string | null;
 }
 
 export interface ProposalBatch {
@@ -88,6 +91,7 @@ interface ItemRow {
   source_url: string | null;
   retrieved_at: number | null;
   recheck_after: number | null;
+  corrected_quote: string | null;
 }
 
 // Pending = still inside its 7-day window. Everything else is void and shows as one
@@ -118,6 +122,7 @@ export const listPendingBatches = async (now: number): Promise<ProposalBatch[]> 
       sourceUrl: r.source_url,
       retrievedAt: r.retrieved_at,
       recheckAfter: r.recheck_after,
+      correctedQuote: r.corrected_quote,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -202,6 +207,7 @@ export const listBatchesCreatedSince = async (since: number): Promise<ProposalBa
       sourceUrl: r.source_url,
       retrievedAt: r.retrieved_at,
       recheckAfter: r.recheck_after,
+      correctedQuote: r.corrected_quote,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -350,6 +356,8 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       sourceUrl: r.source_url,
       retrievedAt: r.retrieved_at,
       recheckAfter: r.recheck_after,
+      // v21: the aim rides through approval with the rest of the relation.
+      correctedQuote: r.corrected_quote,
     });
     // v14 (§9.3 拍板甲): the correction relation is applied on APPROVAL, never at propose
     // time — until the user clicks, nothing about the corrected block has changed. Only
@@ -369,8 +377,16 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
 // get a batch in front of the approve path without one. Never called by the app.
 export const __insertBatchForTest = async (
   batch: Omit<ProposalBatch, 'items'> & {
-    items: (Omit<Proposal, 'id' | 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter'> &
-      Partial<Pick<Proposal, 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter'>>)[];
+    items: (Omit<
+      Proposal,
+      'id' | 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter' | 'correctedQuote'
+    > &
+      Partial<
+        Pick<
+          Proposal,
+          'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter' | 'correctedQuote'
+        >
+      >)[];
   },
 ): Promise<void> => {
   const db = await getDb();
@@ -390,8 +406,8 @@ export const __insertBatchForTest = async (
   for (let i = 0; i < batch.items.length; i++) {
     const it = batch.items[i]!;
     await db.execute(
-      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, source_url, retrieved_at, recheck_after, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         nanoid(),
         batch.id,
@@ -403,6 +419,7 @@ export const __insertBatchForTest = async (
         it.sourceUrl ?? null,
         it.retrievedAt ?? null,
         it.recheckAfter ?? null,
+        it.correctedQuote ?? null,
         i,
       ],
     );

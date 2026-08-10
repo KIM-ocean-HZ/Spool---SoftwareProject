@@ -46,6 +46,10 @@ export interface Block {
   retrievedAt: number | null;
   /** v20: the day after which this should be checked again. Null = it does not go off. */
   recheckAfter: number | null;
+  /** v21: on a `corrects` block, the sentence it quotes verbatim out of the block it
+   *  corrects — the aim v13 never had. Null = nobody said which sentence, which renders
+   *  exactly as v13 did. Matched by substring at render time, never by offset. */
+  correctedQuote: string | null;
 }
 
 export interface CreateBlockArgs {
@@ -67,6 +71,8 @@ export interface CreateBlockArgs {
   sourceUrl?: string | null;
   retrievedAt?: number | null;
   recheckAfter?: number | null;
+  /** v21: same story — only approveBatch carries one, out of the proposal. */
+  correctedQuote?: string | null;
 }
 
 interface Row {
@@ -87,6 +93,7 @@ interface Row {
   source_url: string | null;
   retrieved_at: number | null;
   recheck_after: number | null;
+  corrected_quote: string | null;
 }
 
 const fromRow = (r: Row): Block => ({
@@ -107,10 +114,11 @@ const fromRow = (r: Row): Block => ({
   sourceUrl: r.source_url ?? null,
   retrievedAt: r.retrieved_at ?? null,
   recheckAfter: r.recheck_after ?? null,
+  correctedQuote: r.corrected_quote ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -300,14 +308,15 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     sourceUrl: args.sourceUrl ?? null,
     retrievedAt: args.retrievedAt ?? null,
     recheckAfter: args.recheckAfter ?? null,
+    correctedQuote: args.correctedQuote ?? null,
   };
   // v9: `seq` is computed inside the INSERT, not read-then-written. WAL serialises
   // writers, so a single statement holding the write lock cannot lose the race against
   // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after)
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after, corrected_quote)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14)`,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14, $15)`,
     [
       b.id,
       b.threadId,
@@ -323,6 +332,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.sourceUrl,
       b.retrievedAt,
       b.recheckAfter,
+      b.correctedQuote,
     ],
   );
   const assigned = await db.select<{ seq: number | null }[]>(
@@ -358,7 +368,7 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 17;
+  const COLS = 18;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
@@ -386,10 +396,11 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.sourceUrl,
       b.retrievedAt,
       b.recheckAfter,
+      b.correctedQuote,
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote) VALUES ${tuples}`,
     params,
   );
 };
@@ -462,8 +473,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
     [
       block.id,
       block.threadId,
@@ -488,6 +499,7 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.sourceUrl,
       block.retrievedAt,
       block.recheckAfter,
+      block.correctedQuote,
     ],
   );
 };

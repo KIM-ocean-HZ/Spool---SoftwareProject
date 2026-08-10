@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
@@ -11,6 +11,7 @@ import {
 import { hasSegmentAnnotations } from '@/lib/blocks/segments';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Block } from '@/lib/db/blocks';
+import { correctionsBySource, type Correction } from '@/lib/pack/assemble';
 import type { HitOffset } from '@/lib/search/query';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
@@ -21,7 +22,9 @@ import { useSearchStore } from '@/stores/searchStore';
 import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
 import BlockActions from './BlockActions';
 import CitationLine from './CitationLine';
+import CorrectedByLine from './CorrectedByLine';
 import RefBlockItem from './RefBlockItem';
+import SeqBadge from './SeqBadge';
 import SourceBadge from './SourceBadge';
 import SupersedePicker from './SupersedePicker';
 
@@ -78,6 +81,10 @@ const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
 // incidental wheel nudge doesn't drop the highlights mid-read.
 const NAV_SCROLL_DISMISS_PX = 200;
 
+// §6.2-bis's rule about selectors, applied to a memo input: a fresh [] here would make the
+// span memo below recompute on every render of every uncorrected block — which is all of them.
+const EMPTY_CORRECTIONS: Correction[] = [];
+
 // Filter the flat hits array down to one field and keep each hit's global
 // index in the original array — InBlockNavigator counts and the active-index
 // comparison still operate over the unified order.
@@ -120,6 +127,30 @@ function TextBlockItem({
   const setSupersession = useBlocksStore((s) => s.setSupersession);
   const clearSupersession = useBlocksStore((s) => s.clearSupersession);
   const siblings = useBlocksStore((s) => s.byThread[block.threadId]);
+  // v13's warning, seen from the corrected block — the half the feed never had. Derived
+  // from the project's own blocks through the SAME function the pack uses, so 「哪些块算更正
+  // 了这一块」 cannot drift between the briefing and the screen.
+  const corrections = useMemo(
+    () => correctionsBySource(siblings ?? []).get(block.id) ?? EMPTY_CORRECTIONS,
+    [siblings, block.id],
+  );
+  // v21 — where those corrections say the wrong sentence is. Located by exact substring:
+  // stored offsets would silently point at the wrong words the first time the user edits
+  // this block, and correctionsBySource has already dropped any quote that no longer occurs
+  // here. Every occurrence is marked; an identical sentence twice in one block says the
+  // same wrong thing twice, and picking one of them would be arbitrary.
+  const correctedSpans = useMemo(() => {
+    const spans: { start: number; end: number }[] = [];
+    for (const c of corrections) {
+      if (!c.quote) continue;
+      let from = block.content.indexOf(c.quote);
+      while (from !== -1) {
+        spans.push({ start: from, end: from + c.quote.length });
+        from = block.content.indexOf(c.quote, from + c.quote.length);
+      }
+    }
+    return spans;
+  }, [corrections, block.content]);
 
   // Action-bar reveal is JS-driven (not CSS group-hover): mouseleave deterministically
   // clears it, so the bar can't get stuck visible when the cursor moves to the block
@@ -731,7 +762,9 @@ function TextBlockItem({
         {/* v9 (DESIGN_SCHEMA_V9 H-1, Ocean approved style a): the block's own number,
             the same #12 an AI says over MCP. Grey and small so it never competes with
             the text; clicking it scrolls this block to the middle and flashes it, which
-            is what "point at that one" looks like when the AI just named it. */}
+            is what "point at that one" looks like when the AI just named it.
+            2026-08-10 (Ocean 拍板「两处一起改」): the `#` is now a ring — see SeqBadge.
+            The tooltip is what still teaches 「#12」→ this one, so it stays. */}
         {block.seq != null && (
           <button
             type="button"
@@ -742,9 +775,9 @@ function TextBlockItem({
               setSelfFlash(true);
             }}
             title={t('这一块的编号 — AI 说「#12」指的就是它。点一下定位')}
-            className="shrink-0 font-mono tabular-nums text-muted transition-colors hover:text-accent"
+            className="shrink-0 text-muted transition-colors hover:text-accent"
           >
-            #{block.seq}
+            <SeqBadge seq={block.seq} />
           </button>
         )}
         <time className="font-mono">{formatBlockTime(block.createdAt)}</time>
@@ -872,6 +905,7 @@ function TextBlockItem({
                 hits={isNavTarget ? hitsForField(navHits, 'content') : undefined}
                 activeHitIndex={navHitIndex}
                 withSpine
+                corrected={correctedSpans}
               />
             )}
           </div>
@@ -963,6 +997,12 @@ function TextBlockItem({
       {block.refBlockId && (
         <CitationLine refBlockId={block.refBlockId} refKind={block.refKind} />
       )}
+
+      {/* v13/v21, the other direction: this block has a point some later block corrected.
+          ⚠️ The SegmentedContent branch above does not take `corrected` spans, so on those
+          few blocks this line is the whole marking — which is still strictly more than the
+          feed showed before. */}
+      <CorrectedByLine corrections={corrections} />
 
       {pickingTarget && !readOnly && (
         <SupersedePicker

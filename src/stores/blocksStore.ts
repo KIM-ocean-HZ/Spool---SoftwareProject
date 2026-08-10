@@ -512,6 +512,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           sourceUrl: src.sourceUrl,
           retrievedAt: src.retrievedAt,
           recheckAfter: src.recheckAfter,
+          // v21: travels with refKind/refBlockId for the same reason they do — it is one
+          // more field OF that relation, and a copy that dropped it would point at the
+          // right block with the aim knocked off.
+          correctedQuote: src.correctedQuote,
         });
       });
 

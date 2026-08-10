@@ -785,6 +785,48 @@ error. Second, when two instances of the same program run side by side, every ob
 which is a specific instance of the rule already running through §3.4, §3.9, §3.10 and §3.16:
 **the instrument is part of the experiment, and it has to be checked too.**
 
+### 3.21 The instructions told the user to look at something that was never built (2026-08-10)
+
+A block-level correction — *one sentence inside this older block is wrong* — had been in the
+schema for several versions, rendered on both sides in the assembled briefing, and covered by
+tests. It had never once been used by a real client. When the user finally exercised it, the
+written test script told him what to check: *go back and see whether a line appeared under the
+old block saying one point in it was corrected.*
+
+That line existed only in the briefing text. **The application's own screen had no counterpart
+and never had.** The half of the feature the user could reach — the newer block, which did
+carry a visible pointer — rendered a raw preview of the older block's Markdown source, so the
+one clue on screen read as `# 申请人定位… **目标。**`, and clicking it did nothing, because the
+line had been deliberately specified as non-interactive under a design principle about staying
+quiet.
+
+Everything had been verified except the thing being claimed. The renderers matched each other
+byte for byte; the tests asserted the marker; the acceptance script asserted the marker. All
+three were checking the briefing. None of them was checking the screen, and the script was
+written by the same reasoning that built the feature, so it inherited the blind spot rather
+than exposing it.
+
+Three things generalise.
+
+First, **a correctness relation is not a footnote, and the interaction has to match**. A
+citation may be ignored; a correction is an assertion *about another record*, so a pointer the
+reader cannot follow costs more than the visual quiet it buys. The quiet principle was right
+in general and wrong for this one case — which is only discoverable by someone using it.
+
+Second, **an acceptance script is evidence about the author's model, not about the system.**
+This one named a UI element that had never been implemented, and it survived review because
+the marker string genuinely existed in the codebase — in the other renderer.
+
+Third, the deeper fix was to stop pointing at the *record* and start pointing at the
+*sentence*: the correcting party now quotes the superseded sentence verbatim, and it is marked
+in place. That choice carried its own decision — store the quote, not character offsets.
+Offsets are cheaper and would keep working until the moment the older record is edited, after
+which they point at the wrong words **and go on rendering confidently**. A quote that no longer
+matches simply stops being drawn. The failure mode was chosen for how it fails, not for how it
+performs. The same reasoning put the verification at write time: the quote is checked against
+the target as it is stored, because the only party able to correct a mis-transcription is the
+one that is still there, and it is only still there right then.
+
 ---
 
 ## 4. Boundaries stated on purpose

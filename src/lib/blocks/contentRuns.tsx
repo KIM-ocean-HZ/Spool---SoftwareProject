@@ -12,7 +12,7 @@
 
 import { Fragment, type ReactNode } from 'react';
 import { HIGHLIGHT_RE } from './highlight';
-import type { MdSpan } from './markdown';
+import { parseMarkdown, type MdSpan } from './markdown';
 
 export interface HitRange {
   start: number;
@@ -35,6 +35,13 @@ export interface ContentRun {
   hit: { idx: number; active: boolean } | null;
   // §10.1 inline Markdown: **bold**, *italic*, `code`. Markers are stripped like ==.
   mark?: InlineMark;
+  // v21: inside a sentence a later block declared wrong (corrected_quote). One more
+  // independent attribute for the same reason `highlight` is one — a search hit, a user
+  // highlight and a correction can all cover the same words, and flat runs let all three
+  // render without nesting.
+  // Optional like `mark`, and for the same reason: it is absent on virtually every run, and
+  // an always-present `false` would have rewritten every existing expectation for nothing.
+  corrected?: boolean;
 }
 
 // Inline markers, in precedence order — first claim wins, and a later pattern overlapping
@@ -77,6 +84,10 @@ interface TokenizeOptions {
   to?: number;
   // Ranges where inline markers are literal — inside a fenced code block.
   raw?: readonly MdSpan[];
+  // v21: character ranges of sentences a later block corrected, in this same coordinate
+  // space. Resolved by the caller (BlockItem), because only it knows which blocks correct
+  // this one.
+  corrected?: readonly MdSpan[];
   // Marker ranges the parser identified as structure (`## `, `- `, the fences).
   hidden?: readonly MdSpan[];
 }
@@ -97,6 +108,7 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
     | { kind: 'hit'; start: number; end: number; idx: number }
     | { kind: 'highlight'; start: number; end: number }
     | { kind: 'mark'; start: number; end: number; mark: InlineMark }
+    | { kind: 'corrected'; start: number; end: number }
     | { kind: 'cap'; start: number; end: number };
 
   const intervals: Interval[] = [];
@@ -131,6 +143,9 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
   // Structural markers (`## `, `- `, the fences) are hidden exactly like a == cap.
   for (const h of opts.hidden ?? []) intervals.push({ kind: 'cap', start: h.start, end: h.end });
   for (const h of hits) intervals.push({ kind: 'hit', start: h.start, end: h.end, idx: h.idx });
+  for (const c of opts.corrected ?? []) {
+    intervals.push({ kind: 'corrected', start: c.start, end: c.end });
+  }
 
   const breakpoints = new Set<number>([from, to]);
   if (sEnd > from && sEnd < to) breakpoints.add(sEnd);
@@ -160,15 +175,38 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
       (it): it is Extract<Interval, { kind: 'mark' }> =>
         it.kind === 'mark' && segStart >= it.start && segEnd <= it.end,
     )?.mark;
+    const corrected = intervals.some(
+      (it) => it.kind === 'corrected' && segStart >= it.start && segEnd <= it.end,
+    );
     runs.push({
       text: content.slice(segStart, segEnd),
       spine: sEnd > 0 && segStart < sEnd,
       highlight,
       hit: hit ? { idx: hit.idx, active: hit.idx === activeHitIndex } : null,
       mark,
+      corrected: corrected || undefined,
     });
   }
   return runs;
+}
+
+// The same tokenizer, used for its other half: the text with every marker dropped.
+//
+// Ocean 2026-08-10, reading a `corrects` citation in the real library: 「正文是 md 文档形式，
+// 看起来太混乱」— the GUI's one-line preview of a cited block was slicing the raw body, so
+// `# 申请人定位…` and `**目标。**` arrived with their markers attached. Wherever the GUI
+// NAMES a block instead of rendering it, the markers are noise.
+//
+// Reusing the tokenizer instead of writing a second stripper is the point: there is one
+// definition of "what is a marker", and a regex twin would drift from it — showing markers
+// the renderer hides, or eating text it does not.
+//
+// ⚠️ GUI only. The pack keeps the raw body: markdown is structure to the model reading it.
+export function plainText(content: string): string {
+  const doc = parseMarkdown(content);
+  return tokenizeContent(content, { raw: doc.raw, hidden: doc.hidden })
+    .map((r) => r.text)
+    .join('');
 }
 
 interface ContentRunsProps extends TokenizeOptions {
@@ -205,7 +243,20 @@ export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
         // A strong run inside the spine already carries its own weight — emitting both would
         // leave which one wins up to the order Tailwind happens to write them out in.
         const spineWeight = run.spine && run.mark !== 'strong' ? 'font-medium' : '';
-        const spineCls = `${spineWeight} ${markCls}`.trim();
+        // v21 — the sentence a later block corrected. The warm wash and its edge are the
+        // tokens Ocean approved for the date-reminder strip (「做一个暖色，透明一点的」): this is
+        // the same kind of statement, laid over the text rather than replacing it. The text
+        // stays fully readable and is NOT struck through — `corrects` says one point is
+        // wrong, and whether that retires anything is the user's call (§3.1 «谁能用»).
+        //
+        // The dotted rule carries it on its own when a search hit or a ==highlight== has
+        // already claimed the background — three overlapping colours would say nothing.
+        const correctedCls = run.corrected
+          ? `underline decoration-dotted decoration-[var(--notice-warm-edge)] underline-offset-[3px]${
+              run.hit || run.highlight ? '' : ' bg-[var(--notice-warm)] rounded-sm'
+            }`
+          : '';
+        const spineCls = `${spineWeight} ${markCls} ${correctedCls}`.trim();
         if (run.hit) {
           return (
             <mark
@@ -233,7 +284,7 @@ export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
         }
         if (run.mark === 'code') {
           return (
-            <code key={i} className={markCls}>
+            <code key={i} className={`${markCls} ${correctedCls}`.trim()}>
               {run.text}
             </code>
           );
