@@ -52,6 +52,22 @@ interface Stats {
   packTarget: string | undefined;
 }
 
+/** One number in the panel: what it is on the left, how much on the right. The value column
+ *  is tabular so the digits line up down the card rather than dancing with the font's
+ *  proportional widths. */
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <dt className="truncate text-[11px] text-muted">{label}</dt>
+      <dd
+        className={`flex-none tabular-nums ${strong ? 'text-xs text-ink' : 'text-[11px] text-ink-2'}`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 export default function SpoolCard() {
   const t = useT();
   const setPacking = useThreadsStore((s) => s.setPacking);
@@ -103,34 +119,35 @@ export default function SpoolCard() {
 
   return (
     <div className="mb-2 rounded-md border border-line bg-paper px-3 py-2">
-      {/* ⚠️ The reel spans the card and the numbers sit UNDER it in two columns. The first
-          build put a 40px spool on the left with three short lines beside it; Ocean's verdict
-          was 「右边全空,不平衡」 (2026-08-10). Nothing here may go back to one narrow column. */}
-      <SpoolMeter level={spool.level} full={spool.full} label={t('线轴：每 100 条捕捉缠满一轴')} />
-
-      <div className="mt-1 truncate text-[11px]">
-        {spool.full ? (
-          <span className="text-accent">{t('这一轴缠满了')}</span>
-        ) : (
-          <span className="text-muted">{t('还差 {n} 条缠满', { n: untilFull(spool) })}</span>
-        )}
+      {/* ⚠️ **Label left, number right — the numbers make a column against the right edge.**
+          Ocean rejected two earlier versions of this text, and both faults are answered here
+          (2026-08-10): three whole sentences stacked beside the meter left 「右边什么都没有,
+          而左边很紧凑」, and a full-width reel with a 2×2 grid under it was 「太大个了」.
+          What the panel needed was never more room — it was for the words to stop being
+          sentences. Don't put 「你攒了 N 条」 back: a sentence has to end somewhere, and where
+          it ends is the ragged left block he objected to. */}
+      <div className="flex items-center gap-3">
+        <SpoolMeter
+          level={spool.level}
+          full={spool.full}
+          label={t('线轴：每 100 条捕捉缠满一轴')}
+        />
+        <dl className="min-w-0 flex-1 leading-snug">
+          <Row label={t('你攒的')} value={t('{n} 条', { n: stats.captures })} strong />
+          <Row label={t('AI 写回')} value={t('{n} 条', { n: stats.mcp })} />
+          <Row label={t('我写的')} value={t('{n} 字', { n: stats.chars.toLocaleString() })} />
+        </dl>
       </div>
 
-      {/* Four numbers, four cells — the grid stays the same shape on an empty library, so a
-          zero reads as a number that has not moved yet rather than a hole in the panel. */}
-      <div className="mt-1 grid grid-cols-2 gap-x-2 leading-snug">
-        <span className="truncate text-xs text-ink">
-          {t('你攒了 {n} 条', { n: stats.captures })}
-        </span>
-        <span className="truncate text-xs text-ink">
-          {t('我写了 {n} 字', { n: stats.chars.toLocaleString() })}
-        </span>
-        <span className="truncate text-[11px] text-muted">
-          {t('AI 写回 {n} 条', { n: stats.mcp })}
-        </span>
-        <span className="truncate text-[11px] text-muted">
-          {t('已缠满 {n} 轴', { n: spool.filled })}
-        </span>
+      <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[11px]">
+        {spool.full ? (
+          <span className="truncate text-accent">{t('这一轴缠满了')}</span>
+        ) : (
+          <span className="truncate text-muted">
+            {t('还差 {n} 条缠满', { n: untilFull(spool) })}
+          </span>
+        )}
+        <span className="flex-none text-muted">{t('已缠满 {n} 轴', { n: spool.filled })}</span>
       </div>
 
       {stats.todayCount > 0 && (

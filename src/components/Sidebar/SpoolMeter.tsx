@@ -3,35 +3,42 @@ import { SPOOL_STEPS } from '@/lib/blocks/spoolProgress';
 // 首日价值二期 §2.3 — the spool, wound.
 //
 // This is the first time the product's name is a thing on screen that moves: `spool` is a
-// 线轴, and the library winding onto one is the whole metaphor. Inline SVG rather than an
-// image for the reason every other mark here is (tokens.css owns the palette, and a bitmap
-// would need a second copy for Retina).
+// 线轴, and the library winding onto one is the whole metaphor. Drawn as inline SVG rather
+// than an image for the reason every other mark here is (tokens.css owns the palette, and a
+// bitmap would need a second copy for Retina), and viewed the way a real one is: two end
+// flanges, an axle between them, and coils that thicken as thread goes on.
 //
-// ⚠️ **Two turns of Ocean's feedback are baked into this shape. Both cost the obvious
-// version, so don't refactor back toward it.**
+// ⚠️⚠️ **It is small on purpose, and that was decided twice.** A version spanning the whole
+// card was built and rejected on sight — Ocean 2026-08-10: 「上一版本的线轴没有问题(这版太
+// 大个了)」, and 「logo 太小了,被面板抢占了注意力」. The sidebar's own title is what should
+// carry this panel's corner of the screen; the meter is a mark beside the numbers, not a
+// banner over them. **Do not grow it to make a step easier to see** (see below) — that
+// trade was made and refused.
 //
-// 1. **A step is one whole turn of thread, not a thicker bundle.** The first build grew the
-//    wound bundle's radius, which reads well at 8 steps and is invisible at 20 (2026-08-10:
-//    「线轴的状态增加,变成 20 个」) — nineteen thickenings inside eleven pixels is half a pixel
-//    each. Turns are countable: every 5 captures a new one lands on the barrel.
-// 2. **It spans the whole card.** It used to be a 40px square with the numbers beside it,
-//    and his verdict on that card was 「右边全空,不平衡」. A reel is the one element here that
-//    is naturally wide, so it takes the full width and the numbers sit under it in two
-//    columns. Twenty turns also need the room — at 40px they would be 2px apart.
+// ⚠️ The animation is the STEP, never a resting state (§2.3). The sidebar is always on
+// screen; something that moves continuously there spends the user's attention every minute
+// of the day to say what a static picture already says.
 //
-// ⚠️ The animation is the STEP, never a resting state. The sidebar is always on screen;
-// something that moves continuously there spends the user's attention every minute of the
-// day to say what a static picture already says.
-const VIEW_W = 220;
-const VIEW_H = 44;
-const CENTER_Y = 22;
-const BARREL_HALF = 5;
-const COIL_HALF = 15; // stays inside the flanges (y 2…42)
-const COIL_X0 = 14.5;
-const COIL_PITCH = 10;
+// ⚠️ The barrel is what an EMPTY spool is, and a fresh install opens on exactly that
+// (§4-3: the card no longer hides itself). Drawn any thinner it stops reading as a spool at
+// all and becomes a capital H between two bars — measured by looking at it, WKWebView,
+// HANDOFF §6.2-sexies.
+const CENTER_Y = 18;
+const AXLE_HALF = 4.5;
+const FULL_HALF = 14; // stays inside the flanges (y 2…34)
+const COIL_X = [9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
+
+/** How thick the wound thread is at this step, as a fraction of a full spool. Step 1 has to
+ *  clear the axle — thread that renders *inside* the axle is a step the user cannot see.
+ *
+ *  ⚠️ With SPOOL_STEPS at 20 (Ocean 2026-08-10) one step is about half a CSS pixel here, so
+ *  a SINGLE step is not meant to be legible at a glance; four or five of them are. That is
+ *  the cost of keeping the meter this size, and it is the side he chose when he saw both. */
+const windFraction = (level: number): number =>
+  level <= 0 ? 0 : (AXLE_HALF + (level / SPOOL_STEPS) * (FULL_HALF - AXLE_HALF)) / FULL_HALF;
 
 interface Props {
-  /** 0 … SPOOL_STEPS, from spoolState(). One turn of thread per step. */
+  /** 0 … SPOOL_STEPS, from spoolState(). */
   level: number;
   /** Wound full and nothing captured since — flash once, then leave it alone. */
   full: boolean;
@@ -41,52 +48,49 @@ interface Props {
 export default function SpoolMeter({ level, full, label }: Props) {
   return (
     <svg
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-      className={`block w-full ${full ? 'flash' : ''}`}
-      style={{ height: 'auto', borderRadius: 4 }}
+      viewBox="0 0 40 36"
+      width={40}
+      height={36}
+      className={`flex-none rounded ${full ? 'flash' : ''}`}
       role="img"
       aria-label={label}
     >
       <title>{label}</title>
-      {/* the barrel — what an empty spool is, and what a fresh install opens on (§4-3) */}
+      {/* axle — what an empty spool is */}
       <rect
-        x={9}
-        y={CENTER_Y - BARREL_HALF}
-        width={VIEW_W - 18}
-        height={BARREL_HALF * 2}
-        rx={2}
+        x={6}
+        y={CENTER_Y - AXLE_HALF}
+        width={28}
+        height={AXLE_HALF * 2}
+        rx={1}
         fill="var(--line)"
       />
-      {/* Every turn is drawn, wound or not, and squashed to nothing until it is earned.
-          Scaling one element is the only part of an SVG that transitions the same way in
-          every engine — so a new turn grows out of the barrel instead of blinking in. */}
-      {Array.from({ length: SPOOL_STEPS }, (_, i) => (
-        <line
-          key={i}
-          x1={COIL_X0 + i * COIL_PITCH}
-          y1={CENTER_Y - COIL_HALF}
-          x2={COIL_X0 + i * COIL_PITCH}
-          y2={CENTER_Y + COIL_HALF}
-          stroke="var(--accent)"
-          strokeWidth={6}
-          strokeLinecap="round"
-          opacity={0.85}
-          style={{
-            transform: `translateY(${CENTER_Y}px) scaleY(${i < level ? 1 : 0}) translateY(${-CENTER_Y}px)`,
-            transition: 'transform 400ms ease-out',
-          }}
-        />
-      ))}
+      {/* the thread. Drawn once at full thickness and squashed to the current step, because
+          scaling one group is the only part of an SVG that transitions the same way in every
+          engine — animating each line's y1/y2 does not. */}
+      <g
+        style={{
+          transform: `translateY(${CENTER_Y}px) scaleY(${windFraction(level)}) translateY(${-CENTER_Y}px)`,
+          transition: 'transform 450ms ease-out',
+        }}
+      >
+        {COIL_X.map((x) => (
+          <line
+            key={x}
+            x1={x}
+            y1={CENTER_Y - FULL_HALF}
+            x2={x}
+            y2={CENTER_Y + FULL_HALF}
+            stroke="var(--accent)"
+            strokeWidth={1.4}
+            strokeLinecap="round"
+            opacity={0.85}
+          />
+        ))}
+      </g>
       {/* flanges last, so the thread is wound BEHIND their edges the way it is on a real one */}
-      <rect x={1} y={2} width={8} height={VIEW_H - 4} rx={3} fill="var(--line-strong)" />
-      <rect
-        x={VIEW_W - 9}
-        y={2}
-        width={8}
-        height={VIEW_H - 4}
-        rx={3}
-        fill="var(--line-strong)"
-      />
+      <rect x={3} y={2} width={4} height={32} rx={2} fill="var(--line-strong)" />
+      <rect x={33} y={2} width={4} height={32} rx={2} fill="var(--line-strong)" />
     </svg>
   );
 }

@@ -54,17 +54,21 @@ export default function Sidebar({ onCollapse }: Props) {
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-line bg-paper-2/40">
-      <header className="flex items-start justify-between gap-2 px-5 pb-3 pt-5">
-        <h1 className="min-w-0 font-serif text-2xl tracking-tight text-ink">
+      {/* ⚠️ The title is deliberately larger than the panel below it, and the gap under it is
+          deliberately wide. Ocean 2026-08-10, on seeing 首日价值二期 installed: 「logo 太小了,
+          被面板抢占了注意力,增大一点,面板和 logo 增加距离」. The panel is a status readout; the
+          name of the product is what the top of the sidebar is for. */}
+      <header className="flex items-start justify-between gap-2 px-5 pb-6 pt-5">
+        <h1 className="min-w-0 font-serif text-3xl tracking-tight text-ink">
           Spool
-          <span className="ml-2 font-serif text-base italic text-muted">思簿</span>
+          <span className="ml-2 font-serif text-lg italic text-muted">思簿</span>
         </h1>
         <button
           type="button"
           onClick={onCollapse}
           title={t('收起')}
           aria-label={t('收起')}
-          className="mt-1.5 flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+          className="mt-2.5 flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
         >
           <PanelLeftClose size={14} />
         </button>

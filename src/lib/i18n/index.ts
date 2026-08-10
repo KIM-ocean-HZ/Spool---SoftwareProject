@@ -333,9 +333,10 @@ const EN: Record<string, string> = {
   '明天': 'tomorrow',
   // 首日价值: the sidebar card (二期 — 「我攒了多少」, DESIGN_FIRST_DAY_VALUE) and the
   // one-time line the third capture earns under it in the feed.
-  '你攒了 {n} 条': '{n} captured',
-  'AI 写回 {n} 条': '{n} written back by AI',
-  '我写了 {n} 字': '{n} characters of my own',
+  '你攒的': 'Captured',
+  'AI 写回': 'AI wrote back',
+  '我写的': 'My own words',
+  '{n} 条': '{n} blocks',
   '线轴：每 100 条捕捉缠满一轴': 'One spool holds 100 captures',
   '还差 {n} 条缠满': '{n} more to fill it',
   '这一轴缠满了': 'This spool is full',
