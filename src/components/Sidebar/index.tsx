@@ -17,6 +17,7 @@ import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import FocusSection from './FocusSection';
 import RecentSection from './RecentSection';
+import TodayCard from './TodayCard';
 import WorkspaceGroup from './WorkspaceGroup';
 
 interface Props {
@@ -70,6 +71,10 @@ export default function Sidebar({ onCollapse }: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
+        {/* 首日价值 §4.5 — 「今天读了什么」, above even the pinned rows, and absent on any day
+            with no captures. Ocean 2026-08-10 put it on this side rather than over the block
+            feed so it is visible whichever project is open. */}
+        <TodayCard />
         {/* DESIGN_WORKBENCH §9.4 — 项目管理, pinned above everything.
             Ocean 2026-08-07: 「左侧边栏加入一个项目管理的一个总项目，显示方式和普通项目一样，
             只是置顶，然后它的工作区用来存放项目矩阵」.

@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { AnnotationAuthor } from '@/lib/blocks/annotationAuthor';
 import { joinSegments, type Segment } from '@/lib/blocks/segments';
-import { getDb } from './client';
+import { getDb, isTutorialSource } from './client';
 
 export type BlockKind = 'text' | 'ref';
 
@@ -208,6 +208,40 @@ export const duplicateCountsByThread = async (): Promise<Record<string, number>>
   for (const r of rows) out[r.thread_id] = r.extra;
   return out;
 };
+
+/** What the user captured since `since` — newest first. Feeds the sidebar's 「今天读了什么」
+ *  card (首日价值, DESIGN_NEXT_STAGE §4.5) and the pack hint's capture count.
+ *
+ *  A capture is a block that came from somewhere ELSE. There is no column that says so, so
+ *  the rule is read off `source`: it must be present (the composer writes null), it must not
+ *  be the MCP label (the AI wrote that block — the user never read it), and it must not be
+ *  the tutorial's (seeded at first launch, captured by nobody). A source the user typed by
+ *  hand on the badge does count: they labelled it 「Chrome」 because that is where they read
+ *  it, and the foreground-app detection missing is not the user's fault.
+ *
+ *  ⚠️ The tutorial half is filtered in TS rather than SQL on purpose — `TUTORIAL_SOURCES`
+ *  holds both languages' labels and is already the single source of truth for that rule.
+ *  A second spelling in SQL is exactly the drift the MCP predicate above warns about.
+ *
+ *  ⚠️ `rowid DESC` breaks the tie on `created_at`, which is milliseconds and therefore not
+ *  unique: three captures pasted in a burst share a timestamp, and without it the card's
+ *  「最近三条」 and its 打包 target would be whatever order SQLite felt like returning. */
+export const listCapturesSince = async (since: number): Promise<Block[]> => {
+  const db = await getDb();
+  const rows = await db.select<Row[]>(
+    `SELECT ${SELECT_COLS} FROM blocks
+      WHERE created_at >= $1 AND source IS NOT NULL AND NOT (${MCP_SOURCE_PREDICATE})
+      ORDER BY created_at DESC, rowid DESC`,
+    [since],
+  );
+  return rows.map(fromRow).filter((b) => !isTutorialSource(b.source));
+};
+
+/** How many the user has captured, ever. Only the pack hint asks, and only while its
+ *  one-shot flag is still armed — i.e. on a library young enough that "every capture row"
+ *  is a handful. Counting through listCapturesSince keeps ONE definition of "a capture". */
+export const countCaptures = async (): Promise<number> =>
+  (await listCapturesSince(0)).length;
 
 export const listBlocksByThread = async (threadId: string): Promise<Block[]> => {
   const db = await getDb();

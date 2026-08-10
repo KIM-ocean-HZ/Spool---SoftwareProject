@@ -308,9 +308,6 @@ const EN: Record<string, string> = {
     "Try one below — type, press Enter, it's saved. No permission needed.",
   '想在别的 app 里复制就能存？那一步需要打开输入监听权限。':
     'Want copying in any app to save here? That step needs the Input Monitoring permission.',
-  // One-time line under the first block a new user ever captured (拍板点 5)
-  '这就是全部操作了。攒够几条，按 ⌘⇧P 打包粘给 AI。':
-    "That's the whole gesture. Once you have a few, press ⌘⇧P to pack them for your AI.",
   '设置截止日期': 'Set deadline',
   '截止日期': 'Deadline',
   '排序：按时间 — 点击改为按来源': 'Sorted by time — click for by source',
@@ -332,6 +329,13 @@ const EN: Record<string, string> = {
     'All block content + annotations + attachment text included in packs',
   '今天': 'today',
   '明天': 'tomorrow',
+  // 首日价值 §4.5: the sidebar's 「今天读了什么」 card, and the one-time line the third
+  // capture earns under it in the feed.
+  '今天读了 {n} 条': '{n} read today',
+  '打个包试试 →': 'Try packing it →',
+  '还有 {n} 条': '{n} more',
+  '现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。':
+    'Enough to pack now — press ⌘⇧P and paste it to any AI.',
   // 旧账 §5-3: dates found inside a block's own text (DateNotices).
   '去看这一块': 'Go to this block',
   '先收起 —— 两个月前、一个月前、一周前各提醒一次':

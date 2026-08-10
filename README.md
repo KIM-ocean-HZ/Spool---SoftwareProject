@@ -90,7 +90,7 @@ The full product constitution, rejected ideas, and the feature filter are in `PL
 - **Tailwind CSS** for layout; design tokens in CSS variables
 - **Zustand** for state
 - **SQLite** via `tauri-plugin-sql`, FTS5 with the trigram tokenizer
-- **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — 14 tools, read tools (list/search/dedup/pack) plus consented, attributed write tools
+- **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — 18 tools, read tools (list/search/dedup/pack) plus consented, attributed write tools
 - **CLI engine slot** (default OFF): `claude` or `codex` run as a local subprocess for the four maintenance actions — detected on disk, never bundled, never given a key
 
 ## Building from source
@@ -110,9 +110,11 @@ The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Acc
 
 Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly.
 
+**You do not need any of this to use Spool with an AI.** ⌘⇧P packs a project into Markdown you paste into a browser tab — nothing to install, nothing to connect, and no feature is withheld from you for skipping it. MCP buys exactly one thing: your AI fetches the context itself instead of waiting for you to paste it, and can file conclusions back with its name on them.
+
 - **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). Next to it, 「复制使用提示」 is the single place the how-to lives — one short paragraph, readable by you and paste-ready for the AI.
-- **Read tools** (10): list projects (with one-line summaries and read-budget hints), a cross-project digest of recent activity, full-text search, near-duplicate detection, block paging (including blocks you have retired), the same deterministic pack the GUI produces, a read-only library hygiene checkup, plus three that hand back a briefing and the job to do with it — distill one project, report one project's health, review the week across all of them.
-- **Write tools** (4, behind a second and separate consent): create a project, append a block (optionally citing the block it builds on), refresh a project's one-line summary, and queue a batch of blocks for your review. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand, never retire one of your blocks, and never write a note that reads as if you wrote it.
+- **Read tools** (12): list projects (with one-line summaries and read-budget hints), a cross-project digest of recent activity, full-text search, near-duplicate detection, block paging (including blocks you have retired), the same deterministic pack the GUI produces, a read-only library hygiene checkup, one call that answers "how is this project doing" in a single round-trip, a read of what a project is currently watching for, plus three that hand back a briefing and the job to do with it — distill one project, report one project's health, review the week across all of them.
+- **Write tools** (6, behind a second and separate consent): create a project, append a block (optionally citing the block it builds on, or proposing that one point in it was corrected), refresh a project's one-line summary, and queue a batch of blocks for your review. Two of the six store nothing at all — they put a request in front of you and wait: *ask to read a file already in a project*, and *suggest a change to what a project watches*. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand, never retire one of your blocks, and never write a note that reads as if you wrote it.
 - **What an AI can and cannot do to history**: it may append, and it may *propose* that one point in an older block was corrected — which you approve or discard. Marking a block as no longer valid stays yours alone.
 
 ### What to say once connected

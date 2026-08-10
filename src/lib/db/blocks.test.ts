@@ -6,10 +6,12 @@ import {
   type Block,
   blockStatsByThread,
   computeMergedFields,
+  countCaptures,
   countMcpBlocks,
   createBlock,
   deleteBlock,
   listBlocksByThread,
+  listCapturesSince,
   mergeBlocks,
   restoreBlock,
   setBlockStale,
@@ -270,6 +272,63 @@ describe('countMcpBlocks agrees with isMcpSource', () => {
     const expected = labels.filter((s) => isMcpSource(s)).length;
     expect(expected).toBe(5);
     expect(await countMcpBlocks()).toBe(expected);
+  });
+});
+
+// 首日价值 §4.5 — 「今天读了什么」 counts what the user READ, and the sidebar card is the
+// first surface that has to tell a capture apart from everything else in the table. Three
+// kinds of block are not captures and each is here for its own reason: the composer writes
+// no source, the MCP server writes a block the user never read, and the tutorial's blocks
+// were seeded rather than captured (a fresh install would otherwise open on 「今天读了 6 条」
+// before the user had done anything at all).
+describe('listCapturesSince', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  it('keeps captures and hand-typed source labels, drops composer / MCP / tutorial', async () => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, 'T');
+    for (const source of [
+      null,             // the composer — the user wrote it, did not read it
+      'Safari',         // the gesture, source detected from the foreground app
+      'Chrome',         // …counts once per block, not once per app
+      '那本书',          // typed by hand on the badge when detection missed
+      'Claude · MCP',   // the AI wrote it
+      'MCP',
+      'Spool 指南',      // seeded tutorial, zh
+      'Spool Guide',    // seeded tutorial, en
+    ]) {
+      await createBlock({ threadId: thread.id, content: source ?? 'user', source });
+    }
+
+    const rows = await listCapturesSince(0);
+    expect(rows.map((b) => b.source)).toEqual(['那本书', 'Chrome', 'Safari']); // newest first
+    expect(await countCaptures()).toBe(3);
+  });
+
+  it('honours the cutoff, so yesterday never shows up under 「今天」', async () => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, 'T');
+    const old = await createBlock({ threadId: thread.id, content: '昨天读的', source: 'Safari' });
+    const cutoff = Date.now();
+    sqlite
+      .prepare('UPDATE blocks SET created_at = ? WHERE id = ?')
+      .run(cutoff - 86_400_000, old.id);
+    await createBlock({ threadId: thread.id, content: '今天读的', source: 'Chrome' });
+
+    expect((await listCapturesSince(cutoff)).map((b) => b.content)).toEqual(['今天读的']);
+    // The all-time count is what the pack hint asks, and it still sees both.
+    expect(await countCaptures()).toBe(2);
   });
 });
 

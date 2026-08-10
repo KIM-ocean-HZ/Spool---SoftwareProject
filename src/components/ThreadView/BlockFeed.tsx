@@ -94,10 +94,10 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   const blocks = useBlocksStore((s) => s.byThread[threadId] ?? EMPTY);
   const overEmpty = useDropStore((s) => s.overThread);
   const highlightBlockId = useSearchStore((s) => s.highlightBlockId);
-  // 拍板点 2/5: the empty state forks on the capture grant, and the first successful
-  // capture gets a one-time closing line under it.
+  // 拍板点 2/5: the empty state forks on the capture grant, and the capture that takes a
+  // new user to three gets a one-time line under it.
   const inputMonitoring = usePermissionStore((s) => s.inputMonitoring);
-  const firstCaptureHintBlockId = useCaptureStore((s) => s.firstCaptureHintBlockId);
+  const packHintBlockId = useCaptureStore((s) => s.packHintBlockId);
   // v2.8 §20.1 selection state. Anchor id drives shift-click range selection.
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
   const toggleSelect = useBlocksStore((s) => s.toggleSelect);
@@ -497,11 +497,12 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
                 onTogglePin={() => void togglePin(b.id)}
                 onDelete={() => void remove(b.id)}
               />
-              {/* 拍板点 5: one line, once, right under the first block the user ever
-                  captured — the gesture is over, here is what it was for. */}
-              {b.id === firstCaptureHintBlockId && (
+              {/* 拍板点 5 / 首日价值 §4.5: one line, once, under the block that took the
+                  user to three captures — the point at which 「打个包试试」 is something
+                  they can do now rather than remember for later. */}
+              {b.id === packHintBlockId && (
                 <p className="px-3 pb-1 pt-0.5 text-xs italic text-muted">
-                  {t('这就是全部操作了。攒够几条，按 ⌘⇧P 打包粘给 AI。')}
+                  {t('现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。')}
                 </p>
               )}
             </Fragment>
