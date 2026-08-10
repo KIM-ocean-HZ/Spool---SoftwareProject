@@ -874,6 +874,44 @@ The pattern from §3.21 held for the second time in two days: the mechanism was 
 screen was wrong, and the person using it found in seconds what the whole verified apparatus
 is built not to notice.
 
+> **Superseded in part, same day — see §3.23.** The instrument described above was a headless
+> Chrome; the application runs on WebKit. The figure "1.5px → 0.5px" is what Chrome reported.
+> Measured in the engine that ships, the defect after that fix was still 1.5px, and the user
+> said so on sight. The reasoning in this entry holds; the number and the instrument do not.
+
+### 3.23 The instrument was wrong, and it reported a number (2026-08-10)
+
+The badge in §3.22 was measured, adjusted, measured again, and reported as improved from 1.5px
+off-centre to 0.5px. The user installed it, looked at it, and said the digit was still high.
+
+The measurement had been taken in a headless Chrome. The application is a Tauri desktop shell,
+which on macOS renders in WebKit. The two engines do not place a text baseline at the same
+place inside a line box: the same markup, the same font file, the same device pixel ratio,
+measured 0.5px off in one and 1.5px off in the other. Every step of the analysis had been
+sound — the compounding units, the whole-pixel sizing, the ranking of candidate sizes — and
+all of it had been performed on a different program than the one the user runs.
+
+The correction was cheap once the right instrument existed: WebKit can be driven from a
+forty-line Objective-C program that loads a file into an offscreen `WKWebView` and writes its
+snapshot as a PNG, at the display's backing scale, so a pixel in the file is a device pixel.
+The project had recorded that this machine's Swift toolchain was broken and had generalised
+that into "the platform cannot be scripted"; the Objective-C compiler had been available the
+whole time. With it, the fix is a measured 1.5px compensation and a residue of half a pixel
+that cannot be removed at all: the digit's ink is thirteen device pixels tall inside a
+twenty-six pixel ring, and thirteen does not divide by two. The remainder was parked below
+centre deliberately, on the evidence that a digit sitting low is the error nobody reports.
+
+What this adds to §3.20, where a verification silently reported on the wrong process, is the
+harder version of the same failure. That one could be caught by asking the target to identify
+itself. This one produced a plausible, precise, decimal number, from a real rendering of the
+real markup in a real browser — and precision is exactly what makes it convincing. The
+question that would have caught it is not "is this measurement correct?" but **"is this
+measuring the thing the user will look at?"**, and nothing in the number itself can answer it.
+
+The instrument is now in the repository (`scripts/wk-snapshot.m`) rather than in a paragraph,
+with the reason it exists written at the top, because the cost of this incident was not the
+half pixel. It was reporting a fix as verified to someone who could see that it was not.
+
 ---
 
 ## 4. Boundaries stated on purpose

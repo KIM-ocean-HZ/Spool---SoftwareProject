@@ -31,10 +31,29 @@
 // ⚠️ So this is one fixed size for both call sites (10px header row, 11px citation line),
 // NOT a size that tracks the row. A size prop would bring the fractions back; if a third
 // call site ever needs a different one, give it its own whole-pixel value here.
+//
+// ⚠️⚠️ 2026-08-10, Ocean on the whole-pixel version: 「数字有点偏上，没有对准圆心」. Still true, and
+// the first round had been measured in the wrong browser. Chrome reported 0.5px; **WebKit —
+// which is the engine this app actually runs in — puts it 1.5px high**, because it does not
+// place the baseline in the line box where the font metrics say it should. Centering here is
+// therefore an engine property, not a geometry one, and the only honest way to set it is to
+// measure the engine that ships.
+//
+// pt-[1.5px] is that measurement. Flex centering splits the remaining space, so a padding of
+// p moves the digit down by p/2 — 1.5px cancels the 1.5px WebKit lifts it by. What is left is
+// half a pixel and cannot be removed: the digit's ink is 13 device pixels tall inside a 26
+// device pixel ring, and 13 does not divide in two. The remainder is parked BELOW centre on
+// purpose — that is the direction Ocean does not complain about, and the one the eye forgives.
+//
+// ⚠️ Consequences worth knowing before touching this: (1) in Chrome the badge now sits half a
+// pixel low, which is the correct trade because Chrome is not what users run; (2) a WebKit
+// update could move the baseline again — re-measure, do not guess, the instrument is in
+// HANDOFF §6.2-sexies; (3) changing the font size changes the parity and therefore the whole
+// answer, so the pad and the size have to be re-measured together.
 export default function SeqBadge({ seq, className = '' }: { seq: number; className?: string }) {
   return (
     <span
-      className={`inline-flex h-[13px] min-w-[13px] shrink-0 items-center justify-center rounded-full border border-current px-[3px] font-mono text-[9px] leading-none tabular-nums ${className}`}
+      className={`inline-flex h-[13px] min-w-[13px] shrink-0 items-center justify-center rounded-full border border-current px-[3px] pt-[1.5px] font-mono text-[9px] leading-none tabular-nums ${className}`}
     >
       {seq}
     </span>
