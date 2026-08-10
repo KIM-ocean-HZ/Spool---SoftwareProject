@@ -37,6 +37,41 @@ const COIL_X = [9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
 const windFraction = (level: number): number =>
   level <= 0 ? 0 : (AXLE_HALF + (level / SPOOL_STEPS) * (FULL_HALF - AXLE_HALF)) / FULL_HALF;
 
+/** One finished spool, at the size of a piece of punctuation — the shelf of them that stands
+ *  for 总线轴数 (§2.4). Same three parts as the meter above so a full one reads as the same
+ *  object shrunk, not a different mark: two flanges, and thread all the way out to them. */
+export function FilledSpools({ count, label }: { count: number; label: string }) {
+  // Past a handful the shelf would out-measure the meter itself, so it collapses to one
+  // spool and a multiplier — the achievement is still legible, the panel stays a panel.
+  const drawn = count <= 5 ? count : 1;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap" title={label}>
+      {Array.from({ length: drawn }, (_, i) => (
+        <svg key={i} viewBox="0 0 16 12" width={16} height={12} role="img" aria-label={label}>
+          {/* wound thread, drawn as turns rather than a solid block — at this size that is
+              the only thing that keeps it reading as the meter shrunk and not as a battery */}
+          {[4.6, 6.6, 8.6, 10.6].map((x) => (
+            <line
+              key={x}
+              x1={x}
+              y1={1.5}
+              x2={x}
+              y2={10.5}
+              stroke="var(--accent)"
+              strokeWidth={1.4}
+              strokeLinecap="round"
+              opacity={0.85}
+            />
+          ))}
+          <rect x={0.5} y={0} width={3} height={12} rx={1.2} fill="var(--line-strong)" />
+          <rect x={12.5} y={0} width={3} height={12} rx={1.2} fill="var(--line-strong)" />
+        </svg>
+      ))}
+      {count > 5 && <span className="text-[11px] text-muted">× {count}</span>}
+    </span>
+  );
+}
+
 interface Props {
   /** 0 … SPOOL_STEPS, from spoolState(). */
   level: number;

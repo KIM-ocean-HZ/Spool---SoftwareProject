@@ -1,4 +1,3 @@
-import { CalendarDays } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { spoolState, untilFull } from '@/lib/blocks/spoolProgress';
 import {
@@ -10,8 +9,7 @@ import {
 import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
-import { useThreadsStore } from '@/stores/threadsStore';
-import SpoolMeter from './SpoolMeter';
+import SpoolMeter, { FilledSpools } from './SpoolMeter';
 
 // 首日价值二期 (DESIGN_FIRST_DAY_VALUE) — 「我攒了多少」.
 //
@@ -48,29 +46,30 @@ interface Stats {
   mcp: number;
   chars: number;
   todayCount: number;
-  /** Where 打个包 would go: whichever project today's newest capture landed in. */
-  packTarget: string | undefined;
 }
 
-/** One number in the panel: what it is on the left, how much on the right. The value column
- *  is tabular so the digits line up down the card rather than dancing with the font's
- *  proportional widths. */
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+/** One fact, whole: the words and the number never get separated.
+ *
+ *  ⚠️ This is the third layout of this panel and every earlier one is in here as a rule.
+ *  Ocean, 2026-08-10, in order: 「右边什么都没有,而左边很紧凑」 (three sentences stacked in a
+ *  narrow column beside the meter), then 「太大个了」 (a full-width reel with a 2×2 grid under
+ *  it), then 「文字和数字放一起,不能拆分到距离这么远」 (label pinned left, number pinned right).
+ *
+ *  What satisfies all three at once is a **flow of complete phrases**: each stays whole, they
+ *  sit side by side while there is room, and a narrow sidebar drops one to the next line
+ *  instead of truncating it. Nothing here may go back to splitting a label from its number,
+ *  and nothing may go back to a fixed column count — a fixed grid is what forces a phrase to
+ *  be cut when the rail is dragged narrow. */
+function Fact({ text, strong }: { text: string; strong?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <dt className="truncate text-[11px] text-muted">{label}</dt>
-      <dd
-        className={`flex-none tabular-nums ${strong ? 'text-xs text-ink' : 'text-[11px] text-ink-2'}`}
-      >
-        {value}
-      </dd>
-    </div>
+    <span className={`whitespace-nowrap text-[11px] ${strong ? 'text-ink' : 'text-muted'}`}>
+      {text}
+    </span>
   );
 }
 
 export default function SpoolCard() {
   const t = useT();
-  const setPacking = useThreadsStore((s) => s.setPacking);
   // Every successful capture sets this, so it doubles as "something just landed, re-read".
   const flashBlockId = useCaptureStore((s) => s.flashBlockId);
   // …and this covers the rest of what moves the numbers: writing a note, editing a body,
@@ -94,7 +93,6 @@ export default function SpoolCard() {
         mcp,
         chars,
         todayCount: today.length,
-        packTarget: today[0]?.threadId,
       });
     });
     return () => {
@@ -115,58 +113,41 @@ export default function SpoolCard() {
   if (stats === null) return null;
 
   const spool = spoolState(stats.captures);
-  const { packTarget } = stats;
 
   return (
     <div className="mb-2 rounded-md border border-line bg-paper px-3 py-2">
-      {/* ⚠️ **Label left, number right — the numbers make a column against the right edge.**
-          Ocean rejected two earlier versions of this text, and both faults are answered here
-          (2026-08-10): three whole sentences stacked beside the meter left 「右边什么都没有,
-          而左边很紧凑」, and a full-width reel with a 2×2 grid under it was 「太大个了」.
-          What the panel needed was never more room — it was for the words to stop being
-          sentences. Don't put 「你攒了 N 条」 back: a sentence has to end somewhere, and where
-          it ends is the ragged left block he objected to. */}
       <div className="flex items-center gap-3">
         <SpoolMeter
           level={spool.level}
           full={spool.full}
           label={t('线轴：每 100 条捕捉缠满一轴')}
         />
-        <dl className="min-w-0 flex-1 leading-snug">
-          <Row label={t('你攒的')} value={t('{n} 条', { n: stats.captures })} strong />
-          <Row label={t('AI 写回')} value={t('{n} 条', { n: stats.mcp })} />
-          <Row label={t('我写的')} value={t('{n} 字', { n: stats.chars.toLocaleString() })} />
-        </dl>
-      </div>
-
-      <div className="mt-1.5 flex items-baseline justify-between gap-2 text-[11px]">
-        {spool.full ? (
-          <span className="truncate text-accent">{t('这一轴缠满了')}</span>
-        ) : (
-          <span className="truncate text-muted">
-            {t('还差 {n} 条缠满', { n: untilFull(spool) })}
-          </span>
-        )}
-        <span className="flex-none text-muted">{t('已缠满 {n} 轴', { n: spool.filled })}</span>
-      </div>
-
-      {stats.todayCount > 0 && (
-        <div className="mt-1.5 flex items-center gap-2 border-t border-line pt-1.5">
-          <CalendarDays size={12} className="flex-none text-muted" />
-          <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2">
-            {t('今天读了 {n} 条', { n: stats.todayCount })}
-          </span>
-          {packTarget !== undefined && (
-            <button
-              type="button"
-              onClick={() => setPacking(packTarget)}
-              className="flex-none rounded text-[11px] text-muted transition-colors hover:text-accent"
-            >
-              {t('打个包试试 →')}
-            </button>
+        {/* One wrapping flow, not a grid — see Fact() above for why. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5 leading-snug">
+          <Fact strong text={t('你捕捉了 {n} 条', { n: stats.captures })} />
+          <Fact text={t('AI 写入 {n} 条', { n: stats.mcp })} />
+          <Fact text={t('我一共写了 {n} 字', { n: stats.chars.toLocaleString() })} />
+          {/* 一期's rule survives here and only here: on a day with no captures this one
+              phrase is absent, while everything else in the panel stays (拍板 3). */}
+          {stats.todayCount > 0 && (
+            <Fact strong text={t('今天读了 {n} 条', { n: stats.todayCount })} />
+          )}
+          {spool.full ? (
+            <span className="whitespace-nowrap text-[11px] text-accent">
+              {t('这一轴缠满了')}
+            </span>
+          ) : (
+            <Fact text={t('还差 {n} 条缠满', { n: untilFull(spool) })} />
+          )}
+          {/* 总线轴数 as the spools themselves (Ocean 2026-08-10). A number says how many;
+              a shelf of them is the 成就感 he asked for in §2.4 — and it costs one more
+              drawing of a mark that is already on screen. Absent at zero, like every other
+              count-of-nothing here: an empty shelf is a hole, not a fact. */}
+          {spool.filled > 0 && (
+            <FilledSpools count={spool.filled} label={t('已缠满 {n} 轴', { n: spool.filled })} />
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

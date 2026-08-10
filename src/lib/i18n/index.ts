@@ -333,16 +333,14 @@ const EN: Record<string, string> = {
   '明天': 'tomorrow',
   // 首日价值: the sidebar card (二期 — 「我攒了多少」, DESIGN_FIRST_DAY_VALUE) and the
   // one-time line the third capture earns under it in the feed.
-  '你攒的': 'Captured',
-  'AI 写回': 'AI wrote back',
-  '我写的': 'My own words',
-  '{n} 条': '{n} blocks',
+  '你捕捉了 {n} 条': 'You captured {n}',
+  'AI 写入 {n} 条': 'AI wrote {n}',
+  '我一共写了 {n} 字': 'You wrote {n} chars',
   '线轴：每 100 条捕捉缠满一轴': 'One spool holds 100 captures',
   '还差 {n} 条缠满': '{n} more to fill it',
   '这一轴缠满了': 'This spool is full',
   '已缠满 {n} 轴': '{n} spools filled',
   '今天读了 {n} 条': '{n} read today',
-  '打个包试试 →': 'Try packing it →',
   '现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。':
     'Enough to pack now — press ⌘⇧P and paste it to any AI.',
   // 旧账 §5-3: dates found inside a block's own text (DateNotices).
