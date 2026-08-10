@@ -912,6 +912,39 @@ The instrument is now in the repository (`scripts/wk-snapshot.m`) rather than in
 with the reason it exists written at the top, because the cost of this incident was not the
 half pixel. It was reporting a fix as verified to someone who could see that it was not.
 
+### 3.24 A plan item that had been "ready to start" for three sessions (2026-08-10)
+
+The working handoff carried a table of what could be picked up next, and its first row —
+marked as the main line of work, the thing to do first — was the remaining phases of this
+case study. It had been described as unblocked, and had been copied forward through three
+sessions in that state.
+
+Asked to set the next session up, someone finally opened the design document it pointed at.
+Phase four needs screenshots; the screenshots were scheduled two rows further down, after a
+website redesign. Phase five publishes to a page that the owner had just decided to rebuild
+from scratch. Phase six waits on a condition the owner had written himself. The design
+document even stated the conclusion in its own words — *there is no work here that can be
+advanced right now; it is not undone, it is waiting* — one section below the part that had
+been read.
+
+The dependency ran the other way round from the plan. The user interface work at the bottom
+of the list was the only unblocked item, and everything above it — screenshots, the website,
+this case study — consumed its output. Ordered correctly, the list reverses.
+
+Two things generalise.
+
+**A status copied forward is not a status.** "Ready to start" was true when it was written and
+became false when a later decision (rebuild the website) landed in a different row of the same
+table. Nothing re-evaluated the first row, because a plan is read for what to do next, not for
+whether its rows still hold.
+
+**Prerequisites are recorded in the design document, not in the plan.** The plan says what;
+only the document that specifies the work says what it needs. The check that closes this gap
+is one sentence long and belongs before any "this is unblocked" claim survives into a second
+session: *open the document and read its dependencies section.* It was skipped three times
+because the row already said unblocked, which is the same trap as §3.23 — a confident record
+of an answer nobody re-derived.
+
 ---
 
 ## 4. Boundaries stated on purpose
