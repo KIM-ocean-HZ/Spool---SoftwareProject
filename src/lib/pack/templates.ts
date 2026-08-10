@@ -47,6 +47,23 @@ export const REF_BLOCK_CORRECTS = '↩ corrects one point in: ';
 // (§3.1.1: correcting one sentence must not cost the other 1,900 characters). Without this
 // line the correction would be invisible to anyone reading the old block top-down.
 export const CORRECTED_BY_PREFIX = '⚠️ one point in this block was corrected later — see ';
+// v20 (DESIGN_MCP_INTENT_ROUTING §4.6): the provenance sub-line — where a block came from
+// OUTSIDE the library, when that source was read, and when it should be looked at again.
+// Three independent pieces joined by PROVENANCE_SEP; any of them may be absent.
+//
+// English like every other marker: 硬规则 12's exception is for what is a contract with the
+// receiving model (交接 §6.4), and this line is read by whoever the pack is pasted into —
+// it tells them how old the claim under it is.
+//
+// ⚠️ The overdue wording spells out the consequence rather than naming a state, the same
+// choice REF_BLOCK_SUPERSEDES made: a receiving AI acts on "may be out of date", not on a
+// field called recheck_after. And it says MAY — the block is not retired, nobody has said
+// it stopped holding, and claiming otherwise would be the §3.1 mistake in reverse.
+export const PROVENANCE_PREFIX = '↗ ';
+export const PROVENANCE_SEP = ' · ';
+export const RETRIEVED_PREFIX = 'retrieved ';
+export const RECHECK_PREFIX = 'recheck after ';
+export const RECHECK_OVERDUE_PREFIX = '⚠️ may be out of date — was to be rechecked after ';
 
 // --- Section headings -------------------------------------------------------------------
 export const SECTION_PINNED = '## Pinned Blocks';

@@ -28,6 +28,11 @@ export interface Proposal {
    *  the server refuses 'supersedes' outright, because ①② remove the old block from every
    *  future pack and that stays the user's call (§3.1 «谁能用»). */
   refKind: Extract<RefKind, 'corrects'> | null;
+  /** v20 (DESIGN_MCP_INTENT_ROUTING §4.6): the provenance the AI recorded, carried through
+   *  the queue so the approved block keeps it. Null on every pre-v20 proposal. */
+  sourceUrl: string | null;
+  retrievedAt: number | null;
+  recheckAfter: number | null;
 }
 
 export interface ProposalBatch {
@@ -80,6 +85,9 @@ interface ItemRow {
   annotation: string | null;
   ref_block_id: string | null;
   ref_kind: 'corrects' | null;
+  source_url: string | null;
+  retrieved_at: number | null;
+  recheck_after: number | null;
 }
 
 // Pending = still inside its 7-day window. Everything else is void and shows as one
@@ -107,6 +115,9 @@ export const listPendingBatches = async (now: number): Promise<ProposalBatch[]> 
       annotation: r.annotation,
       refBlockId: r.ref_block_id,
       refKind: r.ref_kind,
+      sourceUrl: r.source_url,
+      retrievedAt: r.retrieved_at,
+      recheckAfter: r.recheck_after,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -188,6 +199,9 @@ export const listBatchesCreatedSince = async (since: number): Promise<ProposalBa
       annotation: r.annotation,
       refBlockId: r.ref_block_id,
       refKind: r.ref_kind,
+      sourceUrl: r.source_url,
+      retrievedAt: r.retrieved_at,
+      recheckAfter: r.recheck_after,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -331,6 +345,11 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       annotationBy: 'ai',
       source: batch.client || 'MCP',
       refBlockId: r.ref_block_id,
+      // v20 (§4.6): provenance travels with the item. The proposal is where it was
+      // recorded; approval is just the moment it becomes a block.
+      sourceUrl: r.source_url,
+      retrievedAt: r.retrieved_at,
+      recheckAfter: r.recheck_after,
     });
     // v14 (§9.3 拍板甲): the correction relation is applied on APPROVAL, never at propose
     // time — until the user clicks, nothing about the corrected block has changed. Only
@@ -350,7 +369,8 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
 // get a batch in front of the approve path without one. Never called by the app.
 export const __insertBatchForTest = async (
   batch: Omit<ProposalBatch, 'items'> & {
-    items: (Omit<Proposal, 'id' | 'refKind'> & { refKind?: Proposal['refKind'] })[];
+    items: (Omit<Proposal, 'id' | 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter'> &
+      Partial<Pick<Proposal, 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter'>>)[];
   },
 ): Promise<void> => {
   const db = await getDb();
@@ -370,8 +390,8 @@ export const __insertBatchForTest = async (
   for (let i = 0; i < batch.items.length; i++) {
     const it = batch.items[i]!;
     await db.execute(
-      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, source_url, retrieved_at, recheck_after, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         nanoid(),
         batch.id,
@@ -380,6 +400,9 @@ export const __insertBatchForTest = async (
         it.annotation,
         it.refBlockId,
         it.refKind ?? null,
+        it.sourceUrl ?? null,
+        it.retrievedAt ?? null,
+        it.recheckAfter ?? null,
         i,
       ],
     );

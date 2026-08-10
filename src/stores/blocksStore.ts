@@ -506,6 +506,12 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           // citation relation copies verbatim alongside refBlockId, which it annotates.
           staleAt: src.staleAt,
           refKind: src.refKind,
+          // v20: a copy is the same finding in another drawer, so where it came from and
+          // when it was read are still true of it — and a copy that dropped them would read
+          // as something the user wrote by hand.
+          sourceUrl: src.sourceUrl,
+          retrievedAt: src.retrievedAt,
+          recheckAfter: src.recheckAfter,
         });
       });
 

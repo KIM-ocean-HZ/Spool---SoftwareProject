@@ -475,8 +475,8 @@ ALTER TABLE blocks ADD COLUMN recheck_after  INTEGER;   -- 什么时候该复查
 | 3 | **D**(`add_block` 开 `ref_kind`,只认 `corrects`) | 传 `supersedes` 当场拒;悬空 `ref_block_id` 拒;**golden 不重生**(v14 就会渲染了) |
 | 4 | **C**(`list_threads` 两字段 + `applyBriefSuggestion` 开始动 `updated_at`) | `client.test.ts` 字段断言;`list_threads` 真跑 |
 | 5 | **E**(`get_project_overview`,工具面 → 18) | ⚠️ 先跑一次 `every_tool_declares_its_read_write_annotation` 看它怎么红;交接 §6.3-2 改成 18;**两个客户端各真跑一次** |
-| 6 | **F**(schema v20 三列 + 两侧渲染器 + golden 重生) | ⚠️ `TZ=Europe/London GOLDEN_WRITE=1`;schema 三处一起动(`client.ts` / `mcp.rs` / `client.test.ts`,含链式 `downgradeToV19`) |
-| 7 | ⭐ **真跑 §7.1 的三句话**,不看模型说什么,看 `mcp_tool_call` 事件 | 见下 |
+| 6 | ✅ **F**(schema v20 三列 + 两侧渲染器 + golden 重生)—— **2026-08-10 落地,见 §8.3** | ⚠️ `TZ=Europe/London GOLDEN_WRITE=1`;schema 三处一起动(`client.ts` / `mcp.rs` / `client.test.ts`,含链式 `downgradeToV19`) |
+| 7 | ⏳ ⭐ **真跑 §7.1 的五句话**,不看模型说什么,看 `mcp_tool_call` 事件 | **仍未跑** —— 六件里唯一没兑现的一格 |
 
 ### 7.1 验收用的五句话(照 §2.3 那张表,每句钉一个工具)
 
@@ -506,7 +506,12 @@ Claude Desktop 的写入侧**至今没真跑过**(交接 §6.2-ter 末尾)。
 
 ---
 
-## 8. ✅ 落地记录(2026-08-09 晚)—— A / B / C / D / E 五件
+## 8. ✅ 落地记录 —— A/B/C/D/E(2026-08-09 晚)+ F(2026-08-10,§8.3)
+
+> **六件全部落地。这一稿的代码部分做完了。**
+> ⏳ **只欠 §7.1 那五句真跑** —— Ocean 在 ChatGPT 里,判据是 `mcp_tool_call` 事件里的工具名。
+
+### 8.0 A / B / C / D / E 五件(2026-08-09 晚)
 
 **schema 一个字没动(仍是 v19),两侧渲染器一个字没动,golden fixture 一次没重生。**
 这是 §7 定的判据,兑现了。工具面 **17 → 18**,提示词面仍是 5。
@@ -546,11 +551,44 @@ Claude Desktop 的写入侧**至今没真跑过**(交接 §6.2-ter 末尾)。
 第一次的反应是把规矩写得更醒目 —— 没用,第二次照破。
 **把规矩变成一条会让构建失败的断言,才是唯一有效的那一步。** 全文台账 §3.17。
 
-### 8.3 F(schema v20)还欠着什么
+### 8.3 ✅ F(schema v20)已落地(2026-08-10)
 
-⚠️ **别在 F 里顺手改别的** —— A–E 的判据是「golden 一次没重生」,F 一进来就毁掉这条判据,
-出问题时分不清是谁弄的(§4.6 末尾已经写过,这里再钉一次)。F 落地时要连带补上:
+三件欠账全部补齐:`get_project_overview` 的 `needs_attention.due_for_recheck`、
+pack 里过期那条的块头标注、`source` 描述改成「短标签」(URL 从此进 `source_url`)。
+基线:`tsc` 干净 / vitest **314 → 318** / cargo **65 → 67** / i18n 无漏译。
+**golden 按计划重生了一次**(A–E 那条「一次没重生」的判据到此为止,这是设计里写好的)。
 
-- `get_project_overview` 的 `needs_attention.due_for_recheck`(§4.6 兑现口 1,代码里留了注释);
-- pack 里过期那条的块头标注(兑现口 2);
-- `source` 描述改成「短标签」,URL 从此进 `source_url`。
+| 件 | 落在哪 | 备注 |
+|---|---|---|
+| 三列 | `blocks` **和 `proposals` 各三列** | ⚠️ 稿子 §4.6 只写了 `blocks`。`propose_blocks` 也开这三个参数,而**待审队列是它们最容易丢的地方** —— 用户下周才点批准,那时调用方早走了,谁也补不出一个网址 |
+| 写侧 | `add_block` + `propose_blocks` 的 item | 一个 `parse_provenance`,两条路共用 —— 两侧对「什么算网址」不许分叉 |
+| 渲染 | `assemble.ts` + `mcp.rs` 两侧 | 块头**正下方**一行;`render_project_file` 一个字没动 |
+| 兑现口 1 | `get_project_overview.needs_attention.due_for_recheck` | 只数**没作废**的:用户已经作废的块,叫他去复查是白干 |
+| 兑现口 2 | pack 里过期那条 | ⚠️ **不隐藏、不作废**,只是把那半句话换成「可能已经过时」 |
+| 回读 | `get_blocks` 多回三个字段 | ⚠️ **稿子里没有这一条,是落地时加的**。没有它这三列就是只写不读 —— §9.6 那条毒的复发 |
+
+**落地时和稿子不一样的四处:**
+
+1. **那一行是英文,不是稿子里的中文。** 稿子写的是「↗ 网址 · 查于 X · Y 之前该复查」,
+   实际渲染成 `↗ <url> · retrieved 2026-08-09 · recheck after 2027-08-01`。
+   理由是硬规则 12 的既有例外(交接 §6.4):pack 的标记是**给收 pack 的模型读的契约**,
+   任何 locale 下都英文,`note:` / `↩ cites:` / `⚠️ one point…` 全是这样。
+   过期那句是 `⚠️ may be out of date — was to be rechecked after <date>` ——
+   **说的是「可能」**,因为没有任何人说过它不成立,那是用户的判断(§3.1)。
+2. **日期渲染到「日」,不是稿子例子里的「2027-08」月份。** 两个字段都是完整 `YYYY-MM-DD`。
+3. ⚠️⚠️ **两个日期存的是 UTC 零点,渲染走 `format_utc_date` / `formatUtcDate`,
+   不走库里其它时间戳那条本地时区的路。** 它们是**日子不是时刻** ——
+   「查于 2026-08-09」在时区两侧要读成同一天,过一遍 localtime 会有一半人看到前一天。
+4. **`now` 现在要传进渲染器**(两侧都是)。「过没过期」必须和 pack 表头的日期是同一瞬,
+   而且 golden 不能是个定时炸弹 —— 测试把 `now` 钉死。
+
+⚠️⚠️ **`source_url` 只收 `http(s)://`,本地路径当场拒。**
+pack 是**唯一被设计成要离开这台机器的东西**(§3.1-5 就是为这个把附件路径缩成文件名的),
+一个 `/Users/hzjin/…` 进了这一列,等于把用户的账号名和目录结构写进他今后拷给任何人的每一份简报。
+
+⭐ **这一件真正留下来的东西,和 A–E 一样是一条判断,不是一次修复** ——
+**golden 平价测试挡不住这个 bug**:它比对前会把两边的 `YYYY-MM-DD` 全部换成 `<DATE>`
+(本地时区渲染的字节在别的机器上不一样,不换就没法提交)。
+所以「一侧走 UTC、另一侧走本地」它照样全绿。
+**测试排除掉的东西,也是它规格的一部分。** 两侧各补了钉死日期字面量的断言。
+全文台账 §3.18。

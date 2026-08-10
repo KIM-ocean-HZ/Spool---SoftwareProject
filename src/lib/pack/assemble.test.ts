@@ -540,6 +540,56 @@ describe('assemble', () => {
     });
   });
 
+  // v20 (DESIGN_MCP_INTENT_ROUTING §4.6) — the provenance sub-line.
+  //
+  // ⚠️ The cross-language golden cannot stand in for this: both sides normalise every
+  // YYYY-MM-DD to <DATE> before comparing, so a renderer that formatted these two columns
+  // through the LOCAL zone would pass it and still print the wrong day for half the world.
+  // These assertions name the characters.
+  describe('provenance (§4.6)', () => {
+    // 2026-08-09 and 2027-08-01 at UTC midnight — what parse_iso_date stores.
+    const RETRIEVED = Date.UTC(2026, 7, 9);
+    const RECHECK = Date.UTC(2027, 7, 1);
+    const web = (opts: Partial<Block> = {}): Block[] => [
+      textBlock('b1', '截止日期是 12 月 1 日', {
+        seq: 1,
+        sourceUrl: 'https://admissions.example.edu/deadlines',
+        retrievedAt: RETRIEVED,
+        recheckAfter: RECHECK,
+        ...opts,
+      }),
+    ];
+
+    it('prints where it came from, when it was read, and when to look again', () => {
+      const out = assemble({ thread, blocks: web(), now: Date.UTC(2027, 0, 1) });
+      expect(out).toContain(
+        '    ↗ https://admissions.example.edu/deadlines · retrieved 2026-08-09 · recheck after 2027-08-01',
+      );
+    });
+
+    it('says a block may be out of date once its recheck day has passed — and keeps it whole', () => {
+      const out = assemble({ thread, blocks: web(), now: Date.UTC(2027, 8, 1) });
+      expect(out).toContain('⚠️ may be out of date — was to be rechecked after 2027-08-01');
+      // ⚠️ Nobody said this stopped holding. Retiring is the user's alone (§3.1), so the
+      // block is still here in full — the line is a caution, not a removal.
+      expect(out).toContain('截止日期是 12 月 1 日');
+      expect(out).not.toContain('no longer valid');
+    });
+
+    it('renders whichever pieces are there, and nothing when there are none', () => {
+      const only = assemble({
+        thread,
+        blocks: [textBlock('b1', '一条结论', { seq: 1, retrievedAt: RETRIEVED })],
+        now: NOW,
+      });
+      expect(only).toContain('    ↗ retrieved 2026-08-09');
+      // Every block the user wrote by hand is this case, which is why v20 leaves almost
+      // every existing pack byte-identical.
+      const none = assemble({ thread, blocks: [textBlock('b1', '一条结论', { seq: 1 })], now: NOW });
+      expect(none).not.toContain('↗');
+    });
+  });
+
   // DESIGN_CONTEXT_HYGIENE §3.2 — the label ladder, W7 being its first rung. Ocean's §1.2
   // objection is the reason it exists: a pasted wall of text does not announce itself in
   // its first 40 characters, and the user's own note about it does.

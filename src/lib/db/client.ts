@@ -35,7 +35,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -615,6 +615,28 @@ const MIGRATIONS: Migration[] = [
           await db.execute(`ALTER TABLE threads ADD COLUMN ${col}`);
         } catch (e) {
           console.info(`[db] ${col}: not added (likely exists)`, e);
+        }
+      }
+    },
+  },
+  {
+    // v20 (DESIGN_MCP_INTENT_ROUTING §4.6, Ocean 拍板乙) — where a block came from outside
+    // the library, and when it should be looked at again. Six nullable columns across two
+    // tables, no backfill, nothing rewritten: NULL is what every existing row means (the
+    // user typed it, or an AI wrote it before this shipped), so a half-run of this step and
+    // a complete one are indistinguishable. Not the 2026-05-29 wipe class (§6.3-9).
+    from: 19,
+    to: 20,
+    name: 'add-block-provenance',
+    run: async (db) => {
+      const cols = ['source_url TEXT', 'retrieved_at INTEGER', 'recheck_after INTEGER'];
+      for (const table of ['blocks', 'proposals']) {
+        for (const col of cols) {
+          try {
+            await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col}`);
+          } catch (e) {
+            console.info(`[db] ${table}.${col}: not added (likely exists)`, e);
+          }
         }
       }
     },

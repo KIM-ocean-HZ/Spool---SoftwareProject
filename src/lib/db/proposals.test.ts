@@ -124,6 +124,30 @@ describe('proposal queue (DESIGN_MCP_WRITE_ROLE §4 M1)', () => {
     expect(await listPendingBatches(NOW)).toHaveLength(0);
   });
 
+  // v20 (DESIGN_MCP_INTENT_ROUTING §4.6). The queue is where provenance is most at risk of
+  // being lost: the AI records it, and the block is written days later by a click, with the
+  // caller long gone. Nothing on this side could reconstruct a URL or a retrieval date.
+  it('carries where a piece came from through the queue onto the approved block', async () => {
+    await queue({
+      items: [
+        {
+          threadId: mlId,
+          content: '课程页面写着先修要求是两门',
+          annotation: null,
+          refBlockId: null,
+          sourceUrl: 'https://cs.example.edu/prereqs',
+          retrievedAt: Date.UTC(2026, 7, 9),
+          recheckAfter: Date.UTC(2027, 0, 15),
+        },
+      ],
+    });
+    await approveBatch('batch1');
+    const [written] = await listBlocksByThread(mlId);
+    expect(written!.sourceUrl).toBe('https://cs.example.edu/prereqs');
+    expect(written!.retrievedAt).toBe(Date.UTC(2026, 7, 9));
+    expect(written!.recheckAfter).toBe(Date.UTC(2027, 0, 15));
+  });
+
   it("keeps a proposal's own citation rather than overwriting it with the passage", async () => {
     const cited = await createBlock({ threadId: mlId, content: '一条早先的结论' });
     await queue({

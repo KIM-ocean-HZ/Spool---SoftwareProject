@@ -38,6 +38,14 @@ export interface Block {
   staleAt: number | null;
   /** v13: null reads as 'cites' (every pre-v13 row, and the default). */
   refKind: RefKind | null;
+  /** v20 (DESIGN_MCP_INTENT_ROUTING §4.6): the page this block was written from. Null on
+   *  everything the user wrote by hand — only the MCP write tools fill these in. */
+  sourceUrl: string | null;
+  /** v20: the DAY the source was read, as UTC midnight in unix ms (schema.sql says why
+   *  these two are not local moments). Null = nobody said. */
+  retrievedAt: number | null;
+  /** v20: the day after which this should be checked again. Null = it does not go off. */
+  recheckAfter: number | null;
 }
 
 export interface CreateBlockArgs {
@@ -53,6 +61,12 @@ export interface CreateBlockArgs {
   // Only the overlay's redirect path sets this — it re-creates a block the user may
   // already have pinned from the toast, and the pin must survive the move.
   pinned?: boolean;
+  /** v20 (§4.6): provenance an AI recorded when it wrote the source. The only caller that
+   *  passes these is approveBatch, carrying what the proposal arrived with — no GUI path
+   *  has them, because §4.6 gives the user no input for them. */
+  sourceUrl?: string | null;
+  retrievedAt?: number | null;
+  recheckAfter?: number | null;
 }
 
 interface Row {
@@ -70,6 +84,9 @@ interface Row {
   created_at: number;
   stale_at: number | null;
   ref_kind: RefKind | null;
+  source_url: string | null;
+  retrieved_at: number | null;
+  recheck_after: number | null;
 }
 
 const fromRow = (r: Row): Block => ({
@@ -87,10 +104,13 @@ const fromRow = (r: Row): Block => ({
   createdAt: r.created_at,
   staleAt: r.stale_at ?? null,
   refKind: r.ref_kind ?? null,
+  sourceUrl: r.source_url ?? null,
+  retrievedAt: r.retrieved_at ?? null,
+  recheckAfter: r.recheck_after ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -241,14 +261,19 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     // ever declared afterwards, by the user, on a block that already exists.
     staleAt: null,
     refKind: null,
+    // v20: null on every GUI/capture path — §4.6 is explicit that the user does not fill
+    // these in, so only approveBatch (relaying what an AI proposed) ever passes them.
+    sourceUrl: args.sourceUrl ?? null,
+    retrievedAt: args.retrievedAt ?? null,
+    recheckAfter: args.recheckAfter ?? null,
   };
   // v9: `seq` is computed inside the INSERT, not read-then-written. WAL serialises
   // writers, so a single statement holding the write lock cannot lose the race against
   // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at)
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11)`,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14)`,
     [
       b.id,
       b.threadId,
@@ -261,6 +286,9 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.source,
       b.pinned ? 1 : 0,
       b.createdAt,
+      b.sourceUrl,
+      b.retrievedAt,
+      b.recheckAfter,
     ],
   );
   const assigned = await db.select<{ seq: number | null }[]>(
@@ -296,11 +324,11 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 14;
+  const COLS = 17;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
-      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4}, $${o + 5}, $${o + 6}, $${o + 7}, $${o + 8}, $${o + 9}, $${o + 10}, $${o + 11}, $${o + 12}, $${o + 13}, $${o + 14})`;
+      return `(${Array.from({ length: COLS }, (_, k) => `$${o + k + 1}`).join(', ')})`;
     })
     .join(', ');
   const params = blocks.flatMap((b) => {
@@ -321,10 +349,13 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.createdAt,
       b.staleAt,
       b.refKind,
+      b.sourceUrl,
+      b.retrievedAt,
+      b.recheckAfter,
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after) VALUES ${tuples}`,
     params,
   );
 };
@@ -397,8 +428,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
     [
       block.id,
       block.threadId,
@@ -418,6 +449,11 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       // otherwise ⌘Z quietly resurrects a conclusion the user had retired.
       block.staleAt,
       block.refKind,
+      // v20: provenance comes back with the block for the same reason the retirement does —
+      // an undone delete must restore the row that was there, not a cleaned-up version of it.
+      block.sourceUrl,
+      block.retrievedAt,
+      block.recheckAfter,
     ],
   );
 };

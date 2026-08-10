@@ -698,6 +698,36 @@ inside it — appended after the briefing, outside its size budget, on the machi
 only. When one output serves a person and a program, an affordance for one of them is noise to
 the other, and the shared renderer is the wrong home for both.
 
+### 3.18 A column nobody reads, and the test that could not see the bug (2026-08-10)
+
+Two findings from adding one thing: a stored record of where a block came from — the page, the
+day it was read, the day it stops being safe to trust (schema v20).
+
+**The prior failure this was designed against was a column with no reader.** An earlier version
+had shipped two mechanisms for marking a stored conclusion as retired or partly wrong, and
+nothing anywhere that ever brought them up. Both worked. Both went unused, because using them
+required the user to remember, unprompted, that they existed. So the new expiry date was not
+allowed to ship until it had two places that read it back: the project briefing marks the block
+once its date passes, and the per-project overview counts how many are due. The rule that came
+out of it is worth stating plainly — **a written field with no read path is not a feature, it is
+a liability with a schema migration attached**, and the discipline is to build the reader in the
+same change as the writer, not the next one.
+
+**The second finding is about a test that was already there and could not have caught this.**
+The two renderers — one in TypeScript for the application, one in Rust for the MCP server — are
+held byte-identical by a golden fixture. That comparison normalises every `YYYY-MM-DD` in both
+outputs to a placeholder token before comparing, because the existing timestamps render in the
+machine's local zone and the file has to hold on any machine. The new fields are *days*, not
+moments, and are stored at UTC midnight so a date survives being read east or west of where it
+was written. A renderer that formatted them through the local zone instead would print the wrong
+day for half the world — **and the golden test would have passed, because it had already thrown
+those characters away.** The normalisation that makes the fixture portable is exactly what blinds
+it to this class of defect. Three assertions naming the literal date characters were added on
+each side; the golden fixture keeps doing the job it can do.
+
+Both halves generalise past this feature: *a test's exclusions are part of its specification*,
+and a green suite says nothing about the axis it deliberately does not look at.
+
 ---
 
 ## 4. Boundaries stated on purpose

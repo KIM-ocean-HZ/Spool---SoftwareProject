@@ -16,6 +16,11 @@ import {
   PACK_HEADER,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
+  PROVENANCE_PREFIX,
+  PROVENANCE_SEP,
+  RECHECK_OVERDUE_PREFIX,
+  RECHECK_PREFIX,
+  RETRIEVED_PREFIX,
   REF_BLOCK_CORRECTS,
   REF_BLOCK_MARKER,
   REF_BLOCK_FROM,
@@ -133,6 +138,16 @@ export const formatPackDate = (ts: number): string => {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 };
 
+// v20 (§4.6) — for the two columns that hold a DAY rather than a moment. `retrievedAt` and
+// `recheckAfter` are stored as UTC midnight precisely so "查于 2026-08-09" survives being
+// rendered on a machine east or west of the one that wrote it; formatting them through the
+// local zone would slide half of them onto the previous day. Every other timestamp in a
+// pack is a real moment and keeps formatPackTime. Mirrored in mcp.rs format_utc_date.
+export const formatUtcDate = (ts: number): string => {
+  const d = new Date(ts);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+};
+
 const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 // §3.1-5 (MCP review round 2, 2026-08-04 — Ocean approved): a pack is BY DEFINITION the
@@ -207,6 +222,26 @@ const refBlockMarker = (kind: Block['refKind']): string => {
   return REF_BLOCK_MARKER;
 };
 
+// v20 (DESIGN_MCP_INTENT_ROUTING §4.6) — the `↗` sub-line: where this block came from
+// outside the library, and how old that is. Null on everything the user wrote by hand, so
+// the overwhelming majority of blocks render exactly as they did before v20.
+//
+// ⚠️ `now` is a parameter, never Date.now(), and that is not only about tests: the pack is
+// the one artifact designed to leave the machine, and "may be out of date" has to be
+// decided at the moment the pack is BUILT — the same instant its header is dated — rather
+// than at some other point in the same render. mcp.rs threads the identical value.
+const provenanceLine = (b: Block, now: number): string | null => {
+  const parts: string[] = [];
+  if (b.sourceUrl) parts.push(b.sourceUrl);
+  if (b.retrievedAt != null) parts.push(`${RETRIEVED_PREFIX}${formatUtcDate(b.retrievedAt)}`);
+  if (b.recheckAfter != null) {
+    const prefix = b.recheckAfter <= now ? RECHECK_OVERDUE_PREFIX : RECHECK_PREFIX;
+    parts.push(`${prefix}${formatUtcDate(b.recheckAfter)}`);
+  }
+  if (parts.length === 0) return null;
+  return `${NOTE_INDENT}${PROVENANCE_PREFIX}${parts.join(PROVENANCE_SEP)}`;
+};
+
 const renderBlock = (
   b: Block,
   refTitles: Map<string, string> | undefined,
@@ -214,6 +249,7 @@ const renderBlock = (
   // v13: the newer blocks that corrected a point inside THIS one, by seq. Rendered under
   // the old block, which stays in the pack in full (§3.1.1).
   correctedBy: Map<string, number[]> | undefined,
+  now: number,
 ): string[] => {
   const time = formatPackTime(b.createdAt);
   const star = b.pinned ? PINNED_PREFIX : '';
@@ -228,6 +264,11 @@ const renderBlock = (
     const bracket = b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
     lines.push(`${star}${n}[${bracket}] ${b.content.trim()}`);
   }
+
+  // v20: directly under the head line — where the block came from is part of what it IS,
+  // and it has to be read before the sentences commenting on it.
+  const provenance = provenanceLine(b, now);
+  if (provenance) lines.push(provenance);
 
   if (b.annotation?.trim()) {
     // v14 (§9.3 拍板乙): which marker decides how much authority the next model gives this
@@ -348,7 +389,8 @@ export function assemble({
   outputLanguage,
   now,
 }: AssembleArgs): string {
-  const dateStr = formatPackDate(now ?? Date.now());
+  const at = now ?? Date.now();
+  const dateStr = formatPackDate(at);
   const out: string[] = [];
 
   // v13 (DESIGN_CONTEXT_HYGIENE §3.1): retired blocks leave the pack, not the library.
@@ -383,7 +425,7 @@ export function assemble({
   if (pinned.length === 0) {
     out.push(EMPTY_PINNED_LINE);
   } else {
-    for (const b of pinned) out.push(...renderBlock(b, refTitles, refBlocks, correctedBy));
+    for (const b of pinned) out.push(...renderBlock(b, refTitles, refBlocks, correctedBy, at));
   }
 
   // Full Record: every block in chronological order. A block's annotation and its
@@ -397,7 +439,7 @@ export function assemble({
   } else {
     for (const b of blocks) {
       if (b.pinned) out.push(renderPinnedPlaceholder(b));
-      else out.push(...renderBlock(b, refTitles, refBlocks, correctedBy));
+      else out.push(...renderBlock(b, refTitles, refBlocks, correctedBy, at));
     }
   }
   // v13: the gap is declared, never silent (§2.3 — a store that drops a fact without

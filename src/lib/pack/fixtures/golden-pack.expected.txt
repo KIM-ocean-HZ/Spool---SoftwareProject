@@ -100,6 +100,7 @@ out of this pack and how to get it. Nothing Spool leaves out has been deleted.
 📌 #1 [2025-05-06 15:00 · from Claude] Transformer 注意力矩阵是 QK^T 除以 sqrt(d_k) 后做 ==softmax==
     note: 一直没懂为什么要除 sqrt(d_k) 查了三篇讲解还是模糊
 📌 #12 [2025-06-15 16:03 · from Codex · MCP] MCP 写回的一条长结论:课程页面把先修要求改成了两门,原先只写一门,报名前要先把第二门补上
+    ↗ https://cs.example.edu/courses/6.7900/prereqs · retrieved 2025-06-12 · recheck after 2026-03-01
     ai note: 这条最关键,先看它
 📌 #13 [2025-06-15 16:05 · from Codex · MCP] 另一条 MCP 写回的长结论:奖学金申请和入学申请是两套表,截止日期也不是同一天,别混着填
     note: 我自己补一句:奖学金那套先做
@@ -122,8 +123,10 @@ out of this pack and how to get it. Nothing Spool leaves out has been deleted.
 #8 [2025-06-15 15:50 · from Claude · MCP] 跨项目引用:这条结论的证据在另一个项目里
     ↩ cites: [2025-05-06 15:00] 实验设计里的原始记录:baseline 复现用的是 seed=42 — in project: 实验设计
 #10 [2025-06-15 16:00 · from Safari] 招生页面改版了,截止日期挪到 3 月 15 日
+    ↗ https://admissions.example.edu/deadlines · retrieved 2025-06-10 · ⚠️ may be out of date — was to be rechecked after 2025-06-01
     ↩ replaces (that block no longer holds): [2025-06-15 15:51] 招生页面写着截止 4 月 30 日,按这个排进度
 #11 [2025-06-15 16:01] 占分是 30% 不是 40%,其余要求没变
+    ↗ retrieved 2025-05-20
     ↩ corrects one point in: [2025-06-05 06:06] 课程要求:期末项目要复现一篇 2024 年后的论文 截止 4 月 30 日 占总…
 📌 #12 [2025-06-15 16:03 · from Codex · MCP] MCP 写回的一条长结论:课程页面把先修要求改成了两门,原先只写一门,报名前要先… (pinned — full text in "Pinned Blocks" above)
 📌 #13 [2025-06-15 16:05 · from Codex · MCP] 我自己补一句:奖学金那套先做 (pinned — full text in "Pinned Blocks" above)

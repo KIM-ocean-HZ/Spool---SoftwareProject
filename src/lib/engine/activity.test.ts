@@ -17,6 +17,9 @@ const block = (id: string, createdAt: number, source: string | null): Block => (
   createdAt,
   staleAt: null,
   refKind: null,
+  sourceUrl: null,
+  retrievedAt: null,
+  recheckAfter: null,
 });
 
 const T = 1_700_000_000_000;

@@ -109,7 +109,31 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- ⚠️ The proxy is why this is not a backfill: the migration writes no user data at all
   -- (2026-05-29 wipe class), and the first time the user edits any note the row self-heals
   -- to an explicit 'user' — which is exactly the case the proxy gets wrong.
-  annotation_by TEXT
+  annotation_by TEXT,
+  -- v20 (DESIGN_MCP_INTENT_ROUTING §4.6, Ocean 拍板乙 2026-08-09): where a block came from
+  -- OUTSIDE the library, and whether it has gone off.
+  --
+  -- `source` already carries a provenance LABEL, but it is one line rendered inside every
+  -- block bracket on every surface, so a URL in it pushes the reader's eye off the body —
+  -- and it says nothing about time. A block written from a program's admissions page is
+  -- true on the day it is read and quietly false a year later; nothing in Spool could tell
+  -- those two apart, which is the same disease v13 treated for conclusions the user
+  -- retired by hand, one step upstream.
+  --
+  -- All three are NULL on every row written before v20 and on every row the user writes by
+  -- hand — the UI has no input for them and deliberately does not get one (§4.6: their user
+  -- is the model that went and looked something up; an input box would tax the main path
+  -- for a case it never hits). Only add_block and propose_blocks fill them in.
+  --
+  -- ⚠️ `retrieved_at` / `recheck_after` are DATES, stored as UTC midnight in unix ms. They
+  -- are not moments — "查于 2026-08-09" means the day, and a day rendered through the
+  -- machine's local zone would read as a different day either side of the date line. Every
+  -- other timestamp here IS a moment (created_at, stale_at) and stays local-rendered; these
+  -- two are formatted by format_utc_date / formatUtcDate, which is what makes them
+  -- round-trip to the same characters the caller sent.
+  source_url    TEXT,
+  retrieved_at  INTEGER,
+  recheck_after INTEGER
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
@@ -245,6 +269,13 @@ CREATE TABLE IF NOT EXISTS proposals (
   -- ⚠️ It is a proposal, never a direct write: this column is on `proposals`, not written
   -- by the MCP server into `blocks`. The user approves it in Spool or it expires in 7 days.
   ref_kind     TEXT,
+  -- v20 (§4.6): the same three provenance fields the approved block will carry. They ride
+  -- through the queue rather than being re-derived on approval, for the reason the queue
+  -- exists at all — by the time the user clicks approve the caller is long gone, and a URL
+  -- and a retrieval date it did not write down cannot be reconstructed from anything here.
+  source_url    TEXT,
+  retrieved_at  INTEGER,
+  recheck_after INTEGER,
   sort_order   INTEGER NOT NULL
 );
 
