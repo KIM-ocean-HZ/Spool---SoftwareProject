@@ -827,6 +827,53 @@ performs. The same reasoning put the verification at write time: the quote is ch
 the target as it is stored, because the only party able to correct a mis-transcription is the
 one that is still there, and it is only still there right then.
 
+### 3.22 A defect that was geometrically correct, and the instrument that could see it (2026-08-10)
+
+The rework in §3.21 replaced the `#1` in front of every record with a ring around the number.
+The user's next reading of the same screen was two sentences long: the number is not centred
+in the ring, and the ring is not the size of the time and the text beside it.
+
+The markup was centred. It centred with flexbox, and the typeface cooperated: in this family
+the ascent minus the cap height is exactly the descent, so digits sit in the true middle of
+their line box at any size. Rendered large and measured, the digit was off by 0.4% of the
+diameter — nothing.
+
+It was sized in `em`, and `em` compounds. A 0.9em digit inside a 1.5em box, on the 11px row
+where the correction appears, is a 9.9px digit inside a 14.85px circle. Neither is a whole
+pixel, so the leftover space that centring divides — and the glyph raster inside it — rounds
+to whichever side the row happens to land on. Measured on a 2× display the digit sat 1.5px
+high, and the amount changed when the row moved. Whole-pixel values leave 0.5px, which is the
+floor set by type design rather than by layout: a round-topped `2` rises past the cap line.
+The same compounding was the second complaint — a 14.85px ring next to text whose letters are
+7.8px tall. The replacement was chosen against the text instead of against the font size: it
+bottoms out level with the descenders and clears the caps by about two pixels.
+
+Two things generalise, and one is about instruments.
+
+**A relative unit is a claim about ratios, not about pixels.** It is the right tool at reading
+sizes, where a half-pixel disappears into a 16px letter. At 9 to 11 pixels the same half-pixel
+is a tenth of the shape, and the ratio the unit preserves is no longer the property that
+matters. Nothing warns about the crossover.
+
+**Nothing in the automated apparatus can see this.** Type checking passes. All 324 unit tests
+pass. The parity test that compares the two briefing renderers byte for byte passes — it never
+sees the screen at all. They passed before the fix and after it, unchanged, which is the
+correct behaviour for tests that assert logic about a defect that contains no logic.
+
+What replaced them was a measurement, not an opinion. The route to a screenshot of the running
+application was already known to be broken on this machine (§3.2, §3.20), but the fragment
+does not need the application: rendered on its own in a headless browser with the real
+typeface and the real palette, with the ring drawn in one colour and the digit in another, the
+ink bounding boxes subtract into a number of device pixels. That number ranked six candidate
+sizes in one pass and reported the improvement as 1.5px → 0.5px. It is a narrow instrument —
+it proves nothing about the assembled screen, only about the fragment — but it converts a
+question that was being settled by taste into one settled by arithmetic, in a place where the
+project had assumed no instrument existed.
+
+The pattern from §3.21 held for the second time in two days: the mechanism was right, the
+screen was wrong, and the person using it found in seconds what the whole verified apparatus
+is built not to notice.
+
 ---
 
 ## 4. Boundaries stated on purpose

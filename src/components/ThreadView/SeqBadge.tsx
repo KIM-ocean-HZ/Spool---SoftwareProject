@@ -13,12 +13,28 @@
 // and the pack still writes `#12`. The circle is a GUI skin over the same integer — which
 // is why the block header keeps its tooltip spelling the mapping out.
 //
-// Sizes in em so the one component serves both the block header (12px) and the citation
-// line (11px) without either call site passing a size.
+// ⚠️ 2026-08-10, Ocean on the first version: 「数字标记里面的数字没有居中」+「圆圈的大小需要和边上
+// 的时间和文字一致」. Both came from the same mistake — sizing this in em.
+//
+// The em version was h-[1.5em]/text-[0.9em], and em compounds: at the citation line's 11px
+// row that is a 9.9px digit in a 14.85px circle. Neither lands on a pixel, so the leftover
+// space the flex centering has to split (and the glyph raster inside it) rounds to whichever
+// side the row happens to sit on — measured at 2× DPR the digit came out 1.5px high, and it
+// moved when the row moved. Whole pixels make it deterministic; what is left is glyph
+// overshoot (a round-topped 2 rises past the cap line), which is type design, not layout.
+//
+// The same compounding is why it towered over its own row: a 14.85px ring beside 11px text
+// whose letters are only 7.8px tall. 13px is picked against the text rather than against the
+// font-size — it bottoms out level with the descenders and clears the caps by ~2px, so the
+// ring reads as one more thing on the line instead of a bubble sitting on top of it.
+//
+// ⚠️ So this is one fixed size for both call sites (10px header row, 11px citation line),
+// NOT a size that tracks the row. A size prop would bring the fractions back; if a third
+// call site ever needs a different one, give it its own whole-pixel value here.
 export default function SeqBadge({ seq, className = '' }: { seq: number; className?: string }) {
   return (
     <span
-      className={`inline-flex h-[1.5em] min-w-[1.5em] shrink-0 items-center justify-center rounded-full border border-current px-[0.32em] font-mono text-[0.9em] leading-none tabular-nums ${className}`}
+      className={`inline-flex h-[13px] min-w-[13px] shrink-0 items-center justify-center rounded-full border border-current px-[3px] font-mono text-[9px] leading-none tabular-nums ${className}`}
     >
       {seq}
     </span>
