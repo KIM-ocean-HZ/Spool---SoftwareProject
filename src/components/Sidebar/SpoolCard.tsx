@@ -113,12 +113,16 @@ export default function SpoolCard() {
   const spool = spoolState(stats.captures);
 
   return (
-    /* ⚠️ No border and no fill of its own (Ocean 2026-08-11: 「简洁，安静，不抢眼」). A card
-       lighter than the rail it sits in is a raised object, and this panel is a readout, not an
-       object — the same argument that made the sidebar title bigger than it (§1-octies). What
-       marks it as one thing now is the meter beside the text, which is the only picture up
-       here anyway. */
-    <div className="mb-2 px-3 py-2">
+    /* ⚠️ A frame, but still no fill — 变体 D, which Ocean picked out of B/C/D (HANDOFF §0.10 ①).
+       The two halves of that are separate decisions and both have to hold:
+
+       - **No fill.** A card lighter than the rail it sits in is a raised object, and this panel
+         is a readout, not an object (Ocean 2026-08-11: 「简洁，安静，不抢眼」).
+       - **A hairline border, added back.** Unframed, the panel's own 今天 rule sat a few pixels
+         from 最近's section rule with nothing to say which side of it the 今天 row belonged to —
+         two horizontal lines that close together read as one paragraph break. The frame is what
+         makes the inner rule an internal division rather than a boundary in the rail. */
+    <div className="mt-2.5 rounded-md border border-line px-3 py-2">
       <div className="flex items-center gap-3">
         <SpoolMeter
           level={spool.level}

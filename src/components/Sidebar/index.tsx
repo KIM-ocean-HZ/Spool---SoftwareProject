@@ -75,11 +75,6 @@ export default function Sidebar({ onCollapse }: Props) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
-        {/* 首日价值 — 「我攒了多少」, above even the pinned rows. Ocean 2026-08-10 put it on
-            this side rather than over the block feed so it is visible whichever project is
-            open, and 二期 (拍板 3) made it permanent: 一期's version vanished on a day with
-            no captures, which took the spool away on the day it was most needed. */}
-        <SpoolCard />
         {/* DESIGN_WORKBENCH §9.4 — 项目管理, pinned above everything.
             Ocean 2026-08-07: 「左侧边栏加入一个项目管理的一个总项目，显示方式和普通项目一样，
             只是置顶，然后它的工作区用来存放项目矩阵」.
@@ -98,7 +93,7 @@ export default function Sidebar({ onCollapse }: Props) {
             project at once, 周回顾 is every project over time. Neither is a project, and neither
             belongs inside one — which is what put a 「回顾」 project in his 升学 workspace and
             a review card in every project's rail (components/ReviewBoard). */}
-        <ul className="mb-1">
+        <ul>
           <li
             onClick={() => openPinned('board')}
             className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
@@ -134,8 +129,32 @@ export default function Sidebar({ onCollapse }: Props) {
             </div>
           </li>
         </ul>
-        <RecentSection />
-        <FocusSection />
+        {/* 首日价值 — 「我攒了多少」. Ocean 2026-08-10 put it on this side rather than over the
+            block feed so it is visible whichever project is open, and 二期 (拍板 3) made it
+            permanent: 一期's version vanished on a day with no captures, which took the spool
+            away on the day it was most needed.
+
+            ⚠️ It sits BELOW 项目管理/周回顾 and above 最近 — Ocean's own placement, 2026-08-11:
+            「换成放在周回顾和最近中间，让项目管理和周回顾顶在最上面」. Don't move it back to the
+            top of the rail: the two pinned rows are the only things here that go somewhere, and
+            he wanted them first. The panel goes nowhere, so it reads as the rail's own readout
+            rather than as the first item of a list. */}
+        <SpoolCard />
+        {/* 变体 A2 (Ocean 2026-08-11) — ONE rule in the rail's list, and it is here: under
+            最近+聚焦 together, not under each of them. Both of those are lists the app derives
+            for you; everything below is a workspace you made. The rule draws that boundary and
+            nothing else, which is the same job the value panel's frame does — so the two lines
+            in the rail mean one thing between them, and they share a left and right edge.
+
+            ⚠️ `empty:hidden` is load-bearing, not decoration. Each section hides itself when it
+            has nothing (no live threads / no deadlines), and a rule under an empty block is a
+            line with nothing above it. This wrapper renders no DOM of its own when both are
+            gone, so `:empty` catches exactly that case — without index.tsx having to duplicate
+            either section's rule for what counts as 最近 or 聚焦. */}
+        <div className="border-b border-line pb-3 empty:hidden">
+          <RecentSection />
+          <FocusSection />
+        </div>
         {workspaces.length === 0 ? (
           <div className="px-3 py-12 text-center">
             <p className="font-serif text-xl italic text-muted">empty</p>

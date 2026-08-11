@@ -9,6 +9,7 @@ import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
+import SectionLabel from './SectionLabel';
 import ThreadListItem, { THREAD_DRAG_MIME } from './ThreadListItem';
 
 interface Props {
@@ -125,19 +126,19 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`mb-1.5 rounded-md ${
-        dragOver ? 'bg-accent/5 ring-1 ring-accent/50' : ''
-      }`}
+      className={`mt-3.5 rounded-md ${dragOver ? 'bg-accent/5 ring-1 ring-accent/50' : ''}`}
     >
-      <div className="group flex items-center gap-1 px-2 py-1">
-        <button
-          onClick={() => setCollapsed((v) => !v)}
-          className="flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink"
-          aria-label={collapsed ? t('展开') : t('收起')}
-        >
-          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        </button>
+      {/* ⚠️ This used to be a 16px serif name with the collapse chevron in front of it, and it
+          was the loudest of the three heading styles the rail had grown (Ocean 2026-08-11:
+          「没有严谨的结构，很散乱」). It is a SectionLabel now, same as 最近/聚焦 — see that file
+          for why the left edge is the thing being protected.
 
+          Two consequences worth not undoing by accident:
+          - **The chevron follows the name.** In front of it, it pushed the name off the rail's
+            one left edge; parked at the far right it read as unattached to the name.
+          - **The name is not uppercased in EN** (uppercaseInEn={false}) — it is the user's own
+            text, unlike 最近/聚焦. */}
+      <SectionLabel uppercaseInEn={false} className="group">
         {editing ? (
           <input
             ref={inputRef}
@@ -146,12 +147,16 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
             onBlur={exitEdit}
             onKeyDown={handleKeyDown}
             placeholder={t('未命名')}
-            className="min-w-0 flex-1 bg-transparent font-serif text-base text-ink outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[10.5px] tracking-wide text-muted outline-none"
           />
         ) : (
+          /* ⚠️ `py-1 -my-1` (and the same on the chevron): the heading is 10.5px now, and a
+             10px-tall double-click target for 重命名 is not one. The negative margin gives
+             the hit area back without giving the row height back, which would put workspace
+             headings on a different rhythm from 最近/聚焦. */
           <button
             onDoubleClick={() => setEditing(true)}
-            className="min-w-0 flex-1 truncate text-left font-serif text-base text-ink"
+            className="-my-1 min-w-0 truncate py-1 text-left"
             title={t('双击重命名')}
           >
             {headerTitle}
@@ -159,8 +164,16 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         )}
 
         <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="-m-0.5 flex-none rounded p-0.5 text-muted hover:text-ink"
+          aria-label={collapsed ? t('展开') : t('收起')}
+        >
+          {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+        </button>
+
+        <button
           onClick={() => void onAddThread()}
-          className="invisible flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink group-hover:visible"
+          className="invisible ml-auto flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink group-hover:visible"
           aria-label={t('新建项目')}
           title={t('新建项目')}
         >
@@ -170,12 +183,15 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
         <DeleteButton
           onConfirm={() => void removeWorkspace(workspace.id)}
           title={t('删除工作区')}
-          className="invisible group-hover:visible"
+          className="invisible flex-none group-hover:visible"
         />
-      </div>
+      </SectionLabel>
 
+      {/* ⚠️ No `pl-5` any more: a project row sits at the same left edge whether it is here,
+          under 最近, or under 聚焦 — that single vertical is what 变体 A bought. The workspace
+          it belongs to is said by the heading above it, not by an indent. */}
       {!collapsed && (
-        <ul className="space-y-0.5 pb-1 pl-5">
+        <ul className="space-y-0.5">
           {fresh.length + dormant.length + done.length === 0 && (
             <li
               onClick={() => void onAddThread()}
