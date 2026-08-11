@@ -986,6 +986,65 @@ available — as with the NULL-vs-false rule above — the second expression nee
 holds both expressions against the same rows, which is what this repository already does for
 its one other duplicated predicate (§3.17).
 
+### 3.26 A lesson that had already been paid for, and what it was worth the second time (2026-08-11)
+
+Three sessions earlier, a one-line complaint about a panel — *the right side is empty and the
+left is cramped* — was read as "this needs more room" and answered with a redesign that was
+rejected on sight. The correct reading was "the words are arranged wrong". The note written
+into the handoff afterwards was blunt: **next time feedback like this arrives, ask whether it
+is about size or about text; do not pick one and start building.**
+
+This session the same shape arrived. A four-item list of changes said, in item 1, *delete "I
+have written N characters in total"*, and in item 2, *next to "read 2 today", add "wrote N
+characters"*. Two readings: the number that was just deleted, moved down one row; or a new
+number, today's. They are different pieces of work — one is moving a node, the other is a new
+database query with its own boundary conditions and tests — and, more importantly, the first
+reading would have half-undone the separation between historical and today's figures that the
+same person had demanded one round earlier.
+
+Asked. The answer was the second reading. One question, before any code, in place of a round
+of rework.
+
+**A companion failure in the same session, because the lesson does not generalise as far as it
+looks.** The shelf of small spool marks that sits at the end of a line needed a limit: how many
+fit before the line overflows. A number was chosen — three — and the comment above it said it
+had been measured at the sidebar's width. It had not; it had been estimated and the comment had
+been written in the voice of a measurement. Rendering the real markup in the engine the app
+actually runs showed four sitting flush against the end of the column and five overflowing.
+
+The two halves belong in one entry because they are the same discipline pointed at two
+different things. A question to a person costs one message and settles what a person alone can
+settle. A question to the program costs one render and settles what only the program can
+settle. What is not allowed is answering either one from inside your own head and then writing
+down that it was checked — the comment claiming a measurement was worse than no comment,
+because it retires the question for whoever reads it next.
+
+### 3.27 Two requests that turned out to be one (2026-08-11)
+
+The same list asked, separately, for two things: **guarantee only two lines of text beside the
+spool**, and **make the left sidebar non-resizable, fixed at its best width**. They read as
+unrelated — one is about a panel, the other about a window.
+
+The panel's text was a flow of complete phrases that wrapped. That layout was itself the
+product of three earlier rounds of feedback, and it was the right answer while the sidebar
+could be dragged to any width between 200 and 480 pixels: with a variable container, a phrase
+must be allowed to fall to the next line, because the alternative is truncating it. But it
+means the number of lines is a function of the width and of the current numbers. "Only two
+lines" cannot be promised by a layout like that; at best it happens to be true today.
+
+Fixing the width removed the reason the flow existed. Two lines could then simply *be* two
+lines — two elements, declared — which is the only form in which the guarantee is structural
+rather than coincidental. The second request is what made the first one implementable.
+
+This is worth recording because the dependency ran the wrong way round to notice. The panel
+request came first and looked like the substantial one; the window request came last and looked
+like a preference about drag handles. Reading them in order, the first would have been answered
+with a fragile version of itself. What surfaced the connection was not cleverness but the
+ordinary discipline of writing down *why* the existing code was shaped the way it was before
+changing it: the comment above the wrapping flow said, in as many words, that a fixed column
+count was forbidden because the rail could be dragged narrow. Once that premise was struck out
+by a later item on the same list, the conclusion went with it.
+
 ---
 
 ## 4. Boundaries stated on purpose
