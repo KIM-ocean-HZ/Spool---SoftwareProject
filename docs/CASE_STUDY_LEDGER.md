@@ -1193,6 +1193,66 @@ first question is not which tool it chose. It is whether the tools were in the r
 
 ---
 
+### 3.34 The instrument reports nothing on the day you install it (2026-08-11)
+
+The heartbeat from §3.33 was built, tested, and installed. The note written for the install
+said what to expect on screen: *Claude Code's row will show a time, ChatGPT's should say never
+connected or a very old one.* After the install, **all six rows said never connected**, and
+that was correct.
+
+Every `--mcp` subprocess alive on the machine had been started by the *previous* build. A
+heartbeat is written when a client connects, and none of them was going to connect again —
+they were already connected, to a binary that did not have the code. The instrument had been
+installed underneath nine live sessions it could not see, and it would stay blank until each
+client was restarted.
+
+The predicted screen and the correct screen differ in a way that reads as a bug. Someone
+opening Settings expecting one row with a timestamp finds six rows saying *never connected*
+and concludes the feature does not work — and the natural next move, debugging a feature that
+is behaving exactly as designed, is expensive and ends in nothing.
+
+**A measurement of connections cannot describe connections that predate it.** The same holds
+for anything installed into a running system to observe it: request loggers, counters, session
+trackers. The generalisation is about what the first reading means. On the day of the install,
+an empty instrument is not evidence of a broken instrument, and it is not evidence of an idle
+system either — it carries no information at all. What made this one verifiable anyway was
+running the *installed* binary by hand against a scratch library: three fake clients, three
+rows written, the unrecognised one kept under its own reported name. That proves the shipped
+build carries the code, which is the part an empty screen genuinely cannot distinguish.
+
+And the accident is worth keeping: the blank start makes the real test sharper than the one
+that was planned. Restart one client, and exactly one row gets a time while the others stay
+blank. A screen that had begun half-populated could never have shown that.
+
+### 3.35 The failing assertion was not a bug, it was an undecided question (2026-08-11)
+
+Hooking a client up now appends a marked section to that client's instruction file. The test
+written alongside it hooked up twice and asserted a `.bak` had been cut. It failed: nothing
+had changed, so nothing had been written, so there was no backup.
+
+The code was right and the test was wrong, but the useful part is that neither had *decided*
+anything. Writing the assertion forced three questions that the feature had been silently
+answering by accident: does a second hookup rewrite an unchanged file (no — a repeat click
+should not churn the user's file, and a fresh `.bak` would bury the one that mattered); what
+counts as *our* section; and what happens when someone hand-edits the file and leaves half a
+marker behind.
+
+The third has a real asymmetry in it. Replacing from the first opening marker to the last
+closing one is the obvious implementation, and against a half-edited file it deletes whatever
+sits between someone else's marker and ours — silently, in a file the user shares with other
+tools. Appending instead leaves a visible duplicate. **A duplicate is something the user can
+see and delete; a deletion is something they find out about later, if ever.** So exactly one
+well-formed pair is treated as ours and replaced in place; every other shape appends. The rule
+is now three lines of code and a test, and it exists because an assertion about backups
+happened to point at it.
+
+The general form: when a test fails on new code, the first question is which of the two is
+wrong — and the answer is sometimes *neither, the behaviour was never chosen*. Those are the
+valuable failures. The assertion was about `.bak` files and what it actually bought was a
+written-down rule that this feature will never delete text it did not write.
+
+---
+
 ## 4. Boundaries stated on purpose
 
 Where a case study is normally silent, and where the honest answer is more useful than the
