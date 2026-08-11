@@ -162,7 +162,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           {thread.isCaptureTarget ? (
             <span
               title={t('当前捕捉目标')}
-              className="flex-none text-[10px] text-accent"
+              className="flex-none text-[12px] text-accent"
             >
               {t('捕捉中')}
             </span>
@@ -197,7 +197,7 @@ export default function ThreadListItem({ thread, active, onSelect, onDelete }: P
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-1 text-[11px] text-muted">{t('移动到工作区')}</div>
+          <div className="px-3 py-1 text-[13px] text-muted">{t('移动到工作区')}</div>
           {otherWorkspaces.length === 0 ? (
             <div className="px-3 py-1 text-xs text-muted">{t('没有其他工作区')}</div>
           ) : (

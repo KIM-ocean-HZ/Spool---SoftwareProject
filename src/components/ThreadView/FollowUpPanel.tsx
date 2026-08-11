@@ -1,5 +1,7 @@
 import { Globe, Loader2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { onEnter, onFirstChar } from '@/lib/threads/followUpFormat';
+import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { setFollowUpBrief } from '@/lib/db/threads';
 import type { Thread } from '@/lib/db/threads';
@@ -31,6 +33,17 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
   const enqueue = useEngineStore((s) => s.enqueue);
   const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
   const loadAll = useThreadsStore((s) => s.loadAll);
+
+  // The brief numbers itself as it is typed (lib/threads/followUpFormat). React replacing the
+  // textarea's value drops the caret to the end, so anything that rewrites the text parks the
+  // caret here and this effect puts it back after the render that carried the new value.
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const caretRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (caretRef.current === null) return;
+    areaRef.current?.setSelectionRange(caretRef.current, caretRef.current);
+    caretRef.current = null;
+  }, [text]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
@@ -95,12 +108,36 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           <textarea
+            ref={areaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              const first = onFirstChar(text, e.target.value);
+              if (first) {
+                caretRef.current = first.caret;
+                setText(first.text);
+                return;
+              }
+              setText(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              // ⚠️ Never while composing: Enter is how an IME accepts its candidate, and
+              // stealing it would make the box unusable for typing Chinese (lib/utils/ime).
+              if (isImeComposing(e.nativeEvent)) return;
+              // ⇧Enter stays a plain newline — the way out when a point runs to two lines.
+              if (e.key !== 'Enter' || e.shiftKey) return;
+              e.preventDefault();
+              const el = e.currentTarget;
+              const next = onEnter(text, el.selectionStart, el.selectionEnd);
+              caretRef.current = next.caret;
+              setText(next.text);
+            }}
             rows={8}
             placeholder={t('一行一件事。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。')}
             className="w-full resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 text-xs leading-relaxed text-ink outline-none focus:border-accent"
           />
+          <p className="mt-1 text-[10px] text-muted">
+            {t('回车换下一条，自动编号；⇧回车在同一条里换行。')}
+          </p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"

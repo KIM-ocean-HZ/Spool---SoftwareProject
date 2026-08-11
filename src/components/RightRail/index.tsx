@@ -315,7 +315,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
             <button
               type="button"
               onClick={() => setHistoryOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 text-left text-[12px] text-muted transition-colors hover:text-ink-2"
+              className="flex w-full items-center gap-1.5 text-left text-[11px] text-muted transition-colors hover:text-ink-2"
             >
               {historyOpen ? (
                 <ChevronDown size={10} className="flex-none" />
@@ -331,7 +331,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               <div className="mt-1 space-y-1.5">
                 {written.map((g) => (
                   <div key={`${g.source}-${g.at}`}>
-                    <div className="text-[12px] text-muted">
+                    <div className="text-[11px] text-muted">
                       {t("{source} · {when} · {n} 块", {
                         source: g.source,
                         when: when(g.at),
@@ -351,11 +351,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                             className="flex w-full items-baseline gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-paper-2"
                           >
                             {b.seq !== null && (
-                              <span className="flex-none font-mono text-[12px] text-muted">
+                              <span className="flex-none font-mono text-[11px] text-muted">
                                 #{b.seq}
                               </span>
                             )}
-                            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
+                            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2">
                               {b.content}
                             </span>
                           </button>

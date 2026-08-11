@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BASE_SIDEBAR_WIDTH,
   DEFAULT_RAIL_WIDTH,
+  RAIL_LEAD_OVER_SIDEBAR,
   MAX_RAIL_WIDTH,
   MIN_CENTRE_WIDTH,
   MIN_RAIL_WIDTH,
@@ -26,10 +27,26 @@ describe('resolveLayout', () => {
   /** The app's default window — the one 「非全屏状态」 refers to. */
   const DEFAULT_WINDOW = 1360;
 
-  // §9.2 R1, and the reason it is a test rather than a comment: the rail shipped WIDER than
-  // the sidebar, and nothing caught it until Ocean had used it.
-  it('keeps the rail narrower than the sidebar', () => {
-    expect(DEFAULT_RAIL_WIDTH).toBeLessThan(SIDEBAR_WIDTH);
+  // ⚠️⚠️ **This test was `rail_is_narrower_than_the_sidebar` and it is now its opposite.**
+  // §9.2 R1 (Ocean 2026-08-07): 「右侧栏……展开时窄一点，比左侧栏窄」. 2026-08-11 he reversed it:
+  // 「右侧边栏增加宽度，做成比左边栏宽一点」. Both dates are here on purpose — the old rule had a
+  // reason, and someone reading only the new one should know it was overturned by the same
+  // person rather than lost.
+  it('keeps the rail wider than the sidebar', () => {
+    for (const windowWidth of [1200, 1360, 1600, 1800, 2560]) {
+      const { sidebar, rail } = resolveLayout({ ...roomy, windowWidth, railWidth: 0 });
+      expect(rail).toBeGreaterThan(sidebar);
+    }
+    // A fresh install opens already obeying the floor, rather than being clamped up on
+    // first paint.
+    expect(DEFAULT_RAIL_WIDTH).toBeGreaterThan(SIDEBAR_WIDTH);
+  });
+
+  // ⚠️ The exception, and it is deliberate: the emergency squeeze may take the rail below the
+  // sidebar on a window too small for both. "Narrower than the sidebar" beats "gone".
+  it('lets the squeeze take the rail under the sidebar rather than closing it', () => {
+    const cramped = resolveLayout({ ...roomy, windowWidth: 700 });
+    expect(cramped.rail).toBe(MIN_RAIL_WIDTH);
     expect(MIN_RAIL_WIDTH).toBeLessThan(MIN_SIDEBAR_WIDTH);
   });
 
@@ -46,6 +63,7 @@ describe('resolveLayout', () => {
     expect(resolveLayout(roomy)).toEqual({
       sidebar: SIDEBAR_WIDTH,
       rail: DEFAULT_RAIL_WIDTH,
+      railMin: SIDEBAR_WIDTH + RAIL_LEAD_OVER_SIDEBAR,
     });
   });
 
@@ -64,7 +82,10 @@ describe('resolveLayout', () => {
   // number the cap undid. A width the user set by hand outranks a rule about widths — the
   // sidebar can be scaled BECAUSE it has no handle.
   it('never overrides a width the user dragged, however small the window', () => {
-    const chosen = 188;
+    // ⚠️ Above the floor on purpose. A width UNDER it is clamped up — that is the floor doing
+    // its job, not the regression: the bug was a CEILING silently undoing every drag outward,
+    // leaving the user no reachable width at all.
+    const chosen = 420;
     for (const windowWidth of [1200, 1360, 1800]) {
       expect(resolveLayout({ ...roomy, windowWidth, railWidth: chosen }).rail).toBe(chosen);
     }
@@ -91,13 +112,16 @@ describe('resolveLayout', () => {
       sidebarCollapsed: true,
       railCollapsed: true,
     });
-    expect(tiny).toEqual({ sidebar: 0, rail: 0 });
+    expect(tiny.sidebar).toBe(0);
+    expect(tiny.rail).toBe(0);
   });
 
   it('clamps a width that settings.json should never have held', () => {
     expect(resolveLayout({ ...roomy, railWidth: 9000 }).rail).toBeLessThanOrEqual(MAX_RAIL_WIDTH);
-    // Negative / zero values fall back to the floor, not to nothing.
-    expect(resolveLayout({ ...roomy, railWidth: 0 }).rail).toBe(MIN_RAIL_WIDTH);
+    // Negative / zero values fall back to the floor, not to nothing — and the floor is now
+    // the sidebar's width plus the lead, not the absolute minimum.
+    const { sidebar, rail } = resolveLayout({ ...roomy, railWidth: 0 });
+    expect(rail).toBe(sidebar + RAIL_LEAD_OVER_SIDEBAR);
   });
 
   it('never squeezes the reading column below its floor while a rail can still give', () => {

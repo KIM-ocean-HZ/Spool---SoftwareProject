@@ -147,7 +147,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
             onBlur={exitEdit}
             onKeyDown={handleKeyDown}
             placeholder={t('未命名')}
-            className="min-w-0 flex-1 bg-transparent text-[10.5px] tracking-wide text-muted outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[12px] tracking-wide text-muted outline-none"
           />
         ) : (
           /* ⚠️ `py-1 -my-1` (and the same on the chevron): the heading is 10.5px now, and a
@@ -216,7 +216,7 @@ export default function WorkspaceGroup({ workspace, threads, activeThreadId }: P
               <button
                 type="button"
                 onClick={() => setDormantOpen((v) => !v)}
-                className="flex w-full items-center gap-1 rounded px-3 py-1 text-[10.5px] text-muted transition-colors hover:bg-paper-2/50 hover:text-ink-2"
+                className="flex w-full items-center gap-1 rounded px-3 py-1 text-[12px] text-muted transition-colors hover:bg-paper-2/50 hover:text-ink-2"
               >
                 {dormantOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 {t('沉睡 {n} 条', { n: dormant.length })}

@@ -108,7 +108,7 @@ export default function Sidebar({ onCollapse }: Props) {
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{t('项目管理')}</span>
               {/* The one number worth carrying at rest: how many are about to come due. */}
               {dueSoon > 0 && (
-                <span className="flex-none text-[10px]" style={{ color: 'var(--status-parked)' }}>
+                <span className="flex-none text-[12px]" style={{ color: 'var(--status-parked)' }}>
                   {t('{n} 个快到期', { n: dueSoon })}
                 </span>
               )}
@@ -186,7 +186,7 @@ export default function Sidebar({ onCollapse }: Props) {
             <button
               onClick={() => void openReview()}
               title={t('AI 提了 {n} 条待你过目（还没进你的库）', { n: pendingProposals })}
-              className="flex items-center gap-1 rounded border border-accent/60 bg-accent-soft px-1.5 py-0.5 text-[11px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
+              className="flex items-center gap-1 rounded border border-accent/60 bg-accent-soft px-1.5 py-0.5 text-[13px] text-accent transition-colors hover:border-accent hover:bg-accent/15"
             >
               <Inbox size={12} />
               <span className="font-mono">{pendingProposals}</span>

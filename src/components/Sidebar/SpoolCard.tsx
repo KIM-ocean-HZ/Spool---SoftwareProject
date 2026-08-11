@@ -65,7 +65,7 @@ interface Stats {
  *     is fixed now (lib/layout.ts), so the two lines can simply BE two lines, which is the only
  *     way 「只有两行字」 is a guarantee rather than a coincidence of the current numbers. */
 function Fact({ text }: { text: string }) {
-  return <span className="whitespace-nowrap text-[11px] text-ink-2">{text}</span>;
+  return <span className="whitespace-nowrap text-[13px] text-ink-2">{text}</span>;
 }
 
 export default function SpoolCard() {
@@ -135,7 +135,7 @@ export default function SpoolCard() {
           <Fact text={t('你捕捉了 {n} 条', { n: stats.captures })} />
           <div className="flex items-center gap-2">
             {spool.full ? (
-              <span className="whitespace-nowrap text-[11px] text-accent">
+              <span className="whitespace-nowrap text-[13px] text-accent">
                 {t('这一轴缠满了')}
               </span>
             ) : (

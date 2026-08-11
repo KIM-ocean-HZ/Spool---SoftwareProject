@@ -83,7 +83,7 @@ export function FilledSpools({ count, label }: { count: number; label: string })
           <rect x={12.5} y={0} width={3} height={12} rx={1.2} fill="var(--line-strong)" />
         </svg>
       ))}
-      {count > MAX_DRAWN_SPOOLS && <span className="text-[11px] text-ink-2">× {count}</span>}
+      {count > MAX_DRAWN_SPOOLS && <span className="text-[13px] text-ink-2">× {count}</span>}
     </span>
   );
 }

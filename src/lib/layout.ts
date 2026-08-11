@@ -92,13 +92,35 @@ export const CENTRE_HEADER_HEIGHT = PANEL_TOP_Y + 1;
  *  whole-library half (BoardRail is gone) and its folds, so it has less to hold.
  *
  *  §9.13.6-bis: 210 → 220 (Ocean 2026-08-07 晚, 「右边栏 220」). 210 was a number I picked
- *  and he had not seen; at 210 lines like 「跑一次，结果留在这里等你过目。」 broke into
- *  crumbs. Still under the sidebar, which is what `rail_is_narrower_than_the_sidebar` asks. */
-export const DEFAULT_RAIL_WIDTH = 220;
+ *  and he had not seen; at 210 lines like 「跑一次，结果留在这里等你过目。」 broke into crumbs.
+ *
+ *  ⚠️⚠️ **2026-08-11: 220 → 340, and the R1 rule above is reversed** (「右侧边栏增加宽度，做成
+ *  比左边栏宽一点」). See RAIL_LEAD_OVER_SIDEBAR, which is what actually enforces it — this
+ *  constant is only where a rail that has never been dragged starts. 340 = the sidebar's
+ *  ceiling (300) plus that lead, so a fresh install opens already obeying the floor. */
+export const DEFAULT_RAIL_WIDTH = 340;
 
 /** Not a drag floor any more — the sidebar has no handle. It is the width the emergency
  *  squeeze below is allowed to take it down to on a window too small to hold everything. */
 export const MIN_SIDEBAR_WIDTH = 200;
+
+/** ⚠️⚠️ **The rail's floor is now the sidebar's width plus this, and that REVERSES a rule.**
+ *
+ *  §9.2 R1 (Ocean 2026-08-07): 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」 — and a
+ *  test named `rail_is_narrower_than_the_sidebar` has been holding it ever since.
+ *  2026-08-11 he reversed it: 「右侧边栏增加宽度，做成比左边栏宽一点」. Recorded rather than
+ *  quietly swapped, because the old rule had a reason (navigation is a list of short titles;
+ *  the reading column is what the product is for) and the new one is a judgement he made after
+ *  four months of using both. The test is inverted, with the same two dates on it.
+ *
+ *  ⚠️ It is a FLOOR, not a width: the rail keeps its handle, so this only stops it going
+ *  under the sidebar. Dragging wider still works, and a width the user dragged is never
+ *  overridden — that was the 2026-08-11 regression (see resolveLayout). */
+export const RAIL_LEAD_OVER_SIDEBAR = 40;
+
+/** The absolute floor, used only by the emergency squeeze on a window too small for
+ *  everything. ⚠️ Below the sidebar on purpose: when there is genuinely no room, "narrower
+ *  than the sidebar" beats "not visible at all". */
 export const MIN_RAIL_WIDTH = 180;
 export const MAX_RAIL_WIDTH = 480;
 
@@ -116,13 +138,13 @@ export const MIN_CENTRE_WIDTH = 520;
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
-/** What share of the window each rail may take before its own floor and ceiling apply.
+/** What share of the window the sidebar may take before its own floor and ceiling apply.
  *
- *  The two fractions are chosen so that a full-screen window on the display this was tuned on
- *  (1800pt) lands exactly on the widths Ocean approved there — 1800/6 = 300, 1800/8 = 225 —
- *  and a smaller window gets proportionally less rather than the same pixels. They are
- *  fractions rather than a ratio against a reference width on purpose: a hard-coded 1800 would
- *  be this laptop baked into the product. */
+ *  A sixth, so that a full-screen window on the display this was tuned on (1800pt) lands
+ *  exactly on the width Ocean approved there: 1800/6 = 300. A fraction rather than a ratio
+ *  against a reference width on purpose — a hard-coded 1800 would be this laptop baked into
+ *  the product. (The rail has no share of its own: it has a handle, so its width is the
+ *  user's, and only its floor is computed.) */
 const SIDEBAR_SHARE = 1 / 6;
 
 const sidebarFor = (windowWidth: number): number =>
@@ -138,14 +160,23 @@ const sidebarFor = (windowWidth: number): number =>
  *
  * A rail that is collapsed contributes zero and is not squeezed: collapsing is the user's
  * own answer to "not enough room".
+ *
+ * ⚠️ `railMin` comes back with the widths because the drag handle needs the SAME floor this
+ * function applies. Two copies of that number is how a handle ends up able to drag somewhere
+ * the layout refuses to follow — which looks exactly like the rail being stuck.
  */
 export const resolveLayout = (input: {
   windowWidth: number;
   railWidth: number;
   sidebarCollapsed: boolean;
   railCollapsed: boolean;
-}): { sidebar: number; rail: number } => {
+}): { sidebar: number; rail: number; railMin: number } => {
   const sidebar = input.sidebarCollapsed ? 0 : sidebarFor(input.windowWidth);
+  // The rail is wider than the sidebar as of 2026-08-11 (RAIL_LEAD_OVER_SIDEBAR). Measured
+  // against the sidebar's width for THIS window rather than against a constant, so the pair
+  // keeps its relationship at every size; falls back to the plain floor when the sidebar is
+  // collapsed and there is nothing to be wider than.
+  const railFloor = sidebar === 0 ? MIN_RAIL_WIDTH : sidebar + RAIL_LEAD_OVER_SIDEBAR;
   // ⚠️⚠️ **The rail takes no window-share cap, and that is a fix, not an omission.** One was
   // added on 2026-08-11 to answer 「两侧边栏都特别宽」 and it broke dragging within the hour:
   // capping a stored 188 to 180 meant every drag wrote a number the cap immediately undid, so
@@ -153,10 +184,10 @@ export const resolveLayout = (input: {
   // show for it. A width the user set by hand outranks a rule about widths. The sidebar can be
   // scaled precisely BECAUSE it has no handle; this one has one, so the answer to "too wide"
   // is already in the user's hands.
-  const rail = input.railCollapsed ? 0 : clamp(input.railWidth, MIN_RAIL_WIDTH, MAX_RAIL_WIDTH);
+  const rail = input.railCollapsed ? 0 : clamp(input.railWidth, railFloor, MAX_RAIL_WIDTH);
 
   const over = sidebar + rail + MIN_CENTRE_WIDTH - input.windowWidth;
-  if (over <= 0) return { sidebar, rail };
+  if (over <= 0) return { sidebar, rail, railMin: railFloor };
 
   // Not enough room. Take it from the right rail first — it is the newer, more optional
   // surface, and the sidebar is how you navigate at all. Each still respects its floor,
@@ -167,5 +198,5 @@ export const resolveLayout = (input: {
     stillOver <= 0
       ? sidebar
       : Math.max(sidebar === 0 ? 0 : MIN_SIDEBAR_WIDTH, sidebar - stillOver);
-  return { sidebar: sidebarAfter, rail: railAfter };
+  return { sidebar: sidebarAfter, rail: railAfter, railMin: Math.min(railFloor, railAfter) };
 };

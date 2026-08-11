@@ -15,7 +15,7 @@ import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
 import ResizeHandle from '@/components/ui/ResizeHandle';
 import ToastRack from '@/components/ui/Toast';
-import { MAX_RAIL_WIDTH, MIN_RAIL_WIDTH, resolveLayout } from '@/lib/layout';
+import { MAX_RAIL_WIDTH, resolveLayout } from '@/lib/layout';
 import {
   drainMigrationNotices,
   getFirstRunThreadId,
@@ -356,7 +356,10 @@ export default function App() {
               <ResizeHandle
                 side="left"
                 width={layout.rail}
-                min={MIN_RAIL_WIDTH}
+                /* ⚠️ From the layout, not MIN_RAIL_WIDTH: the floor is the sidebar's width plus
+                   a lead now (lib/layout.ts), and a handle allowed past a floor the layout
+                   enforces is a handle that moves while the rail does not. */
+                min={layout.railMin}
                 max={MAX_RAIL_WIDTH}
                 label={t('拖动改变 AI 面板宽度')}
                 onResize={setDragRail}

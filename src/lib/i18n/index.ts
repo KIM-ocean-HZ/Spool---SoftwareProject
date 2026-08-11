@@ -494,6 +494,8 @@ const EN: Record<string, string> = {
   '关掉跟进': 'Turn it off',
   '清空就等于关掉跟进': 'Clearing the text turns follow-up off',
   '跟进目标已定好': 'Saved — this is what it will watch',
+  '回车换下一条，自动编号；⇧回车在同一条里换行。':
+    'Return starts the next point and numbers it; ⇧Return breaks a line inside one.',
   '已关掉这个项目的跟进': 'Follow-up is off for this project',
   '存不下来：{msg}': 'Could not save: {msg}',
   '跟进：提了 {n} 条待你过目': 'Follow up: {n} item(s) waiting for you',

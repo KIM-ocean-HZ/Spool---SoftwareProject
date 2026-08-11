@@ -52,7 +52,7 @@ export default function RecentSection() {
               {th.title.trim() || t('无标题')}
             </span>
             {th.isCaptureTarget ? (
-              <span className="flex flex-none items-center gap-1 text-[10.5px] text-accent">
+              <span className="flex flex-none items-center gap-1 text-[12px] text-accent">
                 {t('捕捉中')}
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
               </span>
@@ -63,7 +63,7 @@ export default function RecentSection() {
                   e.stopPropagation();
                   void setCaptureTarget(th.id);
                 }}
-                className="invisible flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[10.5px] text-muted transition-colors hover:border-accent hover:text-accent group-hover:visible"
+                className="invisible flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[12px] text-muted transition-colors hover:border-accent hover:text-accent group-hover:visible"
               >
                 {t('设为捕捉')}
               </button>

@@ -28,7 +28,7 @@ export default function SectionLabel({ children, uppercaseInEn = true, className
   const lang = useLanguage();
   return (
     <div
-      className={`flex items-center gap-1.5 px-3 pb-1 text-[10.5px] tracking-wide text-muted ${
+      className={`flex items-center gap-1.5 px-3 pb-1 text-[12px] tracking-wide text-muted ${
         uppercaseInEn && lang === 'en' ? 'uppercase' : ''
       } ${className}`}
     >
