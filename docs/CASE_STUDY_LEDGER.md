@@ -1119,6 +1119,34 @@ Cheap and sufficient in practice: **read the output yourself before handing it o
 image in this round was looked at first, which is how the footer was caught before it became a
 question about a design that had nothing wrong with it.
 
+### 3.32 The drawing was cheaper than the question, until the user said it was wrong (2026-08-11)
+
+§3.29 argued for drawing both readings of an ambiguous instruction rather than asking about
+them. It worked again the same day: *move the workspace's top bar down to line up with the
+value panel* reads either as aligning the two top edges or as making the header's rule
+continue the panel's bottom edge, and two mockups settled it in one reply.
+
+The reply also ended the practice: **"install it, don't render — the rendered picture doesn't
+match the real thing."**
+
+He is right, and the reason is structural rather than a lapse. The mockups come from a script
+that reproduces the components' markup by hand. Every round of component changes moves the two
+apart, and the same session had already shipped one image where the sidebar footer was broken
+in the script and nowhere else. A drawing is a claim about the product made in a second
+codebase; its accuracy decays with every change to the first one, and the decay is invisible
+until someone who knows the product looks at it.
+
+So the rule keeps its shape but gains a precondition. **Draw the options while the choice is
+between things that do not exist yet — that is what a drawing is uniquely good for.** Once the
+person can name what they want, and the change is a constant and a padding value, the real
+application is both faster to produce and the only artefact that cannot be wrong about itself.
+Here it took minutes: edit two files, build, swap the bundle, look. Rendering would have meant
+first repairing the instrument.
+
+The general form: **a model of the thing competes with the thing, and only wins while the thing
+is expensive to obtain.** Every improvement to build and install speed moves that line, and
+nobody sends a notification when it moves — the user does, by saying the picture looks wrong.
+
 ---
 
 ## 4. Boundaries stated on purpose
