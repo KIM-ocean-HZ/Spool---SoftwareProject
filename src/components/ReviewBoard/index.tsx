@@ -7,6 +7,7 @@ import { canShowEngineActions } from '@/lib/engine/gate';
 import { dateLocale, useT } from '@/lib/i18n';
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 
 // 周回顾 — its own pinned view, beside 项目管理.
 //
@@ -82,7 +83,13 @@ export default function ReviewBoard() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex flex-none items-baseline justify-between gap-3 border-b border-line px-6 py-3">
+      {/* Same height as ThreadView's header — see ProjectBoard for why. ⚠️ The rule that lands
+          on the panel's top edge is THIS one; the 引擎 bar below keeps its own smaller height,
+          because what is being aligned is the view's title bar, not everything above the list. */}
+      <header
+        className="flex flex-none items-baseline justify-between gap-3 border-b border-line px-6 py-6"
+        style={{ minHeight: CENTRE_HEADER_HEIGHT }}
+      >
         <h2 className="font-serif text-2xl text-ink">{t(ACTION_LABEL.weekly_review)}</h2>
         <span className="text-[11px] text-muted">{t('跨所有项目，不属于任何一个')}</span>
       </header>

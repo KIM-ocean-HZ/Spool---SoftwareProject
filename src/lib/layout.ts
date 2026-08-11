@@ -124,15 +124,9 @@ const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.m
  *  fractions rather than a ratio against a reference width on purpose: a hard-coded 1800 would
  *  be this laptop baked into the product. */
 const SIDEBAR_SHARE = 1 / 6;
-const RAIL_SHARE = 1 / 8;
 
 const sidebarFor = (windowWidth: number): number =>
   clamp(Math.round(windowWidth * SIDEBAR_SHARE), BASE_SIDEBAR_WIDTH, SIDEBAR_WIDTH);
-
-/** The rail is still the user's to drag — this only stops a width they chose on a big window
- *  from following them onto a small one. Never below the rail's own floor. */
-const railCeilingFor = (windowWidth: number): number =>
-  Math.max(MIN_RAIL_WIDTH, Math.round(windowWidth * RAIL_SHARE));
 
 /**
  * Resolve the two rail widths against the window actually available.
@@ -152,12 +146,14 @@ export const resolveLayout = (input: {
   railCollapsed: boolean;
 }): { sidebar: number; rail: number } => {
   const sidebar = input.sidebarCollapsed ? 0 : sidebarFor(input.windowWidth);
-  const rail = input.railCollapsed
-    ? 0
-    : Math.min(
-        clamp(input.railWidth, MIN_RAIL_WIDTH, MAX_RAIL_WIDTH),
-        railCeilingFor(input.windowWidth),
-      );
+  // ⚠️⚠️ **The rail takes no window-share cap, and that is a fix, not an omission.** One was
+  // added on 2026-08-11 to answer 「两侧边栏都特别宽」 and it broke dragging within the hour:
+  // capping a stored 188 to 180 meant every drag wrote a number the cap immediately undid, so
+  // the handle moved and the rail did not — plus a re-render per pointer move with nothing to
+  // show for it. A width the user set by hand outranks a rule about widths. The sidebar can be
+  // scaled precisely BECAUSE it has no handle; this one has one, so the answer to "too wide"
+  // is already in the user's hands.
+  const rail = input.railCollapsed ? 0 : clamp(input.railWidth, MIN_RAIL_WIDTH, MAX_RAIL_WIDTH);
 
   const over = sidebar + rail + MIN_CENTRE_WIDTH - input.windowWidth;
   if (over <= 0) return { sidebar, rail };

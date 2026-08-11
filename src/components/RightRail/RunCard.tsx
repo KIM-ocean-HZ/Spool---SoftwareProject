@@ -98,7 +98,7 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-xs text-ink">{t(ACTION_LABEL[run.action])}</span>
-            <span className="mt-0.5 block text-[10px] text-muted">
+            <span className="mt-0.5 block text-[12px] text-muted">
               {outcomeLine} · {when}
             </span>
           </span>
@@ -127,14 +127,14 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
       {open && hasText && (
         // §12.2 — same renderer as the block feed and 周回顾. Its sizes are in em, so a
         // heading here scales from this card's 11px instead of shouting at the block feed's.
-        <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 text-[11px] leading-relaxed text-ink-2">
+        <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 text-[13px] leading-relaxed text-ink-2">
           <MarkdownContent content={run.resultText ?? ''} />
         </div>
       )}
       {open && run.detail && (
         // §2.3: the CLI's own words, never a Spool paraphrase — "额度用完了，9/4 再来" is
         // the single most useful thing a failed run can hand back.
-        <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 font-mono text-[10px] leading-relaxed text-muted">
+        <div className="mt-1.5 whitespace-pre-wrap border-t border-line/60 pt-1.5 font-mono text-[12px] leading-relaxed text-muted">
           {run.detail}
         </div>
       )}
@@ -142,7 +142,7 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
       {/* The engine line. Ocean 2026-08-06: "我在使用过程中对使用了什么模型花了多少额度
           毫不知情，但这不是免费的". Model and cost sit on every card because every card is
           a thing that was paid for. */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted">
         <span>{engineName}</span>
         {run.usage.model && <span>· {run.usage.model}</span>}
         <span>· {cost ?? t('花费未知')}</span>
@@ -155,7 +155,7 @@ export default function RunCard({ run, onDismiss, onStore, busy }: Props) {
           type="button"
           disabled={busy}
           onClick={() => onStore(run)}
-          className="mt-2 flex w-full items-center justify-center gap-1 rounded border border-accent/60 bg-accent-soft px-2 py-1 text-[11px] text-accent transition-colors enabled:hover:border-accent enabled:hover:bg-accent/15 disabled:opacity-40"
+          className="mt-2 flex w-full items-center justify-center gap-1 rounded border border-accent/60 bg-accent-soft px-2 py-1 text-[13px] text-accent transition-colors enabled:hover:border-accent enabled:hover:bg-accent/15 disabled:opacity-40"
         >
           <Check size={11} />
           {t('存成一块')}

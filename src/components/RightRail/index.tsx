@@ -212,7 +212,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
           <button
             type="button"
             onClick={() => void openReview()}
-            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[11px] text-accent transition-colors hover:bg-accent-soft"
+            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[13px] text-accent transition-colors hover:bg-accent-soft"
           >
             <Inbox size={12} className="flex-none" />
             <span className="min-w-0 flex-1 truncate">
@@ -225,7 +225,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
         {/* §3.1 — what the AI said. The reason this rail exists at all (§1.1: the text used
             to be thrown away and reported as "跑完了，没有新增块"). */}
         {shown.length === 0 && !current ? (
-          <p className="px-1 text-[10px] leading-relaxed text-muted">
+          <p className="px-1 text-[12px] leading-relaxed text-muted">
             {showActions
               ? t("跑一次，结果留在这里等你过目。")
               : t(
@@ -248,21 +248,26 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
 
         {/* §9.3 #2 — 新进展. The first level shows the target itself, permanently visible
             rather than only inside the editor; 「改」 is a quiet link into the second. */}
+        {/* ⚠️ A frame rather than a top rule (Ocean 2026-08-11: 「右侧边栏的跟进窗口做成有框线的」).
+            Same treatment as the sidebar's value panel: a hairline border and no fill of its
+            own, so it reads as one thing without becoming a raised card. It earns the frame for
+            the same reason that one did — everything else in this column is a run that came and
+            will go, and this is a standing statement of what the project is watching for. */}
         {showActions && (
-          <div className="space-y-1 border-t border-line pt-2.5">
+          <div className="space-y-1 rounded-md border border-line p-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[10px] uppercase tracking-wide text-muted">
+              <span className="text-[12px] uppercase tracking-wide text-muted">
                 {t("跟进内容")}
               </span>
               <button
                 type="button"
                 onClick={onEditBrief}
-                className="flex-none text-[10px] text-muted transition-colors hover:text-accent"
+                className="flex-none text-[12px] text-muted transition-colors hover:text-accent"
               >
                 {thread.followUpBrief ? t("编辑") : t("定一个")}
               </button>
             </div>
-            <p className="whitespace-pre-wrap text-[10px] leading-relaxed text-ink-2">
+            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
               {thread.followUpBrief ? (
                 thread.followUpBrief
               ) : (
@@ -284,13 +289,13 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                     enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
                   }
                   title={t("照你定的那几行联网搜索")}
-                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[13px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
                 >
                   <Globe size={12} className="flex-none" />
                   {t("联网搜索")}
                 </button>
               ) : (
-                <p className="text-[10px] leading-relaxed text-muted">
+                <p className="text-[12px] leading-relaxed text-muted">
                   {t("联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。")}
                 </p>
               ))}
@@ -310,7 +315,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
             <button
               type="button"
               onClick={() => setHistoryOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 text-left text-[10px] text-muted transition-colors hover:text-ink-2"
+              className="flex w-full items-center gap-1.5 text-left text-[12px] text-muted transition-colors hover:text-ink-2"
             >
               {historyOpen ? (
                 <ChevronDown size={10} className="flex-none" />
@@ -326,7 +331,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               <div className="mt-1 space-y-1.5">
                 {written.map((g) => (
                   <div key={`${g.source}-${g.at}`}>
-                    <div className="text-[10px] text-muted">
+                    <div className="text-[12px] text-muted">
                       {t("{source} · {when} · {n} 块", {
                         source: g.source,
                         when: when(g.at),
@@ -346,11 +351,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                             className="flex w-full items-baseline gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-paper-2"
                           >
                             {b.seq !== null && (
-                              <span className="flex-none font-mono text-[10px] text-muted">
+                              <span className="flex-none font-mono text-[12px] text-muted">
                                 #{b.seq}
                               </span>
                             )}
-                            <span className="min-w-0 flex-1 truncate text-[10px] text-ink-2">
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
                               {b.content}
                             </span>
                           </button>

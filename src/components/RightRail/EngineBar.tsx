@@ -116,7 +116,7 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
           type="button"
           onClick={() => setOpen((v) => !v)}
           disabled={!status?.available}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] text-ink-2 transition-colors enabled:hover:bg-paper-2 disabled:cursor-default"
+          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[13px] text-ink-2 transition-colors enabled:hover:bg-paper-2 disabled:cursor-default"
         >
           {status?.available &&
             (open ? (
@@ -134,7 +134,7 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
         {spendUsd !== null && spendUsd > 0 && (
           <span
             title={t('Spool 自己跑的这些运行，近 7 天一共花了这么多。剩多少额度 Spool 看不到。')}
-            className="flex-none font-mono text-[10px] text-muted"
+            className="flex-none font-mono text-[12px] text-muted"
           >
             ${spendUsd.toFixed(2)}
           </span>
@@ -155,11 +155,11 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
           {/* §7.4: a picker only when there is something to pick. */}
           {status.engines.length > 1 && (
             <label className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted">{t('用哪个')}</span>
+              <span className="text-[12px] text-muted">{t('用哪个')}</span>
               <select
                 value={status.selected ?? ''}
                 onChange={(e) => void update({ aiEngine: e.target.value as EngineKind }).then(probe)}
-                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
+                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[13px] text-ink outline-none focus:border-accent"
               >
                 {status.engines.map((e) => (
                   <option key={e.kind} value={e.kind}>
@@ -174,11 +174,11 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
               as picking one: it leaves whatever the user set up in their own CLI alone. */}
           {models.length > 0 && (
             <label className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted">{t('用哪个模型')}</span>
+              <span className="text-[12px] text-muted">{t('用哪个模型')}</span>
               <select
                 value={model ?? ''}
                 onChange={(e) => void setModel(e.target.value)}
-                className="min-w-0 flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
+                className="min-w-0 flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[13px] text-ink outline-none focus:border-accent"
               >
                 <option value="">{t('默认')}</option>
                 {models.map((m) => (
@@ -194,7 +194,7 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
               thing that decides whether the next run happens. Said once, here, next to the
               control that changes it. */}
           {selected === 'gemini' && (
-            <p className="text-[10px] leading-relaxed text-muted">
+            <p className="text-[12px] leading-relaxed text-muted">
               {t('Gemini 免费额度按模型分开算，每个每天大约 20 次。用完了换一个模型还能接着跑。')}
             </p>
           )}
@@ -205,12 +205,12 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
               variable is never set, which is what happens today. */}
           {EFFORT_PICKER_ENABLED && showModels && (
             <label className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted">{t('想多久')}</span>
+              <span className="text-[12px] text-muted">{t('想多久')}</span>
               <select
                 value={effort ?? ''}
                 onChange={(e) => void update({ aiEffortClaude: e.target.value || null })}
                 title={t('想得越久越贵，也越慢')}
-                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] text-ink outline-none focus:border-accent"
+                className="flex-none rounded border border-line bg-paper px-1.5 py-0.5 text-[13px] text-ink outline-none focus:border-accent"
               >
                 <option value="">{t('默认')}</option>
                 {CLAUDE_EFFORTS.map((e) => (
@@ -221,7 +221,7 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
               </select>
             </label>
           )}
-          <p className="text-[10px] leading-relaxed text-muted">
+          <p className="text-[12px] leading-relaxed text-muted">
             {t('用的是你自己 CLI 账号的额度。')}
           </p>
         </div>

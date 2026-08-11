@@ -46,7 +46,7 @@ export default function LiveRun() {
           type="button"
           onClick={() => void cancel()}
           title={t('点一下停下来（已经写进去的块会留着）')}
-          className="flex-none rounded border border-accent/50 px-1.5 py-0.5 text-[10px] text-accent transition-colors hover:bg-accent/15"
+          className="flex-none rounded border border-accent/50 px-1.5 py-0.5 text-[12px] text-accent transition-colors hover:bg-accent/15"
         >
           {t('停下')}
         </button>
@@ -54,7 +54,7 @@ export default function LiveRun() {
 
       {/* The caption. Before any tool call there is nothing honest to say beyond "it is
           going", so that is what it says — the pulse carries the rest. */}
-      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted">
+      <div className="mt-1 flex items-center gap-1.5 text-[12px] text-muted">
         <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-accent" aria-hidden />
         <span className="truncate">{progress?.caption ? t(progress.caption) : t('正在想…')}</span>
         {queue.length > 0 && (
@@ -65,7 +65,7 @@ export default function LiveRun() {
       {typed && (
         <div
           ref={tailRef}
-          className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap border-t border-accent/20 pt-1.5 text-[11px] leading-relaxed text-ink-2"
+          className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap border-t border-accent/20 pt-1.5 text-[13px] leading-relaxed text-ink-2"
         >
           {typed}
           {/* A caret, so a pause between chunks reads as "still typing" rather than as

@@ -21,6 +21,7 @@ import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { dateLocale, useT } from '@/lib/i18n';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
+import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 
 // DESIGN_WORKBENCH §9.13 — 项目管理's workspace, second pass.
 //
@@ -306,7 +307,13 @@ export default function ProjectBoard() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="flex flex-none items-baseline justify-between gap-3 border-b border-line px-6 py-3">
+      {/* Same height as ThreadView's header, for the same reason: its bottom rule is what the
+          sidebar's value panel lines its top edge up with (lib/layout.ts). Ocean 2026-08-11,
+          on seeing only the thread view changed: 「项目管理 / 周回顾一起改」. */}
+      <header
+        className="flex flex-none items-baseline justify-between gap-3 border-b border-line px-6 py-6"
+        style={{ minHeight: CENTRE_HEADER_HEIGHT }}
+      >
         <h2 className="font-serif text-2xl text-ink">{t('项目管理')}</h2>
         <div className="flex items-center gap-1 text-xs">
           {(['deadline', 'created'] as const).map((k) => (

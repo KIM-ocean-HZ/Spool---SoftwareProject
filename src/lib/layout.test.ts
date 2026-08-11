@@ -52,22 +52,22 @@ describe('resolveLayout', () => {
   // ⭐ The bug this file exists to prevent coming back. Ocean 2026-08-11: 「全屏下宽度合适，但是
   // 默认的非全屏状态两侧边栏都特别宽」 — the widths were constants, so shrinking the window left
   // the rails the same pixels and handed them a bigger SHARE of a smaller screen.
-  it('gives the rails less of a smaller window, not the same pixels', () => {
+  it('gives the sidebar less of a smaller window, not the same pixels', () => {
     const full = resolveLayout(roomy);
     const windowed = resolveLayout({ ...roomy, windowWidth: DEFAULT_WINDOW });
     expect(windowed.sidebar).toBeLessThan(full.sidebar);
-    expect(windowed.rail).toBeLessThan(full.rail);
-    // …and the reading column keeps more of the window than the old constants gave it.
-    const underConstants = (SIDEBAR_WIDTH + DEFAULT_RAIL_WIDTH) / DEFAULT_WINDOW;
-    const now = (windowed.sidebar + windowed.rail) / DEFAULT_WINDOW;
-    expect(now).toBeLessThan(underConstants);
+    expect(windowed.sidebar).toBeLessThan(SIDEBAR_WIDTH);
+  });
 
-    // ⚠️ It does NOT reach the full-screen share, and that is a stated cost rather than a
-    // near miss: at 1360 both floors bind (260 + 180), so the rails still take ~32% against
-    // ~29% full-screen. Pure proportion would want 227 + 166, which is under the width
-    // SpoolCard was measured at and under the rail's own minimum. The floors win; this test
-    // records that they do, so nobody "fixes" the remainder by lowering them silently.
-    expect(now).toBeGreaterThan((full.sidebar + full.rail) / roomy.windowWidth);
+  // ⚠️ The regression this pins down. A window-share cap was put on the rail too, and it
+  // broke dragging inside the hour: a stored 188 capped to 180 meant every drag wrote a
+  // number the cap undid. A width the user set by hand outranks a rule about widths — the
+  // sidebar can be scaled BECAUSE it has no handle.
+  it('never overrides a width the user dragged, however small the window', () => {
+    const chosen = 188;
+    for (const windowWidth of [1200, 1360, 1800]) {
+      expect(resolveLayout({ ...roomy, windowWidth, railWidth: chosen }).rail).toBe(chosen);
+    }
   });
 
   // The floor that protects SpoolCard/SpoolMeter: those were laid out and measured at 260,
@@ -103,7 +103,10 @@ describe('resolveLayout', () => {
   it('never squeezes the reading column below its floor while a rail can still give', () => {
     // Just tight enough that the rail alone can absorb it — the point of the test is the
     // ORDER things give in, so the width tracks the real numbers rather than being a constant.
-    const width = SIDEBAR_WIDTH + MIN_RAIL_WIDTH + MIN_CENTRE_WIDTH;
+    // ⚠️ Built on BASE_ rather than SIDEBAR_WIDTH since the scaling landed: at a window this
+    // narrow the sidebar has already shrunk to its floor by itself, so a width computed from
+    // the ceiling leaves nothing over to squeeze and the test stops testing the squeeze.
+    const width = BASE_SIDEBAR_WIDTH + MIN_RAIL_WIDTH + MIN_CENTRE_WIDTH;
     const narrow = resolveLayout({ ...roomy, windowWidth: width });
     expect(narrow.sidebar + narrow.rail + MIN_CENTRE_WIDTH).toBeLessThanOrEqual(width);
     // The right rail gives first — the sidebar is how you navigate at all. Stated against the

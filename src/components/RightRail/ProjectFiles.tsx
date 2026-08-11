@@ -65,12 +65,12 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
   return (
     <div className="space-y-1 border-t border-line pt-2.5">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-muted">{t('项目文件')}</span>
+        <span className="text-[12px] uppercase tracking-wide text-muted">{t('项目文件')}</span>
         <button
           type="button"
           onClick={() => void add()}
           title={t('从文件选择器里加一个文件')}
-          className="flex flex-none items-center gap-0.5 text-[10px] text-muted transition-colors hover:text-accent"
+          className="flex flex-none items-center gap-0.5 text-[12px] text-muted transition-colors hover:text-accent"
         >
           <Plus size={11} />
           {t('加文件')}
@@ -78,7 +78,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
       </div>
 
       {files.length === 0 ? (
-        <p className="px-1 text-[10px] leading-relaxed text-muted">
+        <p className="px-1 text-[12px] leading-relaxed text-muted">
           {t('这个项目还没有文件。加进来的文件默认谁都不读，打包时也不会带上正文。')}
         </p>
       ) : (
@@ -96,7 +96,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                     type="button"
                     onClick={() => void open(a.target)}
                     title={a.target}
-                    className="min-w-0 flex-1 truncate text-left text-[11px] text-ink-2 transition-colors hover:text-accent"
+                    className="min-w-0 flex-1 truncate text-left text-[13px] text-ink-2 transition-colors hover:text-accent"
                   >
                     {a.label.trim() || basename(a.target)}
                   </button>
@@ -112,7 +112,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                 </div>
                 {canInline && (
                   <div className="space-y-0.5 pl-[18px]">
-                    <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted">
+                    <label className="flex cursor-pointer items-center gap-1 text-[12px] text-muted">
                       <input
                         type="checkbox"
                         checked={a.includeInPack}
@@ -125,7 +125,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                         it back. Coloured when on, because a standing permission that looks
                         exactly like a permission you never gave is the failure mode. */}
                     <label
-                      className={`flex cursor-pointer items-center gap-1 text-[10px] ${
+                      className={`flex cursor-pointer items-center gap-1 text-[12px] ${
                         a.aiAccess ? 'text-accent' : 'text-muted'
                       }`}
                       title={t('关掉之后，AI 想再读它就得重新问你一次。')}
