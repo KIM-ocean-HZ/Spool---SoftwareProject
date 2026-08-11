@@ -70,6 +70,30 @@ export const readClientStatuses = async (): Promise<
   return Object.fromEntries(entries) as Record<McpClient, McpClientStatus | null>;
 };
 
+/** One row of the heartbeat file the MCP server keeps (mcp.rs `record_client_seen`). */
+export type ClientSeen = { label: string; last_seen: number };
+
+/**
+ * When each client last actually connected — the other half of the badge.
+ *
+ * `readClientStatuses` above reads the client's own config file, so it can only say whether
+ * an entry exists. On 2026-08-11 that read green for a client that had not connected in
+ * twenty hours, and two acceptance runs wrote nothing at all (CASE_STUDY_LEDGER §3.33). Only
+ * the server sees the truth, and it records it on every `initialize`.
+ *
+ * Keys are the six client ids where the server could identify the product, and the client's
+ * own name where it could not — so an unrecognised client is visible rather than silently
+ * dropped into no row at all.
+ */
+export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => {
+  try {
+    return await invoke<Record<string, ClientSeen>>('mcp_clients_seen');
+  } catch (e) {
+    console.warn('[mcp] client heartbeat read failed', e);
+    return {};
+  }
+};
+
 /**
  * The question 「问 AI」 puts on the clipboard.
  *

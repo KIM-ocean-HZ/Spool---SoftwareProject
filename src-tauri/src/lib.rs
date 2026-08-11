@@ -163,6 +163,14 @@ fn configure_mcp_client(client: String) -> Result<String, String> {
     mcp::configure_client(&client)
 }
 
+// §9.4 丙 (2026-08-11): when each client last actually connected. The badge beside it reads
+// the client's config file, which only says an entry exists — this is the half that says
+// somebody used it. Never fails: no file means nothing has ever connected.
+#[tauri::command]
+fn mcp_clients_seen() -> serde_json::Value {
+    mcp::clients_seen()
+}
+
 // Double-tap ⌥ needs the Input Monitoring TCC grant (see double_tap.rs module doc):
 // a listen-only tap without it only sees Spool's own events. The main window asks
 // this at startup / on focus to drive the quiet onboarding banner.
@@ -371,6 +379,7 @@ pub fn run() {
             ai_engine_cancel,
             mcp_exe_path,
             mcp_client_status,
+            mcp_clients_seen,
             configure_mcp_client,
             open_mcp_client_page,
             focus_mcp_client,

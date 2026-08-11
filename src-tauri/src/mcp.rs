@@ -3437,6 +3437,93 @@ fn client_label_from_info(info: &Value) -> Option<String> {
     })
 }
 
+// ─── the heartbeat (DESIGN_MCP_INTENT_ROUTING §9.4 丙, 2026-08-11) ────────────────────
+//
+// Why this exists: Settings showed six clients with a green ✓ that read the CLIENT'S CONFIG
+// FILE — it answered "is there an entry", never "is anything using it". On 2026-08-11 two
+// acceptance sentences were run in ChatGPT and wrote nothing, because that client had not
+// launched this server since the previous evening; every check anyone could make was green
+// while the integration was simply absent (CASE_STUDY_LEDGER §3.33). The status light was
+// wired to the switch, not to the bulb.
+//
+// The server is the only party that knows the truth, and it learns it for free: every client
+// sends `clientInfo` in `initialize`. One line per client, written where the GUI can read it.
+//
+// ⚠️ NOT the database. Several `--mcp` subprocesses run at once (one per client, and more per
+// window), a schema change would force every connected client to restart, and this is
+// throw-away operational state, not the user's library. A small JSON file next to it costs no
+// migration and cannot corrupt anything that matters.
+const CLIENTS_SEEN_FILE: &str = "mcp-clients.json";
+
+/// Which of Settings' six rows this client is, or None to be listed under its own name.
+///
+/// ⚠️ **The strings are what each client calls ITSELF, and only some of them are measured.**
+/// Order matters and is not alphabetical: "claude-code" contains both "claude" and "code",
+/// and "Visual Studio Code" contains "code" too, so the specific tests run before the loose
+/// ones. When a client turns up under a raw name in `mcp-clients.json`, that file is the
+/// evidence — add the string here rather than guessing a second time.
+fn client_key_from_info(info: &Value) -> Option<&'static str> {
+    let name = info.get("name").and_then(Value::as_str).unwrap_or("");
+    let title = info.get("title").and_then(Value::as_str).unwrap_or("");
+    let lc = format!("{name} {title}").to_lowercase();
+    Some(if lc.contains("windsurf") {
+        "windsurf"
+    } else if lc.contains("cursor") {
+        "cursor"
+    } else if lc.contains("codex") || lc.contains("chatgpt") {
+        "codex"
+    } else if lc.contains("claude") && lc.contains("code") {
+        "claude-code"
+    } else if lc.contains("visual studio") || lc.contains("vscode") || lc.contains("vs code") {
+        "vscode"
+    } else if lc.contains("claude") || lc.contains("local-agent-mode") {
+        "claude"
+    } else {
+        return None;
+    })
+}
+
+/// Note that this client is connected, right now. Best-effort by construction: a heartbeat
+/// that could fail an `initialize` would be worse than no heartbeat at all, so every error
+/// here is swallowed.
+fn record_client_seen(info: &Value) {
+    let Some(dir) = app_data_dir() else { return };
+    let path = dir.join(CLIENTS_SEEN_FILE);
+    let key = client_key_from_info(info)
+        .map(str::to_string)
+        .or_else(|| client_label_from_info(info))
+        .unwrap_or_else(|| "unknown".to_string());
+    let mut all = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    all.insert(
+        key,
+        json!({
+            "label": client_label_from_info(info).unwrap_or_else(|| "MCP".into()),
+            "last_seen": now_ms(),
+        }),
+    );
+    let Ok(body) = serde_json::to_string_pretty(&Value::Object(all)) else { return };
+    // Write beside the target and rename: several subprocesses can be doing this at the
+    // same moment, and a half-written file would read as "never connected" for everyone.
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, body + "\n").is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// What Settings reads. Missing / unreadable file is not an error — it means nothing has
+/// ever connected, which is exactly what the caller should show.
+pub fn clients_seen() -> Value {
+    app_data_dir()
+        .and_then(|dir| std::fs::read_to_string(dir.join(CLIENTS_SEEN_FILE)).ok())
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}))
+}
+
 // Default source label for MCP-written blocks, e.g. "Claude Desktop · MCP".
 fn mcp_source_label() -> String {
     match CLIENT_NAME.lock().unwrap().as_deref() {
@@ -7321,9 +7408,13 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2024-11-05");
-            // Remember who's connected — feeds the write tools' source label.
-            if let Some(label) = params.get("clientInfo").and_then(client_label_from_info) {
-                *CLIENT_NAME.lock().unwrap() = Some(label);
+            // Remember who's connected — feeds the write tools' source label, and (§9.4 丙)
+            // the one place that can tell Settings a configured client is not actually here.
+            if let Some(info) = params.get("clientInfo") {
+                if let Some(label) = client_label_from_info(info) {
+                    *CLIENT_NAME.lock().unwrap() = Some(label);
+                }
+                record_client_seen(info);
             }
             Ok(json!({
                 "protocolVersion": proto,
@@ -7509,6 +7600,36 @@ mod tests {
 
     const FIXTURE: &str = include_str!("../../src/lib/pack/fixtures/golden-pack.json");
     const EXPECTED: &str = include_str!("../../src/lib/pack/fixtures/golden-pack.expected.txt");
+
+    // §9.4 丙 — the heartbeat's only branching logic. Two of the six rows are separated by
+    // one word ("claude" vs "claude code"), and a third ("Visual Studio Code") shares that
+    // word, so the order these run in is the whole design.
+    #[test]
+    fn client_key_picks_the_more_specific_row_first() {
+        let key = |name: &str| client_key_from_info(&json!({ "name": name }));
+        assert_eq!(key("claude-ai"), Some("claude"));
+        assert_eq!(key("claude-code"), Some("claude-code"));
+        assert_eq!(key("Claude Code"), Some("claude-code"));
+        assert_eq!(key("Visual Studio Code"), Some("vscode"));
+        assert_eq!(key("cursor-vscode"), Some("cursor"), "cursor wins over the vscode substring in its own slug");
+        assert_eq!(key("windsurf"), Some("windsurf"));
+        assert_eq!(key("codex-cli"), Some("codex"));
+        assert_eq!(key("ChatGPT"), Some("codex"));
+        // R2 field report C4's slug family still resolves to Claude Desktop's row.
+        assert_eq!(key("local-agent-mode-7f3a"), Some("claude"));
+        // Anything else is listed under its own name rather than guessed into a row.
+        assert_eq!(key("some-other-agent"), None);
+    }
+
+    #[test]
+    fn client_key_reads_the_title_too() {
+        // MCP 2025-06 clients may send a machine slug plus a human title; either half
+        // may carry the word that identifies the product.
+        assert_eq!(
+            client_key_from_info(&json!({ "name": "vsc", "title": "Visual Studio Code" })),
+            Some("vscode")
+        );
+    }
 
     // Replace every YYYY-MM-DD[ HH:MM] with a fixed token — local-time rendering makes
     // raw bytes timezone-dependent, and the golden file must hold on any machine. The

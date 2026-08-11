@@ -407,6 +407,8 @@ const EN: Record<string, string> = {
   '✓ 已接入': '✓ Connected',
   '已写入 — 重启后生效': 'Written — restart the client',
   '路径已变': 'Path changed',
+  '还没连上过': 'never connected',
+  '还有 {name} 连过 · {when}': '{name} also connected · {when}',
   '未检测到': 'Not found',
   '写入中…': 'Writing…',
   '更新配置': 'Update config',

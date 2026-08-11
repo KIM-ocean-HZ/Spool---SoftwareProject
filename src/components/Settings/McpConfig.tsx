@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
 import {
   MCP_CLIENTS,
+  isConnected,
   readClientStatuses,
+  readClientsSeen,
+  type ClientSeen,
   type McpClient,
   type McpClientStatus,
 } from '@/lib/mcp/clients';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
+import { formatRelative } from '@/lib/utils/time';
 
 // The client table moved to lib/mcp/clients.ts (§9.13): 项目管理's 「问 AI」 needs the same
 // list to know which clients are already connected, and one table beats two.
@@ -48,12 +52,16 @@ export default function McpConfig() {
   });
   const [connecting, setConnecting] = useState<McpClient | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  // §9.4 丙: what the badge cannot say. The badge reads the client's config file, so it
+  // reports "an entry exists"; this reports "somebody used it, and when".
+  const [seen, setSeen] = useState<Record<string, ClientSeen>>({});
 
   useEffect(() => {
     void invoke<string>('mcp_exe_path')
       .then(setExePath)
       .catch((e) => console.warn('[settings] mcp_exe_path failed', e));
     void readClientStatuses().then(setClientStatus);
+    void readClientsSeen().then(setSeen);
   }, []);
 
   // One click does everything (§20.12 revision): flips the toggle on if needed, then
@@ -154,9 +162,22 @@ export default function McpConfig() {
                     ? { text: t('未检测到'), color: 'var(--muted)' }
                     : null;
           const showButton = s === 'unconfigured' || s === 'stale';
+          // §9.4 丙: the badge says the config file has us; this says whether that ever
+          // turned into a connection. Only shown once the config is in place — before
+          // that "never connected" is not news, it is the sequence.
+          const heartbeat = !isConnected(s)
+            ? null
+            : seen[key]
+              ? { text: formatRelative(seen[key].last_seen), color: 'var(--muted)' }
+              : { text: t('还没连上过'), color: 'var(--status-parked)' };
           return (
             <li key={key} className="flex items-center justify-between gap-3 py-1">
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{label}</span>
+              {heartbeat && (
+                <span className="font-mono text-xs" style={{ color: heartbeat.color }}>
+                  {heartbeat.text}
+                </span>
+              )}
               {badge && (
                 <span className="font-mono text-xs" style={{ color: badge.color }}>
                   {badge.text}
@@ -192,6 +213,16 @@ export default function McpConfig() {
           );
         })}
       </ul>
+      {/* §9.4 丙: a client the server could not match to a row above still connected, and
+          hiding it would lose the one piece of evidence that identifies it — its own name
+          is exactly what the mapping in mcp.rs needs to learn next. */}
+      {Object.entries(seen)
+        .filter(([key]) => !MCP_CLIENTS.some((c) => c.key === key))
+        .map(([key, v]) => (
+          <p key={key} className="mt-1 text-[11px] text-muted">
+            {t('还有 {name} 连过 · {when}', { name: v.label || key, when: formatRelative(v.last_seen) })}
+          </p>
+        ))}
       {connectError && (
         <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
           {connectError}
