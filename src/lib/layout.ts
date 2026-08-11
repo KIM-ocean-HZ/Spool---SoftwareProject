@@ -27,8 +27,32 @@
  *  prose, which does.
  *
  *  ⚠️ Changing this number means re-measuring that panel — HANDOFF §6.2-sexies. It is no
- *  longer just a starting point the user can drag away from. */
-export const SIDEBAR_WIDTH = 260;
+ *  longer just a starting point the user can drag away from.
+ *
+ *  §0.12 — 260 → 300 (Ocean 2026-08-11: 「左侧边栏做宽一点」), in the same pass that pushed the
+ *  centre column down to meet the panel. Wider is the safe direction for everything laid out
+ *  against this number: SpoolCard's two lines have more room, not less, and FilledSpools' cap
+ *  of 4 marks stays valid (it was measured at 260 — at 300 it is merely conservative). */
+export const SIDEBAR_WIDTH = 300;
+
+/** How far down the centre column starts, so its top bar begins level with the value panel
+ *  in the sidebar (Ocean 2026-08-11: 「工作区顶部栏下移，和左边的价值面板对齐」 — and, when
+ *  asked which edge, 「对齐的是价值面板的顶部边」).
+ *
+ *  ⚠️⚠️ **This is a hard-coded coupling to markup in another file**, which is why it is
+ *  written as the arithmetic rather than as the answer. Every term names the class it comes
+ *  from; if any of those classes change, this changes with them, and nothing else will tell
+ *  you — a wrong number here does not fail, it just stops lining up.
+ *
+ *  ⚠️ Deliberately NOT measured at runtime off a ref: that would tie the reading column's
+ *  geometry to a panel that renders asynchronously (SpoolCard returns null until its counts
+ *  come back), so the header would settle into place a frame late on every launch. */
+const RAIL_HEADER_HEIGHT = 20 + 36 + 24; // Sidebar header: pt-5 + text-3xl line-height + pb-6
+const PINNED_ROW_HEIGHT = 6 + 20 + 6; //    项目管理/周回顾 row: py-1.5 + text-sm line-height
+const PINNED_ROWS = 2; //                   项目管理, 周回顾
+const PANEL_MARGIN_TOP = 10; //             SpoolCard: mt-2.5
+export const CENTRE_TOP_OFFSET =
+  RAIL_HEADER_HEIGHT + PINNED_ROWS * PINNED_ROW_HEIGHT + PANEL_MARGIN_TOP;
 /** §9.2 R1 — Ocean, after using it: 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」.
  *  It shipped WIDER than the sidebar (320 against 280, floor 260 against 200), which is the
  *  opposite of what the rail is for: the sidebar is how you navigate, the rail is commentary
