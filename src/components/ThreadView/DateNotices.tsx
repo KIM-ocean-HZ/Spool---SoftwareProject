@@ -124,7 +124,10 @@ export default function DateNotices({ threadId, blocks }: Props) {
         background: 'var(--notice-warm)',
         borderColor: 'var(--notice-warm-edge)',
       }}
-      className="mb-2 rounded-md border px-3 py-1.5"
+      // ⚠️ `min-w-0 flex-1`, and no bottom margin: since 2026-08-11 this shares a row with the
+      // feed's two controls (「日期匹配消息弹窗需要和『只看我写的』『排序』两个按键排在一行，
+      // 缩短位置留给两个按键」), so the row owns the spacing and this card takes what is left.
+      className="min-w-0 flex-1 rounded-md border px-3 py-1.5"
     >
       {notices.slice(0, MAX_ROWS).map((n) => (
         <div key={`${n.blockId}:${n.at}`} className="flex items-center gap-2 py-0.5 text-xs">

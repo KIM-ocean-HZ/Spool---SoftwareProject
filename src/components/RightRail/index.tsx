@@ -224,14 +224,19 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
 
         {/* §3.1 — what the AI said. The reason this rail exists at all (§1.1: the text used
             to be thrown away and reported as "跑完了，没有新增块"). */}
+        {/* ⚠️ With an engine ready and nothing to show, this renders NOTHING (Ocean 2026-08-11:
+            「跑一次，结果留在这里等你过目。这句提示删掉」). That restores §9.13 #3 — 「Nothing
+            renders to say it is empty」 — which the line had been quietly breaking: it was a
+            permanent grey sentence in a rail whose whole rule is that a count of zero takes
+            zero pixels.
+            The other branch stays. It is not an empty state, it is the only place that says
+            what to install to make this column exist at all. */}
         {shown.length === 0 && !current ? (
-          <p className="px-1 text-[12px] leading-relaxed text-muted">
-            {showActions
-              ? t("跑一次，结果留在这里等你过目。")
-              : t(
-                  "装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。",
-                )}
-          </p>
+          showActions ? null : (
+            <p className="px-1 text-[12px] leading-relaxed text-muted">
+              {t("装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。")}
+            </p>
+          )
         ) : (
           shown.map((run) => (
             <RunCard

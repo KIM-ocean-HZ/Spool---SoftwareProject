@@ -755,8 +755,6 @@ const EN: Record<string, string> = {
   '存好了': 'Stored',
   '{action} · {engine}': '{action} · {engine}',
   '{n} 条待你过目': '{n} waiting for you',
-  '跑一次，结果留在这里等你过目。':
-    'Run one — the result waits here for you.',
   '装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。':
     'This fills up once Claude Code or Codex is installed and “Let AI write” is on.',
   '这个项目里有 {n} 块是 AI 写的': '{n} block(s) here were written by an AI',

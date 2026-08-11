@@ -409,54 +409,63 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   return (
     <div onMouseDown={handleMouseDown} className="px-6 py-3">
-      {/* 旧账 §5-3: dates written inside this project's own blocks. It lives HERE, inside the
-          scroll container, because Ocean asked for 「不要固定在顶部，需要可以跟随 blocks 滑动」
-          — mounted a level up (in ThreadView) it sat outside the scrolling area and stuck. */}
-      <DateNotices threadId={threadId} blocks={blocks} />
-      {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
-          cycles the two modes, current mode in the tooltip, instead of a labeled
-          pill row claiming a whole line. */}
-      <div className="mb-2 flex items-center justify-end gap-0.5">
-        {/* §4.4 「只看我写的」 — same low-frequency treatment as the sort control next to it:
-            one icon, the state in the tooltip, and it colours in while it is on so a
-            half-empty feed always has a visible reason. */}
-        <button
-          type="button"
-          onClick={() => setMineOnly((v) => !v)}
-          title={
-            mineOnly
-              ? t('只看我写的：开着 — 点击看全部')
-              : t('只看我写的：你自己写的块，加上你亲手批注过的')
-          }
-          aria-label={
-            mineOnly
-              ? t('只看我写的：开着 — 点击看全部')
-              : t('只看我写的：你自己写的块，加上你亲手批注过的')
-          }
-          aria-pressed={mineOnly}
-          className={`rounded p-1 transition-colors hover:text-accent ${
-            mineOnly ? 'text-accent' : 'text-muted'
-          }`}
-        >
-          <PenLine size={13} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setSortMode(sortMode === 'time' ? 'source' : 'time')}
-          title={
-            sortMode === 'time'
-              ? t('排序：按时间 — 点击改为按来源')
-              : t('排序：按来源 — 点击改为按时间')
-          }
-          aria-label={
-            sortMode === 'time'
-              ? t('排序：按时间 — 点击改为按来源')
-              : t('排序：按来源 — 点击改为按时间')
-          }
-          className="rounded p-1 text-muted transition-colors hover:text-accent"
-        >
-          <ArrowUpDown size={13} />
-        </button>
+      {/* One row, three things (Ocean 2026-08-11: 「日期匹配消息弹窗需要和「只看我写的」「排序」
+          两个按键排在一行，缩短位置留给两个按键」). The notices used to own a full-width row and
+          the two controls a second one — two lines above every feed, spent on something mostly
+          absent and something mostly untouched.
+
+          ⚠️ `ml-auto` on the controls is what holds them at the right edge on the ordinary day
+          when DateNotices renders nothing at all — without it they slide left into the gap. */}
+      <div className="mb-2 flex items-start gap-2">
+        {/* 旧账 §5-3: dates written inside this project's own blocks. It lives HERE, inside the
+            scroll container, because Ocean asked for 「不要固定在顶部，需要可以跟随 blocks 滑动」
+            — mounted a level up (in ThreadView) it sat outside the scrolling area and stuck. */}
+        <DateNotices threadId={threadId} blocks={blocks} />
+        {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
+            cycles the two modes, current mode in the tooltip, instead of a labeled
+            pill row claiming a whole line. */}
+        <div className="ml-auto flex flex-none items-center gap-0.5">
+          {/* §4.4 「只看我写的」 — same low-frequency treatment as the sort control next to it:
+              one icon, the state in the tooltip, and it colours in while it is on so a
+              half-empty feed always has a visible reason. */}
+          <button
+            type="button"
+            onClick={() => setMineOnly((v) => !v)}
+            title={
+              mineOnly
+                ? t('只看我写的：开着 — 点击看全部')
+                : t('只看我写的：你自己写的块，加上你亲手批注过的')
+            }
+            aria-label={
+              mineOnly
+                ? t('只看我写的：开着 — 点击看全部')
+                : t('只看我写的：你自己写的块，加上你亲手批注过的')
+            }
+            aria-pressed={mineOnly}
+            className={`rounded p-1 transition-colors hover:text-accent ${
+              mineOnly ? 'text-accent' : 'text-muted'
+            }`}
+          >
+            <PenLine size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortMode(sortMode === 'time' ? 'source' : 'time')}
+            title={
+              sortMode === 'time'
+                ? t('排序：按时间 — 点击改为按来源')
+                : t('排序：按来源 — 点击改为按时间')
+            }
+            aria-label={
+              sortMode === 'time'
+                ? t('排序：按时间 — 点击改为按来源')
+                : t('排序：按来源 — 点击改为按时间')
+            }
+            className="rounded p-1 text-muted transition-colors hover:text-accent"
+          >
+            <ArrowUpDown size={13} />
+          </button>
+        </div>
       </div>
       {mineOnly && ordered.length === 0 && (
         <p className="py-8 text-center text-sm italic text-muted">
