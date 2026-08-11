@@ -1,6 +1,7 @@
 import { CalendarDays, CheckCircle2, Package, RotateCcw, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
+import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 import { useT } from '@/lib/i18n';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
@@ -199,7 +200,16 @@ export default function ThreadHeader({
   };
 
   return (
-    <header className="flex-none border-b border-line px-6 py-3">
+    /* ⚠️ The height is not free: this bar's bottom rule is what the sidebar's value panel
+       aligns its top edge to (lib/layout.ts CENTRE_HEADER_HEIGHT, Ocean 2026-08-11). The
+       padding was opened up from py-3 to fill most of that height rather than leaving the
+       slack at the bottom — 「它的顶部内容还是在顶部，只是间距可以宽松一点」. If you tighten
+       the spacing back up, the bar keeps its height and the air just moves under the last
+       row; if you make the content taller than the min, the two rules stop meeting. */
+    <header
+      className="flex-none border-b border-line px-6 py-6"
+      style={{ minHeight: CENTRE_HEADER_HEIGHT }}
+    >
       <div className="flex items-center gap-3">
         <input
           value={title}
@@ -284,7 +294,7 @@ export default function ThreadHeader({
           affordance when it's empty so the area is never just blank. Hidden for done
           threads (digest takes over). */}
       {thread.status !== 'done' && (
-        <div className="mt-1.5">
+        <div className="mt-3">
           {editingSummary ? (
             <textarea
               ref={summaryRef}
@@ -326,7 +336,7 @@ export default function ThreadHeader({
         </div>
       )}
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
         {thread.status === 'done' ? (
           // Done threads: session-only toggle between digest and full log (§9.9).
           // The override doesn't persist — reopens default back to DigestView.

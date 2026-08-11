@@ -15,7 +15,7 @@ import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
 import ResizeHandle from '@/components/ui/ResizeHandle';
 import ToastRack from '@/components/ui/Toast';
-import { CENTRE_TOP_OFFSET, MAX_RAIL_WIDTH, MIN_RAIL_WIDTH, resolveLayout } from '@/lib/layout';
+import { MAX_RAIL_WIDTH, MIN_RAIL_WIDTH, resolveLayout } from '@/lib/layout';
 import {
   drainMigrationNotices,
   getFirstRunThreadId,
@@ -326,18 +326,7 @@ export default function App() {
               not a set of blocks (the project matrix; the run of weekly reviews), so each
               takes the centre column the way a project does. Selecting any project leaves
               whichever one was open (threadsStore.select). */}
-          {/* ⚠️ The centre starts BELOW the sidebar's value panel, not at the top of the window
-              (Ocean 2026-08-11: 「工作区顶部栏下移，和左边的价值面板对齐」, aligned on the panel's
-              TOP edge). The band it leaves above is the point, not waste: the top-left of the
-              window is the product's name and the two rows that go somewhere, and the centre
-              column now begins where the reading does.
-
-              ⚠️ Zero when the sidebar is collapsed — the offset exists only to line up with
-              something, and with the rail gone there is nothing there to line up with. */}
-          <main
-            className="min-w-0 flex-1 overflow-hidden"
-            style={{ paddingTop: sidebarCollapsed ? 0 : CENTRE_TOP_OFFSET }}
-          >
+          <main className="min-w-0 flex-1 overflow-hidden">
             {pinnedView === 'board' ? (
               <ProjectBoard />
             ) : pinnedView === 'review' ? (

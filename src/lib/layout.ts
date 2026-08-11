@@ -10,7 +10,7 @@
 // 6000 on a 1280px display would otherwise leave the reading column at zero with no visible
 // handle to drag back.
 
-/** The sidebar's width. **Not a default — the width.**
+/** The sidebar's width on a roomy window — **its ceiling, not a constant.**
  *
  *  §9.13 — narrowed with the window enlargement (Ocean 2026-08-07: 「默认窗口放大一些，然后
  *  左边栏右边栏都变窄，把位置阔给工作区」). 280 → 240.
@@ -29,30 +29,59 @@
  *  ⚠️ Changing this number means re-measuring that panel — HANDOFF §6.2-sexies. It is no
  *  longer just a starting point the user can drag away from.
  *
- *  §0.12 — 260 → 300 (Ocean 2026-08-11: 「左侧边栏做宽一点」), in the same pass that pushed the
- *  centre column down to meet the panel. Wider is the safe direction for everything laid out
- *  against this number: SpoolCard's two lines have more room, not less, and FilledSpools' cap
- *  of 4 marks stays valid (it was measured at 260 — at 300 it is merely conservative). */
+ *  §0.12 — 260 → 300 (Ocean 2026-08-11: 「左侧边栏做宽一点」). Wider is the safe direction for
+ *  everything laid out against this number: SpoolCard's two lines have more room, not less,
+ *  and FilledSpools' cap of 4 marks stays valid (measured at 260 — at 300 it is conservative).
+ *
+ *  ⚠️⚠️ **Same day, an hour later: 300 was right full-screen and too fat in the default
+ *  window** (Ocean: 「全屏下宽度合适，但是默认的非全屏状态两侧边栏都特别宽」). Both readings are
+ *  true, and the reason is that this was a CONSTANT while the window is not. On his display
+ *  (1800 logical points) a full-screen window leaves the reading column 1280px and the rails
+ *  take 29% of the width; the default 1360 window leaves it 840 and the rails take 38% — the
+ *  same pixels, a different share of the screen, and share is what the eye reads.
+ *
+ *  So the rails scale with the window between a floor and this ceiling (see SIDEBAR_SHARE).
+ *  It is still not draggable — 「固定成最佳显示状态」 asked for the user not to have to choose
+ *  a width, which is not the same as the width never changing. */
 export const SIDEBAR_WIDTH = 300;
 
-/** How far down the centre column starts, so its top bar begins level with the value panel
- *  in the sidebar (Ocean 2026-08-11: 「工作区顶部栏下移，和左边的价值面板对齐」 — and, when
- *  asked which edge, 「对齐的是价值面板的顶部边」).
+/** The width the sidebar never scales BELOW — distinct from MIN_SIDEBAR_WIDTH, which is the
+ *  emergency squeeze's floor on a window too small for everything.
  *
- *  ⚠️⚠️ **This is a hard-coded coupling to markup in another file**, which is why it is
- *  written as the arithmetic rather than as the answer. Every term names the class it comes
- *  from; if any of those classes change, this changes with them, and nothing else will tell
- *  you — a wrong number here does not fail, it just stops lining up.
+ *  260 is not a taste: it is the width SpoolCard and SpoolMeter were laid out and measured
+ *  against for the whole of 2026-08-10/11 (two declared lines beside the meter; at most four
+ *  filled-spool marks on the second one). Scaling below it would put those measurements
+ *  somewhere they were never checked. Above it there is only slack. */
+export const BASE_SIDEBAR_WIDTH = 260;
+
+/** Where the value panel's top edge sits, measured down from the top of the rail.
  *
- *  ⚠️ Deliberately NOT measured at runtime off a ref: that would tie the reading column's
- *  geometry to a panel that renders asynchronously (SpoolCard returns null until its counts
- *  come back), so the header would settle into place a frame late on every launch. */
+ *  ⚠️⚠️ **A hard-coded coupling to markup in another file**, which is why it is written as the
+ *  arithmetic rather than as the answer. Every term names the class it comes from; if any of
+ *  those classes change, this changes with them, and nothing else will tell you — a wrong
+ *  number here does not fail, it just stops lining up. */
 const RAIL_HEADER_HEIGHT = 20 + 36 + 24; // Sidebar header: pt-5 + text-3xl line-height + pb-6
 const PINNED_ROW_HEIGHT = 6 + 20 + 6; //    项目管理/周回顾 row: py-1.5 + text-sm line-height
 const PINNED_ROWS = 2; //                   项目管理, 周回顾
 const PANEL_MARGIN_TOP = 10; //             SpoolCard: mt-2.5
-export const CENTRE_TOP_OFFSET =
-  RAIL_HEADER_HEIGHT + PINNED_ROWS * PINNED_ROW_HEIGHT + PANEL_MARGIN_TOP;
+const PANEL_TOP_Y = RAIL_HEADER_HEIGHT + PINNED_ROWS * PINNED_ROW_HEIGHT + PANEL_MARGIN_TOP;
+
+/** How tall the centre column's top bar is, so that **its bottom rule lands on the value
+ *  panel's top edge** — Ocean 2026-08-11, correcting a first attempt that had pushed the whole
+ *  header down instead: 「工作区顶部区域的底边和价值面板的顶边对齐，它的顶部内容还是在顶部，
+ *  只是间距可以宽松一点」. The content stays where it was; the bar grows under it.
+ *
+ *  ⚠️ The `+ 1` is the header's own bottom border. A border-box of height H puts that border on
+ *  row H-1, and the panel's top border is on row PANEL_TOP_Y — so the two rules are the same
+ *  row, and read as one line crossing the window, only at PANEL_TOP_Y + 1.
+ *
+ *  ⚠️ Used as a **min-height**, not a height: it guarantees the alignment while letting the bar
+ *  grow if its own content ever needs more (a summary being edited turns one line into two).
+ *  The spacing inside was loosened to fill most of it, so the slack it absorbs is small.
+ *
+ *  ⚠️ Deliberately NOT measured at runtime off a ref to the panel: SpoolCard returns null until
+ *  its counts come back, so the header would settle into place a frame late on every launch. */
+export const CENTRE_HEADER_HEIGHT = PANEL_TOP_Y + 1;
 /** §9.2 R1 — Ocean, after using it: 「右侧栏……展开时窄一点，比左侧栏窄，让中间操作区更大」.
  *  It shipped WIDER than the sidebar (320 against 280, floor 260 against 200), which is the
  *  opposite of what the rail is for: the sidebar is how you navigate, the rail is commentary
@@ -87,6 +116,24 @@ export const MIN_CENTRE_WIDTH = 520;
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
+/** What share of the window each rail may take before its own floor and ceiling apply.
+ *
+ *  The two fractions are chosen so that a full-screen window on the display this was tuned on
+ *  (1800pt) lands exactly on the widths Ocean approved there — 1800/6 = 300, 1800/8 = 225 —
+ *  and a smaller window gets proportionally less rather than the same pixels. They are
+ *  fractions rather than a ratio against a reference width on purpose: a hard-coded 1800 would
+ *  be this laptop baked into the product. */
+const SIDEBAR_SHARE = 1 / 6;
+const RAIL_SHARE = 1 / 8;
+
+const sidebarFor = (windowWidth: number): number =>
+  clamp(Math.round(windowWidth * SIDEBAR_SHARE), BASE_SIDEBAR_WIDTH, SIDEBAR_WIDTH);
+
+/** The rail is still the user's to drag — this only stops a width they chose on a big window
+ *  from following them onto a small one. Never below the rail's own floor. */
+const railCeilingFor = (windowWidth: number): number =>
+  Math.max(MIN_RAIL_WIDTH, Math.round(windowWidth * RAIL_SHARE));
+
 /**
  * Resolve the two rail widths against the window actually available.
  *
@@ -104,8 +151,13 @@ export const resolveLayout = (input: {
   sidebarCollapsed: boolean;
   railCollapsed: boolean;
 }): { sidebar: number; rail: number } => {
-  const sidebar = input.sidebarCollapsed ? 0 : SIDEBAR_WIDTH;
-  const rail = input.railCollapsed ? 0 : clamp(input.railWidth, MIN_RAIL_WIDTH, MAX_RAIL_WIDTH);
+  const sidebar = input.sidebarCollapsed ? 0 : sidebarFor(input.windowWidth);
+  const rail = input.railCollapsed
+    ? 0
+    : Math.min(
+        clamp(input.railWidth, MIN_RAIL_WIDTH, MAX_RAIL_WIDTH),
+        railCeilingFor(input.windowWidth),
+      );
 
   const over = sidebar + rail + MIN_CENTRE_WIDTH - input.windowWidth;
   if (over <= 0) return { sidebar, rail };
