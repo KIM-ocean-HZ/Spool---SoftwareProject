@@ -2,6 +2,7 @@ import { Bot, ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import EngineBar from "./EngineBar";
 import LiveRun from "./LiveRun";
+import McpBar from "./McpBar";
 import ProjectFiles from "./ProjectFiles";
 import RunCard from "./RunCard";
 import { createBlock } from "@/lib/db/blocks";
@@ -199,7 +200,9 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper-2/40">
-      <EngineBar onCollapse={onCollapse} spendUsd={spend} />
+      {/* §9.4 丙 (2026-08-11, Ocean:「MCP 才是主要的对话写入工具，放在最顶上」). The CLI
+          engine used to hold this row; it is now beside 跟进, the only action that uses it. */}
+      <McpBar onCollapse={onCollapse} />
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {/* §9.1 主体, in order of how much it wants you right now. */}
@@ -306,6 +309,12 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               ))}
           </div>
         )}
+
+        {/* 2026-08-11 (Ocean:「CLI 需要和跟进显示在一起，因为只有跟进使用了 CLI」) — directly
+            under 跟进 rather than at the top of the rail. Rendered unconditionally on purpose:
+            gating it like 跟进 would hide the model picker whenever no project is selected,
+            and leave 「没检测到引擎」 with nowhere to say itself. */}
+        <EngineBar spendUsd={spend} />
 
         {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
             no files says so and offers the ＋), because this is now the ONLY place a file can

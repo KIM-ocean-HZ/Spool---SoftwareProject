@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, PanelRightClose } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
 import { ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
@@ -83,13 +83,21 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high'] as const;
 const EFFORT_PICKER_ENABLED = false;
 
 interface Props {
-  onCollapse: () => void;
   /** Spend across Spool's own runs in the last 7 days, or null while it loads. §5: this is
    *  what was SPENT. Neither CLI reports what is left, and nothing here may imply it does. */
   spendUsd: number | null;
 }
 
-export default function EngineBar({ onCollapse, spendUsd }: Props) {
+// 2026-08-11 (Ocean:「CLI 需要和跟进显示在一起，因为只有跟进使用了 CLI」) — this used to be the
+// rail's top bar and is now a block beside 跟进. The move is a claim about how much of the
+// product each one carries: 跟进 is the only action that reaches a CLI at all, while MCP is
+// how conversations write into the library, so MCP took the top (McpBar) and this came down
+// to sit with the one thing it serves.
+//
+// ⚠️ It renders even with no project selected and no engine found. Gating it on the same
+// condition as 跟进 would read as tidier and would take the model picker away from anyone
+// who has not selected a project — and would leave 「没检测到引擎」 with nowhere to appear.
+export default function EngineBar({ spendUsd }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const status = useEngineStore((s) => s.status);
@@ -110,13 +118,16 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
     update(selected === 'gemini' ? { aiModelGemini: v || null } : { aiModelClaude: v || null });
 
   return (
-    <div className="flex-none border-b border-line">
-      <div className="flex items-center gap-1 px-2 py-1.5">
+    <div className="rounded-md border border-line px-0.5 py-0.5">
+      <div className="flex items-center gap-1 px-1.5 py-1">
+        <span className="flex-none text-[12px] uppercase tracking-wide text-muted">
+          {t('跟进用的')}
+        </span>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           disabled={!status?.available}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[13px] text-ink-2 transition-colors enabled:hover:bg-paper-2 disabled:cursor-default"
+          className="flex min-w-0 flex-1 items-center justify-end gap-1 rounded px-1 py-0.5 text-right text-[13px] text-ink-2 transition-colors enabled:hover:bg-paper-2 disabled:cursor-default"
         >
           {status?.available &&
             (open ? (
@@ -139,15 +150,6 @@ export default function EngineBar({ onCollapse, spendUsd }: Props) {
             ${spendUsd.toFixed(2)}
           </span>
         )}
-        <button
-          type="button"
-          onClick={onCollapse}
-          title={t('收起')}
-          aria-label={t('收起')}
-          className="flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
-        >
-          <PanelRightClose size={13} />
-        </button>
       </div>
 
       {open && status?.available && (

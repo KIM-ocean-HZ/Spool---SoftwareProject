@@ -3483,32 +3483,53 @@ fn client_key_from_info(info: &Value) -> Option<&'static str> {
     })
 }
 
+/// Which row this process refreshes, resolved once at `initialize`. A tool call does not
+/// carry `clientInfo`, and the row it should touch is the one this connection opened.
+static CLIENT_SEEN: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
 /// Note that this client is connected, right now. Best-effort by construction: a heartbeat
 /// that could fail an `initialize` would be worse than no heartbeat at all, so every error
 /// here is swallowed.
 fn record_client_seen(info: &Value) {
-    let Some(dir) = app_data_dir() else { return };
-    let path = dir.join(CLIENTS_SEEN_FILE);
     let key = client_key_from_info(info)
         .map(str::to_string)
         .or_else(|| client_label_from_info(info))
         .unwrap_or_else(|| "unknown".to_string());
+    let label = client_label_from_info(info).unwrap_or_else(|| "MCP".into());
+    *CLIENT_SEEN.lock().unwrap() = Some((key, label));
+    write_client_seen();
+}
+
+/// Note that this client just USED Spool (2026-08-11, Ocean:「把正在使用的 MCP 显示在右边栏」).
+///
+/// ⚠️ Connect-time alone cannot answer "which client is using Spool". A client that connected
+/// this morning and has been writing all day would read as hours idle — the opposite of what
+/// the rail's top line is for. Refreshing on every tool call makes the timestamp mean *last
+/// used*, which is the question both surfaces are actually asking.
+///
+/// Does nothing before `initialize` has named somebody: a row invented from a bare tool call
+/// would have no client to attribute it to.
+fn touch_client_seen() {
+    write_client_seen();
+}
+
+fn write_client_seen() {
+    let Some((key, label)) = CLIENT_SEEN.lock().unwrap().clone() else { return };
+    let Some(dir) = app_data_dir() else { return };
+    let path = dir.join(CLIENTS_SEEN_FILE);
     let mut all = std::fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
-    all.insert(
-        key,
-        json!({
-            "label": client_label_from_info(info).unwrap_or_else(|| "MCP".into()),
-            "last_seen": now_ms(),
-        }),
-    );
+    all.insert(key, json!({ "label": label, "last_seen": now_ms() }));
     let Ok(body) = serde_json::to_string_pretty(&Value::Object(all)) else { return };
     // Write beside the target and rename: several subprocesses can be doing this at the
     // same moment, and a half-written file would read as "never connected" for everyone.
-    let tmp = path.with_extension("json.tmp");
+    // ⚠️ The temp name carries the pid. It used to be shared, which was survivable while this
+    // only ran once per connection; now that every tool call refreshes the file, two
+    // processes writing the same temp path can interleave write/rename and drop a row.
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
     if std::fs::write(&tmp, body + "\n").is_ok() {
         let _ = std::fs::rename(&tmp, &path);
     }
@@ -7623,7 +7644,10 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
         }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools_descriptor() })),
-        "tools/call" => Ok(handle_tool_call(params)),
+        "tools/call" => {
+            touch_client_seen();
+            Ok(handle_tool_call(params))
+        }
         // §20.13 v2 resources probe: threads as native @-mentionable resources. When
         // the toggle is off (or the data dir is unreachable) answer an EMPTY list, not
         // an error — Claude Desktop probes this even for undeclared servers, and some
