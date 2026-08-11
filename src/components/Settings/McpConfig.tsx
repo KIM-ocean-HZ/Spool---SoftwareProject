@@ -223,6 +223,13 @@ export default function McpConfig() {
             {t('还有 {name} 连过 · {when}', { name: v.label || key, when: formatRelative(v.last_seen) })}
           </p>
         ))}
+      {/* §9.4 甲: hookup also appends a marked section to Codex's and Claude Code's
+          instruction files, so the model checks list_threads before it edits a same-named
+          local document. That is a write into the user's home directory, so it is stated
+          here rather than discovered — and naming the marker is what makes it removable. */}
+      <p className="mt-1 text-[11px] text-muted">
+        {t('接入 ChatGPT / Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。')}
+      </p>
       {connectError && (
         <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
           {connectError}

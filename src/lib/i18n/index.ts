@@ -409,6 +409,8 @@ const EN: Record<string, string> = {
   '路径已变': 'Path changed',
   '还没连上过': 'never connected',
   '还有 {name} 连过 · {when}': '{name} also connected · {when}',
+  '接入 ChatGPT / Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
+    'Hooking up ChatGPT / Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',
   '写入中…': 'Writing…',
   '更新配置': 'Update config',

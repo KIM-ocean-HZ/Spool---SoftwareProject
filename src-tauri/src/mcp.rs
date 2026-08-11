@@ -6369,6 +6369,24 @@ pub fn client_status(client: &str) -> Result<String, String> {
 // existing file is an error (merging is impossible; replacing could destroy the
 // user's other server entries), never silently overwritten.
 pub fn configure_client(client: &str) -> Result<String, String> {
+    let status = configure_client_entry(client)?;
+    // §9.4 甲: the instruction file rides along with an actual hookup and nothing else —
+    // this function is reached only from the one-click button, and only a real write earns
+    // the extra file. A failure here is logged, not returned: the config entry is already
+    // written and correct, and reporting "接入失败" over a missing routing hint would send
+    // the user to fix a connection that works. What it costs is the hint, which is the
+    // state everything was in before this existed.
+    if status == "written" {
+        if let Some(path) = client_guidance_path(client) {
+            if let Err(e) = write_client_guidance(&path) {
+                eprintln!("[mcp] guidance write failed for {client}: {e}");
+            }
+        }
+    }
+    Ok(status)
+}
+
+fn configure_client_entry(client: &str) -> Result<String, String> {
     let ClientSpec { root, cfg, key, typed, toml } = client_config_paths(client)?;
     if !root.exists() {
         return Ok("not-installed".into());
@@ -6450,6 +6468,118 @@ fn configure_client_toml(cfg: &std::path::Path, key: &str) -> Result<String, Str
 
     std::fs::write(cfg, doc.to_string()).map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     Ok("written".into())
+}
+
+// ---------------------------------------------------------------------------------------
+// §9.4 甲 (2026-08-11, DESIGN_MCP_INTENT_ROUTING): the routing text has to REACH the model.
+//
+// The server sends its routing rules in `initialize.instructions`, and the code used to
+// call that "the one place every client reads". It is not — Claude Desktop and claude.ai
+// both have open issues saying they ignore the field. On 2026-08-11 a session filed two
+// things into a project and Spool received neither: the working directory held a folder
+// named like the project, the model listed it, edited the document, and reported success.
+//
+// These files are the channel these clients do guarantee to read. What goes in is one
+// instruction to the MODEL — check before you guess — and deliberately NOT a convention
+// for the user to follow. An earlier draft said "a name in 〈〉 means a Spool project";
+// Ocean rejected it on the spot ("这违背了用户的使用习惯"), and he was right: that moves
+// the friction from typing four extra words to remembering a bracket every time. It does
+// not remove it. Rules go on the AI, never on the user.
+//
+// Also deliberately absent: the user's project titles. Naming them here would be more
+// accurate for exactly as long as nobody renames a project, and it would copy library
+// contents into a plaintext file under $HOME that every other agent on the machine reads.
+// `list_threads` is one cheap call and is never stale.
+const GUIDANCE_BEGIN: &str = "<!-- spool:begin -->";
+const GUIDANCE_END: &str = "<!-- spool:end -->";
+
+// Which clients read an instruction file, and where their user-scope one lives. Only the
+// two that are verified: Codex walks from `~/.codex/AGENTS.md` down to the working
+// directory, and Claude Code reads `~/.claude/CLAUDE.md` as user memory. Cursor, Windsurf,
+// VS Code and Claude Desktop keep their global rules somewhere too, but nobody has measured
+// where — and a guess writes a file into $HOME that no one will ever read. Left out on
+// purpose; add a row when it has actually been checked.
+fn client_guidance_path(client: &str) -> Option<PathBuf> {
+    let home = PathBuf::from(std::env::var("HOME").ok()?);
+    match client {
+        "codex" => Some(home.join(".codex/AGENTS.md")),
+        "claude-code" => Some(home.join(".claude/CLAUDE.md")),
+        _ => None,
+    }
+}
+
+fn guidance_block() -> String {
+    format!(
+        "{GUIDANCE_BEGIN}\n{}\n{GUIDANCE_END}",
+        t!(
+            "## Spool(思簿)\n\
+             这台机器上装着 Spool,通过 MCP 连着,里面按项目存着用户长期在做的事。\n\n\
+             当用户说「存进 X / 记一下 / 跟进 X / X 现在怎么样了」这类话,并且点了名字:\n\n\
+             - **先调一次 Spool 的 `list_threads`**,看有没有叫这个名字的项目。\n\
+             - 有 —— 那就是他说的那个,用 Spool 的工具去做。\n\
+             - **本地有个同名的文件夹或文档,那不是这个项目**;不要改那份文档来代替。\n\
+             - 一个都对不上 —— 说出来问他,不要自己挑一个本地文件。\n\n\
+             这一段是 Spool 在「一键接入」时写的,`spool:begin` / `spool:end` 之间的内容整段删掉即可移除。",
+            "## Spool\n\
+             This machine has Spool installed and connected over MCP. It holds the things the \
+             user works on over time, filed under projects.\n\n\
+             When the user says something like \"save this into X\" / \"note this down\" / \
+             \"follow up on X\" / \"how is X going\", and names something:\n\n\
+             - **Call Spool's `list_threads` first** and check whether a project goes by that name.\n\
+             - If one does, that is what they meant — use Spool's tools.\n\
+             - **A local folder or document with the same name is not that project.** Do not edit \
+             the document instead.\n\
+             - If nothing matches, say so and ask. Do not pick a local file on their behalf.\n\n\
+             Spool wrote this section during one-click hookup. Delete everything between \
+             `spool:begin` and `spool:end` to remove it."
+        )
+    )
+}
+
+/// Put (or refresh) Spool's section in a client's instruction file.
+///
+/// Same contract as the config writes above — back up first, touch only what is ours — with
+/// one addition: this file is the user's, and other tools write to it too. So the section is
+/// fenced by markers and a second hookup REPLACES it rather than appending a second copy,
+/// which is also what makes "remove it" a single delete rather than an archaeology exercise.
+fn write_client_guidance(path: &std::path::Path) -> Result<(), String> {
+    let block = guidance_block();
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    // Exactly one well-formed pair is ours to replace. Anything else — no markers, a lone
+    // half after a hand edit, markers out of order — appends instead. The asymmetry is
+    // deliberate: appending leaves a visible duplicate the user can delete, while replacing
+    // from a partial match silently eats whatever sits between someone else's marker and
+    // ours. Never delete text in this file that we did not write.
+    let single_pair = existing.matches(GUIDANCE_BEGIN).count() == 1
+        && existing.matches(GUIDANCE_END).count() == 1;
+    let bounds = single_pair
+        .then(|| (existing.find(GUIDANCE_BEGIN), existing.find(GUIDANCE_END)))
+        .and_then(|(a, b)| match (a, b) {
+            (Some(a), Some(b)) if b > a => Some((a, b)),
+            _ => None,
+        });
+    let next = match bounds {
+        Some((a, b)) => {
+            let mut s = String::with_capacity(existing.len() + block.len());
+            s.push_str(&existing[..a]);
+            s.push_str(&block);
+            s.push_str(&existing[b + GUIDANCE_END.len()..]);
+            s
+        }
+        None if existing.trim().is_empty() => format!("{block}\n"),
+        None => format!("{}\n\n{block}\n", existing.trim_end()),
+    };
+    if next == existing {
+        return Ok(());
+    }
+    if path.exists() {
+        let bak = path.with_extension("md.bak");
+        std::fs::copy(path, &bak)
+            .map_err(|e| t!("备份失败,未写入: {e}", "Backup failed, so nothing was written: {e}"))?;
+    } else if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, next).map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -6705,6 +6835,46 @@ fn triage_conversation_prompt_text(gate: &str) -> String {
     t!(
         "用户想把这一整场对话分流进 Spool 的项目里。\n\n# 你要做的\n1. 先调 list_threads 看有哪些项目。判断这场对话里的结论分别该进哪个项目;如果有一条哪个项目都不合适,问用户,别自己新建。\n2. 挑出**值得留下来的结论** —— 一条一块,一块只说一件事。这场对话里推理出来的、库里还没有的东西才留;能从库里现成读到的不要留。上限 24 条,通常 3 到 8 条就够了。\n3. ⚠️ **原文块只放用户自己说过的话** —— 把他这一场里的提问按顺序拼起来,当作 source_text,并用 source_thread_id 指定放哪个项目(问他,或者放他当收件箱用的那个)。**绝对不要把你自己的回答也塞进 source_text**:你的结论已经各自成块了,再存一份就是同一段话占两次地方,而原文块是文档级的,会长期吃掉这个项目的上下文预算。\n4. 用 **propose_blocks 一次提交**(不是 add_block)。每条只写 content(必要时加一句 annotation 说明为什么值得留),thread_id 指定进哪个项目 —— 引用原文那一步 Spool 自动做。\n5. 提完之后告诉用户:「Spool 里有 N 条待你过目」。⚠️ **不要说已经存好了** —— 他点头之前一个字都没进库。顺便告诉他那段原文有多少字。\n6. 全程用项目标题称呼项目,绝不把 id 说出来或写进正文。\n{gate}",
         "The user wants this whole conversation filed into their Spool projects.\n\n# What to do\n1. Call list_threads first and see what projects exist. Work out which project each conclusion belongs in; if one fits nowhere, ask the user rather than inventing a project.\n2. Pick out the conclusions **worth keeping** — one block each, one idea per block. Keep what this conversation worked out and the library does not already hold; skip anything that could simply be read back out of it. At most 24, and usually 3 to 8 is right.\n3. \u{26a0}\u{fe0f} **The passage holds the user's own words only** — their turns from this conversation, in order, as source_text, with source_thread_id naming where it should live (ask them, or use the project they treat as an inbox). **Never put your own replies in source_text**: your conclusions are already the items, so a second copy stores the same thinking twice — and the passage is a document-sized block that keeps costing this project's context budget from then on.\n4. Send it as ONE propose_blocks call (not add_block). Each item needs content (and an annotation if it is worth saying why it is worth keeping) plus the thread_id it lands in; Spool wires up the citation back to the passage itself.\n5. Then tell the user: \u{201c}there are N items waiting for you in Spool\u{201d}. \u{26a0}\u{fe0f} **Never say you saved them** — until they approve, nothing is in the library. Tell them how long the passage is, too.\n6. Refer to projects by title throughout, and never say an id out loud or write one into a block.\n{gate}"
+    )
+}
+
+// §9.4 乙 (2026-08-11) — the two things the user actually does every day.
+//
+// The five prompts that existed before this were all maintenance: compress a pack, review a
+// week, check a project over, distil one, triage a conversation. Filing one thing, and
+// catching up on one project, had no entry at all — they were left to the model working out
+// from a sentence that Spool was the target, which is exactly the judgement that failed on
+// 2026-08-11 (a same-named local folder won, twice).
+//
+// A prompt is the fix because of WHO decides. Choosing it is the user's act, so by the time
+// the text is read there is nothing left to infer about where this belongs — the standard
+// MCP shape of "selected mode", and the reason these two are not new tools.
+fn file_this_prompt_text(target: Option<&str>, gate: &str) -> String {
+    let where_to = match target {
+        Some(title) => t!(
+            "用户已经点名了〈{title}〉,存这里。",
+            "The user named \u{2039}{title}\u{203a}. That is where it goes."
+        ),
+        None => t!(
+            "用户没点名 —— 先调 list_threads 看有哪些项目,挑最贴的那个,**说出来跟他确认再存**。\
+             一个都不合适就问他,别自己新建。",
+            "They did not say which — call list_threads first, pick the closest fit, and \
+             **say which one out loud before storing**. If nothing fits, ask; do not invent a project."
+        )
+            .to_string(),
+    };
+    t!(
+        "用户要把刚才这段里的一件事存进 Spool。\n\n# 你要做的\n1. 存哪儿:{where_to}\n2. 挑出**值得留下来的那一件** —— 一块只说一件事。这场对话里得出来的、库里还没有的才留;库里本来就读得到的不要再存一遍。\n3. 用 add_block 存:content 是结论本体,annotation 写一句「为什么这条值得留」;它建立在库里某一块上,就用 ref_block_id 引那一块。\n4. ⚠️ 这段东西要是该**分头进好几个项目**,别连着调好几次 add_block —— 那是 propose_blocks 一次提交的活,让用户在 Spool 里过目。\n5. ⚠️ 它要是**推翻了库里某条旧结论**,加 ref_kind:\"corrects\" 指着那一块,并把不作数的那句话**逐字**放进 corrected_quote。只在正文里写「更正」两个字不算数 —— 旧结论会照样在以后每一份简报里当成有效结论渲染。\n6. 内容是你从网上读来的,就把 source_url 和 retrieved_at(你读到它的那一天)一起写上;是有保质期的事(截止日期、费用、门槛),再加 recheck_after。\n7. 存完告诉用户存进了哪个项目、存的是什么。全程用项目标题称呼项目,绝不把 id 说出来或写进正文。\n{gate}",
+        "The user wants one thing from this conversation filed into Spool.\n\n# What to do\n1. Where it goes: {where_to}\n2. Pick out **the one thing worth keeping** — one idea per block. Keep what this conversation worked out and the library does not already hold; do not store again what could simply be read back out of it.\n3. Store it with add_block: content is the finding itself, annotation is one line on why it is worth keeping, and ref_block_id cites the block it builds on if there is one.\n4. \u{26a0}\u{fe0f} If this belongs in **several different projects**, do not make several add_block calls — that is one propose_blocks call, queued for the user to approve inside Spool.\n5. \u{26a0}\u{fe0f} If it **overturns a conclusion already in the library**, add ref_kind:\"corrects\" naming that block, and copy the sentence that no longer holds **verbatim** into corrected_quote. Text that merely opens with \u{201c}Correction\u{201d} does nothing — the old conclusion keeps rendering as live in every future briefing.\n6. If it came from a page you read, write source_url and retrieved_at (the day you read it); if it is the kind of fact with a shelf life — a deadline, a fee, an entry requirement — add recheck_after.\n7. When it is stored, tell the user which project it went into and what you put there. Refer to projects by title throughout; never say an id out loud or write one into a block.\n{gate}"
+    )
+}
+
+fn catch_up_prompt_text(title: &str, overview: &str, gate: &str) -> String {
+    let material = fenced_material(overview);
+    let rule = material_rule();
+    t!(
+        "你在帮用户看 Spool 项目〈{title}〉现在是什么情况。下面是 Spool 生成的项目概览,它是这次回答唯一的事实来源。\n\n# 概览\n{material}\n\n# 你要做的\n1. 用大白话说清三件事:这个项目最近推进到哪儿了、它现在**盯着**什么、有什么要留意的。「盯着什么」那几行照念,别自己改写 —— 那是用户自己定的。\n2. needs_attention 里点名的块要**一条一条讲**:哪些过了复查日期、可能已经不准了,哪些引用是悬空的。别只报个数字,说清是哪一条。\n3. 概览是**截到今天的一份摘选**,不是全部记录。要展开某一条,先用 get_pack / get_blocks 补读,再下判断。\n4. ⭐ 用户要是让你「去查一下」,就照上面「盯着什么」那几行去查,查完把新答案**写回来**:add_block 带上 source_url 和 retrieved_at(你读到它的那一天),有保质期的再加 recheck_after。⚠️ 更正旧结论必须用 ref_kind:\"corrects\" 指着那一块,并把不作数的那句**逐字**放进 corrected_quote。\n5. 概览里看不出来的就说看不出来,绝不编。\n6. 全程用项目标题称呼项目,绝不把 id 说出来或写进正文。\n7. {rule}\n{gate}",
+        "You are catching the user up on the Spool project \u{2039}{title}\u{203a}. Below is the overview Spool generated; it is the only source of fact for this answer.\n\n# Overview\n{material}\n\n# What to do\n1. Say three things in plain language: where this project has got to lately, what it is currently **watching for**, and what needs attention. Read the watch lines back as they are — the user wrote them, do not reword them.\n2. Go through what needs_attention names **one by one**: which blocks are past their recheck date and may no longer hold, and which citations dangle. Do not just report a count; say which ones.\n3. The overview is **a selection as of today**, not the full record. To open any of it up, read more with get_pack / get_blocks before judging.\n4. \u{2b50} If the user asks you to go and check, work from the watch lines above, then **write the answer back**: add_block with source_url and retrieved_at (the day you read it), plus recheck_after if the fact has a shelf life. \u{26a0}\u{fe0f} Correcting an existing conclusion requires ref_kind:\"corrects\" naming that block, with the sentence that no longer holds copied **verbatim** into corrected_quote.\n5. If the overview does not show something, say so. Never invent.\n6. Refer to projects by title throughout; never say an id out loud or write one into a block.\n7. {rule}\n{gate}"
     )
 }
 
@@ -6983,6 +7153,32 @@ fn guidance_text_for(name: &str, args: &Value, headless: bool) -> Result<String,
         // 决定 4. No project argument and no material to assemble: what it needs is the
         // conversation the client already has, and the live project list it is told to fetch.
         "triage_conversation" => prompt_body(|dir, _| Ok(triage_conversation_prompt_text(write_gate_line(dir)))),
+        // §9.4 乙. Same reason as triage for holding no material — the thing being filed is
+        // in the conversation, not the library. A project argument is resolved to its TITLE
+        // when given, so the text names it the way the user does; without one the model is
+        // sent to list_threads rather than handed a list that can go stale mid-session.
+        "file_this" => prompt_body(|dir, conn| {
+            let target = match project {
+                Some(key) => Some(resolve_thread(conn, key)?.1),
+                None => None,
+            };
+            Ok(file_this_prompt_text(target.as_deref(), write_gate_line(dir)))
+        }),
+        // §9.4 乙. This one DOES carry material: the overview is Spool's to compute, and
+        // embedding it is what puts get_project_overview within the user's reach — it is the
+        // door §4.5 E built and nothing had ever pointed at.
+        "catch_up" => prompt_body(|dir, conn| {
+            let Some(key) = project else {
+                return project_chooser_text(
+                    conn,
+                    ts!("catch_up(看看这个项目现在怎么样)", "catch_up (see where a project stands)"),
+                    "project",
+                );
+            };
+            let (id, title) = resolve_thread(conn, key)?;
+            let overview = get_project_overview_json(conn, &id, now_ms())?;
+            Ok(catch_up_prompt_text(&title, &overview, write_gate_line(dir)))
+        }),
         "distill" => prompt_body(|dir, conn| {
             let Some(key) = project else {
                 return project_chooser_text(
@@ -7502,6 +7698,20 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                     "name": "triage_conversation",
                     "description": "File this whole conversation into Spool: split what it worked out into blocks per project and queue them for the user to approve (the user's own questions are kept as the passage they cite; nothing is saved until they say yes).",
                     "arguments": []
+                },
+                {
+                    "name": "file_this",
+                    "description": "Save what this conversation just worked out into one Spool project — one block, with a note on why it is worth keeping, citing what it builds on or corrects.",
+                    "arguments": [
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and the AI asks which project after listing them.", "required": false }
+                    ]
+                },
+                {
+                    "name": "catch_up",
+                    "description": "Where one Spool project stands right now: what moved lately, what it is watching for, and what needs attention (blocks past their recheck date, dangling citations) — with the option to go and check those, then write the answers back.",
+                    "arguments": [
+                        { "name": "project", "description": "Project title (part of it is enough) — or its id from list_threads. Leave blank and Spool answers with the project list to pick from.", "required": false }
+                    ]
                 }
             ]
         })),
@@ -7514,6 +7724,8 @@ fn handle_request(method: &str, params: &Value) -> Result<Value, (i64, String)> 
                 "thread_health" => "Health-check one Spool project; disposal stays with the user.",
                 "distill" => "Distill one Spool project into a single conclusion block.",
                 "triage_conversation" => "Split this conversation into blocks per project and queue them for approval.",
+                "file_this" => "Save what this conversation worked out into one Spool project.",
+                "catch_up" => "Where one Spool project stands, and what may have gone out of date.",
                 _ => return Err((-32602, format!("unknown prompt: {name}"))),
             };
             let text = guidance_text(name, &args).map_err(|e| (-32603, e))?;
@@ -7946,6 +8158,69 @@ mod tests {
         }
         drop(conn);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // §9.4 乙. Two surfaces describe the prompt menu — the list a client renders, and the
+    // description `prompts/get` answers with — and nothing but this test holds them equal.
+    // A prompt that lists but does not get is a menu entry that errors when clicked, and it
+    // would pass every other test in this file.
+    #[test]
+    fn every_listed_prompt_can_be_fetched() {
+        let listed = handle_request("prompts/list", &json!({})).unwrap();
+        let names: Vec<String> = listed["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names.len(), 7, "prompt surface changed: {names:?}");
+        for name in &names {
+            // Assembly may still fail here (no data dir, toggle off) — what must never
+            // happen is the menu offering a name the getter does not know.
+            if let Err(err) = handle_request("prompts/get", &json!({ "name": name })) {
+                assert!(
+                    !err.1.contains("unknown prompt"),
+                    "{name} is listed but prompts/get does not know it: {err:?}"
+                );
+            }
+        }
+    }
+
+    // §9.4 乙. Each rule in these two is a defence that nothing else would miss if a later
+    // edit dropped it — and both exist because of one concrete failure: on 2026-08-11 a
+    // model filed two things into a project and Spool received neither.
+    #[test]
+    fn the_two_daily_prompts_keep_saying_the_things_that_matter() {
+        store_lang(Lang::Zh);
+
+        // Named project: the text calls it what the USER calls it, never by id.
+        let named = file_this_prompt_text(Some("申请规划"), "写入已开启");
+        assert!(named.contains("〈申请规划〉"), "{named}");
+        // Splitting across projects is propose_blocks, not a burst of add_block — the one
+        // shape mistake §9.5 says looks harmless at two calls.
+        assert!(named.contains("propose_blocks"), "{named}");
+        // A correction that is only a word in the body leaves the old conclusion live.
+        assert!(named.contains("ref_kind") && named.contains("corrected_quote"), "{named}");
+        // Provenance, or a page read today reads as timeless a year from now.
+        assert!(named.contains("source_url") && named.contains("retrieved_at"), "{named}");
+
+        // No project named: go and look, then confirm out loud. Never invent a project,
+        // and never hand over a project list that can go stale mid-session.
+        let unnamed = file_this_prompt_text(None, "写入已开启");
+        assert!(unnamed.contains("list_threads"), "{unnamed}");
+        assert!(unnamed.contains("别自己新建"), "{unnamed}");
+
+        let caught = catch_up_prompt_text("申请规划", "{\"summary\":\"x\"}", "写入已开启");
+        assert!(caught.contains("〈申请规划〉"), "{caught}");
+        // The overview is material, so it travels inside the fence like every other
+        // assembled prompt (§3.1-6) — block text must not be able to forge instructions.
+        assert!(caught.contains(MATERIAL_OPEN) && caught.contains(MATERIAL_CLOSE), "{caught}");
+        // What a project watches is the user's own text. Reading it back reworded is how
+        // a follow-up quietly becomes about something else.
+        assert!(caught.contains("照念"), "{caught}");
+        // needs_attention is the whole point of the door: name the blocks, not a count.
+        assert!(caught.contains("needs_attention"), "{caught}");
+        assert!(caught.contains("别只报个数字"), "{caught}");
     }
 
     // §20.13 write tools: exercise the pure write path against a scratch DB built
@@ -10975,6 +11250,59 @@ mod tests {
         assert!(std::fs::read_to_string(tmp.join(".codex/config.toml.bak"))
             .unwrap()
             .contains("/stale/path"));
+
+        // §9.4 甲: hookup also leaves a marked section in the client's instruction file,
+        // for the two clients that are verified to read one.
+        let agents = tmp.join(".codex/AGENTS.md");
+        let body = std::fs::read_to_string(&agents).unwrap();
+        assert!(body.contains(GUIDANCE_BEGIN) && body.contains(GUIDANCE_END), "{body}");
+        assert!(body.contains("list_threads"), "{body}");
+        assert!(std::fs::read_to_string(tmp.join(".claude/CLAUDE.md"))
+            .unwrap()
+            .contains("list_threads"));
+        // Clients with no verified instruction file get no invented one.
+        assert!(!tmp.join(".cursor/AGENTS.md").exists());
+        assert!(!tmp.join(".codeium/windsurf/AGENTS.md").exists());
+
+        // The two things Ocean rejected, pinned so they cannot come back by edit: no
+        // notation the USER has to adopt, and no copy of their project titles in $HOME.
+        assert!(!body.contains('〈') && !body.contains('⟨'), "no user-facing notation: {body}");
+        assert!(!body.contains("申请规划"), "no project titles leak into $HOME: {body}");
+
+        // Hooking up again REPLACES a stale section in place — one marker pair, never two,
+        // and the user's own text on both sides of it is untouched.
+        std::fs::write(
+            &agents,
+            format!("# my notes\nkeep me\n\n{GUIDANCE_BEGIN}\nstale rules\n{GUIDANCE_END}\ntrailing line\n"),
+        )
+        .unwrap();
+        assert_eq!(configure_client("codex").unwrap(), "written");
+        let again = std::fs::read_to_string(&agents).unwrap();
+        assert_eq!(again.matches(GUIDANCE_BEGIN).count(), 1, "{again}");
+        assert_eq!(again.matches(GUIDANCE_END).count(), 1, "{again}");
+        assert!(!again.contains("stale rules"), "{again}");
+        assert!(again.contains("list_threads"), "{again}");
+        assert!(again.contains("# my notes") && again.contains("keep me"), "{again}");
+        assert!(again.contains("trailing line"), "{again}");
+        assert!(std::fs::read_to_string(tmp.join(".codex/AGENTS.md.bak"))
+            .unwrap()
+            .contains("stale rules"));
+
+        // Already current → the file is left byte-identical and no new .bak is cut. A
+        // repeat click must not churn the user's file, nor bury the backup that mattered.
+        assert_eq!(configure_client("codex").unwrap(), "written");
+        assert_eq!(std::fs::read_to_string(&agents).unwrap(), again);
+        assert!(std::fs::read_to_string(tmp.join(".codex/AGENTS.md.bak"))
+            .unwrap()
+            .contains("stale rules"));
+
+        // A lone opening marker is somebody's half-finished hand edit, not our section:
+        // append below it rather than replacing from a half-match and eating their text.
+        std::fs::write(&agents, format!("{GUIDANCE_BEGIN}\nhand edited\n")).unwrap();
+        assert_eq!(configure_client("codex").unwrap(), "written");
+        let salvaged = std::fs::read_to_string(&agents).unwrap();
+        assert!(salvaged.contains("hand edited"), "{salvaged}");
+        assert!(salvaged.contains("list_threads"), "{salvaged}");
 
         // Unparseable TOML: refuse rather than clobber, same as the JSON path.
         std::fs::write(&codex_cfg, "model = [broken").unwrap();
