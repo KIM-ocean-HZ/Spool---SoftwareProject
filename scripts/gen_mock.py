@@ -18,7 +18,7 @@ import pathlib
 import sys
 
 FONTS = pathlib.Path("/Users/hzjin/Desktop/Knote/src/assets/fonts").resolve()
-SIDEBAR = 260  # lib/layout.ts SIDEBAR_WIDTH
+SIDEBAR = 260  # lib/layout.ts SIDEBAR_WIDTH — sheets may override it to try a wider rail
 WIN_W, WIN_H = 1240, 780
 OUT = pathlib.Path(
     sys.argv[1]
@@ -228,7 +228,15 @@ CENTRE = (
 )
 
 
-CSS = f"""
+def css(sidebar_w=SIDEBAR, centre_top=0):
+    """centre_top pushes the whole centre column down — 2026-08-11 Ocean:
+    「工作区顶部栏下移，和左边的价值面板对齐」."""
+    return CSS_TMPL.replace("__SIDEBAR__", str(sidebar_w)).replace(
+        "__CENTRE_TOP__", str(centre_top)
+    )
+
+
+CSS_TMPL = f"""
 @font-face {{ font-family:'Geist'; src:url('file://{FONTS}/Geist[wght].ttf'); font-weight:100 900; }}
 @font-face {{ font-family:'Fraunces'; src:url('file://{FONTS}/Fraunces[SOFT,WONK,opsz,wght].ttf'); font-weight:100 900; }}
 @font-face {{ font-family:'Fraunces'; src:url('file://{FONTS}/Fraunces-Italic[SOFT,WONK,opsz,wght].ttf'); font-weight:100 900; font-style:italic; }}
@@ -250,7 +258,7 @@ figcaption {{ font-size:13px; color:#5c564a; margin-bottom:8px; font-weight:500;
   box-shadow:0 10px 34px -14px rgba(60,40,10,0.45); }}
 
 /* ── left rail ───────────────────────────────────────── */
-.rail {{ width:{SIDEBAR}px; flex:none; display:flex; flex-direction:column;
+.rail {{ width:__SIDEBAR__px; flex:none; display:flex; flex-direction:column;
   border-right:1px solid var(--line); background:rgba(243,238,226,0.4); }}
 .r-head {{ display:flex; align-items:flex-start; justify-content:space-between;
   gap:8px; padding:20px 20px 24px 20px; }}
@@ -319,7 +327,8 @@ figcaption {{ font-size:13px; color:#5c564a; margin-bottom:8px; font-weight:500;
   border-top:1px solid var(--line); padding-top:6px; }}
 
 /* ── centre ──────────────────────────────────────────── */
-.centre {{ min-width:0; flex:1; display:flex; flex-direction:column; overflow:hidden; }}
+.centre {{ min-width:0; flex:1; display:flex; flex-direction:column; overflow:hidden;
+  padding-top:__CENTRE_TOP__px; }}
 .c-head {{ flex:none; border-bottom:1px solid var(--line); padding:12px 24px; }}
 .c-title-row {{ display:flex; align-items:center; gap:12px; }}
 .c-title {{ min-width:0; flex:1; font-family:'Fraunces',serif; font-size:1.5rem; }}
@@ -355,30 +364,32 @@ figcaption {{ font-size:13px; color:#5c564a; margin-bottom:8px; font-weight:500;
 """
 
 
-def page(style, caption):
+def page(style, caption, sidebar_w=SIDEBAR, centre_top=0):
     return (
-        '<meta charset="utf-8"><style>' + CSS + "</style>"
+        '<meta charset="utf-8"><style>' + css(sidebar_w, centre_top) + "</style>"
         f'<figure><figcaption>{caption}</figcaption>'
         f'<div class="win">{sidebar(style)}{CENTRE}'
         f'<div class="rail-open">{I_OPEN}</div></div></figure>'
     )
 
 
+# 2026-08-11 round 3 — 「左侧边栏做宽一点」+「工作区顶部栏下移，和左边的价值面板对齐」.
+# 对齐有两种读法，两种都画出来(台账 §3.29):顶边对齐 vs 两条横线接成一条。
+WIDE = 300
 SHEETS = [
-    ("mock-a", "A", "A —— 五段一律灰色小标题；所有项目行对齐到同一条左边缘，"
-                    "工作区里的项目不再缩进；一条线都没有（对照用）"),
-    ("mock-a1", "A1", "A1 —— 同 A，最近下面一条线、聚焦下面一条线（两条）"),
-    ("mock-a2", "A2", "A2（已落地的这一版）—— 五段一律灰色小标题、项目行一条左边缘、"
-                      "只在聚焦下面一条线；最近改成 3 条"),
-    ("mock-0-now", "now", "现在 —— 价值面板已是变体 D（有框线、夹在周回顾和最近中间）；"
-                          "五段仍是三种写法，项目行有三个不同的左边缘"),
-    ("mock-b", "B", "B —— 工作区保留衬线名字、里面的项目仍缩进；"
-                    "最近/聚焦是灰色小标题；分隔线全部去掉"),
-    ("mock-c", "C", "C —— 五段一律衬线大标题；项目行对齐到同一条左边缘；分隔线全部去掉"),
+    ("mock-wide", "A2", f"① 只把左边栏加宽到 {WIDE}px，工作区顶部栏不动（对照用）", WIDE, 0),
+    ("mock-align-top", "A2",
+     f"② 左边栏 {WIDE}px + 工作区顶部栏下移到「顶边和价值面板的顶边齐」", WIDE, 154),
+    ("mock-align-rule", "A2",
+     f"③ 左边栏 {WIDE}px + 工作区顶部栏下移到「它那条横线和价值面板的底边接成一条」",
+     WIDE, 129),
+    ("mock-a2", "A2", "A2（现在装着的这一版，260px）—— 五段一律灰色小标题、项目行一条左边缘、"
+                      "只在聚焦下面一条线；最近 3 条"),
 ]
 
 OUT.mkdir(parents=True, exist_ok=True)
-for name, style, caption in SHEETS:
+for sheet in SHEETS:
+    name, style, caption = sheet[0], sheet[1], sheet[2]
     p = OUT / f"{name}.html"
-    p.write_text(page(style, caption), encoding="utf-8")
+    p.write_text(page(style, caption, *sheet[3:]), encoding="utf-8")
     print(p)
