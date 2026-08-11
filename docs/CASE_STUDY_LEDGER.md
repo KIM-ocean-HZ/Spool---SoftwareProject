@@ -1147,6 +1147,50 @@ The general form: **a model of the thing competes with the thing, and only wins 
 is expensive to obtain.** Every improvement to build and install speed moves that line, and
 nobody sends a notification when it moves — the user does, by saying the picture looks wrong.
 
+### 3.33 A healthy server, a correct config, and an integration that was not there (2026-08-11)
+
+Two acceptance sentences were run in the user's own ChatGPT: *go and find this year's deadline
+for the CMU programme and file it into 〈申请规划〉*, and then *the case-study claim in
+〈申请规划〉 is wrong now, record that*. Both came back with a confident "done". Neither wrote
+anything to Spool. The library gained **zero blocks that day**; its last write was twenty hours
+earlier.
+
+What the model had actually done was competent work on the wrong object. It edited
+`build_application_plan.py` in the working directory, regenerated a DOCX and a PDF, rendered
+the pages and checked the layout. The directory it was started in is called 申研选校规划 and
+contains a document whose title is the same phrase the user had used for the Spool project. Its
+first action in the session was to list that directory. From there, 〈申请规划〉 had a referent
+that was concrete, local, and writable, and Spool never entered the candidate set.
+
+The forensics found a second cause underneath the first, and it is the one worth keeping. The
+client's own log records every MCP server it launches; the last time it launched Spool's was
+**the previous evening**. Nothing in that day's three sessions mentions a Spool tool at all.
+The model did not choose the local file over the tools — **it was never offered the tools.**
+
+Everything a normal check looks at was green. The client's config file had the right command
+and the right arguments; the binary was the current build and, when driven by hand over stdio,
+answered `tools/list` with all eighteen tools, annotations complete, pointed at the real
+library. Spool's own settings screen showed the client as connected, because what that screen
+reads is the config file — *whether an entry exists*, not whether anything is using it. Five
+`--mcp` subprocesses were alive on the machine and every one of them belonged to a different
+client.
+
+Two things generalise:
+
+**A "configured" indicator that reads configuration is a status light wired to the switch
+rather than to the bulb.** The server is in a position to know the truth and was not recording
+it: every client sends `clientInfo` in its `initialize` call, so a per-client last-seen
+timestamp — *Claude Code · 3 minutes ago, ChatGPT · 20 hours ago* — costs one write and
+converts this failure from silent to obvious.
+
+**An integration that is not addressed does not report an error.** A tool that is called and
+fails leaves a trace at both ends; a tool that is never called leaves the same evidence as a
+tool that does not exist. That is why the routing text was made testable in the first place
+(§3.16, §3.19) — but a test that every tool is reachable from the instructions assumes the
+instructions arrive. Here they did not, and the layer below that assumption had never been
+checked. **When an acceptance sentence "passes" or "fails" through someone else's client, the
+first question is not which tool it chose. It is whether the tools were in the request.**
+
 ---
 
 ## 4. Boundaries stated on purpose
