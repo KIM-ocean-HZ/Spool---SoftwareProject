@@ -161,7 +161,14 @@ export default function McpConfig() {
                   : s === 'not-installed'
                     ? { text: t('未检测到'), color: 'var(--muted)' }
                     : null;
-          const showButton = s === 'unconfigured' || s === 'stale';
+          // §9.4 甲: the button has to stay reachable on a row that is ALREADY connected.
+          // It used to hide itself the moment the config entry was correct — which was fine
+          // while one click did exactly one thing, but the click now also writes the
+          // client's instruction-file section, and everyone who hooked up before that
+          // existed has a correct config and no section. Hiding the button hid the only way
+          // to get one. Re-running is idempotent on both halves: the same config entry, and
+          // the marked section replaced in place.
+          const showButton = s === 'unconfigured' || s === 'stale' || s === 'configured';
           // §9.4 丙: the badge says the config file has us; this says whether that ever
           // turned into a connection. Only shown once the config is in place — before
           // that "never connected" is not news, it is the sequence.
@@ -190,7 +197,7 @@ export default function McpConfig() {
                   disabled={busy}
                   className="flex-none rounded-md border border-line-strong bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-50"
                 >
-                  {busy ? t('写入中…') : s === 'stale' ? t('更新配置') : t('一键接入')}
+                  {busy ? t('写入中…') : s === 'unconfigured' ? t('一键接入') : t('更新配置')}
                 </button>
               )}
               {/* Decision ③ (2026-07-31): a missing client stays listed in gray and the
