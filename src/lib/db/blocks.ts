@@ -298,8 +298,19 @@ const AI_ANNOTATION_PREDICATE =
  *  「他自己打的」 is read off the same absent-source rule isUserWritten() uses, and the
  *  tutorial's rows are excluded whole: they arrive annotated, so counting them would open a
  *  fresh install on 「我写了 700 字」 — the same lie the tutorial exclusion above prevents for
- *  the capture count. */
-export const countUserWrittenChars = async (): Promise<number> => {
+ *  the capture count.
+ *
+ *  `since` bounds it to blocks CREATED at or after that moment — what the panel's 今天 line
+ *  needs (Ocean 2026-08-11: 「今天读了 2 条边上加上写了 xxx 字」).
+ *
+ *  ⚠️⚠️ **With `since` this counts words written ON blocks made in the window, not words
+ *  written DURING it.** A note typed today onto a block captured last week does not appear:
+ *  the row carries `created_at` and nothing else, and there is no column recording when an
+ *  annotation was last touched. It is the right approximation for THIS product and only
+ *  because of how capture works — a double-tap ⌥ opens the note box on the block it just
+ *  made (memory `capture-note-first`), so the note and the block are minutes apart. If a
+ *  「今天写了」 number ever has to be exact, that needs a column, not a cleverer query. */
+export const countUserWrittenChars = async (since?: number): Promise<number> => {
   const db = await getDb();
   const labels = tutorialSourceLabels();
   const holes = labels.map((_, i) => `$${i + 1}`).join(', ');
@@ -309,8 +320,10 @@ export const countUserWrittenChars = async (): Promise<number> => {
       + CASE WHEN TRIM(COALESCE(annotation, '')) <> '' AND NOT (${AI_ANNOTATION_PREDICATE})
              THEN LENGTH(annotation) ELSE 0 END
       ) AS chars
-       FROM blocks WHERE COALESCE(source, '') NOT IN (${holes})`,
-    labels,
+       FROM blocks
+      WHERE COALESCE(source, '') NOT IN (${holes})
+        AND created_at >= $${labels.length + 1}`,
+    [...labels, since ?? 0],
   );
   return rows[0]?.chars ?? 0;
 };

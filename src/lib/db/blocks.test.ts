@@ -397,6 +397,25 @@ describe('countUserWrittenChars', () => {
     // a fresh install — the one library where this card is guaranteed to be read.
     expect(await countUserWrittenChars()).toBe(0);
   });
+
+  // The panel's 今天 line (Ocean 2026-08-11). Same 口径, bounded to blocks created since a
+  // moment — and 0 rather than null on a day nothing was written, which is the state the
+  // line is in most days.
+  it('counts only blocks created at or after `since`', async () => {
+    const ws = await createWorkspace('工作区');
+    const thread = await createThread(ws.id, 'T');
+    const at = async (createdAt: number, content: string): Promise<void> => {
+      const b = await createBlock({ threadId: thread.id, content, source: null });
+      sqlite.prepare('UPDATE blocks SET created_at = ? WHERE id = ?').run(createdAt, b.id);
+    };
+    await at(1000, '昨天写的四字'); // 6
+    await at(2000, '今天写的'); // 4
+    await at(3000, '今天又写'); // 4
+
+    expect(await countUserWrittenChars()).toBe(14);
+    expect(await countUserWrittenChars(2000)).toBe(8); // the boundary row is IN
+    expect(await countUserWrittenChars(9000)).toBe(0);
+  });
 });
 
 // DESIGN_WORKBENCH §9.13 — the numbers an expanded row in 项目管理 shows.

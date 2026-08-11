@@ -3,7 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
-import { DEFAULT_RAIL_WIDTH, DEFAULT_SIDEBAR_WIDTH } from '@/lib/layout';
+import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts).
@@ -21,7 +21,6 @@ type PersistableKey =
   | 'aiEffortClaude'
   | 'language'
   | 'firstCaptureHintPending'
-  | 'sidebarWidth'
   | 'railWidth'
   | 'sidebarCollapsed'
   | 'railCollapsed'
@@ -90,10 +89,12 @@ interface SettingsState {
   // key written. Default false, so "no key" means "don't show it".
   firstCaptureHintPending: boolean;
   // DESIGN_WORKBENCH §3 — the two rails. Ocean 2026-08-06: "左右两侧边栏都可以拖移或者隐藏".
-  // Widths are persisted because a dragged rail that forgets is worse than one that
-  // cannot be dragged; both are clamped on read (lib/layout.ts) so a hand-edited
-  // settings.json cannot leave the user with a 6000px sidebar and no way back.
-  sidebarWidth: number;
+  // The width is persisted because a dragged rail that forgets is worse than one that
+  // cannot be dragged, and it is clamped on read (lib/layout.ts) so a hand-edited
+  // settings.json cannot leave the user with a 6000px rail and no way back.
+  // ⚠️ `sidebarWidth` used to live here and is gone (Ocean 2026-08-11: the left rail is
+  // fixed now). An existing settings.json still holding one is simply ignored — nothing
+  // reads it, and rewriting a file on disk to drop a dead key buys nothing.
   railWidth: number;
   sidebarCollapsed: boolean;
   // The right rail starts collapsed: it is about the engine, and a user with no CLI
@@ -193,7 +194,6 @@ const KEYS: PersistableKey[] = [
   'aiEffortClaude',
   'language',
   'firstCaptureHintPending',
-  'sidebarWidth',
   'railWidth',
   'sidebarCollapsed',
   'railCollapsed',
@@ -232,7 +232,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEffortClaude: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
-  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   railWidth: DEFAULT_RAIL_WIDTH,
   sidebarCollapsed: false,
   railCollapsed: true,

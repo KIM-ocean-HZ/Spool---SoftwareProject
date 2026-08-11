@@ -37,13 +37,29 @@ const COIL_X = [9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
 const windFraction = (level: number): number =>
   level <= 0 ? 0 : (AXLE_HALF + (level / SPOOL_STEPS) * (FULL_HALF - AXLE_HALF)) / FULL_HALF;
 
+/** How many spools the shelf draws before it collapses to one and a × N.
+ *
+ *  ⚠️ This is a **fitting** number, not a taste number (Ocean 2026-08-11: 「如果线轴太多导致
+ *  左侧边栏放不下,就显示 ×2,×5 来表示数量」). The shelf rides on the end of the 还差 line, and
+ *  that line has to stay ONE line — so what may be drawn is whatever fits after the longest
+ *  form of that phrase at the sidebar's width. It was 5, which fit when the shelf had its own
+ *  place in a wrapping flow and could drop to a line of its own; it cannot now.
+ *
+ *  ⚠️ **If the sidebar's fixed width ever changes, re-measure this** — WKWebView, the recipe
+ *  in HANDOFF §6.2-sexies. Measured at 260px against the widest line this can sit behind
+ *  (English 「99 more to fill it」; 99 is the largest 还差 that can appear once a spool has
+ *  been filled): four sit flush against the end of the column and five overflow it. Flush is
+ *  fine — 12px of the panel's own padding and 8px of the scroller's come after it — but there
+ *  is no slack left, so a longer string here means measuring again, not guessing. */
+const MAX_DRAWN_SPOOLS = 4;
+
 /** One finished spool, at the size of a piece of punctuation — the shelf of them that stands
  *  for 总线轴数 (§2.4). Same three parts as the meter above so a full one reads as the same
  *  object shrunk, not a different mark: two flanges, and thread all the way out to them. */
 export function FilledSpools({ count, label }: { count: number; label: string }) {
-  // Past a handful the shelf would out-measure the meter itself, so it collapses to one
-  // spool and a multiplier — the achievement is still legible, the panel stays a panel.
-  const drawn = count <= 5 ? count : 1;
+  // Past what fits, the shelf collapses to one spool and a multiplier — the achievement is
+  // still legible, and the line it sits on stays one line.
+  const drawn = count <= MAX_DRAWN_SPOOLS ? count : 1;
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap" title={label}>
       {Array.from({ length: drawn }, (_, i) => (
@@ -67,7 +83,7 @@ export function FilledSpools({ count, label }: { count: number; label: string })
           <rect x={12.5} y={0} width={3} height={12} rx={1.2} fill="var(--line-strong)" />
         </svg>
       ))}
-      {count > 5 && <span className="text-[11px] text-muted">× {count}</span>}
+      {count > MAX_DRAWN_SPOOLS && <span className="text-[11px] text-ink-2">× {count}</span>}
     </span>
   );
 }

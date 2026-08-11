@@ -15,13 +15,7 @@ import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
 import ResizeHandle from '@/components/ui/ResizeHandle';
 import ToastRack from '@/components/ui/Toast';
-import {
-  MAX_RAIL_WIDTH,
-  MAX_SIDEBAR_WIDTH,
-  MIN_RAIL_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-  resolveLayout,
-} from '@/lib/layout';
+import { MAX_RAIL_WIDTH, MIN_RAIL_WIDTH, resolveLayout } from '@/lib/layout';
 import {
   drainMigrationNotices,
   getFirstRunThreadId,
@@ -63,15 +57,14 @@ export default function App() {
   const language = useSettingsStore((s) => s.language);
   const openSettings = useSettingsStore((s) => s.openPanel);
 
-  // DESIGN_WORKBENCH §3 — the two rails. Widths are driven from local state during a drag
-  // and only committed to settings.json on release: the store is a file, and persisting per
-  // pointer-move would be a few hundred writes per drag.
+  // DESIGN_WORKBENCH §3 — the two rails. The right one's width is driven from local state
+  // during a drag and only committed to settings.json on release: the store is a file, and
+  // persisting per pointer-move would be a few hundred writes per drag.
+  // ⚠️ The LEFT one has no width of its own any more (Ocean 2026-08-11) — see lib/layout.ts.
   const updateSettings = useSettingsStore((s) => s.update);
-  const storedSidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const storedRailWidth = useSettingsStore((s) => s.railWidth);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const railCollapsed = useSettingsStore((s) => s.railCollapsed);
-  const [dragSidebar, setDragSidebar] = useState<number | null>(null);
   const [dragRail, setDragRail] = useState<number | null>(null);
   // The follow-up brief editor is opened from two places (the rail and the ⋯ menu), so it
   // is mounted once here and its open flag lives in engineStore — a useState in each caller
@@ -97,7 +90,6 @@ export default function App() {
 
   const layout = resolveLayout({
     windowWidth,
-    sidebarWidth: dragSidebar ?? storedSidebarWidth,
     railWidth: dragRail ?? storedRailWidth,
     sidebarCollapsed,
     railCollapsed,
@@ -321,23 +313,13 @@ export default function App() {
               <PanelLeftOpen size={14} />
             </button>
           ) : (
-            <>
-              <div style={{ width: layout.sidebar }} className="flex-none">
-                <Sidebar onCollapse={() => void updateSettings({ sidebarCollapsed: true })} />
-              </div>
-              <ResizeHandle
-                side="right"
-                width={layout.sidebar}
-                min={MIN_SIDEBAR_WIDTH}
-                max={MAX_SIDEBAR_WIDTH}
-                label={t('拖动改变项目列表宽度')}
-                onResize={setDragSidebar}
-                onCommit={(w) => {
-                  setDragSidebar(null);
-                  void updateSettings({ sidebarWidth: w });
-                }}
-              />
-            </>
+            /* ⚠️ No handle on this one (Ocean 2026-08-11: 「左侧边栏改成无法拖移，只有右边栏
+               可以移动，固定成最佳显示状态」). The sidebar's own `border-r` is the divider that
+               used to be drawn by the handle, so the seam looks the same — it just cannot be
+               grabbed. Collapsing it is untouched. */
+            <div style={{ width: layout.sidebar }} className="flex-none">
+              <Sidebar onCollapse={() => void updateSettings({ sidebarCollapsed: true })} />
+            </div>
           )}
 
           {/* DESIGN_WORKBENCH §9.4 — the pinned entries are sidebar rows whose "workspace" is
