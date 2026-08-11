@@ -416,6 +416,8 @@ p { margin: 0 0 1rem; }
 }
 .loop-row h3 { font-size: 1.55rem; }
 .loop-row p { color: var(--ink-2); font-size: 1rem; margin-bottom: 0; }
+/* a second paragraph in a loop row is a second thought, not a continuation */
+.loop-row p + p { margin-top: 1rem; }
 @media (max-width: 800px) {
   .loop-row, .loop-row.flip .loop-copy { display: block; order: initial; }
   .loop-row .loop-visual { margin-top: 1.4rem; }
@@ -574,6 +576,119 @@ picture { display: block; }
 .shot-arrow:hover { color: var(--accent); border-color: var(--accent); background: #fff; }
 .shot-arrow.prev { left: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
 .shot-arrow.next { right: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
+
+/* ---------- pending screenshot slots (docs/DESIGN_SITE_REBUILD.md §2.4) ----------
+   Every app screenshot on the site was taken 07-29…08-02 and every one of them is
+   now wrong (the numbered circle badge alone changed every block on every screen).
+   A slot holds the space and states what belongs there, which doubles as the shot
+   list for the rebuild. It is deliberately unlovely: this page must not be shipped
+   with slots still in it. */
+.shot-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 13rem;
+  padding: 1.6rem 1.5rem;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 9px,
+    rgba(0, 0, 0, 0.018) 9px, rgba(0, 0, 0, 0.018) 18px);
+  text-align: left;
+}
+.shot-slot .ss-id {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+}
+.shot-slot .ss-what { font-size: 0.95rem; color: var(--ink-2); }
+.shot-slot .ss-req { font-size: 0.82rem; color: var(--muted); margin: 0; }
+.shot-slot.tall { min-height: 20rem; }
+/* inside a tabbed group the prev/next arrows sit over the panel edges, so keep
+   the slot's text out from under them */
+@media (min-width: 701px) {
+  .shot-group[data-arrows] .shot-slot { padding-left: 4rem; padding-right: 4rem; }
+}
+
+/* ---------- two routes to the same thing: paste, or let the AI reach in ---------- */
+.route-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; }
+@media (max-width: 700px) { .route-pair { grid-template-columns: 1fr; } }
+.route {
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: rgba(255, 255, 255, 0.55);
+  padding: 1.7rem;
+  box-shadow: var(--shadow-card);
+}
+.route.lit { border-color: var(--accent); background: var(--accent-soft); }
+.route .r-tag {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+  text-transform: uppercase;
+}
+.route h3 { font-size: 1.2rem; margin: 0.5rem 0 0.7rem; }
+.route p { font-size: 0.96rem; color: var(--ink-2); margin-bottom: 0.8rem; }
+.route .r-cost { font-size: 0.85rem; color: var(--muted); margin: 0; }
+
+/* ---------- the gate: what an AI writes stops here ---------- */
+.gate-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 2.2rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: gate;
+}
+@media (max-width: 760px) { .gate-steps { grid-template-columns: 1fr; } }
+.gate-steps li {
+  position: relative;
+  padding: 0 1.4rem;
+  border-left: 1px solid var(--line-strong);
+}
+.gate-steps li:first-child { border-left: none; padding-left: 0; }
+@media (max-width: 760px) {
+  .gate-steps li { border-left: none; padding: 1.1rem 0 0; }
+  .gate-steps li:first-child { padding-top: 0; }
+}
+.gate-steps li h4 {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  margin: 0 0 0.4rem;
+  color: var(--ink);
+}
+.gate-steps li h4::before {
+  counter-increment: gate;
+  content: counter(gate);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  vertical-align: 0.05em;
+}
+.gate-steps li p { font-size: 0.92rem; color: var(--ink-2); margin: 0; }
+
+/* a quiet line of plain statements, one per row — used where cards would over-sell */
+.plain-list { max-width: 44rem; margin: 2rem auto 0; padding: 0; list-style: none; }
+.plain-list li {
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 0.97rem;
+}
+.plain-list li:last-child { border-bottom: 1px solid var(--line); }
+.plain-list li b { color: var(--ink); font-weight: 600; }
 
 /* ---------- privacy ---------- */
 .privacy-points { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem 2rem; margin: 1.75rem 0; padding: 0; list-style: none; }
@@ -937,6 +1052,43 @@ footer a { color: var(--ink-2); }
 .block-card .bmeta .src.mcp { background: var(--accent-soft); border-radius: var(--r-pill); padding: 0.05rem 0.5rem; }
 .block-card .note { font-style: italic; color: var(--ink-2); border-left: 2px solid var(--line-strong); padding-left: 0.6rem; margin-top: 0.4rem; font-size: 0.82rem; }
 .feed-empty { color: var(--muted); font-size: 0.85rem; text-align: center; margin: auto; }
+
+/* the gate, phase 5: a proposed note waiting to be kept or thrown away. It has
+   to read as *not yet in the project* — dashed edge, and it never inherits the
+   block card's solid background. */
+.review-card {
+  border: 1.5px dashed var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.review-card .rc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  margin-bottom: 0.4rem;
+}
+.review-card .rc-tag { color: var(--accent-2); font-weight: 600; }
+.review-card .rc-src { color: var(--muted); }
+.review-card .rc-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.7rem; }
+.rc-btn {
+  border-radius: var(--r-pill);
+  padding: 0.3rem 0.85rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  font-family: inherit;
+}
+.rc-btn.primary { background: var(--accent); color: #fff; }
+.rc-btn.primary:hover { background: var(--accent-2); }
+.rc-btn.ghost { background: none; border-color: var(--line-strong); color: var(--ink-2); }
+.rc-btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
 
 /* composer (capture #3: your own words) */
 .composer { border-top: 1px solid var(--line); padding: 0.7rem 1rem; display: flex; gap: 0.6rem; }
