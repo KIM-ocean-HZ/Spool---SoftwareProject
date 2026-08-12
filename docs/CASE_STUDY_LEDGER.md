@@ -1292,6 +1292,50 @@ use is free. The mention is only emitted for the one client where it was seen to
 of the others `@` opens a file path, and prefixing those would send the client hunting for a
 file that does not exist.
 
+### 3.37 One measurement retired a mechanism that was only dead in one client (2026-08-12)
+
+§3.36 ends with a fix: a mention that addresses the connector, emitted for the one client where
+it was seen to work. That was right, and it quietly became the whole answer. The prompts it
+replaced were kept but written off, and the mention was the only way any client got told which
+project a question was about.
+
+Asking the obvious next question — *what is the equivalent in the other five?* — produced three
+different answers and no convention:
+
+* The terminal client from the other vendor **documents a typed slash command for exactly this**:
+  server name, prompt name, arguments after it. So the prompts §3.36 retired have a first-class
+  entry point there, and a better one than the mention — the prompt arrives carrying the
+  project's overview, which no sentence on a clipboard can.
+* Its desktop sibling has **nothing you can type at all**. Prompts and resources are attached
+  through a ＋ menu.
+* The editor client's current documentation and its older documentation **disagree with each
+  other** about whether the prefix is `/mcp.<server>.<prompt>` or `/<server>.<prompt>`.
+
+The generalisation: **how a user names a connector is not a property of the protocol. It is a
+product decision each client makes on its own, and they have not converged.** The protocol
+standardises what the server offers; it says nothing about the characters a human types to reach
+it, and reasoning from one client to another is guessing.
+
+Two things follow, and the second is the one that cost something.
+
+First, the shipped form is a **table keyed by client**, where a row exists only when the vendor
+documents the syntax or somebody watched it work, and everything else falls back to plain
+language that names the project in words. The dangerous state was not the missing rows — it was
+the table with one row, which reads like a convention and invites the next person to extend it
+by analogy. `@` in three of these clients opens a file path; extending by analogy would send
+them hunting for a file called `spool`, which is worse than not naming the server at all.
+
+Second: **the measurement in §3.36 was about one client, and it had been generalised into a
+verdict about a mechanism.** The prompts were nearly deleted on the strength of it. Nothing was
+wrong with the evidence — the traffic log is exact — only with how far it was carried. A
+negative result travels the same distance as the thing that produced it: one client's wire, not
+the feature everywhere.
+
+⚠️ And the honest limit on this entry itself: the new row is **documented, not measured** —
+precisely the class of claim §3.36 says to distrust. It is marked as such where it lives, and
+the acceptance step is a human typing it once and watching what happens. Writing it down is not
+the same as having seen it.
+
 ---
 
 ## 4. Boundaries stated on purpose
