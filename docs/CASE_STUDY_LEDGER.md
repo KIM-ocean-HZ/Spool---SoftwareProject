@@ -1251,6 +1251,47 @@ wrong — and the answer is sometimes *neither, the behaviour was never chosen*.
 valuable failures. The assertion was about `.bak` files and what it actually bought was a
 written-down rule that this feature will never delete text it did not write.
 
+### 3.36 The feature was in the protocol, in the client's binary, and in neither client (2026-08-12)
+
+Two prompts were added so that filing something into a project would need no judgement from the
+model: the user picks the command, and the target stops being ambiguous. The design called this
+the cheapest fix available, on the grounds that MCP prompts surface as slash commands and the
+protocol provides them.
+
+They did not appear. Not in the desktop app, and not in the terminal client either.
+
+The reasoning that followed is worth recording because the first two steps were both wrong. The
+initial guess was a UI gap — the desktop composer not exposing what the terminal did — which the
+terminal disproved. The second was worse: the client binary was searched for `prompts/list`,
+found twenty-two times, and read as *the capability is there, so the problem is display*. Those
+strings come from the protocol SDK the client links against. **An SDK implements the whole
+protocol whether or not the program using it calls any given method, so a string in a binary is
+evidence about the library, not about the behaviour.**
+
+What settled it was refusing to infer at all. A proxy was put between client and server that
+forwarded every byte unchanged and wrote down each message. Both the terminal client and the
+non-interactive one sent exactly three things: `initialize`, `notifications/initialized`,
+`tools/list`. No `prompts/list`, ever. The client's own `initialize` declares one capability,
+and it is not prompts.
+
+The generalisation is not "that client is missing a feature". It is that **three different
+places can all say a capability exists — the specification, the SDK in the binary, the server
+advertising it — while the one thing that matters, whether the client asks, is recorded
+nowhere except on the wire.** This is the second time the same shape has cost real work here:
+§3.33 was a routing text sent through `initialize.instructions`, a field the specification
+defines and some clients simply ignore. Both times the fix was built on a documented mechanism
+and neither reached the model. A proxy that logs traffic is about thirty lines and answers the
+question outright; both of these would have been caught before they were built.
+
+The disposal matters too. The prompts were not deleted — they work on clients that do fetch
+them — and the replacement is the client's *own* affordance rather than a new one: an `@`
+mention that addresses the connector. That distinction had already been written down (a mention
+is a reference, not a name, so it cannot be ambiguous) and had already been ruled on: a
+convention the user must learn is friction moved, not removed, while an affordance they already
+use is free. The mention is only emitted for the one client where it was seen to work — in two
+of the others `@` opens a file path, and prefixing those would send the client hunting for a
+file that does not exist.
+
 ---
 
 ## 4. Boundaries stated on purpose
