@@ -130,7 +130,18 @@ git -c credential.helper='!gh auth git-credential' push https://github.com/KIM-o
 ```
 
 ⚠️ **仓库名是 `spool.git`,不是 `Knote.git`**(本地目录叫 Knote,差点按目录名猜错)。
-`git fetch` 刷 ref 同理 —— §6.6 那条「未推提交数会骗人」的解药现在得配这条命令用。
+
+⚠️⚠️ **按 URL 推完之后,本地 `origin/main` 那个 ref 不会动** —— 于是
+`git log origin/main..HEAD` 会把**早就推上去的提交也算成未推**(本窗当场撞见:实际欠 2 个,它报 22 个)。
+这就是 §6.6 那条「未推数会骗人」的新形态,而且方向相反(那次是少报,这次是多报)。
+✅ **刷 ref 要显式写目的地**:
+
+```
+git -c credential.helper='!gh auth git-credential' \
+  fetch https://github.com/KIM-ocean-HZ/spool.git main:refs/remotes/origin/main
+```
+
+⚠️ **没改 `git remote set-url`** —— 那是动他仓库的配置,他没说过。
 
 ---
 
