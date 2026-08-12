@@ -11,6 +11,11 @@
 
 ### 0-now.1 手上有什么
 
+⚠️ **工作区有一摊未提交**:拆掉 `@spool` 那条路(§0-now.3-ter)—— `clients.ts` / `ClientMenu.tsx` /
+`i18n` / `clients.test.ts` / 台账 §3.39 §3.41 / 本文件(§0-now.3-sexies 是插件的验收结果,
+**只有文档,没动代码**)。**四条基线里前三条当场量过**
+(`tsc` 干净 / **vitest 354** / i18n `(none missing)`;**没动 Rust,cargo 没重跑**)。
+
 ⚠️ **有一个提交未推(`0005d52`),是 Ocean 明示的**:「只装机,先不推」。**它已经装机了(第十三次)。**
 ✅ 在它之前的全部已推,`origin/main` = `470d577`。
 ✅ **官网 2026-08-12 09:50 上线了**(Ocean 明示「全推,官网跟着上线」)——
@@ -48,7 +53,9 @@
 ⚠️ **Claude Code 这一行是「文档写的」,不是「看见它跑通了」** —— 正是 §3.36 说要提防的那一类。
 **验它就是 §0-now.4 第 2 条。**
 
-### 0-now.3-bis ⭐⭐⭐ **粘进去的 `@spool` 是死的** —— Ocean 08-12 量出来的,推翻了上面一段的前提
+### 0-now.3-bis ⚠️ **这一节的病因是对的,处置已被 §0-now.3-ter 推翻** —— 先读那一节
+
+**粘进去的 `@spool` 是死的** —— Ocean 08-12 量出来的,推翻了上面一段的前提
 
 **他的原话**:「`@spool` 首先会被读成普通文字,需要在输入框底下选择带着 spool logo 的
 那一条之后,才会变成 MCP 专用。」
@@ -80,14 +87,196 @@
 `Claude.app` 只有 `claude`,**没有能预填提示词的深链**。
 **Ocean 08-12 明确不要让 Spool 自己合成 ⌘V**(怕粘进搜索框那类地方)。
 
-### 0-now.4 ⚠️⚠️ 欠他自己动手的两条(本窗验不了)
+### 0-now.3-ter ⭐⭐⭐ **`@spool` 整条路拆了** —— 08-12 又量了三次,它指的根本不是这台服务器
 
-1. 打开一个项目 → 点右边栏最上面那行 → 点 **ChatGPT** → ⌘V →
-   **按 §0-now.3-bis 那样重打一次 @ 并选带 Spool 图标那条** → 后面接着写一句你要问的。
-   **要看的是:它认不认这个开头、会不会去查对的那个项目。**
-   ⚠️ **不要再验「粘进去的 @spool 会不会自己变成提及」了** —— 08-12 已经量过,**不会**。
-2. ⭐ **全新的**:同一个地方点 **Claude Code**(它只复制、不跳)→ 粘到终端 → **回车**,
-   看 `/mcp__spool__catch_up "项目名"` 认不认。
+**Ocean 先找到了一个绕过 §0-now.3-bis 的办法,而且是真的能用**:ChatGPT 把自己的提及块
+复制出来是一串 markdown,**把那串粘回去会重新变成一个真的提及**(有图标、不用碰选择器)。
+
+**然后他拿它问了一句「读取里面有什么」,模型回答**:
+「没有获得 Spool 内部内容的读取/操作接口」。**认得出项目,读不到一个字。**
+
+⚠️⚠️ **那串链接自己说明了原因**:
+`plugin://computer-use@openai-bundled?app=com.oceanjin.spool` ——
+**是 OpenAI 的 Computer Use 插件,指向 Spool 这个 app**(`ChatGPT.app/Contents/Resources/
+plugins/openai-bundled/plugins/computer-use`,它自己的说明写着「reading the screen and
+performing UI actions」「It may take screenshots」)。**选择器里那条带 Spool 图标的,从来
+不是我们这台 MCP 服务器,是「让 ChatGPT 看 Spool 的窗口」。**
+
+⭐⭐ **根因(本窗最值钱的一条)**:ChatGPT 那个 `@` 选择器列的是**插件**
+(`~/.codex/config.toml` 里的 `[plugins."名字@marketplace"]`,每个插件可以自带 MCP 服务器);
+而 Spool 装的是 `[mcp_servers.spool]` —— **两个不同的登记处,只有插件那一边有名字能打。**
+而且那一轮普通对话**根本没起本地工具宿主**:没有新的 codex session,
+机器上活着的 `spool --mcp` 子进程**全是 Claude Code 的**。
+
+**处置(已落地,未提交)**:`HOW_TO_ADDRESS` 里 **`codex` 那一行删了**,ChatGPT/Codex 回到
+白话开头 `Spool 里的「项目名」：`;提示语里那段「重打一遍 @spool、选带图标那条」**整段删掉**
+(它在指错门,而且正是 Ocean 说「太复杂」的那一句)。三次量的结果写在 `clients.ts`
+`HOW_TO_ADDRESS` 的注释里 + 一条测试钉着,**免得下一个人照着旧交接又加回去**。台账 **§3.39**。
+
+### 0-now.3-quater ⭐⭐⭐ **Ocean 08-12 的更正:以前用的全是 Codex,今天才第一次用 ChatGPT**
+
+**这一句把前面所有结论重新排了一遍。** `MCP_CLIENTS` 里那一行写着「ChatGPT / Codex」,
+理由是**一个配置文件(`~/.codex/config.toml`)同时喂这两个**——但**证据只来自其中一个**:
+
+| 以前量到的 | 其实是在哪量的 |
+|---|---|
+| 08-07 工具调用取证(`mcp__spool__*`、每次弹授权、rollout 日志) | **Codex** |
+| 08-11 探针(只发 `tools/list`,从不发 `prompts/list`) | **Codex** |
+| 「chatgpt @spool 可以指定使用 spool」 | **Codex** |
+| **08-12 那扇门是空的(见 §0-now.3-ter)** | **ChatGPT** ← 第一次 |
+
+⚠️ **「接上了」和「根本没有」两句话都是真的,说的是同一行标签下的两个不同产品。**
+台账 **§3.40**。⭐ **通则:一行写了两个产品,就要有两个产品的证据,否则标签要写清楚量的是哪个。**
+⚠️ **`MCP_CLIENTS` 那行标签(「ChatGPT / Codex」)本窗没改** —— 等插件那条验完再定怎么写,
+**别忘了这件事欠着**。
+
+### 0-now.3-quinquies ⚠️ **Spool 做成 codex 插件** —— **已经验完了,结论在 §0-now.3-sexies:插件是好的,ChatGPT 普通对话仍然够不着**
+
+**为什么可能成**:§0-now.3-ter 那个根因反过来就是药 —— `@` 选择器列的是插件,那就**做一个插件**。
+
+✅ **格式是量出来的,不是猜的**(照着 `openai-bundled` 和第三方 `claude-cowork` 两个真 marketplace 抄):
+
+```
+<marketplace 根>/.agents/plugins/marketplace.json   ← {name, plugins:[{name, source:{source:"local",path}}]}
+<marketplace 根>/plugins/spool/.codex-plugin/plugin.json  ← {name, version, mcpServers:"./.mcp.json", interface:{…logo}}
+<marketplace 根>/plugins/spool/.mcp.json            ← {mcpServers:{spool:{command:"…/Spool.app/Contents/MacOS/spool", args:["--mcp"]}}}
+```
+
+✅ **先在隔离的 `CODEX_HOME` 里跑通了全套**(他真的 `~/.codex` 一个字没动):
+`codex plugin marketplace add <路径>` → `codex plugin add spool@spool` →
+配置里长出 `[marketplaces.spool]` + `[plugins."spool@spool"] enabled = true`,
+`codex plugin list` 显示 `installed, enabled`,`codex mcp list` 里那台服务器也在。
+
+⭐⭐ **顺手量到一条要紧的**:**`[mcp_servers.spool]` 会盖掉插件里同名的那台服务器** ——
+两个都在时 `codex mcp list` **只出现一个**(配置那个赢)。所以**不会出现两个 Spool 抢工具面**,
+老用户不用先拆 `mcp_servers`。⚠️ 代价:插件 `.mcp.json` 里的 `env_vars` 之类会被一起盖掉。
+
+✅ **回滚也在隔离环境里验过**:`codex plugin remove spool@spool` +
+`codex plugin marketplace remove spool` → 两段配置干净消失,`[mcp_servers.spool]` 不受影响
+(只剩一个空的 `~/.codex/plugins/cache/spool/` 目录,`rm -rf` 即可)。
+
+**真机上已经装了**(08-12 11:15):备份 `~/.codex/config.toml.before-plugin-test`,
+marketplace 放在 `~/Library/Application Support/com.oceanjin.spool/codex-marketplace/`
+(**没往 `/Applications/Spool.app` 里写 —— 那会毁掉签名**),`config.toml` 只多了那两段共 7 行。
+
+✅ **他验过了(08-12 11:2x),结果见下面 §0-now.3-sexies。**
+
+⚠️ **验通了之后要做的产品活(还没做,而且现在先别做 —— 等 §0-now.3-sexies 那个决定)**:
+这套目录现在是**手搓在数据目录里的**,
+得改成**跟着 app 一起发**(放进 `src-tauri` 资源 → 签名内),
+并由「一键接入」在装的时候注册;`plugin.json` 里的 version 现在硬写 `0.4.0`,要跟真版本号。
+⚠️ 还有一个**没验的路径依赖**:`.mcp.json` 里写死了 `/Applications/Spool.app/...`,
+用户把 app 放在别处就不对了(装机时生成能解决)。
+
+### 0-now.3-sexies ⭐⭐⭐ **插件验完了:门牌换成我们的了,门后面还是空的** —— 08-12 量的
+
+**他做的**:⌘Q 退出 ChatGPT 再开 → 新开一个对话 → 打 `@spool` → **出来的是 plugin,选了它** →
+问「申请规划」。**模型的回答和上次一模一样:认得出项目,说自己没有读取 Spool 的接口。**
+
+✅ **好消息:选择器里那条现在真的是我们的。** 他贴回来的提及是
+`[@spool](plugin://spool@spool)` —— **plugin `spool` / marketplace `spool`,就是早上装的那个**,
+不再是 §0-now.3-ter 那条 `plugin://computer-use@openai-bundled?app=com.oceanjin.spool`。
+⭐ 而且 codex 解析我们 `plugin.json` **一条警告都没有**(同一批日志里另外四个插件被挑了
+「defaultPrompt 太长」「图标路径有 `..`」)。**§0-now.3-ter 说的那个病,治好了。**
+
+⚠️⚠️ **坏消息:普通对话里模型手上根本没有 Spool 的工具。四条取证,模型没有说谎:**
+
+| 量到的 | 说明什么 |
+|---|---|
+| ChatGPT 重开后**唯一**一次 `spool --mcp`,是 `mcpServerStatus/list` 拉起来的**探活**:`initialize` → 列一遍 → **1 秒后 SIGTERM** | 那一轮对话进行时,**没有任何 spool 进程活着**可以接工具调用 |
+| 下一次 `spool --mcp` 是几分钟后 `thread/resume` 拉起来的,**`node_repl` 同一秒一起起来** —— 那是**另一个有工作目录的本地对话** | ⭐ **工具宿主是挂在「本地线程」上的,不是挂在 App 上的** |
+| 那轮普通对话**没有留下任何本地线程**:`~/.codex/state_5.sqlite` 的 `threads` 里没有新行,`sessions/` 底下没有新 rollout | **不变成本地线程的对话,永远拿不到宿主** |
+| Spool 自己的心跳 `mcp-clients.json`:`codex` 那行的时间**还停在上面那次连接的一瞬**(它每次 `tools/call` 都会刷新) | **重开之后一次 Spool 工具调用都没发生过** |
+
+✅ ⭐⭐ **而插件这条路本身是通的 —— 本窗单独量出来了(这是第一次真看见模型走插件调 Spool)**:
+在一个只有 `auth.json` + 这个插件、**一行 `[mcp_servers.spool]` 都没有**的隔离 `CODEX_HOME` 里,
+`codex exec` 让 gpt-5.6-sol 调了 `spool/list_threads`,**读回了三个真项目名**。
+(**他的 `~/.codex` 一个字没动**,验完核过 config.toml 没变。)
+
+⭐ **所以结论要分两句说,别揉成一句**:
+- **插件是好的**,坏的是**「ChatGPT 普通(云端)对话」这个面** —— 它够不着任何本地 MCP。
+- **本地 Codex 对话**(ChatGPT 的 Codex 模式 / codex CLI / VS Code)本来就通,
+  而且是靠 `[mcp_servers.spool]` 通的 —— **插件在那边不增加任何东西**
+  (§0-now.3-quinquies 还量到:同名时**配置那个赢**,插件那台被盖掉)。
+
+⚠️⚠️ **要他拍的板:这个插件留不留。** 代价是实打实的 ——
+**以前那条「看起来能用、其实没用」的坑位是 OpenAI 的;现在它挂着 Spool 的名字、Spool 的图标、
+三条点了没用的建议提示词。** 用户体验到的仍然是「Spool 没把我的东西交出去」,而且**全程没有报错**
+(§0-now.3-bis 那个最坑的形态,原样复现,只是换了个牌子)。台账 **§3.41**。
+
+三条路,他挑:
+1. **卸掉**(`codex plugin remove spool@spool` + `codex plugin marketplace remove spool`,
+   §0-now.3-quinquies 验过回滚干净),等 OpenAI 把云端对话接上本地插件再说。
+2. **留着**,但**产品里一个字都不提** —— 不写进「一键接入」,不进 `HOW_TO_ADDRESS`。
+3. **留着并往前做**(跟着 app 签名发、一键接入注册)—— ⚠️ 这等于**押注**云端那面以后会接通,
+   而且在接通之前,**每个新用户都会踩一次那个静默失败**。
+
+⏳ **他还能顺手回答的一件**(本窗看不到):选择器里现在是**一条**还是**两条** Spool
+(我们这条 + 原来那条 Computer Use)。
+
+### 0-now.3-septies ⭐⭐⭐ **「上架 marketplace 能不能解锁 GPT 那面」—— 不能,查证过了**
+
+Ocean 08-12 问的原话:「marketplace 正式发布 spool plugin 可以让整个桌面端(GPT+Codex)
+都能使用完整功能吗?发布需要多久,有不通过的概率吗?」**三问逐条答,都有出处。**
+
+**① 不能,而且不是审核问题,是架构。** 官方文档(`learn.chatgpt.com/docs/extend/mcp`)写着:
+hosted 的 ChatGPT 聊天**不能直接连本地 stdio MCP 服务器**;云端那面只能用插件带来的
+**remote(公网 HTTPS)** MCP 工具。能跑本地 stdio 的只有三个面:**ChatGPT 桌面端里的 Codex、
+Codex CLI、IDE 扩展**。⭐ **这和 §0-now.3-sexies 本机量到的四条严丝合缝** ——
+文档和取证互相印证,不是猜的。**发不发布都一样。**
+
+**② 而且我们连提交资格都不满足。** 提交表单要的是**生产环境 HTTPS 的 `/mcp` 地址** +
+**域名验证**(在自己域名上放 `/.well-known/openai-apps-challenge` 返回 OpenAI 给的 token)+
+已验证的个人/企业身份(要和上架名字、网站、支持邮箱、隐私政策、条款对得上)+ 五正三负测试用例 +
+审核员账号。**本地命令型的 MCP 不在受理范围里。**
+所以「不通过的概率」这个问法不适用 —— **不是概率低,是不合格。**
+
+**③ 多久:官方不给时限。** 原话是 "Review timelines may vary as OpenAI builds and scales the
+review process.";社区里有人报「10 天还在 in review」。⚠️ **三方社区数字只当参考,别写进文案。**
+
+⚠️⚠️ **唯一能让云端 ChatGPT 用上 Spool 的路,是把 Spool 架成公网 HTTPS 的 MCP 端点** ——
+那等于把用户的库放到网上,**和「东西不出这台机器」这整个叙事对着干**(memory `mcp-first-pivot`、
+`email-collection-website-only`)。**这是产品红线,不是工程量。** 除非 Ocean 明示改叙事,否则不做。
+
+⭐ **所以 Ocean 那个方案的前半句要作废**(「等 marketplace 上线再改」—— 没有可等的东西),
+**后半句正好是最终答案**:**保留「只能在 Codex 里跑」这个限制** —— 只是它不是暂时的。
+memory `chatgpt-cloud-cannot-reach-local-mcp`。
+
+⭐⭐ **由此长出一条产品硬规矩**:凡是写「支持 ChatGPT」的地方,
+**都要写成「ChatGPT 桌面端的 Codex 对话」** —— 官网、设置里那张客户端表、`MCP_CLIENTS` 的标签
+(§0-now.3-quater 欠着的那件,现在有证据定了)。**含糊地写「支持 ChatGPT」= 把用户直接送进
+普通对话那个不报错的死胡同。**
+
+**Ocean 08-12 拍的两条板**:
+1. **插件不发** —— 只留在他自己机器上,产品里一个字不提,**发行那套(签名内、一键接入注册)不做**。
+2. **「支持 ChatGPT」两面都改**:app 里 + 官网。
+
+**处置(已落地,⭐ 分两个提交,官网单独在最上面)**:
+⚠️ **官网那一摊是最后一个提交,是故意排的** —— §0-latest.1 那次「官网被压在底下,推任何新东西
+都会把它一起带上去」的坑,这次不许再犯。**想只推 app 不上线官网:推官网那个提交的前一个。**
+
+| 改了什么 | 在哪 |
+|---|---|
+| `MCP_CLIENTS` 那行标签 **`ChatGPT / Codex` → `Codex`**,**为什么拆**写在行上的注释里 | `src/lib/mcp/clients.ts` |
+| 设置里那行**多一句小字**:「ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置;ChatGPT 的普通对话连不上本机,用不了 Spool」 | `Settings/McpConfig.tsx` + i18n |
+| 另外两句还写着 ChatGPT 的:「接入 ~~ChatGPT / Codex~~ 和 Claude Code 时…」「在哪儿说:…**ChatGPT 里的 Codex 对话**在聊天框里说」 | 同上 |
+| 官网:客户端小标签 `ChatGPT / Codex` → `Codex`;「跟你聊天的」那张卡多一句**普通 ChatGPT 对话够不着你这台 Mac** | `site/index.html` + `scripts/site-zh-strings.mjs` → **中文页已重新生成** |
+| **新增 1 个测试**(354 → 355):`MCP_CLIENTS` 里**不许再有任何一行的名字含 `ChatGPT`** | `clients.test.ts` |
+
+⚠️ **`HOW_TO_ADDRESS` 里 `@spool` 仍然是删掉的,而且这次是有意的** —— 他量到 `@spool` 在 Codex
+里能用,**但那是因为他手装了插件**;插件既然不发,**别人打 `@spool` 只会得到一串普通文字**。
+理由整段写在 `clients.ts` 那个注释里,**免得下一个人拿「他量到能用」把它加回去**。
+
+**四条基线全绿**:`tsc` 干净 / **vitest 355** / **cargo 72** / i18n `(none missing)`。
+
+⚠️⚠️ **推之前必须问他一句**:`site/` 一动就是 **spoolapp.org 重新部署**(§0-new.4)。
+他这次选了「官网也改」,**但那是选改哪几面,不是说现在就上线** —— 上线要他再明示一次。
+
+### 0-now.4 ⚠️⚠️ 欠他自己动手的一条(本窗验不了)
+
+1. ~~ChatGPT 那条~~ **已经量完了,见 §0-now.3-ter 和 §0-now.3-sexies:那个面是死的,别再验。**
+2. ⭐ **仍然欠着**:打开一个项目 → 点右边栏最上面那行 → 点 **Claude Code**(它只复制、不跳)
+   → 粘到终端 → **回车**,看 `/mcp__spool__catch_up "项目名"` 认不认。
 
 ### 0-now.5 ✅ 第十二次装机(2026-08-12 09:42,不迁移)
 

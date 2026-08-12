@@ -179,7 +179,19 @@ export default function McpConfig() {
               : { text: t('还没连上过'), color: 'var(--status-parked)' };
           return (
             <li key={key} className="flex items-center justify-between gap-3 py-1">
-              <span className="min-w-0 flex-1 truncate text-sm text-ink">{label}</span>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-ink">{label}</span>
+                {/* 2026-08-12: the row used to read 「ChatGPT / Codex」, which sent people to
+                    the one conversation that cannot reach Spool. Naming only Codex is honest
+                    but loses the word somebody is searching for, so the boundary is spelled
+                    out here instead — and this is the only row that needs it, because it is
+                    the only client whose product name covers two different capabilities. */}
+                {key === 'codex' && (
+                  <span className="block text-[11px] leading-tight text-muted">
+                    {t('ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool')}
+                  </span>
+                )}
+              </div>
               {heartbeat && (
                 <span className="font-mono text-xs" style={{ color: heartbeat.color }}>
                   {heartbeat.text}
@@ -235,7 +247,7 @@ export default function McpConfig() {
           local document. That is a write into the user's home directory, so it is stated
           here rather than discovered — and naming the marker is what makes it removable. */}
       <p className="mt-1 text-[11px] text-muted">
-        {t('接入 ChatGPT / Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。')}
+        {t('接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。')}
       </p>
       {connectError && (
         <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
@@ -282,7 +294,7 @@ export default function McpConfig() {
                   The seeded MCP tutorial can never reach an existing library (5/29 red
                   line), so this line is the only place veterans meet it. */}
               <li className="-ml-4 list-none pb-0.5 text-muted">
-                {t('在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。')}
+                {t('在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。')}
                 <span className="text-ink-2">{t('不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。')}</span>
               </li>
               <li>

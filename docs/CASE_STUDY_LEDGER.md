@@ -1369,6 +1369,128 @@ knows how to say: which project, in this client's syntax, ending on a colon. The
 theirs. **A default that has to be deleted is worse than no default; a default that has to be
 finished is a head start.**
 
+### 3.39 The mention resolved, to somebody else's mechanism (2026-08-12)
+
+§3.38 concluded that a clipboard cannot carry a mention, because the client builds the
+reference when the user picks it. The user then found a way around exactly that: ChatGPT's
+composer serialises its own chips as markdown, and pasting that markdown back **does** rebuild
+a live chip. One ⌘V, no picker, the icon renders. The workaround was real.
+
+It delivered nothing. Asked to read the project it named, the model answered
+「没有获得 Spool 内部内容的读取/操作接口」 — it knew which app was meant and had no way into it.
+
+The link the chip carries says why:
+`plugin://computer-use@openai-bundled?app=com.oceanjin.spool`. That is OpenAI's **Computer
+Use** plugin — "reading the screen and performing UI actions", shipped inside
+`ChatGPT.app/Contents/Resources/plugins/openai-bundled/plugins/computer-use` — aimed at the
+Spool app by bundle identifier. The entry in the picker wearing Spool's icon was never this
+project's MCP server. It was an offer to look at Spool's window.
+
+The structural cause is two registries with one namespace. That picker lists **plugins**
+(`[plugins."name@marketplace"]` in `~/.codex/config.toml`, each able to declare its own MCP
+servers); Spool installs itself as a plain `[mcp_servers.spool]` entry, which the local tool
+host loads and the picker never sees. Both are "connected to ChatGPT". Only one of them has a
+name the user can type. And an ordinary chat did not even load the other: that turn spawned no
+codex session and no `spool --mcp` child — every live one on the machine belonged to a
+different client.
+
+Three lessons, in the order they cost something:
+
+* **A name resolving is not a name resolving to you.** The check is never "did the reference
+  survive the paste"; it is "which mechanism did it bind to". §3.38's rule survived contact —
+  the exception it now carries (an app's own serialisation can round-trip) made the failure
+  *more* convincing, not less.
+* **The model naming your project back is not evidence of integration.** It restated the
+  title, the icon rendered, nothing errored. Proof is the tool being *called* — the
+  authorisation prompt, a line in the session log, a child process — and all three said no.
+  This is §3.33 again, one layer up: there the config was right and the integration absent;
+  here the mention was right and the integration absent.
+* **Removing a route is a result.** `@spool` had shipped on one measurement that turned out to
+  be a measurement of something else. It is gone from `HOW_TO_ADDRESS`, with the three
+  measurements written where the next person would otherwise re-add it, and ChatGPT now gets
+  the plain sentence — which is what routes in the conversations where the tools do exist.
+
+### 3.40 One row said two products, and every measurement had come from one of them (2026-08-12)
+
+After §3.39, the user said the thing that reorganised all of it: **everything he had used until
+that day was Codex. That day was the first time he had tried it in ChatGPT.**
+
+The client row reads 「ChatGPT / Codex」, and it reads that way for a defensible reason — one
+config file (`~/.codex/config.toml`) backs both, so one entry connects both. But the evidence
+behind the row was not from both. The 2026-08-07 tool-call traces, the 2026-08-11 probe that
+proved the client never asks for prompts, the 「@spool 可以指定使用 spool」 that put a mention on
+the clipboard: all Codex. The row's other half had never been exercised, and it inherited the
+confidence anyway.
+
+What that half turned out to be is in §3.39: a different registry, and no Spool tool at all in
+an ordinary chat. Both statements — "the integration works" and "the integration is absent" —
+were true, of different products wearing one label.
+
+**A row that names two products needs evidence from two products, or a label that admits which
+one was measured.** Shared plumbing underneath is exactly what makes the mistake easy: the
+config file really is shared, the binary really is shared, and the conclusion still does not
+transfer. The same shape is waiting in every other merged row — 「Cursor / Windsurf」 style
+groupings, or one heartbeat key standing for a family of clients.
+
+⚠️ And note where the correction came from. It was not in the logs, the config, or the code;
+the machine could show that today's turn spawned no session, but only the user knew that
+yesterday's turns had been a different app. **Some premises are only recoverable by asking.**
+
+### 3.41 The cause was real, the fix worked, and the symptom did not move (2026-08-12)
+
+§3.39 found that the entry in ChatGPT's `@` picker wearing Spool's icon was OpenAI's Computer
+Use plugin aimed at the Spool app, not this project's MCP server, because the picker lists
+**plugins** and Spool installed itself as a plain `[mcp_servers.spool]` entry. The fix follows
+from the diagnosis: ship Spool *as* a plugin. It was built, installed, and the user restarted
+ChatGPT and typed `@spool`.
+
+**The entry is now ours.** The chip the composer produced reads `plugin://spool@spool` —
+plugin `spool` from marketplace `spool`, the one installed that morning — where it used to
+read `plugin://computer-use@openai-bundled?app=com.oceanjin.spool`. The manifest parsed without
+a single warning while four other plugins on the same machine were logged for oversized default
+prompts and `..` in icon paths. The identity defect §3.39 described is closed.
+
+**The model answered exactly what it answered last time**: it named the project and said it had
+no interface to read it.
+
+Four measurements say the model was telling the truth, and that the plugin was not the thing
+that failed:
+
+* After the restart, the only `spool --mcp` that ChatGPT started was a **status probe** —
+  `mcpServerStatus/list` → `initialize` → catalogue → `SIGTERM` one second later. Nothing was
+  alive to answer a tool call.
+* The next `spool --mcp` came minutes later, attached to a `thread/resume`, with `node_repl`
+  starting in the same second — a *different*, local conversation with a working directory.
+  **The tool host is bound to the local thread, not to the app.**
+* That ordinary chat left no local thread at all: no row in `~/.codex/state_5.sqlite:threads`,
+  no rollout file. A conversation that never becomes a local thread never gets a host.
+* Spool's own heartbeat refreshes on every `tools/call`; its `codex` timestamp still equals the
+  instant of that unrelated connect. **No Spool tool has been called since the restart.**
+
+**And the plugin route itself works.** In a `CODEX_HOME` built from nothing but `auth.json` and
+the plugin — no `[mcp_servers.spool]` anywhere — `codex exec` had the model call
+`spool/list_threads` and read back the three real project titles. That is the first time a model
+has been *seen* reaching Spool through a plugin rather than through the config file.
+
+* **A cause being real does not make it the only cause.** The picker really was pointing at
+  somebody else's mechanism; correcting it changed the chip and nothing else, because a second,
+  independent cause sat behind it. §3.33 was a healthy server with an absent integration; this
+  is a correct plugin, a correct chip, and an absent host. **Verify the fix by the symptom, not
+  by the mechanism you repaired** — the mechanism can be repaired and the symptom stay put.
+* **Build the smallest world where only your thing exists.** Everything on the real machine
+  reads "spool": the config entry, the plugin, the process name. The isolated home was the only
+  instrument that could separate *our plugin is broken* from *this surface cannot host it*, and
+  it took one file and one command.
+* ⚠️ **The misleading entry is now branded.** Before this change, the picker entry that looked
+  like it worked and delivered nothing belonged to OpenAI. Now it carries Spool's name, Spool's
+  logo, and three suggested prompts that cannot be answered. §3.38's worst property — *it looks
+  like it succeeded, nothing errors, the user concludes Spool did not hand anything over* — is
+  unchanged in kind and worse in attribution. **Shipping a real entry into a surface that cannot
+  honour it is not neutral.**
+* Small honest gap found alongside: the client asks for `resources/templates/list` and Spool
+  answers `-32601`, logged as a warning. Harmless here; noted so it is not rediscovered as a
+  cause.
+
 ---
 
 ## 4. Boundaries stated on purpose

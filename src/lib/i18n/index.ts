@@ -383,8 +383,8 @@ const EN: Record<string, string> = {
   '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。':
     'I keep my project notes in Spool, and you can read them directly now.\n\nThings you can do for me:\n· "What have I been up to?" — start with a briefing across all my projects\n· "Where am I stuck on <a project>, and what have I settled?" — read that project in full\n· "Save that conclusion into <a project>" — store it back for me (I have to turn on "Let AI write" in Spool first)\n\nTwo rules: refer to things by project title and block number (like #12), never by an internal id; and every block you write is labelled with your name automatically, so I can always see which ones are yours.',
   '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
-  '在哪儿说：Claude Desktop / ChatGPT 在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
-    'Where to ask: in the chat box for Claude Desktop / ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
+  '在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
+    'Where to ask: in the chat box for Claude Desktop and for a Codex conversation in ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
   '不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。':
     ' Nothing to do back in Spool — once connected, Spool just hands the notes over.',
   '「帮我复习〈某个项目〉，再考我两个问题」': '"Help me review the ⟨…⟩ project, then quiz me on it"',
@@ -412,10 +412,14 @@ const EN: Record<string, string> = {
   'MCP 没开': 'MCP is off',
   '还没有 AI 连过': 'No AI has connected yet',
   '还有 {name} 连过 · {when}': '{name} also connected · {when}',
+  // 2026-08-12 — the one client row whose product name covers two different capabilities.
+  // "Codex" alone is accurate and unfindable; this is what keeps the word ChatGPT on the row
+  // while saying which half of it works.
+  'ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool':
+    'Codex in the ChatGPT desktop app, the Codex CLI and the editor extensions share this config. An ordinary ChatGPT chat cannot reach your machine, so it cannot use Spool.',
   '跳到你的 AI 软件': 'Jump to your AI app',
   // 2026-08-12 — the clipboard carries an OPENING, not a question. The trailing space in the
   // English forms is deliberate: it is where the user's own words start.
-  '「{title}」：': '"{title}": ',
   'Spool 里的「{title}」：': 'The "{title}" project in Spool: ',
   '把开头复制好（带着项目名），并跳到你的 AI 软件':
     'Copy the opening (with the project name) and jump to your AI app',
@@ -427,16 +431,14 @@ const EN: Record<string, string> = {
     'Opening copied — paste it, then write what you want to ask',
   '开头已复制，{app} 已经在前面了——⌘V 之后接着写你要问什么':
     'Opening copied and {app} is up front — ⌘V, then write what you want to ask',
-  '开头已复制，{app} 已经在前面了——⌘V 之后把 @spool 重打一遍、在输入框下面选带 Spool 图标那一条，它才算真的接上；然后写你要问什么':
-    'Opening copied and {app} is up front — after ⌘V, retype @spool and pick the Spool entry under the input box, or it stays plain text; then write what you want to ask',
   '跳到哪个？': 'Jump to which?',
   '跳到 {app}': 'Jump to {app}',
   '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',
   '{app} 已经在前面了': '{app} is up front now',
   '{app} 是终端里的，Spool 打不开它': '{app} runs in your terminal — Spool cannot open it',
   'Claude Code 在终端里，Spool 只能帮你复制。': 'Claude Code lives in your terminal, so Spool can only copy.',
-  '接入 ChatGPT / Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
-    'Hooking up ChatGPT / Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
+  '接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
+    'Hooking up Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',
   '写入中…': 'Writing…',
   '更新配置': 'Update config',

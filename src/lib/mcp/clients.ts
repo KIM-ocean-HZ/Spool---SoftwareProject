@@ -38,7 +38,17 @@ export const MCP_CLIENTS: { key: McpClient; label: string }[] = [
   // product name is the only permitted spelling (docs/DESIGN_MCP_ECOSYSTEM.md §3.4).
   { key: 'vscode', label: 'Visual Studio Code' },
   { key: 'windsurf', label: 'Windsurf' },
-  { key: 'codex', label: 'ChatGPT / Codex' },
+  // ⚠️ This row said 「ChatGPT / Codex」 until 2026-08-12, on the reasoning that one config
+  // file (`~/.codex/config.toml`) feeds both products. The file really is shared; the
+  // capability is not. An ordinary ChatGPT conversation is hosted, and a hosted chat cannot
+  // connect to a local stdio MCP server at all — OpenAI documents this
+  // (learn.chatgpt.com/docs/extend/mcp: hosted chats get remote, HTTPS-backed tools only),
+  // and it was measured here the same day: that turn opened no local thread, started no
+  // `spool --mcp`, and Spool's heartbeat recorded no tool call. The surfaces that CAN run a
+  // local server are Codex inside the ChatGPT desktop app, the Codex CLI, and the IDE
+  // extension — which is what this row now names. `McpConfig` carries the sentence that
+  // keeps it findable for someone looking for the word "ChatGPT".
+  { key: 'codex', label: 'Codex' },
 ];
 
 /** Reachable right now: the entry is in that client's config and points at this binary.
@@ -100,17 +110,29 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  *
  * What is known, and how:
  *
- *   * **ChatGPT / Codex** — `@spool` (Ocean, 2026-08-12: 「chatgpt @spool 可以指定使用
- *     spool」). This is the only route Codex has: it was measured on 2026-08-11 never to send
- *     `prompts/list` at all, so its slash menu will never show a Spool prompt.
- *     ⚠️⚠️ **A pasted `@spool` is inert** (Ocean, measured 2026-08-12: 「@spool 首先会被读成
- *     普通文字，需要在输入框底下选择带着 spool logo 的那一条之后，才会变成 MCP 专用」). The
- *     mention only becomes a mention when the user picks Spool out of the client's own
- *     picker — no clipboard can do that, because the client builds the reference on
- *     selection, not on the characters. So what goes on the clipboard is an **opener the
- *     user finishes**, and the UI has to say the picker step out loud (`addressingKind`
- *     drives that copy). Leaving it silent would be the worse failure: the paste looks
- *     right, sends as plain text, and the model answers from nothing.
+ *   * **Codex** — ⚠️⚠️ **nothing. `@spool` was removed on 2026-08-12 after three measurements,
+ *     and the reason must survive here or somebody will add it back.**
+ *     ① A pasted `@spool` is inert: the client builds a mention when the user PICKS it out of
+ *     the picker, not from the characters, so no clipboard can carry one. ② The entry that
+ *     picker offered for Spool was not this server at all — it serialised as
+ *     `plugin://computer-use@openai-bundled?app=com.oceanjin.spool`, i.e. OpenAI's Computer
+ *     Use plugin pointed at the Spool app ("reading the screen and performing UI actions").
+ *     Pasting it produced a real chip, the model named the project back, and it still read
+ *     nothing: 「没有获得 Spool 内部内容的读取/操作接口」. ③ The reason there was no connector to
+ *     mention: that picker lists **plugins** (`[plugins."name@marketplace"]` in
+ *     `~/.codex/config.toml`), while Spool installs itself as a plain `[mcp_servers.spool]`
+ *     entry — two registries, one namespace.
+ *
+ *     ⚠️⚠️ **Later the same day `@spool` was seen working, and it still does not belong here.**
+ *     Spool was packaged as a codex plugin and installed on one machine; after that the picker
+ *     did resolve `plugin://spool@spool`, and in a Codex conversation the mention addressed
+ *     this server. **It works because that machine has the plugin installed by hand.** Ocean
+ *     decided on 2026-08-12 not to ship the plugin with the app (the reason it was built —
+ *     reaching ordinary ChatGPT chats — is architecturally impossible, see the row comment in
+ *     MCP_CLIENTS). A syntax that only works for the one person who hand-installed something
+ *     is not an addressing rule; it is a trap for everybody else, who would paste `@spool` and
+ *     get plain text. **If the plugin ever ships with the app, this bullet is the place to
+ *     revisit — and not before.**
  *   * **Claude Code** — `/mcp__<server>__<prompt>`, Anthropic's own documented format
  *     (code.claude.com/docs/en/mcp, checked 2026-08-12), with arguments passed space-separated
  *     after it and quoted when they contain spaces. The server key is `spool` because Spool
@@ -122,21 +144,20 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  *     ones give `/mcp.<server>.<prompt>`; which one a given install answers to is a version
  *     question nobody here has measured. Out until somebody sees one work.
  *
- * ⚠️ `mention` prefixes an opener the user finishes; `slash` is a complete invocation — the
- * prompt on the other end arrives with the project's overview already embedded, which no
- * sentence on a clipboard can carry.
+ * ⚠️ `slash` is a complete invocation — the prompt on the other end arrives with the project's
+ * overview already embedded, which no sentence on a clipboard can carry. A prefix the user
+ * finishes was the other shape this table held; it is gone with `@spool`, and it should only
+ * come back attached to a client where somebody watched a pasted prefix actually address the
+ * server.
  */
-type Addressing =
-  | { kind: 'mention'; prefix: string }
-  | { kind: 'slash'; command: string };
+type Addressing = { kind: 'slash'; command: string };
 
 const HOW_TO_ADDRESS: Partial<Record<McpClient, Addressing>> = {
-  codex: { kind: 'mention', prefix: '@spool' },
   'claude-code': { kind: 'slash', command: '/mcp__spool__catch_up' },
 };
 
 /** What the clipboard will hold for this client — the UI needs it to say what to do next. */
-export type AddressingKind = 'mention' | 'slash' | 'plain';
+export type AddressingKind = 'slash' | 'plain';
 
 export const addressingKind = (client: McpClient): AddressingKind =>
   HOW_TO_ADDRESS[client]?.kind ?? 'plain';
@@ -162,11 +183,7 @@ export const askPrompt = (title: string, client?: McpClient): string => {
   // character costs nothing (the prompt matches on part of a title anyway).
   if (how?.kind === 'slash') return `${how.command} "${name.replace(/"/g, '')}"`;
   // The colon is the whole point of the shape: it ends Spool's half and hands the caret over.
-  // ⚠️ Two whole keys rather than one nested inside the other — the English word order puts
-  // "project" after the title, so a fragment translated on its own cannot be dropped in.
-  return how
-    ? `${how.prefix} ${t('「{title}」：', { title: name })}`
-    : t('Spool 里的「{title}」：', { title: name });
+  return t('Spool 里的「{title}」：', { title: name });
 };
 
 /**

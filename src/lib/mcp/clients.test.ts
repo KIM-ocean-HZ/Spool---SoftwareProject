@@ -7,7 +7,21 @@ const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
 
-const { askPrompt, readConnectedClients } = await import('./clients');
+const { askPrompt, readConnectedClients, MCP_CLIENTS } = await import('./clients');
+
+describe('MCP_CLIENTS — what each row promises', () => {
+  it('does not offer plain "ChatGPT" as a client Spool can be used from', () => {
+    // 2026-08-12. The row read 「ChatGPT / Codex」 because one config file feeds both. The
+    // file is shared; the capability is not — a hosted ChatGPT chat cannot connect to a
+    // local stdio MCP server at all, which OpenAI documents and which was measured here the
+    // same day (no local thread, no `spool --mcp`, no tool call in Spool's heartbeat). A row
+    // that says ChatGPT sends the user to the one conversation where nothing will happen and
+    // nothing will error. The word survives in the row's explanatory line, not in its name.
+    const codex = MCP_CLIENTS.find((c) => c.key === 'codex');
+    expect(codex?.label).toBe('Codex');
+    expect(MCP_CLIENTS.some((c) => c.label.includes('ChatGPT'))).toBe(false);
+  });
+});
 
 describe('askPrompt — addressing the server in each client’s own syntax', () => {
   // ⚠️ The point of this file. Every one of these strings is typed into somebody else's
@@ -15,9 +29,13 @@ describe('askPrompt — addressing the server in each client’s own syntax', ()
   // else (a file called `spool`, an unknown slash command) and the user reads the answer
   // as Spool being broken. `HOW_TO_ADDRESS` is only allowed to grow by measurement, and
   // these cases are what pins the shapes it may take.
-  it('mentions the server for ChatGPT / Codex, where @spool was measured to work', () => {
+  it('says nothing about @spool for ChatGPT / Codex, where the mention reaches the wrong door', () => {
+    // 2026-08-12, measured three ways (clients.ts HOW_TO_ADDRESS): a pasted `@spool` is inert,
+    // the entry the picker does offer is Computer Use over the Spool app rather than this
+    // server, and an ordinary ChatGPT chat has no Spool tool at all. This assertion is the
+    // guard on putting it back without measuring it first.
     const s = askPrompt('申请规划', 'codex');
-    expect(s.startsWith('@spool ')).toBe(true);
+    expect(s).not.toContain('@');
     expect(s).toContain('申请规划');
   });
 
@@ -94,10 +112,13 @@ describe('readConnectedClients — the two half-truths merged', () => {
 
   it('lists a client that has connected even with no entry in its config file', async () => {
     // Somebody added `spool` by hand. It is still a client that can be asked.
-    stub({}, { codex: { label: 'Codex', last_seen: 10 } });
+    stub({}, { codex: { label: 'Codex CLI', last_seen: 10 } });
     const rows = await readConnectedClients();
     expect(rows.map((r) => r.key)).toEqual(['codex']);
-    expect(rows[0]?.label).toBe('ChatGPT / Codex');
+    // A recognised client is shown under the name this table gives it, not the name it
+    // reported for itself — the two differ, and the table's is the one the rest of the UI
+    // and the settings row's explanation are written against.
+    expect(rows[0]?.label).toBe('Codex');
   });
 
   it('puts the most recently used client first, and the never-used ones last', async () => {
