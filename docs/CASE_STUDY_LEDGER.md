@@ -1336,6 +1336,39 @@ precisely the class of claim §3.36 says to distrust. It is marked as such where
 the acceptance step is a human typing it once and watching what happens. Writing it down is not
 the same as having seen it.
 
+### 3.38 The clipboard can carry the characters but not the reference (2026-08-12)
+
+§3.36 chose a mention over a notation on the grounds that a mention is the client's own
+affordance — already used for everything else, so free. §3.37 built a table of those mentions
+per client. Both entries assumed that putting `@server` on the clipboard puts a mention in the
+user's chat box.
+
+The user, having used it: **it pastes as plain text.** It becomes a reference to the connector
+only after the user re-types the `@` and picks the entry with the server's icon out of the
+client's own menu. The characters are identical either way; what differs is that the client
+built an internal reference at selection time, and pasted text has no selection behind it.
+
+The correction that matters is not about one client's composer. It is that **an affordance
+delivered by selection cannot be delivered by a clipboard.** A clipboard carries characters;
+a mention, a file attachment, a tool toggle — anything the receiving app constructs when the
+user picks it — is state inside that app, and no amount of getting the characters right
+produces it. §3.36's reasoning was sound about *cost to the user* and wrong about *mechanism*,
+and the two look alike right up until somebody pastes.
+
+⚠️ The failure mode is the expensive kind: it looks like it worked. The text reads correctly,
+the message sends, and the model answers from nothing — which the user experiences as their
+notes not being handed over. Nothing errors. So the fix is in what the product **says**: the
+one client where the mention is inert now gets copy that names the picker step, and the shape
+of the thing on the clipboard changed to admit what it really is.
+
+Which the same conversation forced anyway: **the pasted question was one user's need written
+into everybody's clipboard.** It asked three fixed things — where am I stuck, what is settled,
+what next — and the longer it was, the more of it had to be deleted before it could become
+anyone else's question. What is left is the part no user should have to type and only Spool
+knows how to say: which project, in this client's syntax, ending on a colon. The rest is
+theirs. **A default that has to be deleted is worse than no default; a default that has to be
+finished is a head start.**
+
 ---
 
 ## 4. Boundaries stated on purpose

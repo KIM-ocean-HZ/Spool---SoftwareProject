@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import {
+  addressingKind,
   askInClient,
   focusClient,
   readConnectedClients,
@@ -56,10 +57,23 @@ export default function ClientMenu({ threadTitle, heading, onPicked }: Props): J
         ? await askInClient(client, threadTitle)
         : await focusClient(client);
       if (threadTitle) {
+        // ⚠️ What to say next is not the same in all three cases, and getting it wrong is
+        // expensive here: a 「⌘V 回车就行」 on a client where the pasted mention is inert
+        // sends plain text, the model answers from nothing, and the user reads that as Spool
+        // failing to hand over their notes. So the mention case names the picker step.
+        const kind = addressingKind(client);
         toast.notice(
-          focused
-            ? t('问题已复制，{app} 已经在前面了——⌘V 回车就行', { app: row.label })
-            : t('问题已复制——在你的终端里粘上就行'),
+          kind === 'slash'
+            ? t('命令已复制——在你的终端里粘上，回车就行')
+            : !focused
+              ? t('开头已复制——粘上之后接着写你要问什么')
+              : kind === 'mention'
+                ? t('开头已复制，{app} 已经在前面了——⌘V 之后把 @spool 重打一遍、在输入框下面选带 Spool 图标那一条，它才算真的接上；然后写你要问什么', {
+                    app: row.label,
+                  })
+                : t('开头已复制，{app} 已经在前面了——⌘V 之后接着写你要问什么', {
+                    app: row.label,
+                  }),
         );
       } else if (focused) {
         toast.notice(t('{app} 已经在前面了', { app: row.label }));
@@ -120,7 +134,7 @@ export default function ClientMenu({ threadTitle, heading, onPicked }: Props): J
             onClick={() => void pick(row)}
             title={
               threadTitle
-                ? t('把这个项目的问题复制好，并跳到 {app}', { app: row.label })
+                ? t('把开头复制好（带着项目名），并跳到 {app}', { app: row.label })
                 : t('跳到 {app}', { app: row.label })
             }
             className="flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left text-[11px] text-ink-2 transition-colors hover:bg-paper-2 hover:text-accent"

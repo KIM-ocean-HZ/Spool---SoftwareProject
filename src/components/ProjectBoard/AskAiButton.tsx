@@ -62,7 +62,7 @@ export default function AskAiButton({ threadTitle }: { threadTitle: string }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={t('把这个项目的问题复制好，并跳到你的 AI 软件')}
+        title={t('把开头复制好（带着项目名），并跳到你的 AI 软件')}
         className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-ink-2 transition-colors hover:bg-paper hover:text-accent"
       >
         <MessagesSquare size={12} />

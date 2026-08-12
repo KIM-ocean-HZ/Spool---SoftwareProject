@@ -413,6 +413,22 @@ const EN: Record<string, string> = {
   '还没有 AI 连过': 'No AI has connected yet',
   '还有 {name} 连过 · {when}': '{name} also connected · {when}',
   '跳到你的 AI 软件': 'Jump to your AI app',
+  // 2026-08-12 — the clipboard carries an OPENING, not a question. The trailing space in the
+  // English forms is deliberate: it is where the user's own words start.
+  '「{title}」：': '"{title}": ',
+  'Spool 里的「{title}」：': 'The "{title}" project in Spool: ',
+  '把开头复制好（带着项目名），并跳到你的 AI 软件':
+    'Copy the opening (with the project name) and jump to your AI app',
+  '把开头复制好（带着项目名），并跳到 {app}':
+    'Copy the opening (with the project name) and jump to {app}',
+  '命令已复制——在你的终端里粘上，回车就行':
+    'Command copied — paste it in your terminal and press return',
+  '开头已复制——粘上之后接着写你要问什么':
+    'Opening copied — paste it, then write what you want to ask',
+  '开头已复制，{app} 已经在前面了——⌘V 之后接着写你要问什么':
+    'Opening copied and {app} is up front — ⌘V, then write what you want to ask',
+  '开头已复制，{app} 已经在前面了——⌘V 之后把 @spool 重打一遍、在输入框下面选带 Spool 图标那一条，它才算真的接上；然后写你要问什么':
+    'Opening copied and {app} is up front — after ⌘V, retype @spool and pick the Spool entry under the input box, or it stays plain text; then write what you want to ask',
   '跳到哪个？': 'Jump to which?',
   '跳到 {app}': 'Jump to {app}',
   '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',

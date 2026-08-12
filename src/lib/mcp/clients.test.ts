@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { t } from '@/lib/i18n';
 
 // The module talks to Tauri for everything except the strings it builds, so the two
 // commands it calls are stubbed here and driven per test.
@@ -18,6 +19,17 @@ describe('askPrompt — addressing the server in each client’s own syntax', ()
     const s = askPrompt('申请规划', 'codex');
     expect(s.startsWith('@spool ')).toBe(true);
     expect(s).toContain('申请规划');
+  });
+
+  it('hands over after naming the project, instead of asking one user’s question', () => {
+    // 2026-08-12 (「这个提示词太长了…后文让用户自己写，每个用户的诉求不一样」). Every
+    // non-slash form ends on a colon and stops: what follows is the user's, and a sentence
+    // Spool wrote is a sentence they have to delete first.
+    for (const client of ['codex', 'claude', 'cursor', undefined] as const) {
+      const s = askPrompt('申请规划', client);
+      expect(s.trimEnd()).toMatch(/[：:]$/);
+      expect(s.length).toBeLessThan(40);
+    }
   });
 
   it('runs the catch_up prompt for Claude Code, whose slash syntax is documented', () => {
@@ -42,10 +54,10 @@ describe('askPrompt — addressing the server in each client’s own syntax', ()
   });
 
   it('never sends an empty name where a project title belongs', () => {
-    // The placeholder itself is translated, so this pins the shape, not the word: an
-    // untitled project must still arrive as one non-empty quoted argument.
-    expect(askPrompt('  ', 'claude-code')).toMatch(/^\/mcp__spool__catch_up "\S.*"$/);
-    expect(askPrompt('  ', 'codex')).not.toMatch(/「\s*」/);
+    // The placeholder itself is translated, so this compares against it rather than
+    // against a word: an untitled project must still arrive as one non-empty token.
+    expect(askPrompt('  ', 'claude-code')).toBe(`/mcp__spool__catch_up "${t('无标题')}"`);
+    expect(askPrompt('  ', 'codex')).toContain(t('无标题'));
   });
 });
 

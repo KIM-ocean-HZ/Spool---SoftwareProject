@@ -103,6 +103,14 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  *   * **ChatGPT / Codex** — `@spool` (Ocean, 2026-08-12: 「chatgpt @spool 可以指定使用
  *     spool」). This is the only route Codex has: it was measured on 2026-08-11 never to send
  *     `prompts/list` at all, so its slash menu will never show a Spool prompt.
+ *     ⚠️⚠️ **A pasted `@spool` is inert** (Ocean, measured 2026-08-12: 「@spool 首先会被读成
+ *     普通文字，需要在输入框底下选择带着 spool logo 的那一条之后，才会变成 MCP 专用」). The
+ *     mention only becomes a mention when the user picks Spool out of the client's own
+ *     picker — no clipboard can do that, because the client builds the reference on
+ *     selection, not on the characters. So what goes on the clipboard is an **opener the
+ *     user finishes**, and the UI has to say the picker step out loud (`addressingKind`
+ *     drives that copy). Leaving it silent would be the worse failure: the paste looks
+ *     right, sends as plain text, and the model answers from nothing.
  *   * **Claude Code** — `/mcp__<server>__<prompt>`, Anthropic's own documented format
  *     (code.claude.com/docs/en/mcp, checked 2026-08-12), with arguments passed space-separated
  *     after it and quoted when they contain spaces. The server key is `spool` because Spool
@@ -114,9 +122,9 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  *     ones give `/mcp.<server>.<prompt>`; which one a given install answers to is a version
  *     question nobody here has measured. Out until somebody sees one work.
  *
- * ⚠️ `mention` prefixes the question; `slash` REPLACES it — the prompt on the other end is
- * the better question (it arrives with the project's overview already embedded, which no
- * sentence on a clipboard can carry).
+ * ⚠️ `mention` prefixes an opener the user finishes; `slash` is a complete invocation — the
+ * prompt on the other end arrives with the project's overview already embedded, which no
+ * sentence on a clipboard can carry.
  */
 type Addressing =
   | { kind: 'mention'; prefix: string }
@@ -127,15 +135,24 @@ const HOW_TO_ADDRESS: Partial<Record<McpClient, Addressing>> = {
   'claude-code': { kind: 'slash', command: '/mcp__spool__catch_up' },
 };
 
+/** What the clipboard will hold for this client — the UI needs it to say what to do next. */
+export type AddressingKind = 'mention' | 'slash' | 'plain';
+
+export const addressingKind = (client: McpClient): AddressingKind =>
+  HOW_TO_ADDRESS[client]?.kind ?? 'plain';
+
 /**
- * The question 「问 AI」 puts on the clipboard.
+ * What 「问 AI」 puts on the clipboard: **an opening, not a question.**
  *
  * ⚠️ Titles only, never ids — the hard naming rule the MCP server opens every pack with. A
  * prompt carrying `sbC2zgTo…` would teach the model to say ids back to the user.
  *
- * The plain-sentence form names the project and then asks for the three things a project is
- * for. Deliberately not a tool name: the client picks the tool, and a prompt that says
- * `get_pack` ages the moment the tool surface changes.
+ * 2026-08-12, Ocean, having used it: 「这个提示词太长了，只能提供一个前置提示词…后文让用户
+ * 自己写，每个用户的诉求不一样」. It used to paste a whole three-part question ("where am I
+ * stuck / what is settled / what next"), which is one user's need written into everybody's
+ * clipboard — and the longer it was, the more of it had to be deleted before it could become
+ * anybody else's question. What is left is the part no user should have to type: which
+ * project, said the way this client understands.
  */
 export const askPrompt = (title: string, client?: McpClient): string => {
   const name = title.trim() || t('无标题');
@@ -144,11 +161,12 @@ export const askPrompt = (title: string, client?: McpClient): string => {
   // token; a title carrying its own quote would end the token early, and dropping that
   // character costs nothing (the prompt matches on part of a title anyway).
   if (how?.kind === 'slash') return `${how.command} "${name.replace(/"/g, '')}"`;
-  const body = t(
-    '读一下我 Spool 里「{title}」这个项目的完整脉络，然后告诉我三件事：我卡在哪、已经定下来了什么、接下来该做什么。',
-    { title: name },
-  );
-  return how ? `${how.prefix} ${body}` : body;
+  // The colon is the whole point of the shape: it ends Spool's half and hands the caret over.
+  // ⚠️ Two whole keys rather than one nested inside the other — the English word order puts
+  // "project" after the title, so a fragment translated on its own cannot be dropped in.
+  return how
+    ? `${how.prefix} ${t('「{title}」：', { title: name })}`
+    : t('Spool 里的「{title}」：', { title: name });
 };
 
 /**
