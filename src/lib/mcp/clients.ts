@@ -133,11 +133,25 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  *     is not an addressing rule; it is a trap for everybody else, who would paste `@spool` and
  *     get plain text. **If the plugin ever ships with the app, this bullet is the place to
  *     revisit — and not before.**
- *   * **Claude Code** — `/mcp__<server>__<prompt>`, Anthropic's own documented format
- *     (code.claude.com/docs/en/mcp, checked 2026-08-12), with arguments passed space-separated
- *     after it and quoted when they contain spaces. The server key is `spool` because Spool
- *     writes that entry itself (mcp.rs `configure_client`), and `catch_up` is a real prompt
- *     with a `project` argument.
+ *   * **Claude Code** — `/mcp__<server>__<prompt>`, and on 2026-08-12 this stopped being a
+ *     documented format and became a measured one (a throwaway MCP server that logged every
+ *     `prompts/get`, driven through a real interactive session on a pty, v2.1.221/228). Three
+ *     things came out of it, and the last two are why the argument is bare:
+ *     ① **The name the picker SHOWS is not the name it answers to.** Typing `/` lists the
+ *     prompt as `/spool:catch_up (MCP)`; typing that string back gets `Unknown command`.
+ *     Selecting the row inserts `/mcp__spool__catch_up [project]` — the display label is a
+ *     prettified alias, and a user who reads the menu and retypes what they saw gets nothing.
+ *     ② **Arguments are split on whitespace and quotes are not special.** `catch_up "申请规划"`
+ *     arrives as `project: "申请规划"`, quote marks and all, and `resolve_thread` matches on
+ *     substrings — so the quoted form the docs show (`create_issue "Bug in login flow" high`)
+ *     fails outright here: 「No project whose title contains ""申请规划""」.
+ *     ③ **A title with a space loses everything after the space** — `机器学习 课` arrives as
+ *     `机器学习`. Nothing on the clipboard can prevent that, and it is survivable only because
+ *     the first word is by definition a substring of the title it came from: the server
+ *     resolves it, or names the projects it could mean. Quoting to keep the title whole trades
+ *     that recoverable case for a certain failure.
+ *     The server key is `spool` because Spool writes that entry itself (mcp.rs
+ *     `configure_client`), and `catch_up` is a real prompt with a `project` argument.
  *   * **Claude Desktop** — prompts and resources arrive through the ＋ menu, not by typing.
  *     Nothing to put in a clipboard, so it stays out.
  *   * **VS Code / Cursor / Windsurf** — VS Code's docs give `/<server>.<prompt>` while older
@@ -178,10 +192,10 @@ export const addressingKind = (client: McpClient): AddressingKind =>
 export const askPrompt = (title: string, client?: McpClient): string => {
   const name = title.trim() || t('无标题');
   const how = client ? HOW_TO_ADDRESS[client] : undefined;
-  // Claude Code parses arguments space-separated, so a title has to arrive as one quoted
-  // token; a title carrying its own quote would end the token early, and dropping that
-  // character costs nothing (the prompt matches on part of a title anyway).
-  if (how?.kind === 'slash') return `${how.command} "${name.replace(/"/g, '')}"`;
+  // Bare, never quoted: the client passes quote marks through to the server verbatim, where
+  // the title match is on substrings and a stray `"` matches nothing at all. See ② and ③ in
+  // HOW_TO_ADDRESS — both were measured, and both point the same way.
+  if (how?.kind === 'slash') return `${how.command} ${name}`;
   // The colon is the whole point of the shape: it ends Spool's half and hands the caret over.
   return t('Spool 里的「{title}」：', { title: name });
 };

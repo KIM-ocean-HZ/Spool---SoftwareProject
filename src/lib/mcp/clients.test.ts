@@ -50,14 +50,17 @@ describe('askPrompt — addressing the server in each client’s own syntax', ()
     }
   });
 
-  it('runs the catch_up prompt for Claude Code, whose slash syntax is documented', () => {
-    expect(askPrompt('申请规划', 'claude-code')).toBe('/mcp__spool__catch_up "申请规划"');
+  it('runs the catch_up prompt for Claude Code, in the name that client answers to', () => {
+    expect(askPrompt('申请规划', 'claude-code')).toBe('/mcp__spool__catch_up 申请规划');
   });
 
-  it('quotes the title as one argument and drops a quote that would end it early', () => {
-    // Claude Code splits arguments on spaces, so the title has to survive as one token.
-    expect(askPrompt('机器学习 课', 'claude-code')).toBe('/mcp__spool__catch_up "机器学习 课"');
-    expect(askPrompt('他说"算了"', 'claude-code')).toBe('/mcp__spool__catch_up "他说算了"');
+  it('passes the title bare — a quote would arrive as part of the name', () => {
+    // ⚠️ Measured 2026-08-12 against a real session, not read off the docs: Claude Code hands
+    // the argument over exactly as typed, so `"申请规划"` reaches resolve_thread WITH its quote
+    // marks and matches no title. A space still costs everything after it (`机器学习 课` →
+    // `机器学习`), which the server's substring match survives and quoting does not.
+    expect(askPrompt('机器学习 课', 'claude-code')).toBe('/mcp__spool__catch_up 机器学习 课');
+    expect(askPrompt('他说"算了"', 'claude-code')).toBe('/mcp__spool__catch_up 他说"算了"');
   });
 
   it('says nothing about the server in clients where no syntax has been verified', () => {
@@ -74,7 +77,7 @@ describe('askPrompt — addressing the server in each client’s own syntax', ()
   it('never sends an empty name where a project title belongs', () => {
     // The placeholder itself is translated, so this compares against it rather than
     // against a word: an untitled project must still arrive as one non-empty token.
-    expect(askPrompt('  ', 'claude-code')).toBe(`/mcp__spool__catch_up "${t('无标题')}"`);
+    expect(askPrompt('  ', 'claude-code')).toBe(`/mcp__spool__catch_up ${t('无标题')}`);
     expect(askPrompt('  ', 'codex')).toContain(t('无标题'));
   });
 });
