@@ -95,6 +95,16 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
 };
 
 /**
+ * Clients where typing `@spool` addresses the MCP server itself.
+ *
+ * ⚠️ **Only ChatGPT/Codex, and only because it was checked.** `@` is not a shared convention:
+ * in Claude Code it opens a FILE path, and in Cursor / VS Code / Windsurf it pulls in files or
+ * chat participants. Prefixing those would send the client hunting for a file called `spool`
+ * — worse than not naming the server at all. Add a client here only after seeing it work.
+ */
+const AT_MENTIONS_THE_SERVER: readonly McpClient[] = ['codex'];
+
+/**
  * The question 「问 AI」 puts on the clipboard.
  *
  * ⚠️ Titles only, never ids — the hard naming rule the MCP server opens every pack with. A
@@ -103,12 +113,21 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
  * It names the project and then asks for the three things a project is for. Deliberately not
  * a tool name: the client picks the tool, and a prompt that says `get_pack` ages the moment
  * the tool surface changes.
+ *
+ * 2026-08-12 — it leads with `@spool` on the clients that understand it (Ocean:「chatgpt
+ * @spool 可以指定使用 spool」). That mention is the cheapest form of the thing prompts were
+ * supposed to provide and could not: on 2026-08-11 Codex was measured never to send
+ * `prompts/list` at all, so a slash command is invisible there. A mention is not a notation
+ * anyone has to be taught — it is the client's own affordance, already used for everything
+ * else — which is why it does not fall under the 2026-08-11 veto on inventing one.
  */
-export const askPrompt = (title: string): string =>
-  t(
+export const askPrompt = (title: string, client?: McpClient): string => {
+  const body = t(
     '读一下我 Spool 里「{title}」这个项目的完整脉络，然后告诉我三件事：我卡在哪、已经定下来了什么、接下来该做什么。',
     { title: title.trim() || t('无标题') },
   );
+  return client && AT_MENTIONS_THE_SERVER.includes(client) ? `@spool ${body}` : body;
+};
 
 /**
  * One click, both halves: the question goes on the clipboard and the client comes forward.
@@ -121,6 +140,6 @@ export const askInClient = async (
   client: McpClient,
   threadTitle: string,
 ): Promise<boolean> => {
-  await writeText(askPrompt(threadTitle));
+  await writeText(askPrompt(threadTitle, client));
   return invoke<boolean>('focus_mcp_client', { client });
 };
