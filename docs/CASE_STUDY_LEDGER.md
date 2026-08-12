@@ -1493,6 +1493,94 @@ has been *seen* reaching Spool through a plugin rather than through the config f
 
 ---
 
+### 3.42 The name the menu shows is not the name it answers to (2026-08-12)
+
+One item had been waiting on the user for a day, because only he had a terminal: paste
+`/mcp__spool__catch_up "项目名"` into Claude Code and see whether it lands. He ran it, typed
+`/mcp`, and sent back what the menu listed: `/spool:catch_up (MCP)`, with its arguments and
+description — a different name from the one Spool puts on the clipboard.
+
+The obvious reading is that the client renamed its prompt commands and Spool is behind. Acting
+on it would have shipped a string that does not work at all.
+
+A throwaway MCP server — one that answers `prompts/list` with a single `catch_up` prompt and
+logs every `prompts/get` it receives — was mounted through `--mcp-config` with
+`--strict-mcp-config`, and driven both in print mode and in a **real interactive session on a
+pty**, because the clipboard string is pasted into a terminal and no other surface counts.
+Three results, none of them what was being looked for:
+
+* **The displayed name is not typeable.** Typing `/probe:catch_up …` returns `Unknown command`.
+  Pressing Tab on that same row inserts `/mcp__probe__catch_up [project]`. The menu shows a
+  prettified alias; the parser knows only the long form. **Spool's name was right.**
+* **Arguments are split on whitespace, and quotes are not special.** `catch_up "申请规划"`
+  arrives as `project: "申请规划"` — quote marks included. The vendor docs show the quoted form
+  (`create_issue "Bug in login flow" high`), and that is where Spool's quoting came from.
+* Fed straight to the shipped binary, the two forms separate cleanly: bare returns the prompt
+  with the project's overview; quoted returns `No project whose title contains ""Machine
+  learning""`. The string being verified would have failed on its first use, loudly.
+
+Also measured, and unfixable from here: `机器学习 课` arrives as `机器学习`. Nothing on a
+clipboard can stop that. It survives only because `resolve_thread` matches substrings and a
+title's first word is always a substring of it — so the quoting that was there to keep the
+title whole was trading a recoverable case for a certain failure.
+
+* **A user's report is evidence about the surface they were standing on.** He reported what the
+  picker *displays*; that is true, and it is not what the parser *accepts*. Both facts describe
+  the same client. Only one of them can be pasted. The question to carry back is not "is the
+  name different" but "which of these two does the machine consume".
+* **The verification found a different defect than the one it was aimed at.** It was aimed at
+  the command name (documented, never run — the §3.36 trap). The name was fine; the argument
+  quoting, written from the same documentation page in the same commit, was not. **When a claim
+  is unverified, so is everything else that arrived with it.**
+* Three surfaces of one client disagreed: the docs, the picker, the parser. **Only the parser
+  is not a description of the software.**
+* **A step only the user can perform still deserves an instrument.** The probe took a few
+  minutes and answered questions no screenshot from his terminal could — and it kept the
+  measurement off the real library and nearly off his account.
+
+### 3.43 The plan said "one constant"; the number had four copies written into prose (2026-08-12)
+
+The site revision list had ten remaining items and one of them was costed as the cheapest:
+the interactive walkthrough gates on saving three notes before it will let you continue, and
+the list proposed lowering that to one — "a copy change plus one constant."
+
+The constant is real: `state.captured` is compared against a literal. What is not in the
+constant is everything the walkthrough says afterwards. The pack dialog reports
+`'3 notes · ' + n + ' characters'`. `packText` is a fixed document containing three specific
+notes. The pre-written AI reply opens "Three notes, three sources." The discard branch says
+"your three notes are untouched." Those strings do not read the counter; they were written
+next to it.
+
+So the change as specified would have let a visitor save one note, click Pack, and be shown a
+document containing two notes they never saved — while the page's own argument is that Spool
+hands over your notes and nothing else. The item was left undone and handed back with the two
+options that are actually available: leave it, or first make the walkthrough's second half
+independent of the count.
+
+The same day's other item went the opposite way. Two open questions were queued for the user's
+judgement about the first screenshot — whether four strangers' faces and the words "Anthropic
+sandbox breach" should appear in the hero image, and whether to break the build script's
+"lossless is cheapest for UI shots" rule because the photograph had pushed that one file to
+491K. He replaced the screenshot. Both questions stopped existing: no faces, and 491K → 141K
+without touching the encoder.
+
+* **"Change the constant" is a claim about coupling, and coupling to prose is invisible to the
+  reader of the code.** The literal `3` had one home in logic and four in sentences. Grep found
+  them in seconds — but only because the estimate was distrusted enough to look.
+* **A cost estimate written while reading one file is an estimate of that file.** The revision
+  list was produced by reading the page; the gate lives in the page's script, and the strings
+  that depend on it live 200 lines further down the same script.
+* **Some "which tradeoff do we accept" questions are "the input is wrong" questions.** Two
+  items had been escalated as judgement calls with real costs on both sides. A new source image
+  dissolved both. Escalate the decision, but re-ask whether it is still a decision after any
+  upstream change.
+* **Alt text describes the pixels, not the intention.** The replacement shot had no selected
+  sentence in it, so `alt="…with one sentence selected…"` — correct for the previous image in
+  the same slot, written the same day — became a false description. Swapping an image is not
+  done when the file is swapped.
+
+---
+
 ## 4. Boundaries stated on purpose
 
 Where a case study is normally silent, and where the honest answer is more useful than the

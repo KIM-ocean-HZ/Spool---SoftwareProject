@@ -28,7 +28,9 @@
   --paper-edge:  #ebe4d2;
   --ink:         #1c1a16;
   --ink-2:       #4a463d;
-  --muted:       #8c8576;
+  /* 5.24:1 on --paper and 4.84:1 on --paper-2, so the 0.85rem fineprint clears
+     WCAG AA for normal text on both. The old #8c8576 was 3.40 / 3.31. */
+  --muted:       #6e6759;
   --line:        #e6dfcc;
   --line-strong: #d6cdb3;
   --accent:      #b45309;
@@ -122,13 +124,12 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 
 /* the spool itself — size and position are per-side, set inline by main.js.
    Deliberately minimal: one rim, the amber band of wound thread (it thins as
-   the page is read), the paying-out tail, a hub. Clicking a spool pulls more
-   thread — the page glides down about one screen — so it alone takes clicks
-   inside the otherwise pointer-transparent margin. */
-.mt-spool { position: absolute; overflow: visible; pointer-events: auto; cursor: pointer; }
+   the page is read), the paying-out tail, a hub. It takes no clicks: the whole
+   margin is decorative and aria-hidden, so anything clickable in here would be
+   a control the keyboard and a screen reader cannot reach. */
+.mt-spool { position: absolute; overflow: visible; }
 .mt-spool .mt-flange { fill: none; stroke: var(--line-strong); stroke-width: 1.4; }
-.mt-spool .mt-wound { fill: none; stroke: var(--accent); opacity: 0.4; transition: opacity 150ms ease; }
-.mt-spool:hover .mt-wound { opacity: 0.55; }
+.mt-spool .mt-wound { fill: none; stroke: var(--accent); opacity: 0.4; }
 .mt-spool .mt-hub { fill: var(--accent); opacity: 0.8; }
 .mt-spool .mt-tail { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; opacity: 0.8; }
 
@@ -272,7 +273,15 @@ html[lang="zh-CN"] .ab-line.muted-line { font-style: normal; }
   cursor: pointer;
 }
 .lang-toggle:hover { border-color: var(--accent); color: var(--accent); }
-@media (max-width: 640px) { .nav-links a:not(.nav-cta) { display: none; } }
+/* Narrow screens keep only the two things a visitor cannot do without: the download
+   button, and the way to the other language. Hiding the language toggle stranded a
+   Chinese reader who landed on the English page from a phone — there was no other
+   route to /zh/ anywhere on the page. */
+@media (max-width: 640px) {
+  .nav-links a:not(.nav-cta):not(.lang-toggle) { display: none; }
+  /* 44px minimum touch target (the pill is 0.28rem padding on a 0.85rem line otherwise) */
+  .lang-toggle { padding: 0.6rem 0.9rem; min-height: 44px; display: flex; align-items: center; }
+}
 
 /* ---------- hero ---------- */
 .hero {
@@ -304,15 +313,14 @@ html[lang="zh-CN"] .ab-line.muted-line { font-style: normal; }
   margin: 0 0 1.1rem;
 }
 .hero h1 .zh { font-weight: 400; color: var(--muted); font-size: 0.55em; vertical-align: 0.15em; margin-left: 0.35em; }
-.hero .tagline {
-  font-size: clamp(1.2rem, 2.6vw, 1.45rem);
+/* the only paragraph under the h1 now that the tagline is gone, so it carries the
+   weight the tagline used to — a little larger than body text, still not a headline */
+.hero .sub {
   color: var(--ink-2);
-  margin: 0 auto 1rem;
-  max-width: 36rem;
-  font-family: var(--font-serif);
-  font-weight: 400;
+  font-size: clamp(1.05rem, 1.7vw, 1.2rem);
+  margin: 0 auto 2.4rem;
+  max-width: 42rem;
 }
-.hero .sub { color: var(--ink-2); margin: 0 auto 2.4rem; max-width: 42rem; }
 .cta-row { display: flex; gap: 0.9rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .btn {
   display: inline-block;
@@ -422,6 +430,69 @@ p { margin: 0 0 1rem; }
   .loop-row, .loop-row.flip .loop-copy { display: block; order: initial; }
   .loop-row .loop-visual { margin-top: 1.4rem; }
 }
+/* the third step has no side image — the pack itself is the picture, full width below */
+.loop-row.solo { grid-template-columns: 1fr; }
+.loop-row.solo .loop-copy { max-width: 44rem; margin: 0 auto; text-align: center; }
+
+/* ---------- the pack, shown as the text it actually is ---------- */
+.pack-intro { margin-top: 1rem; }
+.pack-intro h3 { font-size: 1.7rem; margin-bottom: 0.9rem; }
+.pack-real { margin: 1.8rem 0 0; }
+.pack-doc {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: #fffdf8;
+  box-shadow: var(--shadow-card);
+  padding: 1.6rem 1.5rem;
+  /* a pack is wider than a phone; it scrolls inside its own box so the PAGE never does */
+  overflow-x: auto;
+}
+.pack-doc pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.75;
+  color: var(--ink);
+  /* wrap rather than force a horizontal drag: the bytes are unchanged, only the soft
+     line breaks differ — the same thing any editor does with a long line */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.pack-doc .pk-h1 { font-weight: 650; font-size: 0.92rem; }
+.pack-doc .pk-h2 { font-weight: 650; color: var(--accent-2); }
+.pack-doc .pk-h3 { font-weight: 600; }
+.pack-doc .pk-dim { color: var(--ink-2); }
+.pack-doc .pk-cut { color: var(--ink-2); font-style: italic; }
+.pack-doc .pk-seq { color: var(--accent); font-weight: 650; }
+.pack-doc .pk-src { color: var(--accent-2); }
+/* The one label saying a machine wrote this line. Amber alone did not separate it from an
+   ordinary source (they are the same colour), and this is the distinction the whole section
+   is arguing for — so it gets an outline the eye stops on. */
+.pack-doc .pk-ai {
+  font-weight: 650;
+  border: 1px solid rgba(146, 64, 14, 0.4);
+  border-radius: 3px;
+  padding: 0.05em 0.3em;
+}
+.pack-doc .pk-note {
+  color: var(--ink);
+  background: rgba(196, 138, 46, 0.13);
+  border-radius: 3px;
+  padding: 0.05em 0.3em;
+}
+.pack-doc .pk-cite { color: var(--ink-2); }
+.pack-real figcaption {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  line-height: 1.65;
+  max-width: 46rem;
+  margin: 1rem auto 0;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .pack-doc { padding: 1.1rem 0.9rem; }
+  .pack-doc pre { font-size: 0.72rem; line-height: 1.7; }
+}
 
 /* stylized mini-mock visuals for the loop rows */
 .mock {
@@ -495,6 +566,12 @@ p { margin: 0 0 1rem; }
   background: rgba(255, 255, 255, 0.6);
 }
 .lineup-note { font-size: 0.9rem; margin-top: 1.4rem; }
+/* the two short blocks that used to be screens of their own ("when an AI writes
+   back", "while you are not looking") — far enough apart to still read as separate
+   subjects inside one section */
+.gate-brief { margin-top: 3.4rem; }
+.gate-brief h3 { font-size: 1.5rem; margin-bottom: 0.8rem; }
+.gate-brief p + p { margin-top: 1rem; }
 
 /* ---------- screenshots ---------- */
 .shot {
@@ -545,7 +622,7 @@ picture { display: block; }
   color: var(--ink-2);
   cursor: pointer;
 }
-.shot-tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+.shot-tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--paper); }
 .shot-panel[hidden] { display: none; }
 /* MCP screenshots read fine narrower than the full wrap — don't fill the screen */
 /* min() keeps the narrow-screen cap: a bare 52rem here beat the generic
@@ -576,41 +653,6 @@ picture { display: block; }
 .shot-arrow:hover { color: var(--accent); border-color: var(--accent); background: #fff; }
 .shot-arrow.prev { left: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
 .shot-arrow.next { right: max(0.3rem, calc(50% - 26rem - 3.4rem)); }
-
-/* ---------- pending screenshot slots (docs/DESIGN_SITE_REBUILD.md §2.4) ----------
-   Every app screenshot on the site was taken 07-29…08-02 and every one of them is
-   now wrong (the numbered circle badge alone changed every block on every screen).
-   A slot holds the space and states what belongs there, which doubles as the shot
-   list for the rebuild. It is deliberately unlovely: this page must not be shipped
-   with slots still in it. */
-.shot-slot {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 13rem;
-  padding: 1.6rem 1.5rem;
-  border: 1.5px dashed var(--line-strong);
-  border-radius: var(--r-lg);
-  background: repeating-linear-gradient(
-    -45deg, transparent, transparent 9px,
-    rgba(0, 0, 0, 0.018) 9px, rgba(0, 0, 0, 0.018) 18px);
-  text-align: left;
-}
-.shot-slot .ss-id {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  color: var(--accent-2);
-}
-.shot-slot .ss-what { font-size: 0.95rem; color: var(--ink-2); }
-.shot-slot .ss-req { font-size: 0.82rem; color: var(--muted); margin: 0; }
-.shot-slot.tall { min-height: 20rem; }
-/* inside a tabbed group the prev/next arrows sit over the panel edges, so keep
-   the slot's text out from under them */
-@media (min-width: 701px) {
-  .shot-group[data-arrows] .shot-slot { padding-left: 4rem; padding-right: 4rem; }
-}
 
 /* ---------- two routes to the same thing: paste, or let the AI reach in ---------- */
 .route-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 2rem; }
@@ -718,13 +760,18 @@ picture { display: block; }
   padding: 0.05em 0.35em;
 }
 
-/* ---------- faq ---------- */
+/* ---------- faq, and the one folded block in #mcp (details.fold) ---------- */
 .faq-list { max-width: 44rem; margin: 2rem auto 0; }
-.faq-list details {
+.faq-list details, details.fold {
   border-bottom: 1px solid var(--line);
   padding: 0.15rem 0;
 }
-.faq-list summary {
+details.fold {
+  max-width: 44rem;
+  margin: 2rem auto 0;
+  border-top: 1px solid var(--line);
+}
+.faq-list summary, .fold > summary {
   cursor: pointer;
   list-style: none;
   padding: 0.95rem 2rem 0.95rem 0;
@@ -734,8 +781,9 @@ picture { display: block; }
   font-weight: 600;
   color: var(--ink);
 }
-.faq-list summary::-webkit-details-marker { display: none; }
-.faq-list summary::after {
+.faq-list summary::-webkit-details-marker,
+.fold > summary::-webkit-details-marker { display: none; }
+.faq-list summary::after, .fold > summary::after {
   content: '+';
   position: absolute;
   right: 0.35rem;
@@ -747,14 +795,19 @@ picture { display: block; }
   color: var(--accent);
   line-height: 1;
 }
-.faq-list details[open] summary::after { content: '–'; }
-.faq-list summary:hover { color: var(--accent); }
+.faq-list details[open] summary::after,
+details.fold[open] > summary::after { content: '–'; }
+.faq-list summary:hover, .fold > summary:hover { color: var(--accent); }
 .faq-list details p {
   margin: 0 0 1.1rem;
   padding-right: 2rem;
   color: var(--ink-2);
   font-size: 0.97rem;
 }
+/* the fold's own contents keep the spacing they had as a full section, minus the
+   top margin the first child would otherwise add under the summary */
+.fold > .gate-steps { margin-top: 0.4rem; }
+.fold > .plain-list { margin-top: 1.4rem; }
 
 /* ---------- brand moment / cta band ---------- */
 .brand-moment { text-align: center; }

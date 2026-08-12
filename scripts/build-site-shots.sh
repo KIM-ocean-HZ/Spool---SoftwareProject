@@ -26,9 +26,13 @@ cd "$(dirname "$0")/../site/assets/shots"
 
 # original                widths the layout could ask for (1x and 2x of its slot)
 slots=(
+  # SHOT S1 / S2, taken 2026-08-12 against the isolated demo library. Both are 3600px
+  # retina grabs, so the narrow candidates below are real wins rather than the usual
+  # resampling loss this script warns about.
+  "capture-page.png        580 1160"
+  "project-window.png      580 1160"
   "app-thread-after.png    860 1720"
   "app-thread-before.png   760 1520"
-  "capture-page.png        760 1520"
   "capture-toast.png       340 680"
   "growth-day1.png         660 1320"
   "growth-week6.png        660 1320"

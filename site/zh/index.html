@@ -67,8 +67,7 @@
     <img class="mark" src="../assets/spool-logo-full.svg" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
   </div>
   <h1><span data-i18n="hero-h1">同一个项目，<br>不必解释第二遍。</span><span class="zh">思簿</span></h1>
-  <p class="tagline" data-i18n="hero-tag">Spool 是个 Mac 上的小软件，帮你存着手上每件事的来龙去脉。要把整个项目交给 AI 的时候，背景一个字都不用再敲。</p>
-  <p class="sub" data-i18n="hero-sub">看到值得留下的东西，复制，然后连按两下 <span class="kbd">⌥</span>。内容自己落进你正在做的那个项目，来源也一并记下：哪个页面、哪个标签页、什么时候。几周以后，点一下就能把整个项目变成一段文字，粘给任何 AI。也可以把 AI 接上一次，往后它自己从你的 Mac 上读——而它写回来的东西，会先停下来等你点头。</p>
+  <p class="sub" data-i18n="hero-sub">看到值得留下的东西，复制，然后连按两下 <span class="kbd">⌥</span>——它落进你正在做的那个项目，连同你当时那句判断。几周以后一次打包，交给任何一个 AI；它读到的每一个字，你都看得见。</p>
   <div class="cta-row">
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">下载 macOS 版</a>
     <a class="btn btn-ghost" href="#demo" data-i18n="try-btn">看它跑一遍，什么都不用装</a>
@@ -85,34 +84,14 @@
   <path d="M32 2 C 32 26, 16 30, 16 46 C 16 64, 32 64, 32 86"/>
 </svg>
 
+<!-- The three cards used to be a section of their own ("who it is for"). They were
+     doing the same job as the paragraph above them — getting the reader to recognise
+     themselves — so they sit here instead of taking a screen of their own. -->
 <section class="alt" id="problem">
-  <div class="wrap center reveal">
-    <div class="kicker" data-i18n="moment-k">每次都要重来的那两分钟</div>
-    <p class="problem" data-i18n="moment-p">周一，你开个新对话，把背景从头敲一遍：这个项目是什么、给谁做、上周定了什么、哪条路试过不行。周三换个对话，你又敲一遍。这回敲得更短，最要紧的那条反而漏了。<em>用 Spool，这些背景在你干活的时候就一条条存下来了。点一下，粘一次，AI 直接接着你现在的进度往下走。</em></p>
-  </div>
-</section>
-
-<section id="demo">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="demo-k">试一试 —— 90 秒</div>
-      <h2 data-i18n="demo-h">整个流程，就在这里走一遍</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">存三条笔记，打包，然后看着一个全新的 AI 对话接上你的项目。你一句背景都没讲。最后还有一步，不亲手做一遍没人信：AI 想往项目里存东西，收不收由你点。内容是事先写好的，每一步都和真实应用一模一样。</p>
-    </div>
-    <div class="demo-shell reveal">
-      <div id="demo-app"></div>
-      <noscript><p class="center muted">The demo needs JavaScript — the
-      <a href="../story.html">story page</a> and the screenshots below work without it.</p></noscript>
-    </div>
-  </div>
-</section>
-
-<section class="alt" id="who-for">
-  <div class="wrap">
-    <div class="center reveal">
-      <div class="kicker" data-i18n="who-k">这是给谁用的</div>
-      <h2 data-i18n="who-h">给要做上几个月的事，<br>不是给一下午就完的事。</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="who-p">同一个项目，你隔三差五就得回来一趟，而且几乎每次都要开个 AI 对话。到这种时候，Spool 才值得装。要是你今天只想问一个问题，问完就再也想不起它，那你用不上。</p>
+      <div class="kicker" data-i18n="moment-k">每次都要重来的那两分钟</div>
+      <p class="problem" data-i18n="moment-p">周一，你开个新对话，把背景从头敲一遍：这个项目是什么、给谁做、上周定了什么、哪条路试过不行。周三换个对话，你又敲一遍。这回敲得更短，最要紧的那条反而漏了。<em>用 Spool，这些背景在你干活的时候就一条条存下来了。点一下，粘一次，AI 直接接着你现在的进度往下走。</em></p>
     </div>
     <div class="grid-3 reveal-stagger">
       <div class="card">
@@ -131,7 +110,22 @@
   </div>
 </section>
 
-<section id="how">
+<section id="demo">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="kicker" data-i18n="demo-k">试一试 —— 90 秒</div>
+      <h2 data-i18n="demo-h">整个流程，就在这里走一遍</h2>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">存三条笔记，打包，然后看着一个全新的 AI 对话接上你的项目。你一句背景都没讲。最后还有一步，不亲手做一遍没人信：AI 想往项目里存东西，收不收由你点。内容是事先写好的，每一步都和真实应用一模一样。</p>
+    </div>
+    <div class="demo-shell reveal">
+      <div id="demo-app"></div>
+      <noscript><p class="center muted">The demo needs JavaScript — the
+      <a href="../story.html">story page</a> and the screenshots below work without it.</p></noscript>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="how">
   <div class="wrap">
     <div class="center reveal">
       <div class="kicker" data-i18n="how-k">怎么用</div>
@@ -145,7 +139,21 @@
         <p data-i18n="l1-p">复制任何内容，然后连按两下 <span class="kbd">⌥</span>。内容直接进你正在做的项目，来源也一起记下，精确到浏览器的哪个标签页。弹出的小窗里，光标已经停在批注框上：顺手写下你当时为什么想留它，按 Enter 就好；不想写，点旁边任意处就跳过。你自己写的那句比摘录更耐放，AI 也会先读它。</p>
       </div>
       <div class="loop-visual">
-        <figure class="shot-slot" data-i18n="slot-s1"><span class="ss-id">截图 S1 —— 捕捉</span><span class="ss-what">浏览器里选中一段话，角落浮着 Spool 的提示框。</span><p class="ss-req">必须是改版之后的浮窗：光标已经停在批注框里。</p></figure>
+        <!-- One screenshot, shown as two: at this column width the real overlay is a
+             90px speck in the corner of a browser window, and this paragraph is about
+             what is INSIDE it (the cursor, the note box). So the page is the base and a
+             larger crop of the same capture floats over its corner, which is also where
+             the overlay really appears. Both halves come from the one grab. -->
+        <figure class="capture-scene">
+          <picture>
+            <source type="image/webp" sizes="(max-width: 800px) 100vw, 580px"
+              srcset="../assets/shots/capture-page-580.webp 580w, ../assets/shots/capture-page-1160.webp 1160w, ../assets/shots/capture-page.webp 2596w">
+            <img class="shot capture-page" src="../assets/shots/capture-page.png" width="2596" height="2260" loading="lazy" decoding="async"
+              alt="The article that was copied from, open in a browser, with its tab and its address bar still visible above it">
+          </picture>
+          <img class="capture-toast" src="../assets/shots/capture-toast.png" width="680" height="392" loading="lazy" decoding="async"
+            alt="Spool's confirmation: the first words of what was saved, where it went — Study / Machine learning course — then the title of the browser tab it came from, and a note box with the cursor already in it">
+        </figure>
       </div>
     </div>
 
@@ -157,20 +165,82 @@
         <p data-i18n="l2-p2">项目里装的不只是文字。你拖进去的文件跟着项目走；哪条笔记里写了个日子，日子到之前项目顶上会挂一条提醒；哪条结论不作数了，你可以把它作废，也可以在下面写清楚是哪句话被更正了。旧的那条留在原地，底下多一行说明它怎么了。<strong>你写过的东西不会被覆盖</strong>，你自己不会，别人更不会。</p>
       </div>
       <div class="loop-visual">
-        <figure class="shot-slot tall" data-i18n="slot-s2"><span class="ss-id">截图 S2 —— 一个项目（主窗口）</span><span class="ss-what">左边是工作区和项目，右边那个项目里一条条笔记，各自带着时间、来源和你自己写的批注。</span><p class="ss-req">必须是当前这一版：每条前面是圆圈编号、正文按 Markdown 排、新的左边栏、还有那块「攒了多少」的面板。拍之前先当场捕两三条，否则面板上「今天」那一行不会出现。</p></figure>
+        <figure>
+          <picture>
+            <source type="image/webp" sizes="(max-width: 800px) 100vw, 580px"
+              srcset="../assets/shots/project-window-580.webp 580w, ../assets/shots/project-window-1160.webp 1160w, ../assets/shots/project-window.webp 3600w">
+            <img class="shot" src="../assets/shots/project-window.png" width="3600" height="2260" loading="lazy" decoding="async"
+              alt="The Spool window: workspaces and projects down the left with a panel counting what you have saved, and one project's notes with their numbers, times, sources and your own comments">
+          </picture>
+        </figure>
       </div>
     </div>
 
-    <div class="loop-row reveal">
+    <div class="loop-row solo reveal">
       <div class="loop-copy">
         <div class="n" data-i18n="l3-n">03 · 递</div>
         <h3 data-i18n="l3-h">一键成文，拿去就能粘。</h3>
         <p data-i18n="l3-p">Spool 把整个项目写成一段纯文本：你自己的话排在最前面，看来的东西标明出处，AI 写的单独标出来，方便你核对。粘给任何 AI 都行。你自己读一遍也行，读完就回到工作状态了。这段文字是在你自己电脑上拼出来、直接进剪贴板的，不往任何地方发；同一个项目，每次拼出来都一样。</p>
       </div>
-      <div class="loop-visual">
-        <figure class="shot-slot" data-i18n="slot-s3"><span class="ss-id">截图 S3 —— 打包窗口</span><span class="ss-what">整个项目变成纯文本，拿去就能粘。</span><p class="ss-req">当前这一版是「一行范围 + 一个勾」。原来那第二行「打包类型」已经撤了。</p></figure>
-      </div>
     </div>
+
+    <!-- The pack is the one artefact no competing "memory" product hands you: plain text you
+         can read, check, edit and take somewhere else. So the page shows the text itself
+         rather than a screenshot of the window that produces it. Everything inside .pack-doc
+         is real output, rendered by the shipped binary from the demo library
+         (scripts/seed-demo-library.sh → `spool --mcp` get_pack). Never hand-write this
+         block: if the renderer changes, re-run it and paste the new bytes. -->
+    <div class="center reveal pack-intro">
+      <h3 data-i18n="pack-h">交出去的就是这个。<br>你读得懂，AI 也读得懂。</h3>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="pack-p">不是 AI 替你总结的一段话 —— 就是那些笔记本身，按时间排好，每一条还带着它是从哪儿来的。下面是 Spool 真写出来的一个项目，除了标出来的那一处，一个字没改。</p>
+    </div>
+
+    <figure class="pack-real reveal">
+      <div class="pack-doc" role="img" aria-labelledby="pack-a11y">
+<pre><span class="pk-h1"># Project Context: Machine learning course</span>
+
+Generated by Spool on 2026-08-12. 5 blocks total.
+
+<span class="pk-h2">## How to Read This Context</span>
+
+<span class="pk-dim">The blocks below come from FOUR different authority categories. Treat each
+category according to the rules in this section.</span>
+
+<span class="pk-h3">### 📖 Reference (authoritative)</span>
+<span class="pk-dim">**Handling**: Treat as ground truth. Do not contradict.</span>
+
+<span class="pk-h3">### 🧩 Synthesis (already-formed understanding)</span>
+<span class="pk-dim">**Handling**: These are someone else's synthesis. […] Do not
+treat them as facts. If they contradict Reference, defer to Reference.</span>
+
+<span class="pk-h3">### 🔄 Process (conversation traces — read for evolution, not facts)</span>
+<span class="pk-dim">**Handling**: The literal content of these blocks is NOT a reliable source
+of facts. What IS reliable is the user's evolving questions.</span>
+
+<span class="pk-h3">### 💭 Personal (the user's own hypotheses and notes)</span>
+<span class="pk-dim">**Handling**: Read these to understand where the user currently stands.
+If they contain factual errors, point them out directly — do not protect
+the user's feelings at the cost of correctness.</span>
+
+<span class="pk-cut">[… the reading rules and the notation key run for about 4,000 more characters …]</span>
+
+<span class="pk-h2">## Full Record (chronological)</span>
+
+<span class="pk-seq">#1</span> [2026-07-29 10:20 <span class="pk-src">· from course.edu · Safari</span>] Week 6 is about overfitting. The homework wants a validation curve, not just an accuracy number.
+<span class="pk-seq">#2</span> [2026-08-02 11:40 <span class="pk-src">· from Lecture 7 slides · Safari</span>] A model that does well on the data it was trained on and badly on new data has overfitted. A bigger model is not the fix.
+    <span class="pk-note">note: This is the part I never followed in class.</span>
+<span class="pk-seq">#3</span> [2026-08-02 14:05 <span class="pk-src">· from AI chat · Safari</span>] Regularisation is a fee charged for complexity: the model can still bend to the data, but every extra bend costs it something, so it keeps only the ones that pay for themselves.
+<span class="pk-seq">#4</span> [2026-08-03 16:30] Revision plan: redo problem set 3 with the fee idea in hand, then watch lecture 8.
+<span class="pk-seq">#5</span> [2026-08-03 16:42 <span class="pk-src pk-ai">· from Claude · MCP</span>] Before Friday: problem set 3 question 2 is the overfitting one — that is the question the quiz will rhyme with. Do it with the fee idea, not with a bigger model.
+    <span class="pk-cite">↩ cites: [2026-08-03 16:30] Revision plan: redo problem set 3 with t…</span>
+</pre>
+      </div>
+      <figcaption id="pack-a11y" data-i18n="pack-cap">真实输出，只在一个地方收短了：开头那段「怎么读」的说明还有大约 4000 字，在写着省略的那一行剪掉了。<b>Full Record</b> 底下的每一行都是 Spool 原样写出来的。<b>#4</b> 没有来源 —— 那条是你自己写的，上面那段规则会让 AI 把它看得最重。<b>#5</b> 是 AI 通过 MCP 写回来的：它签了名，排在你那条<b>下面</b>而不是盖住它，还写明了它在回应哪一条。<br>（说明那段本来就是英文的——它是写给模型看的；你自己存进去的内容是什么语言，出来就还是什么语言。）</figcaption>
+    </figure>
+
+    <!-- covers both screenshots above and the pack text: all three come out of
+         scripts/seed-demo-library.sh, never the maintainer's own library -->
+    <p class="center muted shot-note" data-i18n="mcp-note">上面这些截图和那段正文，用的都是专门为此搭的一个库，里面没有任何个人内容。</p>
   </div>
 </section>
 
@@ -190,17 +260,6 @@
       <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="grow-p">第一天就能用：三条笔记，粘一次，背景不用再敲。六周以后，同一个项目里躺着一堆东西：你已经不记得自己做过的那个决定，那条再也搜不回来的链接，当初否掉某个方案的理由。递出去还是那一下点击，一次全带走。你的用法一点没变，只是底下攒厚了。</p>
       <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="grow-p2">攒了多少，软件替你数着。左边栏角上有个线轴，你存下的东西一条条缠上去；一百条缠满一轴，然后它开始缠下一轴。</p>
     </div>
-    <div class="growth-pair reveal">
-      <figure class="growth-shot">
-        <div class="shot-slot" data-i18n="slot-s4"><span class="ss-id">截图 S4 —— 第一天</span><span class="ss-what">同一个项目的第一天：三条笔记，打包出来很短。</span><p class="ss-req">要带上左边栏——线轴上得几乎是空的。</p></div>
-        <figcaption data-i18n="g1-h">第一天 · 3 条</figcaption>
-      </figure>
-      <figure class="growth-shot">
-        <div class="shot-slot" data-i18n="slot-s5"><span class="ss-id">截图 S5 —— 六周以后</span><span class="ss-what">同一个项目，攒了好几周，其中一条置顶的是从邮件里捞出来的截止日期。</span><p class="ss-req">窗口大小和左边栏要和 S4 完全一样——两张图比的就是那个线轴。</p></div>
-        <figcaption data-i18n="g2-h">六周后 · 21 条</figcaption>
-      </figure>
-    </div>
-    <p class="shot-caption" data-i18n="grow-cap">同一个项目，相隔六周。看右边那条置顶的：一个藏在邮件最底下的截止日期。这种东西没人靠脑子记得住。现在它会跟别的内容一起递出去。</p>
   </div>
 </section>
 
@@ -249,99 +308,46 @@
         <p data-i18n="cg2-p">在编辑器的 AI 面板里说，或者在终端里说。</p>
       </div>
     </div>
-    <p class="center muted lineup-note" data-i18n="cg-note">两种都一样：你人待在原地，Spool 只负责把笔记递过去。上面这六个在 Spool 设置里都有一个按钮：点一下，把那个软件重启，往后它就能读你的项目了。不在名单上？从 Spool 里复制一段设置，粘进那个软件就行。至于接好之后怎么用，只写在一个地方——就在那个按钮旁边，一小段话，粘给 AI 直接能用，你自己读也看得懂。</p>
+    <!-- "it can read your projects from then on" was a promise about the other app's
+         behaviour, and that has only ever been measured on the Claude apps and Codex.
+         What Spool really does is write the setting; say that much, and stop there. -->
+    <p class="center muted lineup-note" data-i18n="cg-note">两种都一样：你人待在原地，Spool 只负责把笔记递过去。上面这六个在 Spool 设置里都有一个按钮：点一下，设置就替你写好了；把那个软件重启，它就能读你的项目。不在名单上？从 Spool 里复制一段设置，粘进那个软件就行。至于接好之后怎么用，只写在一个地方——就在那个按钮旁边，一小段话，粘给 AI 直接能用，你自己读也看得懂。</p>
 
-    <div class="reveal shot-group" data-arrows>
-      <div class="shot-tabs" role="tablist" aria-label="What an AI can do with Spool">
-        <button class="shot-tab" role="tab" id="mtab-lib" aria-controls="mpanel-lib" aria-selected="true" data-tab="lib" data-i18n="mtab-lib">① 它看得见你的项目</button>
-        <button class="shot-tab" role="tab" id="mtab-digest" aria-controls="mpanel-mdigest" aria-selected="false" data-tab="mdigest" data-i18n="mtab-digest">② 它从数周的笔记里作答</button>
-        <button class="shot-tab" role="tab" id="mtab-search" aria-controls="mpanel-search" aria-selected="false" data-tab="search" data-i18n="mtab-search">③ 它知道每条的出处</button>
-        <button class="shot-tab" role="tab" id="mtab-file" aria-controls="mpanel-file" aria-selected="false" data-tab="file" data-i18n="mtab-file">④ 它写回来，并且署名</button>
-      </div>
-
-      <div class="shot-panel" role="tabpanel" id="mpanel-lib" aria-labelledby="mtab-lib" data-panel="lib">
-        <figure class="shot-slot tall" data-i18n="slot-s6a"><span class="ss-id">截图 S6a —— AI 报出你的项目</span><span class="ss-what">一句大白话提问，AI 就说出你有哪些工作区、哪些项目、每个里面多少条。</span><p class="ss-req">只能用演示库，真库绝不入镜。</p></figure>
-      </div>
-
-      <div class="shot-panel" role="tabpanel" id="mpanel-mdigest" aria-labelledby="mtab-digest" data-panel="mdigest" hidden>
-        <figure class="shot-slot tall" data-i18n="slot-s6b"><span class="ss-id">截图 S6b —— 它从数周的笔记里作答</span><span class="ss-what">一段话，材料来自不同日子、不同地方存下的笔记。</span><p class="ss-req">这正是一次粘贴做不到的事——答案要一眼看得出跨了好几周。</p></figure>
-      </div>
-
-      <div class="shot-panel" role="tabpanel" id="mpanel-search" aria-labelledby="mtab-search" data-panel="search" hidden>
-        <figure class="shot-slot tall" data-i18n="slot-s6c"><span class="ss-id">截图 S6c —— 每条结果都留着出处</span><span class="ss-what">从库里搜出来的结果，每条都标着日期、从哪来的、是不是你自己写的。</span><p class="ss-req">三种各来一条：你读到的、AI 建议的、你自己定的。</p></figure>
-      </div>
-
-      <div class="shot-panel" role="tabpanel" id="mpanel-file" aria-labelledby="mtab-file" data-panel="file" hidden>
-        <figure class="shot-slot tall" data-i18n="slot-s7"><span class="ss-id">截图 S7 —— 它写的东西在 Spool 里长什么样</span><span class="ss-what">近景：你自己那条笔记，紧挨着下面是 AI 写的那条，署着是哪个 AI 写的，还有一行指回它回答的是哪条。</span><p class="ss-req">当前这一版——编号现在是个圆圈。</p></figure>
-      </div>
-    </div>
-
-    <p class="center muted shot-note" data-i18n="mcp-note">截图用的是专门为此搭的一个库，里面没有任何个人内容。</p>
-  </div>
-</section>
-
-<section class="alt" id="gate">
-  <div class="wrap">
-    <div class="center reveal">
+    <!-- What an AI may do once it is connected. This used to be a screen of its own
+         ("when an AI writes back") and a second one for the watching. Both are real
+         and neither is what a first-time reader is deciding about, so the headline of
+         each stays visible and the mechanics fold away. -->
+    <div class="center reveal gate-brief">
       <div class="kicker" data-i18n="gate-k">AI 写回来的时候</div>
-      <h2 data-i18n="gate-h">它得署名，<br>动到旧东西的那几步得等你点头。</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="gate-p">接上来的 AI 可以往项目里加东西——本来接它就是为了这个。它做不到的是：悄悄改掉你已经写下的东西。</p>
+      <h3 data-i18n="gate-h">它得署名，动到旧东西的那几步得等你点头。</h3>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="gate-p">接上来的 AI 可以往项目里加东西——本来接它就是为了这个。它写的东西带着是哪个 AI 写的，排在你自己那条笔记<strong>下面</strong>，不会盖在上面。它改不了你的任何一条，也删不掉。</p>
     </div>
 
-    <ol class="gate-steps reveal-stagger">
-      <li>
-        <h4 data-i18n="gate-1h">它只能往后加</h4>
-        <p data-i18n="gate-1p">接上来的 AI 只能往项目后面追加。它写的东西带着是哪个 AI 写的，排在你自己那条笔记<strong>下面</strong>，不会盖在上面；它改不了你的任何一条，也删不掉。AI 写的话，永远不可能被当成你自己的判断。</p>
-      </li>
-      <li>
-        <h4 data-i18n="gate-2h">要动到旧东西的那几步，先停下来等你</h4>
-        <p data-i18n="gate-2p">说「你那条旧结论不作数了」、把一长段内容拆进好几个项目、想读你拖进来的某个文件——这三件事都不会直接发生，而是排进一个队列。你看一眼，留下或者扔掉。</p>
-      </li>
-      <li>
-        <h4 data-i18n="gate-3h">它只能更正，不能抹掉</h4>
-        <p data-i18n="gate-3p">你存过的结论要是已经不作数了，AI 可以指出被更正的是哪一句。旧的那条一动不动留在原地，底下多一行，说清楚是被什么更正的。</p>
-      </li>
-    </ol>
+    <details class="fold reveal">
+      <summary data-i18n="gate-more">哪几步会停下来等你</summary>
+      <ol class="gate-steps">
+        <li>
+          <h4 data-i18n="gate-2h">要动到旧东西的那几步，先停下来等你</h4>
+          <p data-i18n="gate-2p">说「你那条旧结论不作数了」、把一长段内容拆进好几个项目、想读你拖进来的某个文件——这三件事都不会直接发生，而是排进一个队列。你看一眼，留下或者扔掉。</p>
+        </li>
+        <li>
+          <h4 data-i18n="gate-3h">它只能更正，不能抹掉</h4>
+          <p data-i18n="gate-3p">你存过的结论要是已经不作数了，AI 可以指出被更正的是哪一句。旧的那条一动不动留在原地，底下多一行，说清楚是被什么更正的。</p>
+        </li>
+      </ol>
+      <ul class="plain-list">
+        <li data-i18n="gate-x1"><b>文件另有一道开关。</b>你拖进项目的文档，一份一份地由你决定 AI 能不能读；你不点头，它读不到。</li>
+        <li data-i18n="gate-x2"><b>把一条作废，这件事只有你能做。</b>作废之后它不再进打包，但仍然留在库里、仍然搜得到；而且打包的时候会明说：有东西被漏下了。</li>
+        <li data-i18n="gate-x3"><b>开关一直在手边，两个方向都是一下。</b>「让 AI 读」默认是关的，你自己打开。「让 AI 写」是它下面的第二个开关，读一打开它就是开着的——关掉它，AI 就只能读，什么都改不了。</li>
+      </ul>
+    </details>
 
-    <ul class="plain-list reveal">
-      <li data-i18n="gate-x1"><b>文件另有一道开关。</b>你拖进项目的文档，一份一份地由你决定 AI 能不能读；你不点头，它读不到。</li>
-      <li data-i18n="gate-x2"><b>把一条作废，这件事只有你能做。</b>作废之后它不再进打包，但仍然留在库里、仍然搜得到；而且打包的时候会明说：有东西被漏下了。</li>
-      <li data-i18n="gate-x3"><b>开关一直在手边，两个方向都是一下。</b>「让 AI 读」默认是关的，你自己打开。「让 AI 写」是它下面的第二个开关，读一打开它就是开着的——关掉它，AI 就只能读，什么都改不了。</li>
-    </ul>
-
-    <div class="reveal" style="margin-top:2rem">
-      <figure class="shot-slot tall" data-i18n="slot-s8"><span class="ss-id">截图 S8 —— 那个队列</span><span class="ss-what">待审的那一屏：AI 想存进来的东西，排在那儿等你留下或者扔掉。</span><p class="ss-req">想办法让「AI 申请读某个文件」那张卡入镜——这一版里它最有故事。</p></figure>
-    </div>
-  </div>
-</section>
-
-<section id="watch">
-  <div class="wrap">
-    <div class="center reveal">
+    <div class="center reveal gate-brief">
       <div class="kicker" data-i18n="watch-k">你没在看的时候</div>
-      <h2 data-i18n="watch-h">告诉它盯着什么。<br>没动静的时候，它一声不吭。</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="watch-p">拿几句大白话写下这个项目真正在等什么：一个还没下来的决定、一个可能会改的页面、一个过阵子得重新核一遍的数字。Spool 把你写的这几行原样交给一个你早就装好的命令行 AI，它去看，看到的东西照样排进那个队列等你。没有新东西的时候，它什么都不说。（这个动作在软件里叫「跟进」。）</p>
+      <h3 data-i18n="watch-h">告诉它盯着什么。没动静的时候，它一声不吭。</h3>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="watch-p">拿几句大白话写下这个项目真正在等什么：一个还没下来的决定、一个可能会改的页面、一个过阵子得重新核一遍的数字。Spool 把你写的这几行原样交给一个你早就装好的命令行 AI，它去看，看到的东西照样排进那个队列等你。没有新东西的时候，它什么都不说。一周一次，你要的话，同一件事会把所有项目横着过一遍。（这个动作在软件里叫「跟进」。）</p>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="watch-3"><b>这是唯一一件会真的上网的事</b>——而且只按你写的那几行去搜。Spool 别的部分断着网照样用；这一块刚装好的时候是关着的，从哪儿打开就从哪儿关掉。</p>
     </div>
-
-    <ul class="plain-list reveal">
-      <li data-i18n="watch-1"><b>它用的是你本来就有的那个 AI。</b>你机器上要是装了 Claude Code 或者 Codex CLI 并且登录了，Spool 就把它当成本机上的一个程序启动起来。没有 key 要你去粘，没有账号要注册，Spool 自己仍然一个网络请求都不发。</li>
-      <li data-i18n="watch-2"><b>它干活你看得见。</b>跑的过程一行行流在窗口右边，跑完写了什么也一直标着。一个会往你笔记里加东西的工具，就该是看得见的。</li>
-      <li data-i18n="watch-3"><b>这是唯一一件会真的上网的事</b>——而且只按你写的那几行去搜。Spool 别的部分，断着网照样用。</li>
-      <li data-i18n="watch-4"><b>一周一次，你要的话。</b>把所有项目过一遍，写成单独一个项目存着；这个节奏也是你自己打开的。</li>
-    </ul>
-
-    <div class="growth-pair reveal" style="margin-top:2.2rem">
-      <figure class="growth-shot">
-        <div class="shot-slot" data-i18n="slot-s9"><span class="ss-id">截图 S9 —— 一次跟进，和它带回来的东西</span><span class="ss-what">窗口右边：跑完的那张卡，写了什么，以及「已经排进队列」那一行。</span><p class="ss-req">把用户自己写的「盯着什么」那几行一起拍进去。</p></div>
-        <figcaption data-i18n="s9-cap">替你盯着</figcaption>
-      </figure>
-      <figure class="growth-shot">
-        <div class="shot-slot" data-i18n="slot-s10"><span class="ss-id">截图 S10 —— 周回顾</span><span class="ss-what">一屏，所有项目，一周。</span><p class="ss-req">演示库里要攒够几周，回顾才有东西可写。</p></div>
-        <figcaption data-i18n="s10-cap">一周一次，横着看一遍</figcaption>
-      </figure>
-    </div>
-
-    <p class="center muted shot-note" data-i18n="watch-off">这一整块，刚装好的时候全是关着的；从哪儿打开，就从哪儿关掉。</p>
   </div>
 </section>
 
@@ -359,29 +365,31 @@
       <p data-i18n="perm-p3">哪个不给都还能用：写笔记、打包项目、粘出去，全都照常，只是一键捕捉用不了。而且给不给都一样，没有任何东西会自己离开你的 Mac。这个应用从构造上就没有联网的能力，它根本没地方可送。</p>
     </div>
 
+    <!-- Order matters here: a stranger's first worry is "will it take my things",
+         not "is it signed". So the two ways out come first and the signature third. -->
     <div class="grid-3 reveal-stagger">
       <div class="card">
-        <h3 data-i18n="t1-h">已由 Apple 签名公证</h3>
-        <p data-i18n="t1-p">安装包用 Apple 开发者证书签了名，也经过 Apple 公证，所以 macOS 打开它不会弹「无法验证开发者」。只支持 Apple 芯片。Intel 的 Mac 能下下来，但打不开。</p>
+        <h3 data-i18n="t3-h">不做任何追踪，出口只有两个</h3>
+        <p data-i18n="t3-p">没有统计、没有埋点、没有崩溃上报，而且 Spool 自己发不出网络请求——它从构造上就没有这个能力。你的笔记要离开这台 Mac，只有两条路，而且两条都得你亲手打开：一条是你接上的 AI 应用来读，另一条就是上面说的「替你盯着」，它是通过你机器上已经装好的命令行 AI 去搜的。没有第三条。剪贴板也只在你连按两下 <span class="kbd">⌥</span> 的那一瞬间被读一次，别的时候不读。</p>
       </div>
       <div class="card">
         <h3 data-i18n="t2-h">就一个文件，在你自己电脑上</h3>
         <p data-i18n="t2-p">所有工作区、项目、笔记和批注，都在一个 <code>spool.db</code> 文件里。可以复制、可以备份、也可以删掉。不用注册账号，不用信任谁的服务器，也没有什么要取消。</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t3-h">不做任何追踪，出口只有两个</h3>
-        <p data-i18n="t3-p">没有统计、没有埋点、没有崩溃上报，而且 Spool 自己发不出网络请求——它从构造上就没有这个能力。你的笔记要离开这台 Mac，只有两条路，而且两条都得你亲手打开：一条是你接上的 AI 应用来读，另一条就是上面说的「替你盯着」，它是通过你机器上已经装好的命令行 AI 去搜的。没有第三条。剪贴板也只在你连按两下 <span class="kbd">⌥</span> 的那一瞬间被读一次，别的时候不读。</p>
+        <h3 data-i18n="t1-h">已由 Apple 签名公证</h3>
+        <p data-i18n="t1-p">安装包用 Apple 开发者证书签了名，也经过 Apple 公证，所以 macOS 打开它不会弹「无法验证开发者」。只支持 Apple 芯片。Intel 的 Mac 能下下来，但打不开。新版本要你自己去下载——反过来说，它也从不联网查有没有新版。</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t4-h">一个人做的</h3>
-        <p data-i18n="t4-p">没有公司，没有融资，也没有什么路线图会议。做的过程一路写下来，公开放着：包括我把自己数据库清空的那一天，还有后来改了什么，让这件事再也发生不了。公开的是这份构建记录；源码目前没有开放。</p>
+        <h3 data-i18n="t4-h">一个人做的——包括我把自己数据库清空的那一天</h3>
+        <p data-i18n="t4-p">没有公司，没有融资，也没有什么路线图会议。做的过程一路写下来公开放着：那天到底发生了什么、后来改了什么让它再也发生不了，都在里面。公开的是这份构建记录；源码目前没有开放。</p>
       </div>
     </div>
 
     <p class="center trust-links">
       <a href="privacy.html" data-i18n="priv-link">阅读完整隐私政策 →</a>
       &nbsp;&nbsp;
-      <a href="../story.html" data-i18n="maker-link">看它是怎么做出来的 →</a>
+      <a href="../story.html" data-i18n="maker-link">它是怎么做出来的，以及什么坏过 →（英文）</a>
     </p>
   </div>
 </section>
@@ -398,6 +406,10 @@
         <p data-i18n="a1">现在不能。安装包只有 Apple 芯片（arm64）这一个版本——在 Intel 的 Mac 上能下下来，但应用打不开。也没有另一个 Intel 版本可以指给你。</p>
       </details>
       <details>
+        <summary data-i18n="q11">我必须接一个 AI 吗？</summary>
+        <p data-i18n="a11">不必，而且不接也不少任何功能。打包一个项目、粘给任何浏览器里的 AI，在一台什么都没多装的 Mac 上照样跑得通。</p>
+      </details>
+      <details>
         <summary data-i18n="q2">Windows 呢？iPhone 呢？</summary>
         <p data-i18n="a2">没有。Spool 是 Mac 应用，捕捉快捷键是靠 macOS 独有的接口做的。与其挂个不存在的东西让你排队等，不如直说。</p>
       </details>
@@ -408,10 +420,6 @@
       <details>
         <summary data-i18n="q10">要不要 API key？要不要花钱买 AI？</summary>
         <p data-i18n="a10">不要 key——Spool 里根本没有地方填。让 AI 应用来读，用的是你在那个应用里本来就有的额度。「替你盯着」跑的是你早就装好并登录的命令行 AI，用的也是那份订阅的额度。</p>
-      </details>
-      <details>
-        <summary data-i18n="q11">我必须接一个 AI 吗？</summary>
-        <p data-i18n="a11">不必，而且不接也不少任何功能。打包一个项目、粘给任何浏览器里的 AI，在一台什么都没多装的 Mac 上照样跑得通。</p>
       </details>
       <details>
         <summary data-i18n="q3">为什么免费？</summary>
@@ -464,7 +472,7 @@
     <div data-i18n="foot-copy">Spool 思簿 · © 2026 · 保留所有权利</div>
     <div>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
-      <a href="../story.html" data-i18n="foot-story">幕后的工程</a> ·
+      <a href="../story.html" data-i18n="foot-story">幕后的工程（英文）</a> ·
       <a href="privacy.html" data-i18n="foot-privacy">隐私</a>
     </div>
   </div>

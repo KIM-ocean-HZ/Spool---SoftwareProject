@@ -17,8 +17,15 @@ SCHEMA="$(cd "$(dirname "$0")/.." && pwd)/src/lib/db/schema.sql"
 rm -rf "$DIR"
 mkdir -p "$DIR"
 
+# captureShortcut is bound so this library can be driven WITHOUT Input Monitoring: a bound
+# shortcut goes through RegisterEventHotKey, which needs no TCC grant, while double-tap ⌥
+# needs one — and an isolated identifier has never been granted it. Granting it would mean a
+# second "Spool" in the user's Input Monitoring list next to the real app's entry, which is
+# their working setup and not worth risking for a screenshot. Format is this repo's own
+# grammar (lib/capture/shortcut.ts), NOT Tauri's "CmdOrCtrl+Shift+K" — that spelling is
+# silently ignored.
 cat > "$DIR/settings.json" <<'JSON'
-{"mcpEnabled":true,"mcpWriteEnabled":true,"language":"en","autoExtractAttachments":true}
+{"mcpEnabled":true,"mcpWriteEnabled":true,"language":"en","autoExtractAttachments":true,"captureShortcut":"meta+shift+KeyK"}
 JSON
 
 sqlite3 "$DIR/spool.db" < "$SCHEMA"
@@ -48,10 +55,13 @@ INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES
 
 INSERT INTO threads (id, workspace_id, title, summary, summary_source, deadline, status, is_capture_target, created_at, updated_at) VALUES
  -- MAIN thread: the one used for the MCP screenshots
+ -- is_capture_target moved OFF this row and onto the course below: the schema allows exactly
+ -- one globally, and the home page's story is the course, so that is where a capture taken
+ -- for SHOT S1 has to land.
  ('DemoThJob00000000001','DemoWsWork0000000001','Job search',
   'Acme application — resume summary first, then the cover letter.','user',
   CAST(strftime('%s', date('now','localtime','weekday 5') || ' 18:00:00','utc')*1000 AS INTEGER),
-  'active',1,
+  'active',0,
   CAST(strftime('%s', date('now','localtime','-21 days') || ' 09:30:00','utc')*1000 AS INTEGER),
   CAST(strftime('%s', date('now','localtime') || ' 17:12:00','utc')*1000 AS INTEGER)),
  ('DemoThPortfolio00002','DemoWsWork0000000001','Portfolio site',NULL,NULL,NULL,'active',0,
@@ -60,9 +70,13 @@ INSERT INTO threads (id, workspace_id, title, summary, summary_source, deadline,
  ('DemoThInterview00003','DemoWsWork0000000001','Interview prep',NULL,NULL,NULL,'active',0,
   CAST(strftime('%s', date('now','localtime','-12 days') || ' 19:00:00','utc')*1000 AS INTEGER),
   CAST(strftime('%s', date('now','localtime','-4 days') || ' 20:05:00','utc')*1000 AS INTEGER)),
+ -- is_capture_target = 1: exactly one row globally may carry it, and no seeded row used to,
+ -- so capture in this library failed outright ("no capture-target thread set") — which made
+ -- SHOT S1, the capture overlay, impossible to shoot. It is this project rather than Job
+ -- search because the home page's story is the course (DESIGN_SITE_REBUILD §3 answer 2).
  ('DemoThCourse00000004','DemoWsStudy000000002','Machine learning course',NULL,NULL,
   CAST(strftime('%s', date('now','localtime','+9 days') || ' 23:59:00','utc')*1000 AS INTEGER),
-  'active',0,
+  'active',1,
   CAST(strftime('%s', date('now','localtime','-30 days') || ' 10:00:00','utc')*1000 AS INTEGER),
   CAST(strftime('%s', date('now','localtime','-3 days') || ' 21:10:00','utc')*1000 AS INTEGER)),
  ('DemoThJapanese000005','DemoWsStudy000000002','Japanese practice',NULL,NULL,NULL,'active',0,
@@ -113,6 +127,17 @@ INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, cr
   'A case study reads best in three parts: the problem, what I did, what changed. One number per project.',
   'Use this as the template for all three.','Safari',0,
   CAST(strftime('%s', date('now','localtime','-6 days') || ' 22:15:00','utc')*1000 AS INTEGER)),
+ -- Dated TODAY on purpose. The sidebar's value panel only draws its 「今天」 line when
+ -- something was captured today (首日价值二期 §3), and SHOT S2 has to show that line —
+ -- otherwise whoever takes the screenshot has to capture two or three things by hand first,
+ -- which on a fresh verify identifier means granting Input Monitoring to a new bundle id
+ -- just to make a panel appear. Kept out of the Machine learning course on purpose: the pack
+ -- excerpt published on the home page is rendered from that project, so its rows must not
+ -- move without re-rendering the page.
+ ('DemoBkPort0000000003','DemoThPortfolio00002','text',
+  'Case studies that open with the outcome get read; the ones that open with the brief do not.',
+  NULL,'Safari',0,
+  CAST(strftime('%s', date('now','localtime') || ' 09:40:00','utc')*1000 AS INTEGER)),
 
  -- ===== Interview prep =====
  ('DemoBkIntv0000000001','DemoThInterview00003','text',
@@ -123,16 +148,10 @@ INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, cr
   'Prepare three stories that each show a different strength, then reuse them across questions.',
   NULL,'AI chat · Safari',0,
   CAST(strftime('%s', date('now','localtime','-4 days') || ' 20:05:00','utc')*1000 AS INTEGER)),
-
- -- ===== Machine learning course =====
- ('DemoBkCrs00000000001','DemoThCourse00000004','text',
-  'Week 6 is about overfitting. The homework wants a validation curve, not just an accuracy number.',
-  NULL,'course.edu · Safari',0,
-  CAST(strftime('%s', date('now','localtime','-10 days') || ' 10:20:00','utc')*1000 AS INTEGER)),
- ('DemoBkCrs00000000002','DemoThCourse00000004','text',
-  'Ask in office hours: when is a validation split enough, and when do I need a separate test set?',
-  NULL,NULL,0,
-  CAST(strftime('%s', date('now','localtime','-3 days') || ' 21:10:00','utc')*1000 AS INTEGER)),
+ ('DemoBkIntv0000000003','DemoThInterview00003','text',
+  'They ask "tell me about a failure" to hear what you changed afterwards, not what went wrong.',
+  'Use the dashboard rollback for this one.','AI chat · Safari',0,
+  CAST(strftime('%s', date('now','localtime') || ' 11:05:00','utc')*1000 AS INTEGER)),
 
  -- ===== Japanese practice =====
  ('DemoBkJpn00000000001','DemoThJapanese000005','text',
@@ -169,6 +188,50 @@ INSERT INTO blocks (id, thread_id, kind, content, annotation, source, pinned, cr
   'Dry-brine the chicken overnight; one percent salt by weight.',
   NULL,'Serious Eats · Safari',0,
   CAST(strftime('%s', date('now','localtime','-26 days') || ' 19:05:00','utc')*1000 AS INTEGER));
+
+-- ===== Machine learning course =====
+-- Its own INSERT because it needs four columns the rest do not: `annotation_by`, and the
+-- citation trio on the AI-written block. This is the project the website's demo walks
+-- through (DESIGN_SITE_REBUILD §3 answer 2: 一门课), and the one the pack excerpt on the
+-- home page is rendered from — so the four authority bands all have to be present in it:
+-- an institutional source, another AI's synthesis, the user's own sourceless decision, and
+-- a block an AI filed back. Before this the project held two plain blocks and the library
+-- had no MCP-written block at all, which made SHOT S7 unshootable.
+INSERT INTO blocks
+  (id, thread_id, kind, content, annotation, annotation_by, source, pinned,
+   ref_block_id, ref_kind, created_at) VALUES
+ ('DemoBkCrs00000000001','DemoThCourse00000004','text',
+  'Week 6 is about overfitting. The homework wants a validation curve, not just an accuracy number.',
+  NULL,NULL,'course.edu · Safari',0,NULL,NULL,
+  CAST(strftime('%s', date('now','localtime','-14 days') || ' 10:20:00','utc')*1000 AS INTEGER)),
+ ('DemoBkCrs00000000002','DemoThCourse00000004','text',
+  'A model that does well on the data it was trained on and badly on new data has overfitted. A bigger model is not the fix.',
+  'This is the part I never followed in class.','user','Lecture 7 slides · Safari',0,NULL,NULL,
+  CAST(strftime('%s', date('now','localtime','-10 days') || ' 11:40:00','utc')*1000 AS INTEGER)),
+ ('DemoBkCrs00000000003','DemoThCourse00000004','text',
+  'Regularisation is a fee charged for complexity: the model can still bend to the data, but every extra bend costs it something, so it keeps only the ones that pay for themselves.',
+  NULL,NULL,'AI chat · Safari',0,NULL,NULL,
+  CAST(strftime('%s', date('now','localtime','-10 days') || ' 14:05:00','utc')*1000 AS INTEGER)),
+ ('DemoBkCrs00000000004','DemoThCourse00000004','text',
+  'Revision plan: redo problem set 3 with the fee idea in hand, then watch lecture 8.',
+  NULL,NULL,NULL,0,NULL,NULL,
+  CAST(strftime('%s', date('now','localtime','-9 days') || ' 16:30:00','utc')*1000 AS INTEGER)),
+ ('DemoBkCrs00000000005','DemoThCourse00000004','text',
+  'Before Friday: problem set 3 question 2 is the overfitting one — that is the question the quiz will rhyme with. Do it with the fee idea, not with a bigger model.',
+  NULL,NULL,'Claude · MCP',0,'DemoBkCrs00000000004','cites',
+  CAST(strftime('%s', date('now','localtime','-9 days') || ' 16:42:00','utc')*1000 AS INTEGER));
+
+-- `seq` is the number a human says out loud ("#12") and the circle drawn on every block in
+-- the UI. The app assigns it as MAX(seq)+1 per thread inside the INSERT; seeding rows
+-- straight into SQLite bypasses that, so every demo block used to carry seq = NULL — a
+-- state real usage cannot produce (schema.sql: NULL only on rows predating v9's backfill).
+-- The visible cost was that no screenshot of this library could show the numbered circles.
+-- Numbered per thread in capture order, which is what the app's counter produces.
+UPDATE blocks SET seq = (
+  SELECT COUNT(*) FROM blocks AS earlier
+   WHERE earlier.thread_id = blocks.thread_id
+     AND earlier.created_at <= blocks.created_at
+);
 SQL
 
 echo "seeded: $DIR"

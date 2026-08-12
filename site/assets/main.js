@@ -43,9 +43,10 @@
      each spool visibly empties as its thread leaves: the wound band thins away
      until only rim and hub remain. Rotation comes from the geometry (arc paid
      out ÷ current band radius), so the spool turns exactly as fast as thread
-     leaves it, speeding up as it runs low. Clicking a spool pulls more thread:
-     the page glides down about one screen. Otherwise decorative: aria-hidden,
-     no keyboard focus, and CSS hides it below 1240px. */
+     leaves it, speeding up as it runs low. Purely decorative: aria-hidden, no
+     keyboard focus, nothing clickable, and CSS hides it below 1240px. (It used to
+     scroll a screen on click — a control that a screen reader and the keyboard
+     could not reach at all. Scrolling already works everywhere.) */
   if (!reduceMotion) {
     // spool geometry in its own 64×64 viewBox (centre 32)
     var SP_FULL = 24;   // wound-band outer radius when nothing has been read
@@ -83,9 +84,6 @@
           '<path class="mt-path" d="' + cfg.curve + '"/>' +
         '</svg>';
       document.body.appendChild(el);
-      el.querySelector('.mt-spool').addEventListener('click', function () {
-        window.scrollBy({ top: Math.round(window.innerHeight * 0.85), behavior: 'smooth' });
-      });
       return {
         cfg: cfg,
         spin: el.querySelector('.mt-spin'),
@@ -167,14 +165,19 @@
   }
 
   /* screenshot tab groups — tabs up top; groups with data-arrows also get
-     prev/next buttons at the image's sides */
+     prev/next buttons at the image's sides.
+
+     These are plain buttons carrying aria-pressed, NOT role="tab". The ARIA tab
+     pattern promises ←/→, Home/End and roving tabindex, and a screen-reader user
+     who presses an arrow key and gets nothing is worse off than with no roles at
+     all. If a tab group comes back with the MCP screenshots, keep it this way. */
   document.querySelectorAll('.shot-group').forEach(function (group) {
     var tabs = group.querySelector('.shot-tabs');
     if (!tabs) return;
     var btns = Array.prototype.slice.call(tabs.querySelectorAll('.shot-tab'));
     var panels = group.querySelectorAll('.shot-panel');
     var select = function (idx) {
-      btns.forEach(function (t, i) { t.setAttribute('aria-selected', i === idx ? 'true' : 'false'); });
+      btns.forEach(function (t, i) { t.setAttribute('aria-pressed', i === idx ? 'true' : 'false'); });
       panels.forEach(function (p) { p.hidden = p.dataset.panel !== btns[idx].dataset.tab; });
     };
     tabs.addEventListener('click', function (e) {
@@ -183,7 +186,7 @@
     });
     if (!group.hasAttribute('data-arrows')) return;
     var step = function (d) {
-      var cur = btns.findIndex(function (t) { return t.getAttribute('aria-selected') === 'true'; });
+      var cur = btns.findIndex(function (t) { return t.getAttribute('aria-pressed') === 'true'; });
       select((cur + d + btns.length) % btns.length);
     };
     [['prev', '‹', -1], ['next', '›', 1]].forEach(function (spec) {
