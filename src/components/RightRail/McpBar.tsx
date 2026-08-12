@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, PanelRightClose } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import ClientMenu from '@/components/mcp/ClientMenu';
 import { useT } from '@/lib/i18n';
 import { readClientsSeen, type ClientSeen } from '@/lib/mcp/clients';
 import { formatRelative } from '@/lib/utils/time';
@@ -21,7 +22,22 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // to describe right now.
 const REFRESH_MS = 20_000;
 
-export default function McpBar({ onCollapse }: { onCollapse: () => void }): JSX.Element {
+// 2026-08-12 (Ocean: 「加上一个导航去客户端的快捷键，点击就可以直接打开跳转」) — this row was
+// a readout and is now a way in. It said which AI last used Spool and then left the user to go
+// and find that app themselves, which is the same friction 「问 AI」 exists to remove, one
+// panel higher up.
+//
+// ⚠️ **The fold lists CONNECTED clients, not seen ones.** The line above still reports the
+// heartbeat (that is what makes it true), but a menu built from the heartbeat alone would omit
+// the client somebody just hooked up and never used — the very one they are looking for. That
+// merge lives in `readConnectedClients`, and 「问 AI」 renders the same list from it.
+export default function McpBar({
+  threadTitle,
+  onCollapse,
+}: {
+  threadTitle: string | null;
+  onCollapse: () => void;
+}): JSX.Element {
   const t = useT();
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
   const [seen, setSeen] = useState<Record<string, ClientSeen>>({});
@@ -53,17 +69,16 @@ export default function McpBar({ onCollapse }: { onCollapse: () => void }): JSX.
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          disabled={rows.length < 2}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[13px] text-ink-2 transition-colors enabled:hover:bg-paper-2 disabled:cursor-default"
+          title={t('跳到你的 AI 软件')}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[13px] text-ink-2 transition-colors hover:bg-paper-2"
         >
-          {/* The chevron appears only when there is a second client to reveal — a control
-              that opens onto one row already on screen is a control that does nothing. */}
-          {rows.length > 1 &&
-            (open ? (
-              <ChevronDown size={11} className="flex-none text-muted" />
-            ) : (
-              <ChevronRight size={11} className="flex-none text-muted" />
-            ))}
+          {/* Always a chevron now: the fold is no longer a second copy of the line above it,
+              it is where every connected client can be jumped to. */}
+          {open ? (
+            <ChevronDown size={11} className="flex-none text-muted" />
+          ) : (
+            <ChevronRight size={11} className="flex-none text-muted" />
+          )}
           <span className={`truncate ${line.dim ? 'text-muted' : ''}`}>{line.text}</span>
         </button>
         <button
@@ -77,15 +92,14 @@ export default function McpBar({ onCollapse }: { onCollapse: () => void }): JSX.
         </button>
       </div>
 
-      {open && rows.length > 1 && (
-        <ul className="space-y-0.5 px-3 pb-2">
-          {rows.slice(1).map(([key, v]) => (
-            <li key={key} className="flex items-baseline justify-between gap-2 text-[12px]">
-              <span className="min-w-0 truncate text-ink-2">{v.label || key}</span>
-              <span className="flex-none font-mono text-muted">{formatRelative(v.last_seen)}</span>
-            </li>
-          ))}
-        </ul>
+      {open && (
+        <div className="pb-1.5">
+          <ClientMenu
+            threadTitle={threadTitle}
+            heading={threadTitle ? t('拿哪个问？') : t('跳到哪个？')}
+            onPicked={() => setOpen(false)}
+          />
+        </div>
       )}
     </div>
   );

@@ -412,6 +412,13 @@ const EN: Record<string, string> = {
   'MCP 没开': 'MCP is off',
   '还没有 AI 连过': 'No AI has connected yet',
   '还有 {name} 连过 · {when}': '{name} also connected · {when}',
+  '跳到你的 AI 软件': 'Jump to your AI app',
+  '跳到哪个？': 'Jump to which?',
+  '跳到 {app}': 'Jump to {app}',
+  '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',
+  '{app} 已经在前面了': '{app} is up front now',
+  '{app} 是终端里的，Spool 打不开它': '{app} runs in your terminal — Spool cannot open it',
+  'Claude Code 在终端里，Spool 只能帮你复制。': 'Claude Code lives in your terminal, so Spool can only copy.',
   '接入 ChatGPT / Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
     'Hooking up ChatGPT / Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',

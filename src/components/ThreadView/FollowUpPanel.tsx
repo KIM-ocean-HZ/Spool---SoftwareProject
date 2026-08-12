@@ -1,5 +1,6 @@
 import { Globe, Loader2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import EngineBar from '@/components/RightRail/EngineBar';
 import { onEnter, onFirstChar } from '@/lib/threads/followUpFormat';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
@@ -149,6 +150,15 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
               {drafting ? t('AI 在读这个项目…') : t('让 AI 看看还缺什么')}
             </button>
             <span className="text-[10px] text-muted">{t('这一步只读你库里的东西，不联网。')}</span>
+          </div>
+
+          {/* 2026-08-12 (Ocean: 「『选择跟进用的 AI』，把这个选择键放到编辑的面板里面，这个按钮
+              不常用」) — it used to hold a permanent line in the right rail. It belongs here:
+              this panel is where the follow-up rules are settled, and which engine carries them
+              out is part of the same decision, taken about as often. It stays folded shut
+              (RightRail/EngineBar) so the panel opens on the text, not on a form. */}
+          <div className="mt-3 border-t border-line pt-3">
+            <EngineBar />
           </div>
         </div>
 

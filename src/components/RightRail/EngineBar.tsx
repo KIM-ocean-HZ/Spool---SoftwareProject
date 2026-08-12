@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { spendSince } from '@/lib/db/engineRuns';
 import { useT } from '@/lib/i18n';
 import { ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -82,30 +83,43 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high'] as const;
 /** Flipped on the day the measurement above changes. Nothing else needs to move. */
 const EFFORT_PICKER_ENABLED = false;
 
-interface Props {
-  /** Spend across Spool's own runs in the last 7 days, or null while it loads. §5: this is
-   *  what was SPENT. Neither CLI reports what is left, and nothing here may imply it does. */
-  spendUsd: number | null;
-}
-
 // 2026-08-11 (Ocean:「CLI 需要和跟进显示在一起，因为只有跟进使用了 CLI」) — this used to be the
-// rail's top bar and is now a block beside 跟进. The move is a claim about how much of the
-// product each one carries: 跟进 is the only action that reaches a CLI at all, while MCP is
-// how conversations write into the library, so MCP took the top (McpBar) and this came down
-// to sit with the one thing it serves.
+// rail's top bar and moved down beside 跟进. The move is a claim about how much of the product
+// each one carries: 跟进 is the only action that reaches a CLI at all, while MCP is how
+// conversations write into the library, so MCP took the top (McpBar) and this came down to sit
+// with the one thing it serves.
 //
-// ⚠️ It renders even with no project selected and no engine found. Gating it on the same
-// condition as 跟进 would read as tidier and would take the model picker away from anyone
-// who has not selected a project — and would leave 「没检测到引擎」 with nowhere to appear.
-export default function EngineBar({ spendUsd }: Props) {
+// 2026-08-12 it went one step further, into the follow-up editor itself (Ocean: 「『选择跟进用
+// 的 AI』，把这个选择键放到编辑的面板里面，这个按钮不常用」). Which engine runs your follow-ups
+// is decided about once; the rail is read constantly. So it now sits where the follow-up rules
+// are written, one 编辑 click away, instead of holding a permanent line in the column.
+//
+// ⚠️ **It is reachable only through that panel now**, which means an engine can be picked only
+// where a project has a brief to edit. That is the trade Ocean asked for, and the thing it
+// costs is 「没检测到引擎」 as a permanent notice — the rail's own install line still says what
+// to install, and Settings → AI still reports what was detected.
+export default function EngineBar() {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [spendUsd, setSpendUsd] = useState<number | null>(null);
   const status = useEngineStore((s) => s.status);
+  const runs = useEngineStore((s) => s.runs);
   const probe = useEngineStore((s) => s.probe);
   const effort = useSettingsStore((s) => s.aiEffortClaude);
   const modelClaude = useSettingsStore((s) => s.aiModelClaude);
   const modelGemini = useSettingsStore((s) => s.aiModelGemini);
   const update = useSettingsStore((s) => s.update);
+
+  // Seven days of Spool's own runs — what was SPENT (§5). Neither CLI reports what is left,
+  // and nothing here may imply it does. Recomputed whenever a run lands, which is exactly
+  // when the number changes: nothing else in the app spends money.
+  // ⚠️ The query came with the component out of the rail. Leaving it behind would have kept
+  // the rail paying for a number nothing there renders any more.
+  useEffect(() => {
+    void spendSince(Date.now() - 7 * 86_400_000)
+      .then((s) => setSpendUsd(s.costUsd))
+      .catch((e) => console.warn('[engine] spend query failed', e));
+  }, [runs]);
 
   const engineName = status?.selected ? ENGINE_LABEL[status.selected] : null;
   // The effort picker is claude's alone (see EFFORT_PICKER_ENABLED). The model picker is

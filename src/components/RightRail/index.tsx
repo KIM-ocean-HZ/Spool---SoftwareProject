@@ -1,13 +1,11 @@
 import { Bot, ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import EngineBar from "./EngineBar";
 import LiveRun from "./LiveRun";
 import McpBar from "./McpBar";
 import ProjectFiles from "./ProjectFiles";
 import RunCard from "./RunCard";
 import { createBlock } from "@/lib/db/blocks";
 import type { EngineRun } from "@/lib/db/engineRuns";
-import { spendSince } from "@/lib/db/engineRuns";
 import { groupAiActivity, visibleRuns } from "@/lib/engine/activity";
 import { canShowEngineActions, engineActionsDisabled } from "@/lib/engine/gate";
 import { dateLocale, useT } from "@/lib/i18n";
@@ -100,7 +98,6 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const openReview = useProposalsStore((s) => s.open);
   const highlight = useSearchStore((s) => s.highlight);
 
-  const [spend, setSpend] = useState<number | null>(null);
   const [storing, setStoring] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -111,14 +108,6 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   useEffect(() => {
     void loadRuns(thread?.id ?? null);
   }, [thread?.id, loadRuns]);
-
-  // Seven days of Spool's own runs. Recomputed whenever a run lands, which is exactly when
-  // the number changes — nothing else in the app spends money.
-  useEffect(() => {
-    void spendSince(Date.now() - 7 * 86_400_000)
-      .then((s) => setSpend(s.costUsd))
-      .catch((e) => console.warn("[rail] spend query failed", e));
-  }, [runs]);
 
   const busyOnThisThread =
     current?.threadId === thread?.id ||
@@ -201,8 +190,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper-2/40">
       {/* §9.4 丙 (2026-08-11, Ocean:「MCP 才是主要的对话写入工具，放在最顶上」). The CLI
-          engine used to hold this row; it is now beside 跟进, the only action that uses it. */}
-      <McpBar onCollapse={onCollapse} />
+          engine used to hold this row; it now lives inside the follow-up editor, beside the
+          only thing that spends it.
+          2026-08-12: it also became the way INTO those clients — the title is what a click
+          carries across (components/mcp/ClientMenu). */}
+      <McpBar threadTitle={thread?.title ?? null} onCollapse={onCollapse} />
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {/* §9.1 主体, in order of how much it wants you right now. */}
@@ -288,33 +280,47 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                 carry this action; a greyed control invites a hunt for the switch that turns
                 it on, and there isn't one. The brief itself stays visible and editable:
                 switching to a subscription engine later should find it already written. */}
+            {/* ⚠️ A rule above it and a border around it (2026-08-12, Ocean: 「联网搜索的按钮
+                和上面的跟进内容之间划一条线，或者把它做成一个按钮，不然不明显」). It was bare
+                text with an icon, sitting flush under the brief in the same frame — so the one
+                control in this panel that reaches the open web read as one more line of the
+                brief. Both halves of what he offered, because they fix different halves of the
+                problem: the rule separates it from the text above, the border says it is a
+                thing you press. It stays inline-width, not a full-width bar (§9.13 #2). */}
             {thread.followUpBrief &&
               (engineSupportsWeb(status?.selected ?? null) ? (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() =>
-                    enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
-                  }
-                  title={t("照你定的那几行联网搜索")}
-                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[13px] text-ink-2 transition-colors enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-                >
-                  <Globe size={12} className="flex-none" />
-                  {t("联网搜索")}
-                </button>
+                <div className="mt-2 border-t border-line pt-2">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() =>
+                      enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
+                    }
+                    title={t("照你定的那几行联网搜索")}
+                    className="flex items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[13px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+                  >
+                    <Globe size={12} className="flex-none" />
+                    {t("联网搜索")}
+                  </button>
+                </div>
               ) : (
-                <p className="text-[12px] leading-relaxed text-muted">
+                <p className="mt-2 border-t border-line pt-2 text-[12px] leading-relaxed text-muted">
                   {t("联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。")}
                 </p>
               ))}
           </div>
         )}
 
-        {/* 2026-08-11 (Ocean:「CLI 需要和跟进显示在一起，因为只有跟进使用了 CLI」) — directly
-            under 跟进 rather than at the top of the rail. Rendered unconditionally on purpose:
-            gating it like 跟进 would hide the model picker whenever no project is selected,
-            and leave 「没检测到引擎」 with nowhere to say itself. */}
-        <EngineBar spendUsd={spend} />
+        {/* ⚠️ **「跟进用的」 is no longer in this column** (2026-08-12, Ocean: 「『选择跟进用的
+            AI』，把这个选择键放到编辑的面板里面，这个按钮不常用」). It moved into the follow-up
+            editor (ThreadView/FollowUpPanel) — one panel deeper, reached by 编辑, which is
+            where you already are when you are deciding what a follow-up should do.
+            ⚠️ It cost the thing the 2026-08-11 note here defended: with no engine installed
+            the 跟进 block does not render, so 「没检测到引擎」 has nowhere to appear in the rail.
+            That trade is deliberate and it is not a silent one — the 「装了 Claude Code 或
+            Codex…」 line further up this column already tells a user with no engine what to
+            install, and Settings → AI still reports what was detected. A permanently-visible
+            picker for a decision taken once is what he asked to be rid of. */}
 
         {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
             no files says so and offers the ＋), because this is now the ONLY place a file can
