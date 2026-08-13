@@ -45,10 +45,10 @@ Spool compresses "re-explaining" into "a single paste."
 
 ### New in v0.4.0
 
-Everything below is off by default and adds no keys, no accounts, and no network egress from Spool itself.
+The optional external-AI routes below add no keys or accounts to Spool and no network egress from Spool itself.
 
-- **A CLI engine slot.** If you already have Claude Code or the Codex CLI installed and logged in, Spool can run it as a local subprocess to do four jobs on your library: **distill** a project to one conclusion, flag **duplicates** and stale references, **follow up** on things you asked it to watch, and write a cross-project **weekly review**. The network request happens inside that CLI, on your own subscription's quota — Spool stores no API key and makes no HTTP request of its own.
-- **A right-hand rail that shows the work.** Every AI run streams its progress there and leaves a record of what it wrote, because a tool that edits your notes has to be watchable. Nothing an engine produces is filed silently.
+- **A CLI engine slot.** If you already have Claude Code, the Codex CLI, or the Gemini CLI installed and logged in, Spool can run it as a local subprocess to **follow up** on things you asked it to watch, write a cross-project **weekly review**, or help draft the lines worth following. The network request happens inside that CLI, on your own account's quota — Spool stores no API key and makes no HTTP request of its own. Gemini does not run Follow Up.
+- **Visible runs and honest records.** Follow Up runs in the right-hand rail; Weekly Review has its own screen, and completed runs for those two actions leave a record. A follow-up-goal draft stays only in its editor until you save or discard it. Intermediate progress appears when the CLI exposes it, and nothing that would change your existing notes is applied silently.
 - **Follow up.** You write a few plain lines describing what to watch for; the engine searches the web against exactly those lines and files what it finds for your review. It stays quiet when there is no news — the one action that deliberately reaches the open web, and the only one whose web tools are switched on.
 - **Retirement and correction, instead of overwriting.** You can mark a block as no longer valid, or point at the one sentence in an older block that a newer one corrects. Retired blocks leave the pack but stay in the library and stay searchable, and the pack says out loud that they were left out. An append-only log must never silently overwrite a fact.
 - **Annotations say who wrote them.** A note an AI wrote through MCP renders as `ai note:` in a pack and can never be read as your own judgement — that distinction is the whole point of the authority header.
@@ -75,7 +75,7 @@ All twelve phases of the original implementation roadmap were landed in v0.3.0:
 ## Design principles (non-negotiable)
 
 1. Capture must be zero-friction — one keypress, no decisions.
-2. Local-first, private by default — Spool itself makes no network request, ever, and its CSP forbids one structurally. Content can only leave through a program you installed and logged into yourself: an MCP client reading the library, or the CLI engine running one of the four maintenance actions. Both are opt-in, and the write side is a third switch again.
+2. Local-first, private by default — Spool itself makes no network request, ever, and its CSP forbids one structurally. Content reaches another program only through a hand-off you choose: paste a Pack, enable an MCP client, or run a CLI action. MCP is opt-in, and its write side is a separate switch.
 3. A project is a log, not a chat — append-only, time-ordered, quiet.
 4. Retrieval is deterministic — pack and search never call AI or the network.
 5. AI is a librarian, not an author — anything an AI files through MCP is attributed, append-only, and can never overwrite what you wrote by hand.
@@ -91,7 +91,7 @@ The full product constitution, rejected ideas, and the feature filter are in `PL
 - **Zustand** for state
 - **SQLite** via `tauri-plugin-sql`, FTS5 with the trigram tokenizer
 - **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — 18 tools, read tools (list/search/dedup/pack) plus consented, attributed write tools
-- **CLI engine slot** (default OFF): `claude` or `codex` run as a local subprocess for the four maintenance actions — detected on disk, never bundled, never given a key
+- **CLI engine slot**: `claude`, `codex`, or `gemini` runs as a local subprocess for Follow Up, Weekly Review, and follow-up-goal drafting — detected on disk, never bundled, never given a key
 
 ## Building from source
 
@@ -104,15 +104,15 @@ npm run tauri build   # production .dmg / installer
 npm test              # vitest
 ```
 
-The macOS double-tap-⌥ capture trigger requires **Input Monitoring** AND **Accessibility** permission (System Settings → Privacy & Security). Spool prompts for Input Monitoring on first launch and shows a banner until it is granted; the grant takes effect after restarting Spool. Accessibility is what makes a *consumed* double-tap exclusive: when Spool captures, it deletes the second ⌥ press from the event stream, so other apps bound to the same gesture (Claude Desktop's quick entry, for one) do not also fire. A bare double-tap with nothing freshly copied is still passed through to them untouched. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+The macOS double-tap-⌥ capture trigger requires **Input Monitoring** permission (System Settings → Privacy & Security). Spool checks its status at launch and shows a setup banner while it is missing; using that banner's capture setup action triggers the macOS request, and the grant takes effect after restarting Spool. **Accessibility is optional** and makes a *consumed* double-tap exclusive: when Spool captures, it deletes the second ⌥ press from the event stream, so other apps bound to the same gesture (Claude Desktop's quick entry, for one) do not also fire. Without Accessibility, capture still works but those apps may fire alongside it. A bare double-tap with nothing freshly copied is still passed through to them untouched. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
 
 ## AI via MCP (optional, no keys, no accounts)
 
-Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Cursor, or any MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly.
+Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Codex — including a Codex conversation inside the ChatGPT desktop app — Cursor, or another MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly. An ordinary ChatGPT conversation runs remotely and cannot reach a local stdio server.
 
 **You do not need any of this to use Spool with an AI.** ⌘⇧P packs a project into Markdown you paste into a browser tab — nothing to install, nothing to connect, and no feature is withheld from you for skipping it. MCP buys exactly one thing: your AI fetches the context itself instead of waiting for you to paste it, and can file conclusions back with its name on them.
 
-- **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). Next to it, 「复制使用提示」 is the single place the how-to lives — one short paragraph, readable by you and paste-ready for the AI.
+- **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). Restart the client so it can load the setting; Spool separately shows whether that client has actually connected. Next to it, 「复制使用提示」 is the single place the how-to lives — one short paragraph, readable by you and paste-ready for the AI.
 - **Read tools** (12): list projects (with one-line summaries and read-budget hints), a cross-project digest of recent activity, full-text search, near-duplicate detection, block paging (including blocks you have retired), the same deterministic pack the GUI produces, a read-only library hygiene checkup, one call that answers "how is this project doing" in a single round-trip, a read of what a project is currently watching for, plus three that hand back a briefing and the job to do with it — distill one project, report one project's health, review the week across all of them.
 - **Write tools** (6, behind a second and separate consent): create a project, append a block (optionally citing the block it builds on, or proposing that one point in it was corrected), refresh a project's one-line summary, and queue a batch of blocks for your review. Two of the six store nothing at all — they put a request in front of you and wait: *ask to read a file already in a project*, and *suggest a change to what a project watches*. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand, never retire one of your blocks, and never write a note that reads as if you wrote it.
 - **What an AI can and cannot do to history**: it may append, and it may *propose* that one point in an older block was corrected — which you approve or discard. Marking a block as no longer valid stays yours alone.
@@ -127,30 +127,34 @@ actual projects.
 
 ## Maintenance by your own CLI (v0.4.0, optional, still no keys)
 
-Reading through a chat client is one half. The other half is the housekeeping nobody wants to do
-by hand — and for that Spool can drive a coding CLI you already own. If `claude` (Claude Code) or
-`codex` (Codex CLI) is on your machine and logged in, Spool detects it and offers four actions:
+Reading through a chat client is one half. The other half is checking what changed while you were
+away — and for that Spool can drive a coding CLI you already own. If `claude` (Claude Code),
+`codex` (Codex CLI), or `gemini` (Gemini CLI) is on your machine and logged in, Spool detects it
+and offers these actions:
 
 | Action | What it does | Reaches the web |
 |---|---|---|
-| **Distill** | Condense one project into a single conclusion block | no |
-| **Dedupe** | Flag near-duplicate blocks and stale references; report only, never deletes | no |
 | **Follow up** | Search for news against lines *you* wrote describing what to watch; findings queue for your review | **yes** |
-| **Weekly review** | One review across every project, filed into a project of its own | no |
+| **Weekly review** | One review across every project, kept in the dedicated Weekly Review screen | no |
+| **Draft follow-up goals** | Suggest the lines worth watching for one project; you decide what to keep | no |
 
 Three things make this safe to leave switched on, and all three are deliberate:
 
 - **Spool never becomes a network client.** It spawns the CLI as a local subprocess; the request
   leaves from there, under your own login and quota. No API key is stored, entered, or needed.
-- **You watch it work.** Runs stream into the right-hand rail, and what an engine wrote stays
-  labelled afterwards. Anything that would change your existing notes arrives as a proposal to
-  approve, not as an edit.
-- **Only Follow up gets web tools**, and only against the lines you wrote. The other three run
-  with the web switched off — they read your library and nothing else.
+- **You can see where it ran.** Follow Up lives in the right-hand rail; Weekly Review has a dedicated
+  screen, and completed runs for those two actions stay recorded. A goal draft stays only in its editor
+  until you save or discard it; progress appears when the selected CLI exposes it. Anything that would
+  change your existing notes arrives as a proposal to approve, not as an edit.
+- **Only Follow Up gets web tools**, and only against the lines you wrote. Weekly Review and goal
+  drafting run without web-search tools. They still hand the project content they need to the CLI,
+  so that content may reach its provider.
 
-It is off by default, requires both MCP switches, and has a per-run time limit you set. Codex has
-one honest limitation Spool states in the UI rather than hiding: its built-in shell tool cannot be
-removed the way Claude Code's can, so Spool runs it read-only sandboxed instead.
+The actions require the MCP service and AI-write permission, at least one supported CLI installed and
+logged in, and a per-run time limit you set. If several CLIs are available, you can choose between them.
+Codex has one honest limitation Spool states in the UI rather than hiding: its
+built-in shell tool cannot be removed the way Claude Code's can, so Spool runs it read-only
+sandboxed instead. Gemini can run Weekly Review and draft goals, but not Follow Up.
 
 ## Keyboard shortcuts
 

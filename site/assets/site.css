@@ -426,6 +426,21 @@ p { margin: 0 0 1rem; }
 .loop-row p { color: var(--ink-2); font-size: 1rem; margin-bottom: 0; }
 /* a second paragraph in a loop row is a second thought, not a continuation */
 .loop-row p + p { margin-top: 1rem; }
+.loop-visual figure { margin: 0; }
+/* Rows backed by real UI grabs need the whole content width. A half-column can
+   show a window's silhouette, but it cannot preserve the text that proves the
+   claim beside it. The copy keeps the normal reading measure; the evidence then
+   uses the full row for complete context plus readable crops from that same grab. */
+.loop-row.proof-row { display: block; }
+.loop-row.proof-row .loop-copy {
+  order: initial;
+  max-width: 44rem;
+  margin: 0 auto;
+}
+.loop-row.proof-row .loop-visual {
+  max-width: 68rem;
+  margin: 1.6rem auto 0;
+}
 @media (max-width: 800px) {
   .loop-row, .loop-row.flip .loop-copy { display: block; order: initial; }
   .loop-row .loop-visual { margin-top: 1.4rem; }
@@ -437,6 +452,60 @@ p { margin: 0 0 1rem; }
 /* ---------- the pack, shown as the text it actually is ---------- */
 .pack-intro { margin-top: 1rem; }
 .pack-intro h3 { font-size: 1.7rem; margin-bottom: 0.9rem; }
+.pack-signals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.8rem;
+}
+.pack-signals article {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 1rem;
+}
+.pack-signals p {
+  margin: 0.55rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.pack-signal-label {
+  color: var(--accent-2);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.pack-signals .pk-seq { color: var(--accent); font-weight: 650; }
+.pack-signals .pk-src { color: var(--accent-2); }
+.pack-signals .pk-ai { font-weight: 650; }
+.pack-signals .pk-cite { color: var(--muted); }
+.pack-example { margin-top: 1rem; }
+.pack-example > summary {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 0.65rem 2.5rem 0.65rem 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--accent-2);
+  cursor: pointer;
+  font-weight: 550;
+  list-style: none;
+}
+.pack-example > summary::-webkit-details-marker { display: none; }
+.pack-example > summary::after {
+  content: '+';
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.pack-example[open] > summary::after { content: '–'; }
 .pack-real { margin: 1.8rem 0 0; }
 .pack-doc {
   border: 1px solid var(--line-strong);
@@ -490,6 +559,8 @@ p { margin: 0 0 1rem; }
   text-align: center;
 }
 @media (max-width: 640px) {
+  .pack-signals { grid-template-columns: 1fr; }
+  .pack-example > summary { width: 100%; min-height: 44px; }
   .pack-doc { padding: 1.1rem 0.9rem; }
   .pack-doc pre { font-size: 0.72rem; line-height: 1.7; }
 }
@@ -587,22 +658,171 @@ p { margin: 0 0 1rem; }
    wrapper must not become an inline box between the image and its caption */
 picture { display: block; }
 .shot-caption { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 0.9rem; }
-/* 01 · SAVE — the real page (selection and all), with the real toast floating
-   over its corner so it still reads as the popup it is */
-.capture-scene { position: relative; margin: 0.4rem 0 0; }
-.capture-scene .capture-page { border-radius: var(--r-lg); }
-.capture-toast {
-  position: absolute;
-  top: -1.3rem;
-  right: -1rem;
-  width: min(56%, 21rem);
-  height: auto;
-  border-radius: 10px;
-  border: 1px solid var(--line-strong);
-  box-shadow: var(--shadow-pop);
+/* Screenshot proofs share one grammar: the complete real grab stays on the left;
+   precise crop frames on that image point to two native-pixel magnifications on
+   the right. The grid ratios below are derived from each source/crop aspect ratio,
+   so the left image and the two-image stack share the same top and bottom edge. */
+.shot-proof {
+  --zoom-one: var(--accent);
+  --zoom-two: var(--ok);
+  position: relative;
+  isolation: isolate;
+  margin: 0.4rem 0 0;
 }
-.capture-chip { position: absolute; left: 0.8rem; bottom: 0.8rem; box-shadow: var(--shadow-card); }
-.capture-scene + .shot-caption { text-align: left; }
+.proof-overview { max-width: 52rem; margin: 0 auto; }
+.zoom-source { position: relative; z-index: 1; }
+.proof-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+  max-width: 60rem;
+  margin: 1rem auto 0;
+}
+.proof-details picture,
+.zoom-detail { min-width: 0; }
+.proof-detail { box-shadow: var(--shadow-card); }
+.capture-toast { border-radius: 10px; }
+.zoom-one { --zoom-color: var(--zoom-one); }
+.zoom-two { --zoom-color: var(--zoom-two); }
+.zoom-box {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid var(--zoom-color);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 2px rgba(250, 247, 240, 0.92),
+    0 4px 14px rgba(28, 26, 22, 0.2);
+  pointer-events: none;
+}
+.capture-scene .zoom-box-one {
+  left: 0.027778%; top: 0.044248%; width: 22.222222%; height: 11.504425%;
+}
+.capture-scene .zoom-box-two {
+  left: 80%; top: 0; width: 18.888889%; height: 17.345133%;
+}
+.keep-magnifier-stage { overflow: visible; }
+.keep-magnifier-stage > .keep-lens {
+  position: absolute;
+  right: 2.25%;
+  z-index: 3;
+  width: 74%;
+  box-shadow:
+    0 0 0 2px var(--zoom-color),
+    0 12px 28px rgba(28, 26, 22, 0.22);
+}
+/* Each crop stays centred on the notes it magnifies. The smaller cards leave
+   a clear gap between the two bands, so neither border or shadow overlaps. */
+.keep-lens-one { top: 35.29%; }
+.keep-lens-two { top: 62.82%; }
+.keep-lens .shot { width: 100%; }
+.zoom-detail {
+  position: relative;
+  z-index: 3;
+  border-radius: var(--r-lg);
+  box-shadow: 0 0 0 2px var(--zoom-color), var(--shadow-card);
+}
+.zoom-number {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--zoom-color);
+  color: #fff;
+  box-shadow: 0 3px 9px rgba(28, 26, 22, 0.24);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1;
+}
+/* The small handle turns the numbered endpoint into a literal magnifying lens. */
+.zoom-number::after {
+  content: '';
+  position: absolute;
+  right: -0.34rem;
+  bottom: -0.17rem;
+  width: 0.52rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--zoom-color);
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+.zoom-box > .zoom-number { right: -0.7rem; bottom: -0.7rem; }
+.zoom-detail > .zoom-number {
+  z-index: 4;
+  left: -0.78rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.zoom-connectors {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.zoom-line {
+  fill: none;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 2px var(--paper)) drop-shadow(0 0 2px var(--paper));
+}
+.zoom-line-one { stroke: var(--zoom-one); }
+.zoom-line-two { stroke: var(--zoom-two); }
+@media (min-width: 701px) {
+  .shot-proof {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+  /* Exact aspect-ratio solutions, including the 1rem gap:
+     SAVE: 2260/3600 = 260/800 + 392/680. KEEP uses one overview with
+     its two magnified crops overlaid in place, so it needs no column split. */
+  .shot-proof.capture-scene {
+    grid-template-columns: minmax(0, calc(58.9486% + 1.031px)) minmax(0, 1fr);
+  }
+  .proof-overview,
+  .proof-details {
+    max-width: none;
+    margin: 0;
+  }
+  .proof-details {
+    grid-template-columns: minmax(0, 1fr);
+    align-self: start;
+    position: relative;
+    z-index: 3;
+  }
+  .proof-overview .shot,
+  .proof-details .shot { width: 100%; }
+  .zoom-connectors { display: block; }
+}
+@media (max-width: 700px) {
+  .shot-proof.keep-scene {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  .keep-scene .keep-magnifier-stage {
+    min-width: 46rem;
+    margin: 0;
+  }
+  .zoom-detail > .zoom-number {
+    left: 0.8rem;
+    top: -0.72rem;
+    transform: none;
+  }
+}
 /* 03 · PASTE — the real Pack dialog, portrait, kept at readable width */
 .pack-shot { max-width: min(23rem, 100%); }
 .pack-pic + .shot-caption { max-width: 23rem; margin-left: auto; margin-right: auto; }
@@ -850,6 +1070,7 @@ footer a { color: var(--ink-2); }
 }
 .demo-ribbon .reset-link { color: var(--muted); text-decoration: underline; cursor: pointer; background: none; border: none; font: inherit; padding: 0; }
 .demo-ribbon .reset-link:hover { color: var(--accent); }
+.demo-frame [hidden] { display: none !important; }
 
 /* progress rail */
 .demo-rail { display: flex; gap: 0.4rem; padding: 0.9rem 1.1rem 0; flex-wrap: wrap; }
@@ -961,7 +1182,7 @@ footer a { color: var(--ink-2); }
 .keycap:active, .keycap.pressed { transform: translateY(2px); border-bottom-width: 1px; background: var(--accent-soft); }
 .keycap-hint { font-size: 0.8rem; color: var(--muted); }
 
-/* AI chat bubbles (source #2 and re-brief scene) */
+/* AI chat bubbles (re-brief and MCP scenes) */
 .chat { display: flex; flex-direction: column; gap: 0.7rem; }
 .bubble { max-width: 92%; border-radius: var(--r-lg); padding: 0.65rem 0.9rem; font-size: 0.85rem; line-height: 1.55; }
 .bubble.user { align-self: flex-end; background: var(--accent-soft); color: var(--ink); border-bottom-right-radius: 4px; }
@@ -1016,8 +1237,6 @@ footer a { color: var(--ink-2); }
   flex-shrink: 0;
   margin-top: 0.1rem;
 }
-.ab-tag.you { background: var(--accent-soft); color: var(--accent-2); }
-.ab-tag.ai { background: var(--paper-2); color: var(--ink-2); border: 1px solid var(--line-strong); }
 .ab-tag.ref { background: rgba(107, 124, 90, 0.14); color: var(--ok); }
 @media (prefers-reduced-motion: reduce) { .ai-brief > * { transition: none; } }
 
@@ -1142,24 +1361,6 @@ footer a { color: var(--ink-2); }
 .rc-btn.primary:hover { background: var(--accent-2); }
 .rc-btn.ghost { background: none; border-color: var(--line-strong); color: var(--ink-2); }
 .rc-btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-/* composer (capture #3: your own words) */
-.composer { border-top: 1px solid var(--line); padding: 0.7rem 1rem; display: flex; gap: 0.6rem; }
-.composer input {
-  flex: 1;
-  font-family: var(--font-ui);
-  font-size: 0.85rem;
-  padding: 0.5rem 0.8rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
-  background: #fff;
-  color: var(--ink);
-}
-.composer input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-.composer button {
-  font-family: var(--font-ui); font-size: 0.83rem; padding: 0.4rem 1rem;
-  border-radius: var(--r-md); border: none; background: var(--accent); color: #fff; cursor: pointer;
-}
 
 /* capture overlay chip */
 .overlay-chip {
@@ -1326,6 +1527,32 @@ footer a { color: var(--ink-2); }
 .article th, .article td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .article th { font-weight: 600; color: var(--ink-2); border-bottom: 1px solid var(--line-strong); }
 .article .shot { margin: 1.75rem auto; }
+.article .story-shot-proof { margin: 1.75rem 0; }
+.article .story-shot-proof .shot { margin: 0 auto; }
+.article .story-shot-pan-single {
+  max-width: 36rem;
+  margin: 0 auto;
+}
+.article .story-shot-pan-detail {
+  max-width: 30rem;
+  margin: 1rem auto 0;
+}
+.article .story-shot-pan {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.article .story-shot-pan picture {
+  width: 59rem;
+  max-width: none;
+  margin: 0;
+}
+.article .story-shot-pan .shot {
+  width: 100%;
+  max-width: none;
+}
+.article .story-shot-proof .shot-caption { margin: 0.9rem auto 0; }
 .article hr { border: none; border-top: 1px solid var(--line); margin: 2.5rem 0; }
 
 /* story layout: sticky TOC on wide screens */
@@ -1373,4 +1600,7 @@ footer a { color: var(--ink-2); }
 @media (max-width: 640px) {
   .hero { padding: 3.2rem 0 2.5rem; }
   section { padding: 2.8rem 0; }
+  .nav-brand,
+  .nav-links .nav-cta { min-height: 44px; display: flex; align-items: center; }
+  .demo-frame button { min-width: 44px; min-height: 44px; }
 }

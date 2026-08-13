@@ -62,7 +62,7 @@
 <section class="wrap hero">
   <div class="hero-mark-wrap">
     <div class="hero-ring" aria-hidden="true"></div>
-    <img class="mark" src="assets/spool-logo-full.svg" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
+    <img class="mark" src="assets/spool-logo-full.svg" data-i18n-alt="alt-logo" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
   </div>
   <h1><span data-i18n="hero-h1">Never explain your<br>project twice.</span><span class="zh">思簿</span></h1>
   <p class="sub" data-i18n="hero-sub">Copy anything worth keeping and tap <span class="kbd">⌥</span> twice — it lands
@@ -90,7 +90,7 @@
 <section class="alt" id="problem">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="moment-k">The two minutes you lose, over and over</div>
+      <div class="kicker" data-i18n="moment-k">The background you keep typing again</div>
       <p class="problem" data-i18n="moment-p">Monday, you open a new chat and type it all out: what the project
       is, who it is for, what you already decided, what you tried and dropped. Wednesday, another chat —
       you type it again, shorter this time, leaving out the part that mattered.
@@ -122,16 +122,16 @@
 <section id="demo">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="demo-k">Try it — 90 seconds</div>
+      <div class="kicker" data-i18n="demo-k">Try it — no download needed</div>
       <h2 data-i18n="demo-h">Do the whole thing right here</h2>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">Save three notes, pack them,
-      and watch a brand-new AI chat pick up the project without being told anything. Then the last
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="demo-p">Save one note, pack it,
+      and watch a brand-new AI chat pick up the exact point without being told the background. Then the last
       step, the one nobody believes until they do it: an AI asks to file something, and you decide.
-      The content is written in advance; every step is exactly what the app does.</p>
+      The content is written in advance; the flow mirrors the real app.</p>
     </div>
     <div class="demo-shell reveal">
       <div id="demo-app"></div>
-      <noscript><p class="center muted">The demo needs JavaScript — the
+      <noscript><p class="center muted" data-i18n="demo-noscript">The demo needs JavaScript — the
       <a href="story.html">story page</a> and the screenshots below work without it.</p></noscript>
     </div>
   </div>
@@ -144,7 +144,7 @@
       <h2 data-i18n="how-h">Save it, keep it, hand it over</h2>
     </div>
 
-    <div class="loop-row reveal">
+    <div class="loop-row proof-row reveal">
       <div class="loop-copy">
         <div class="n" data-i18n="l1-n">01 · SAVE</div>
         <h3 data-i18n="l1-h">One key. Nothing to decide.</h3>
@@ -155,25 +155,46 @@
         AI reads first.</p>
       </div>
       <div class="loop-visual">
-        <!-- One screenshot, shown as two: at this column width the real overlay is a
-             90px speck in the corner of a browser window, and this paragraph is about
-             what is INSIDE it (the cursor, the note box). So the page is the base and a
-             larger crop of the same capture floats over its corner, which is also where
-             the overlay really appears. Both halves come from the one grab. -->
-        <figure class="capture-scene">
-          <picture>
-            <source type="image/webp" sizes="(max-width: 800px) 100vw, 580px"
-              srcset="assets/shots/capture-page-580.webp 580w, assets/shots/capture-page-1160.webp 1160w, assets/shots/capture-page.webp 2596w">
-            <img class="shot capture-page" src="assets/shots/capture-page.png" width="2596" height="2260" loading="lazy" decoding="async"
-              alt="The article that was copied from, open in a browser, with its tab and its address bar still visible above it">
-          </picture>
-          <img class="capture-toast" src="assets/shots/capture-toast.png" width="680" height="392" loading="lazy" decoding="async"
-            alt="Spool's confirmation: the first words of what was saved, where it went — Study / Machine learning course — then the title of the browser tab it came from, and a note box with the cursor already in it">
+        <!-- S1 establishes the complete capture scene. The numbered frames and
+             connector lines map its two real crop regions to the magnified details. -->
+        <figure class="shot-proof capture-scene">
+          <div class="proof-overview zoom-source">
+            <picture>
+              <source type="image/webp" sizes="(max-width: 700px) calc(100vw - 3rem), (max-width: 1100px) 57vw, 41rem"
+                srcset="assets/shots/capture-page-580.webp 580w, assets/shots/capture-page-1160.webp 1160w, assets/shots/capture-page.webp 3600w">
+              <img class="shot capture-page" src="assets/shots/capture-page.png" width="3600" height="2260" loading="lazy" decoding="async" data-i18n-alt="alt-capture-page"
+                alt="The complete browser capture: an IBM article fills the window, with its tab and address at the top and Spool's save confirmation over the upper-right corner">
+            </picture>
+            <span class="zoom-box zoom-box-one zoom-one" aria-hidden="true"><span class="zoom-number">1</span></span>
+            <span class="zoom-box zoom-box-two zoom-two" aria-hidden="true"><span class="zoom-number">2</span></span>
+          </div>
+          <svg class="zoom-connectors" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+            <path class="zoom-line zoom-line-one" d="M 131 58 C 310 58 500 173 610 173" />
+            <path class="zoom-line zoom-line-two" d="M 583 87 C 600 170 585 620 610 696" />
+          </svg>
+          <div class="proof-details capture-details">
+            <div class="zoom-detail zoom-one">
+              <picture>
+                <source type="image/webp" srcset="assets/shots/capture-page-source-detail.webp">
+                <img class="shot proof-detail" src="assets/shots/capture-page-source-detail.png" width="800" height="260" loading="lazy" decoding="async" data-i18n-alt="alt-capture-source-detail"
+                  alt="Close-up of the same browser capture, showing the article's tab title and its ibm.com address">
+              </picture>
+              <span class="zoom-number" aria-hidden="true">1</span>
+            </div>
+            <div class="zoom-detail zoom-two">
+              <picture>
+                <source type="image/webp" srcset="assets/shots/capture-toast.webp">
+                <img class="shot proof-detail capture-toast" src="assets/shots/capture-toast.png" width="680" height="392" loading="lazy" decoding="async" data-i18n-alt="alt-capture-toast"
+                  alt="Spool's confirmation: the saved words, their Study / Machine learning course destination, the source tab title, and the note box with its cursor ready">
+              </picture>
+              <span class="zoom-number" aria-hidden="true">2</span>
+            </div>
+          </div>
         </figure>
       </div>
     </div>
 
-    <div class="loop-row flip reveal">
+    <div class="loop-row flip proof-row reveal">
       <div class="loop-copy">
         <div class="n" data-i18n="l2-n">02 · KEEP</div>
         <h3 data-i18n="l2-h">A list, not a chat.</h3>
@@ -187,13 +208,33 @@
         by you or by anything else.</p>
       </div>
       <div class="loop-visual">
-        <figure>
-          <picture>
-            <source type="image/webp" sizes="(max-width: 800px) 100vw, 580px"
-              srcset="assets/shots/project-window-580.webp 580w, assets/shots/project-window-1160.webp 1160w, assets/shots/project-window.webp 3600w">
-            <img class="shot" src="assets/shots/project-window.png" width="3600" height="2260" loading="lazy" decoding="async"
-              alt="The Spool window: workspaces and projects down the left with a panel counting what you have saved, and one project's notes with their numbers, times, sources and your own comments">
-          </picture>
+        <figure class="shot-proof keep-scene">
+          <div class="proof-overview zoom-source keep-magnifier-stage" tabindex="0" role="group"
+            data-i18n-aria="aria-keep-magnifier"
+            aria-label="Complete project window with two enlarged note regions; scroll sideways inside the image on a narrow screen">
+            <picture>
+              <source type="image/webp" sizes="(max-width: 700px) 46rem, (max-width: 1152px) calc(100vw - 3rem), 68rem"
+                srcset="assets/shots/project-window-736.webp 736w, assets/shots/project-window.webp 2144w">
+              <img class="shot project-overview" src="assets/shots/project-window.png" width="2144" height="1822" loading="lazy" decoding="async" data-i18n-alt="alt-project-window"
+                alt="The complete Spool window: workspaces, projects and the saved-count panel on the left, with one project's chronological notes on the right">
+            </picture>
+            <div class="zoom-detail zoom-one keep-lens keep-lens-one">
+              <picture>
+                <source type="image/webp" srcset="assets/shots/project-window-source-detail.webp">
+                <img class="shot proof-detail" src="assets/shots/project-window-source-detail.png" width="1465" height="410" loading="lazy" decoding="async" data-i18n-alt="alt-project-source-detail"
+                  alt="Close-up of notes #2 and #3: #2 keeps its Lecture 7 slides · Safari source, the user's comment and the quoted passage; #3 keeps its AI chat · Safari source">
+              </picture>
+              <span class="zoom-number" aria-hidden="true">1</span>
+            </div>
+            <div class="zoom-detail zoom-two keep-lens keep-lens-two">
+              <picture>
+                <source type="image/webp" srcset="assets/shots/project-window-ai-detail.webp">
+                <img class="shot proof-detail" src="assets/shots/project-window-ai-detail.png" width="1465" height="370" loading="lazy" decoding="async" data-i18n-alt="alt-project-ai-detail"
+                  alt="Close-up of notes #4 and #5: the user's revision plan followed by an AI note badged Claude · MCP, with a citation pointing back to #4">
+              </picture>
+              <span class="zoom-number" aria-hidden="true">2</span>
+            </div>
+          </div>
         </figure>
       </div>
     </div>
@@ -210,11 +251,11 @@
     </div>
 
     <!-- The pack is the one artefact no competing "memory" product hands you: plain text you
-         can read, check, edit and take somewhere else. So the page shows the text itself
-         rather than a screenshot of the window that produces it. Everything inside .pack-doc
-         is real output, rendered by the shipped binary from the demo library
-         (scripts/seed-demo-library.sh → `spool --mcp` get_pack). Never hand-write this
-         block: if the renderer changes, re-run it and paste the new bytes. -->
+         can read, check, edit and take somewhere else. The three signals below expose the
+         distinctions that matter at a glance; the complete real example remains available in
+         the disclosure underneath. Everything inside .pack-doc is real output, rendered by the
+         shipped binary from the demo library (scripts/seed-demo-library.sh → `spool --mcp`
+         get_pack). Never hand-write that block: if the renderer changes, re-run it. -->
     <div class="center reveal pack-intro">
       <h3 data-i18n="pack-h">This is what gets handed over.<br>You can read it. So can the AI.</h3>
       <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="pack-p">Not a summary
@@ -222,8 +263,25 @@
       from. Below is a real project written out by Spool, unedited except where marked.</p>
     </div>
 
-    <figure class="pack-real reveal">
-      <div class="pack-doc" role="img" aria-labelledby="pack-a11y">
+    <div class="pack-signals reveal">
+      <article>
+        <div class="pack-signal-label" data-i18n="pack-s1-h">The source stays attached</div>
+        <p><span class="pk-seq">#2</span> [11:40 <span class="pk-src">· Lecture 7 slides · Safari</span>] A model that does well on training data and badly on new data has overfitted.</p>
+      </article>
+      <article>
+        <div class="pack-signal-label" data-i18n="pack-s2-h">Your own words stay distinct</div>
+        <p><span class="pk-seq">#4</span> [16:30] Revision plan: redo problem set 3 with the fee idea in hand, then watch lecture 8.</p>
+      </article>
+      <article>
+        <div class="pack-signal-label" data-i18n="pack-s3-h">AI writing is signed and linked back</div>
+        <p><span class="pk-seq">#5</span> [16:42 <span class="pk-src pk-ai">· Claude · MCP</span>] Before Friday: problem set 3 question 2 is the overfitting one.<br><span class="pk-cite">↩ cites #4</span></p>
+      </article>
+    </div>
+
+    <details class="pack-example reveal">
+      <summary data-i18n="pack-full">Open the complete real Pack example</summary>
+      <figure class="pack-real">
+      <div class="pack-doc">
 <pre><span class="pk-h1"># Project Context: Machine learning course</span>
 
 Generated by Spool on 2026-08-12. 5 blocks total.
@@ -249,7 +307,7 @@ of facts. What IS reliable is the user's evolving questions.</span>
 If they contain factual errors, point them out directly — do not protect
 the user's feelings at the cost of correctness.</span>
 
-<span class="pk-cut">[… the reading rules and the notation key run for about 4,000 more characters …]</span>
+<span class="pk-cut">[… the reading rules and the notation key run for 4,192 more characters …]</span>
 
 <span class="pk-h2">## Full Record (chronological)</span>
 
@@ -263,11 +321,12 @@ the user's feelings at the cost of correctness.</span>
 </pre>
       </div>
       <figcaption id="pack-a11y" data-i18n="pack-cap">Real output, shortened in one place: the reading
-      rules run to about 4,000 more characters and are cut where it says so. Everything under
+      rules run for 4,192 more characters and are cut where it says so. Everything under
       <b>Full Record</b> is exactly as Spool writes it. <b>#4</b> has no source — that is you, and the
       rules above tell the AI to weigh it highest. <b>#5</b> was written by an AI through MCP: it is
       signed, it sits below your note rather than over it, and it says which note it answers.</figcaption>
-    </figure>
+      </figure>
+    </details>
 
     <!-- covers both screenshots above and the pack text: all three come out of
          scripts/seed-demo-library.sh, never the maintainer's own library -->
@@ -278,7 +337,7 @@ the user's feelings at the cost of correctness.</span>
 
 <section class="cta-inline">
   <div class="wrap center reveal">
-    <p data-i18n="mid-cta-p">That is the whole loop. It is about a minute to set up.</p>
+    <p data-i18n="mid-cta-p">That is the whole loop. Install it, choose a project, and start saving.</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
     <p class="fineprint" data-i18n="mid-cta-fine">Free · Apple Silicon Mac (arm64) · signed &amp; notarised by Apple</p>
   </div>
@@ -307,8 +366,8 @@ the user's feelings at the cost of correctness.</span>
       <div class="kicker" data-i18n="mcp-k">MCP — beyond pasting</div>
       <h2 data-i18n="mcp-h">Paste it across,<br>or let the AI reach in.</h2>
       <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="mcp-p1">Both routes end in the same
-      place: an AI that knows the project. One of them you can use in the next thirty seconds, in any
-      browser tab. The other you set up once, and then stop copying altogether.</p>
+      place: an AI that knows the project. One works immediately in any browser tab. The other you set
+      up once, and then stop copying altogether.</p>
     </div>
 
     <div class="route-pair reveal">
@@ -356,8 +415,8 @@ the user's feelings at the cost of correctness.</span>
          behaviour, and that has only ever been measured on the Claude apps and Codex.
          What Spool really does is write the setting; say that much, and stop there. -->
     <p class="center muted lineup-note" data-i18n="cg-note">Either way you stay where you are — Spool just hands the
-    notes over. Those six connect from a button in Spool's settings: click it, and the setting is
-    written for you; restart that app and it can read your projects. Not on the list? Copy one short
+    notes over. Spool can write the MCP setting for those six from one button. Restart the app so it
+    can load that setting; Spool then shows whether it has actually connected. Not on the list? Copy one short
     setting out of Spool and paste it into your app. How to actually use it lives in one place, next to
     that button: a short paragraph you can paste to your AI — or just read yourself.</p>
 
@@ -409,11 +468,13 @@ the user's feelings at the cost of correctness.</span>
       what would actually matter to this project — a decision you are waiting on, a page that might
       change, a number worth rechecking. Spool hands those exact lines to a command-line AI you have
       already installed, it goes and looks, and whatever it finds waits in the same queue as everything
-      else. When there is no news, it says nothing at all. Once a week, if you want it, the same thing
-      runs across every project at once.</p>
-      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="watch-3"><b>This is the one thing that
-      reaches the open web</b> — and only against the lines you wrote. Everything else in Spool works with
-      the network switched off, this is off when you install it, and it turns off where it turned on.</p>
+      else. When there is no news, it says nothing at all. Separately, Weekly Review can look across every
+      project at once; it has no web-search tools and lives in its own review screen.</p>
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="watch-3"><b>This is the only Spool
+      action that receives web-search tools</b> — and only against the lines you wrote. Weekly Review and
+      goal drafting get no web tools, though they still pass the context they need to your CLI provider.
+      Capture, organise, search, and Pack stay local and work offline. The engine is off when you install
+      Spool, and it turns off where it turned on.</p>
     </div>
   </div>
 </section>
@@ -427,31 +488,30 @@ the user's feelings at the cost of correctness.</span>
 
     <div class="reveal perm-note">
       <h3 data-i18n="perm-h">The macOS permissions, and what they are for</h3>
-      <p data-i18n="perm-p1">This is the step that surprises people, so here it is up front. Spool asks for
-      <strong>Input Monitoring</strong> and <strong>Accessibility</strong>. Input Monitoring is how it
-      hears the double-tap of <span class="kbd">⌥</span> — macOS counts any system-wide shortcut as
-      monitoring. Accessibility is how it reads which window you copied from, so the note keeps its
-      source.</p>
+      <p data-i18n="perm-p1">This is the step that surprises people, so here it is up front. Spool uses
+      <strong>Input Monitoring</strong> to hear the system-wide double-tap of <span class="kbd">⌥</span>.
+      <strong>Accessibility</strong> is optional: after Spool captures, it removes the second key press
+      so another app using the same gesture does not open at the same time.</p>
       <p data-i18n="perm-p2">The first time you capture something out of a browser, macOS asks once more, for
       permission to talk to that browser. That one is what lets a note keep the tab you were reading
       instead of just the name of the app.</p>
-      <p data-i18n="perm-p3">Say no to any of them and Spool still runs: you can write notes, pack a project and
-      paste it as usual — only the one-key capture stops working. Either way nothing leaves your Mac on
-      its own. The app is built with no network access at all, so there is nowhere for it to send
-      anything.</p>
+      <p data-i18n="perm-p3">Decline Input Monitoring and double-tap <span class="kbd">⌥</span> is unavailable,
+      but a custom capture shortcut still works. Decline Accessibility and capture still works, though
+      another app using the same gesture may open too. Decline browser Automation and capture still
+      works, with the source falling back to the browser name. None of these choices makes Spool send
+      anything anywhere on its own.</p>
     </div>
 
     <!-- Order matters here: a stranger's first worry is "will it take my things",
-         not "is it signed". So the two ways out come first and the signature third. -->
+         not "is it signed". So the hand-off boundary comes first and the signature third. -->
     <div class="grid-3 reveal-stagger">
       <div class="card">
-        <h3 data-i18n="t3-h">Nothing is tracked, and only two ways out</h3>
+        <h3 data-i18n="t3-h">Nothing is tracked, and Spool sends nothing on its own</h3>
         <p data-i18n="t3-p">No analytics, no telemetry, no crash reporting, and Spool itself cannot make a
-        network request — it is built without the ability. Your notes can leave this Mac by exactly two
-        routes, both switched on by you: an AI app you connected reading them, and the watching above,
-        which searches through a command-line AI already installed on your machine. There is no third
-        route, and your clipboard is read at the moment you double-tap <span class="kbd">⌥</span> and
-        not otherwise.</p>
+        network request — it is built without the ability. Content may leave your Mac only when you hand
+        it to another program: paste a Pack into a service, enable an MCP client, or ask a command-line
+        AI you installed to draft follow-up goals, run Follow Up, or write a Weekly Review. The receiving program controls what
+        happens next. Your clipboard is read at the moment you use the capture shortcut and not otherwise.</p>
       </div>
       <div class="card">
         <h3 data-i18n="t2-h">One file, on your Mac</h3>
@@ -506,9 +566,10 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q9">Can an AI change or delete my notes?</summary>
-        <p data-i18n="a9">No. It can add to a project, and it can propose that one sentence in an older note
-        has been overtaken — both of those stop in a queue you approve. Marking something as no longer
-        valid, and deleting, stay yours alone. And nothing an AI writes can appear as if you wrote it.</p>
+        <p data-i18n="a9">No. It can add a clearly AI-signed note to a project. If it proposes that one
+        sentence in an older note has been overtaken, that proposal stops in a queue you approve. Marking
+        something as no longer valid, and deleting, stay yours alone. Nothing an AI writes can appear as
+        if you wrote it.</p>
       </details>
       <details>
         <summary data-i18n="q10">Do I need an API key or a paid AI plan?</summary>
@@ -554,7 +615,7 @@ the user's feelings at the cost of correctness.</span>
 
 <section class="brand-moment reveal">
   <div class="wrap">
-    <video src="assets/spool-logo-assembly.mp4" autoplay muted loop playsinline aria-label="The Spool logo drawing itself: rings of a thread spool, then the thread pulling free"></video>
+    <video src="assets/spool-logo-assembly.mp4" autoplay muted loop playsinline data-i18n-aria="aria-brand-video" aria-label="The Spool logo drawing itself: rings of a thread spool, then the thread pulling free"></video>
     <p class="shot-caption" data-i18n="brand-cap">The mark: a spool seen from above, with its thread pulling free.</p>
   </div>
 </section>
@@ -562,7 +623,7 @@ the user's feelings at the cost of correctness.</span>
 <section class="cta-band">
   <div class="wrap reveal">
     <h2 data-i18n="cta-h">Stop explaining the same project again.</h2>
-    <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">Free, works offline, ready in a minute.</p>
+    <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">Free, works offline, and needs no account.</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
     <p class="fineprint" data-i18n="cta-fine">Apple Silicon Mac (arm64) · signed &amp; notarised by Apple · no account ·
     nothing is tracked · <a href="https://github.com/KIM-ocean-HZ/spool/releases">all releases on GitHub</a></p>

@@ -24,20 +24,52 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../site/assets/shots"
 
+# The whole-window grabs establish context, but their UI text cannot survive at
+# website width. These are art-directed crops from those same real grabs: no
+# pixels are redrawn, and every crop is regenerated whenever its source changes.
+#
+# Keep the website copies tied to the documented originals before making any
+# crops. S1 is the complete SAVE scene (browser + confirmation); S2 is the
+# complete KEEP project window.
+cp ../../../docs/screenshots/S1.png capture-page.png
+cp ../../../docs/screenshots/S2.png project-window.png
+
+# SAVE: browser tab/address and capture toast, both from the complete S1 scene.
+sips -c 260 800 --cropOffset 1 1 capture-page.png \
+  --out capture-page-source-detail.png >/dev/null
+sips -c 392 680 --cropOffset 0 2880 capture-page.png \
+  --out capture-toast.png >/dev/null
+# KEEP: two in-place magnifiers over the complete project window. The narrower
+# S2 wraps the long notes so each crop can keep every sentence to its full stop.
+sips -c 410 1465 --cropOffset 660 570 project-window.png \
+  --out project-window-source-detail.png >/dev/null
+sips -c 370 1465 --cropOffset 1160 570 project-window.png \
+  --out project-window-ai-detail.png >/dev/null
+# Story: readable excerpts for the two otherwise very wide project grabs.
+sips -c 430 1900 --cropOffset 1 1 mcp-filed-detail.png \
+  --out mcp-filed-detail-readable.png >/dev/null
+sips -c 700 1930 --cropOffset 800 1 app-thread-after.png \
+  --out app-thread-after-detail.png >/dev/null
+
 # original                widths the layout could ask for (1x and 2x of its slot)
 slots=(
-  # SHOT S1 / S2, taken 2026-08-12 against the isolated demo library. Both are 3600px
-  # retina grabs, so the narrow candidates below are real wins rather than the usual
+  # SHOT S1 / S2, taken against the isolated demo library. They are Retina grabs,
+  # so the narrow candidates below can be real wins rather than the usual
   # resampling loss this script warns about.
   "capture-page.png        580 1160"
-  "project-window.png      580 1160"
+  "capture-page-source-detail.png"
+  "project-window.png      736"
+  "project-window-source-detail.png"
+  "project-window-ai-detail.png"
   "app-thread-after.png    860 1720"
+  "app-thread-after-detail.png"
   "app-thread-before.png   760 1520"
   "capture-toast.png       340 680"
   "growth-day1.png         660 1320"
   "growth-week6.png        660 1320"
   "mcp-digest.png          840 1680"
   "mcp-filed-detail.png    860 1720"
+  "mcp-filed-detail-readable.png"
   "mcp-library.png         840 1680"
   "mcp-search.png          840 1680"
   "mcp-write.png           840 1680"

@@ -77,6 +77,52 @@ function applyStrings(html, used) {
   return out + html.slice(cursor);
 }
 
+/* Meaningful image descriptions are attributes, not element contents. Keep
+   this one case explicit so the generator does not turn into a general-purpose
+   HTML rewriter. */
+function applyAltStrings(html, used) {
+  const tagged = /<img\b[^>]*\bdata-i18n-alt="([^"]+)"[^>]*>/gi;
+  return html.replace(tagged, (full, key) => {
+    if (!(key in ZH)) throw new Error(`no Chinese for data-i18n-alt="${key}"`);
+    const attr = /\salt="[^"]*"/;
+    if (!attr.test(full)) throw new Error(`data-i18n-alt="${key}" has no alt attribute`);
+    used.add(key);
+    const value = ZH[key]
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    return full.replace(attr, ` alt="${value}"`);
+  });
+}
+
+/* The logo animation also conveys meaning, so its accessible name follows the
+   page language just like image alt text. Keep the supported attribute narrow
+   and explicit rather than turning this builder into a general HTML parser. */
+function applyAriaStrings(html, used) {
+  const tagged = /<([a-z0-9]+)\b[^>]*\bdata-i18n-aria="([^"]+)"[^>]*>/gi;
+  return html.replace(tagged, (full, _tag, key) => {
+    if (!(key in ZH)) throw new Error(`no Chinese for data-i18n-aria="${key}"`);
+    const attr = /\saria-label="[^"]*"/;
+    if (!attr.test(full)) throw new Error(`data-i18n-aria="${key}" has no aria-label attribute`);
+    used.add(key);
+    const value = ZH[key]
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    return full.replace(attr, ` aria-label="${value}"`);
+  });
+}
+
+function escapeAttribute(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 /* Swap the whole element marked data-zh-body for a hand-written Chinese
    fragment. Only the privacy policy needs this: its Chinese text is the
    authoritative version and is written as Chinese, not keyed phrase by phrase. */
@@ -106,7 +152,7 @@ function applyHead(html, page) {
   out = replaceOnce(
     out,
     /<meta name="description" content="[^"]*">/,
-    `<meta name="description" content="${head.description}">`,
+    `<meta name="description" content="${escapeAttribute(head.description)}">`,
     'meta description',
   );
   out = replaceOnce(
@@ -119,13 +165,13 @@ function applyHead(html, page) {
   if (!head.ogTitle) return out;
   const social = [
     [/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="https://spoolapp.org/zh/">`],
-    [/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${head.ogTitle}">`],
-    [/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${head.ogDescription}">`],
-    [/<meta property="og:image:alt" content="[^"]*">/, `<meta property="og:image:alt" content="${head.ogImageAlt}">`],
+    [/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${escapeAttribute(head.ogTitle)}">`],
+    [/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${escapeAttribute(head.ogDescription)}">`],
+    [/<meta property="og:image:alt" content="[^"]*">/, `<meta property="og:image:alt" content="${escapeAttribute(head.ogImageAlt)}">`],
     [/<meta property="og:locale" content="[^"]*">/, `<meta property="og:locale" content="zh_CN">`],
     [/<meta property="og:locale:alternate" content="[^"]*">/, `<meta property="og:locale:alternate" content="en">`],
-    [/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${head.ogTitle}">`],
-    [/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${head.ogDescription}">`],
+    [/<meta name="twitter:title" content="[^"]*">/, `<meta name="twitter:title" content="${escapeAttribute(head.ogTitle)}">`],
+    [/<meta name="twitter:description" content="[^"]*">/, `<meta name="twitter:description" content="${escapeAttribute(head.ogDescription)}">`],
   ];
   for (const [pattern, replacement] of social) {
     out = replaceOnce(out, pattern, replacement, `${pattern}`);
@@ -153,6 +199,8 @@ export function renderZh(page) {
   const used = new Set();
   let out = applyBody(src, page);
   out = applyStrings(out, used);
+  out = applyAltStrings(out, used);
+  out = applyAriaStrings(out, used);
   out = applyHead(out, page);
   out = applyPaths(out);
   out = replaceOnce(out, /<a class="lang-toggle"[^>]*>[^<]*<\/a>/, TOGGLE[page], 'language toggle');

@@ -134,13 +134,18 @@ byte-identical output by golden tests.</p>
       queue the user approves.</li>
 </ul>
 
-<picture>
-  <source type="image/webp" srcset="assets/shots/mcp-filed-detail.webp">
-  <img class="shot" src="assets/shots/mcp-filed-detail.png" alt="Detail of a Spool project: the user's own note at 00:30, and directly below it an AI-written block at 14:56 badged Claude · MCP, carrying its own annotation and a citation line pointing back at the user's note" width="2070" height="430" loading="lazy">
-</picture>
-<p class="shot-caption">Principle №5, enforced in the data model: an AI client filed the lower block over
+<figure class="story-shot-proof story-shot-single">
+  <div class="story-shot-pan story-shot-pan-single" tabindex="0" role="group"
+       aria-label="Close-up of the project notes; scroll sideways inside the image to read each sentence on a narrow screen">
+    <picture>
+      <source type="image/webp" srcset="assets/shots/mcp-filed-detail-readable.webp">
+      <img class="shot" src="assets/shots/mcp-filed-detail-readable.png" alt="Close-up of a Spool project: the user's complete note at 00:30, then a complete AI-written block at 16:04 badged Claude · MCP, with its own annotation and a citation pointing back to the user's note" width="1900" height="430" loading="lazy" decoding="async">
+    </picture>
+  </div>
+  <figcaption class="shot-caption">Principle №5, enforced in the data model: an AI client filed the lower block over
 MCP. It is badged with its author, appended <em>below</em> the user's note rather than over it, and
-its citation line names the exact block it answers.</p>
+its citation line names the exact block it answers.</figcaption>
+</figure>
 
 <h2 id="verification">Verification discipline</h2>
 <p>Determinism is a testable promise, so the test suite is built around it:</p>
@@ -194,20 +199,30 @@ at the one sentence an older block got wrong, with the older block printed in fu
 standing on everything else. An annotation records who wrote it, so a note an AI filed renders
 differently from one you wrote and can never be read as your judgement. Anything an AI wants to
 change rather than append arrives as a proposal you approve.</p>
-<p>The same release opens a second, narrower channel: if a coding CLI you already own is installed
-and logged in, Spool can run it locally to distill a project, flag duplicates, follow up on things
-you told it to watch, or write a weekly review. Spool still makes no network request itself and
-stores no key — the request leaves from that subprocess, on your own quota, and every run is
-watchable while it happens.</p>
+<p>The same release opens a second, narrower channel: if a supported coding CLI you already own is
+installed and logged in, Spool can run Follow Up against the lines you asked it to watch, write a
+cross-project Weekly Review, or help draft those follow-up targets. Spool still makes no network
+request itself and stores no key — the request leaves from that subprocess, on your own account's
+quota, and every run is watchable while it happens. Follow Up is the only action that receives web
+search tools; the others read the library without them.</p>
 
-<picture>
-  <source type="image/webp"
-          srcset="assets/shots/app-thread-after-860.webp 860w, assets/shots/app-thread-after.webp 2420w"
-          sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
-  <img class="shot" src="assets/shots/app-thread-after.png" alt="A Spool project holding six blocks — a pinned goal, a captured job posting, an answer from an AI chat, the user's own note, a conclusion filed by an AI client and badged Claude · MCP, and an email" width="2420" height="1750" loading="lazy">
-</picture>
-<p class="shot-caption">The current build: one project holding five human-captured fragments and one
-conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</p>
+<figure class="story-shot-proof">
+  <picture class="story-shot-overview">
+    <source type="image/webp"
+            srcset="assets/shots/app-thread-after-860.webp 860w, assets/shots/app-thread-after.webp 2420w"
+            sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
+    <img class="shot" src="assets/shots/app-thread-after.png" alt="The complete Spool project holding six blocks: a pinned goal, a captured job posting, an AI-chat answer, the user's note, a Claude · MCP conclusion and an email" width="2420" height="1750" loading="lazy" decoding="async">
+  </picture>
+  <div class="story-shot-pan story-shot-pan-detail" tabindex="0" role="group"
+       aria-label="Close-up of the project notes; scroll sideways inside the image to read each sentence on a narrow screen">
+    <picture>
+      <source type="image/webp" srcset="assets/shots/app-thread-after-detail.webp">
+      <img class="shot" src="assets/shots/app-thread-after-detail.png" alt="Close-up from the same project: an AI-chat capture, the user's complete 00:30 note, and a complete Claude · MCP note carrying its annotation and citation back to the earlier captured decision" width="1930" height="700" loading="lazy" decoding="async">
+    </picture>
+  </div>
+  <figcaption class="shot-caption">The current build: one project holding five human-captured fragments and one
+conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</figcaption>
+</figure>
 
 <p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.4.0 release and
 will be embedded here. Meanwhile, the <a href="./#demo">interactive demo</a> walks the same

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spool — Privacy Policy</title>
-<meta name="description" content="Spool's privacy policy: your data stays on your machine — no account, no server, no telemetry.">
+<meta name="description" content="Spool's privacy policy: no account, no server, no telemetry, and no upload by Spool itself. You decide when another program receives your content.">
 <link rel="canonical" href="https://spoolapp.org/privacy.html">
 <link rel="alternate" hreflang="en" href="https://spoolapp.org/privacy.html">
 <link rel="alternate" hreflang="zh-Hans" href="https://spoolapp.org/zh/privacy.html">
@@ -33,15 +33,16 @@
 <main class="wrap article measure" style="margin: 0 auto;" data-zh-body="privacy">
 
 <h1>Privacy Policy</h1>
-<p class="lede">Last updated: 2026-08-09 (Spool v0.4.0). This English translation is provided for convenience;
+<p class="lede">Last updated: 2026-08-13 (Spool v0.4.0). This English translation is provided for convenience;
 the <a href="zh/privacy.html" hreflang="zh-Hans" lang="zh">Chinese original</a> is authoritative.</p>
 
 <h2>The one-sentence version</h2>
-<p><strong>Your data stays on your computer — no exceptions.</strong> Spool is purely local
-software: capture, filing, packing, and search all happen on your machine. No account, no
-upload, no telemetry. Spool ships with <strong>no built-in cloud AI</strong> and never contacts
-any server; the app's content-security policy (CSP) structurally forbids all external network
-connections from the webview.</p>
+<p><strong>Spool keeps your data on your computer and never uploads it on its own.</strong>
+Capture, filing, packing, and search all happen on your machine. No account, no telemetry.
+Spool ships with <strong>no built-in cloud AI</strong> and never contacts any server; the app's
+content-security policy (CSP) structurally forbids all external network connections from the
+webview. Content reaches another program only when you deliberately hand it over, as described
+below.</p>
 
 <h2>What we collect</h2>
 <p><strong>Nothing.</strong> Spool has no server. There is no account system, no usage
@@ -64,36 +65,44 @@ your content.</p>
 inside the app does the same.</p>
 
 <h2>When data can leave your computer</h2>
-<p><strong>Spool itself never goes online.</strong> Two features can let content leave this
-machine. Both are <strong>off by default and require you to enable them yourself</strong>, and in
-both it is <strong>a program you installed and logged into yourself</strong> that reaches the
-network — not Spool:</p>
+<p><strong>Spool itself never goes online.</strong> Content can reach another program in three
+ways. In every case, you initiate the hand-off, and that receiving program — not Spool — controls
+whether the content then reaches a network service:</p>
 <table>
   <tr><th>Feature</th><th>Where data goes</th><th>Notes</th></tr>
   <tr>
+    <td>Pack and paste</td>
+    <td>The app or service where you paste the Pack</td>
+    <td>Spool assembles the Pack locally and places it on your clipboard. Copying stays on your
+        Mac; pasting into another program is your deliberate hand-off, and that program's privacy
+        terms apply from there.</td>
+  </tr>
+  <tr>
     <td>MCP service (Settings → MCP, off by default)</td>
-    <td>The AI client you installed and configured yourself (Claude Desktop, the ChatGPT
-        desktop app, Cursor, …)</td>
+    <td>The AI client you installed and configured yourself (Claude Desktop, Codex — including a
+        Codex conversation inside the ChatGPT desktop app — Cursor, …)</td>
     <td>Your AI client reads project content over local inter-process communication; Spool
         listens on no network port. Where those clients send content is governed by that
         client and your agreement with its provider.</td>
   </tr>
   <tr>
-    <td>AI maintenance actions (Settings → Engine, off by default)</td>
-    <td>The command-line AI you installed and logged into yourself (Claude Code / Codex CLI)</td>
-    <td>When you run Distill, Dedupe, Follow up or Weekly review, Spool starts that CLI as a
-        local subprocess and hands it the relevant blocks. <strong>The network request happens
-        inside that subprocess</strong>, on your own subscription's quota — Spool stores no API
-        key and makes no HTTP request of its own. This switch also requires both MCP switches
-        to be on.</td>
+    <td>Follow Up, Weekly Review, or drafting follow-up goals (Settings → Engine; requires a
+        supported CLI installed and logged in, plus the required MCP permissions)</td>
+    <td>The command-line AI you installed and logged into yourself (Claude Code, Codex CLI, or
+        Gemini CLI; Gemini does not run Follow Up)</td>
+    <td>Spool starts that CLI as a local subprocess and hands it the relevant project content.
+        <strong>The network request happens inside that subprocess</strong>, on your own account's
+        quota — Spool stores no API key and makes no HTTP request of its own.</td>
   </tr>
 </table>
 <p>⚠️ <strong>Follow up is the one action that deliberately searches the web.</strong> It takes
 the lines you wrote yourself describing what to watch for, and asks that CLI to go look for
-news — so those lines and the context it needs reach the CLI's provider. The other three
-actions only read your own library, with web tools switched off.</p>
+news — so those lines and the context it needs reach the CLI's provider. Weekly Review and
+drafting follow-up goals do not receive web-search tools, but the project content they need is
+still handed to the CLI and may reach its provider.</p>
 <p>In other words: Spool never sends data anywhere on its own. The only way content leaves this
-machine is <em>an AI program you installed</em> reading it under your authorization.</p>
+machine is through a hand-off you chose: a manual paste, an MCP client you enabled, or a CLI
+action you ran.</p>
 <p>The other direction — an AI writing into your library — only arises once you have turned the
 MCP server on. The “allow AI writes” switch underneath it is <strong>on by default and can be
 turned off at any time</strong>; what an AI writes can only be <strong>added, never edited over
@@ -131,10 +140,10 @@ The clipboard is read exactly once, at the moment you press the capture shortcut
 
 <footer>
   <div class="wrap">
-    <div>Spool 思簿 · © 2026 · All rights reserved</div>
+    <div data-i18n="foot-copy">Spool 思簿 · © 2026 · All rights reserved</div>
     <div>
-      <a href="./">Home</a> ·
-      <a href="story.html">Engineering story</a> ·
+      <a href="./" data-i18n="foot-home">Home</a> ·
+      <a href="story.html" data-i18n="foot-story">Engineering story</a> ·
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
     </div>
   </div>
