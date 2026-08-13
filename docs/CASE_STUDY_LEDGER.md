@@ -1643,3 +1643,89 @@ Tracked here so the gaps are visible rather than discovered late. Plan and seque
       material; it has to be written from scratch.
 - [ ] **MCP / CLI / desktop relationship** — the material exists across three design documents
       and needs condensing into one page a non-specialist can read.
+
+---
+
+## 7. Repository and Story close-out (2026-08-13)
+
+This section supersedes the open-state checklist in §6 without rewriting it. The §6 lines remain
+as the historical state captured when they were written; the dated evidence below records what
+was actually completed in the later repository pass.
+
+### 7.1 Scope and safety boundary
+
+- Worktree: `main`, `HEAD = origin/main = 242e7519b2d17720e49edd8498486e573c5170fe`.
+- Product scenes were captured only from the isolated verify installation with bundle identifier
+  `com.oceanjin.spool.verify` and its own database. The installed verify app was checked for zero
+  handles to `~/Library/Application Support/com.oceanjin.spool/spool.db`; the formal library was
+  never launched into an app or edited. Its only inspection was a read-only integrity/handle
+  safety check; the final two verify `spool` processes each had zero handles to the formal DB.
+- No product source under `src/**` or `src-tauri/**` was changed for this close-out. No commit,
+  push, deployment, release, repository-description edit, Apple credential access, or generated
+  product mockup was performed.
+
+### 7.2 §6 evidence gaps now closed
+
+- [x] **Architecture diagram** — `site/story.html` now draws GUI/capture overlay → Rust/Tauri core
+  → one SQLite file, the `spool --mcp` stdio route to an external MCP client, the separate local
+  CLI-engine subprocess, and the only two network paths. It explicitly shows that Spool itself
+  has no HTTP path and listens on no network port.
+- [x] **Screenshots** — README now contains seven current, real isolated-library scenes: capture,
+  project timeline, project management, Pack, digest, MCP read, and attributed MCP write-back.
+  The release checklist's screenshot item is closed with the same dated provenance.
+- [x] **Target-user section** — the public Story retains the target-user disclosure and frames the
+  problem as long-running work repeatedly re-explained across tools, rather than as generic note
+  taking.
+- [x] **MCP / CLI / desktop relationship** — both the readable case-study source and rendered
+  Story explain the single local database, stdio boundary, external-client route, CLI-subprocess
+  route, supported engines, and distinct write consent.
+- [x] **Notarisation presentation** — the previously complete §1.2 receipt is rendered as semantic
+  HTML evidence, not as a simulated terminal. Exact preserved fields: app submission
+  `89ebaceb-f883-4b1c-a6eb-86392769d132` Accepted; DMG submission
+  `f7a15d9a-737d-4132-a54e-578d9f41fd7f` Accepted; tag `84625db`; artifact
+  `Spool_0.4.0_aarch64.dmg`; SHA-256
+  `933b9a7fb10a25f72cbd922c7c0a1d89fe02ef83b6a3885fba0dc0ec08b7df54`; Gatekeeper accepted
+  both app and DMG with `source=Notarized Developer ID`. Source capture date: 2026-08-08.
+
+### 7.3 Public Story evidence chain
+
+The eight-section Story uses three generated, traceable scenes rather than repeating the whole
+README gallery:
+
+| Claim | Story file | Source | Intrinsic size |
+|---|---|---|---:|
+| capture without foregrounding the main app | `site/assets/shots/story-capture.png` | `docs/screenshots/app-capture.png` | 3600 × 2260 |
+| a numbered project log with both side rails | `site/assets/shots/story-project.png` | `docs/screenshots/app-project.png` | 1229 × 734 |
+| AI conclusion filed with source badge and citation | `site/assets/shots/story-ai-writeback.png` | `docs/screenshots/mcp-filed-detail.png` | 990 × 170 |
+
+`scripts/build-site-shots.sh` owns the PNG/WebP derivation. The old unrecorded-video promise is
+gone; Story links honestly to the existing interactive browser demo.
+
+### 7.4 Verification recorded at close-out
+
+- Full-page visual regression: five routes × 390/768/1440 = **15 / 15**, with zero pixels over
+  the configured delta. The only nonzero sub-threshold variation was max channel diff 2 on the
+  768px English Privacy page. CDP fixes the CSS viewport explicitly, avoiding Chrome's 500px
+  minimum-window crop at the 390px breakpoint.
+- Local Lighthouse 13.4.1 mobile defaults: `/` **66/100/100/100**, `/zh/`
+  **65/100/100/100**, `/story.html` **66/100/100/100** (Performance / Accessibility / Best
+  Practices / SEO). These are local throttled figures, not production scores.
+- Focused WCAG review: semantic heading order, real keyboard skip-link/focus traversal, named
+  local scroll regions, keyboard horizontal scrolling, image alt/captions, and actual Chrome 200%
+  page zoom on `/`, `/zh/`, and `/story.html` passed. VoiceOver was not run; this is not a complete
+  formal audit. Full detail is in
+  `docs/QA_SITE_2026-08-13.md`.
+- Browser matrix: all five static routes at 390, 768, and 1440px had no page-level horizontal
+  overflow; Story images decoded and every figure had a caption.
+- Automated baseline: Vitest **361 / 361**, TypeScript clean, Rust **72 / 72**, Chinese site test
+  **9 / 9**, i18n `(none missing)`, `git diff --check` clean. Generated shots and Chinese pages
+  were byte-identical across the determinism rerun.
+
+### 7.5 Publication boundary and description suggestion
+
+Repository sources are ready for review, but publication is not implied by this ledger entry.
+Commit, push, deployment, and repository description remain four separately authorised actions.
+Suggested GitHub description (not applied):
+
+> Local-first project memory for macOS — capture context once, carry it across AI tools, and keep
+> every AI write attributed.

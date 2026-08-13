@@ -227,7 +227,7 @@
     var t = L.tpl;
     if (name === 'capture1') {
       return '<div class="fake-window"><div class="fw-bar"><span class="dots"><i></i><i></i><i></i></span> ' + t.postingBar + '</div>' +
-        '<div class="fw-body"><h4>' + t.postingH + '</h4><p>' + t.postingBody + '</p>' +
+        '<div class="fw-body"><div class="fw-heading">' + t.postingH + '</div><p>' + t.postingBody + '</p>' +
         '<button class="copy-btn" data-action="copy">' + L.copyLabel + '</button></div></div>' +
         '<div class="keycap-row" hidden id="keyrow"><button class="keycap" data-action="tap">' + L.keycap + '</button>' +
         '<span class="keycap-hint">' + L.keyHint1 + '</span></div>';
@@ -286,7 +286,7 @@
       '<div class="tsub">' + L.threadSub + '</div></div>' +
       '<div class="feed" id="feed"><div class="feed-empty">' + L.feedEmpty + '</div></div>' +
       '</div></div>' +
-      '<div class="pack-modal" id="packmodal"><div class="pm-head"><h4>' + L.pmTitle + '</h4>' +
+      '<div class="pack-modal" id="packmodal"><div class="pm-head"><div class="pm-heading">' + L.pmTitle + '</div>' +
       '<div class="pm-sub">' + L.pmSub + '</div></div>' +
       '<pre id="packpre"></pre>' +
       '<div class="pm-foot"><span id="packstat"></span><span class="pm-actions">' +

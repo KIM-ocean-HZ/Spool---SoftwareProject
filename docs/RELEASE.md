@@ -3,7 +3,12 @@
 路线：**Developer ID 签名 + Apple 公证 + .dmg 直发**（不上 Mac App Store——沙盒与
 CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-07-06 决策）。
 
-## 0.0 当前版本状态
+## 0.0 发布快照与当前工作区
+
+以下两组数字不能混用。第一组是可由 `v0.4.0` tag 和公证台账复核的发布快照；第二组是
+2026-08-13 尚未提交的当前工作区状态，不代表已经重新发布。
+
+### v0.4.0 发布快照（`84625db`）
 
 | 项 | 值 |
 |---|---|
@@ -12,7 +17,17 @@ CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-
 | MCP 工具面 | **14 个** |
 | 基线 | tsc 干净 / vitest 268 / cargo 45 / i18n 干净 |
 | 本机安装 | ✅ **2026-08-09 已换装**（`Spool Dev` 开发证书，真库已迁到 v14，数据 5 项目 31 块未变） |
-| 正式发布 | ✅ **2026-08-10 已发布** —— tag `v0.4.0`（指向 `84625db`），两个资产都在，官网固定名 URL 实测 200。公证回执存在 `CASE_STUDY_LEDGER.md` §1.2 |
+| 正式发布 | ✅ **2026-08-08 已发布** —— tag `v0.4.0`（指向 `84625db`），两个资产都在，官网固定名 URL 实测 200。公证回执存在 `CASE_STUDY_LEDGER.md` §1.2 |
+
+### 当前 main / 工作区（2026-08-13，未发布）
+
+| 项 | 值 |
+|---|---|
+| 版本号 | `0.4.0`（尚未为下一次发布升版） |
+| schema | **v21** |
+| MCP 工具面 | **18 个**（12 read + 6 write） |
+| 当前基线 | tsc 干净 / vitest **361** / cargo **72** / i18n `(none missing)` |
+| Git 状态 | `HEAD = origin/main = 242e751`；本轮成果未暂存、未提交、未推送、未部署 |
 
 ⚠️ **换装用的是开发证书，不是 Developer ID。** 想发布得按 §2 从头跑一遍（那一步会用
 环境变量覆盖 `tauri.conf.json` 里的 `Spool Dev`），并且按 §3 逐条验收。
@@ -26,7 +41,7 @@ Developer ID**，不是 `Spool Dev`。
 2. **往 `CASE_STUDY_LEDGER.md` §1 加一行** —— 那就是台账第二期（「每次收口追加一行」），
    和跑基线是同一个动作。
 
-✅ **v0.4.0 这一次两件都做了**（2026-08-10）：回执在 `CASE_STUDY_LEDGER.md` §1.2，
+✅ **v0.4.0 这一次两件都做了**（2026-08-08）：回执在 `CASE_STUDY_LEDGER.md` §1.2，
 台账那一节从此就是「每次发布追加一行」的落点。
 ⚠️ **实测补一条给下次**：`gh release create --target <短 sha>` 会被 GitHub 拒
 （`Release.target_commitish is invalid`）。**先本地 `git tag -a` 打在那个提交上、
@@ -36,7 +51,7 @@ Developer ID**，不是 `Spool Dev`。
 
 | 面 | 内容 | 全稿 |
 |---|---|---|
-| **引擎位** | Claude Code / Codex CLI 当子进程跑四个动作（压缩 / 去重 / 跟进 / 周回顾）。**Spool 本体仍然零出网** | `DESIGN_AI_ENGINE.md` |
+| **引擎位** | 当前工作区用 Claude Code / Codex CLI / Gemini CLI 子进程提供 Follow Up、Weekly Review、起草跟进目标；Gemini 不跑 Follow Up。**Spool 本体仍然零出网。** 发布 tag 的历史四动作面见台账快照 | `DESIGN_AI_ENGINE.md` |
 | **工作台** | 右侧栏：流式进度 + AI 产出留痕；周回顾独立成项目；自动维护开关 | `DESIGN_WORKBENCH.md` |
 | **联网跟进** | 用户写几行「要盯什么」，引擎照那几行出去查，产出进待审面；没新东西就静默 | `DESIGN_FOLLOW_UP.md` |
 | **上下文卫生** | 作废（schema v13）+ 部分更正 + 批注作者列（v14）+ pack 表头加 `## Notation` | `DESIGN_CONTEXT_HYGIENE.md` |
@@ -154,12 +169,11 @@ rm -f src-tauri/target/release/bundle/macos/rw.*.dmg
 - [ ] 全新安装零配置即全功能：捕捉/打包/搜索可用；教程脉络「欢迎使用 Spool」出现、整条可删且不复现
 - [ ] 中文输入法下 Composer 回车确认候选词不误发（2026-07 修复的回归项）
 - [ ] 旧版本数据库直接升级启动（迁移注册表自动走，升级前自动留快照）
-- [ ] README 的截图与当前 UI 一致（字体打包后外观有变，需重截）
-      ⚠️ **v0.4.0 这一项现在是不合格的** —— 块流(W7 批注当标题)、右侧栏、项目管理
-      三屏都换了样子，官网和 README 用的还是旧图。Ocean 已批的时机：**app 代码全部做完
-      之后，和演示视频一起重建**（多场景铁律见 memory `next-stage-goals-website-portfolio`）
-- [ ] **引擎位那一侧（v0.4.0 新增）**：一台**没装 claude / codex** 的机器上，
-      设置→引擎那一页说得清「没检测到」，四个动作不出现且不报错
+- [x] README 的截图与当前 UI 一致（2026-08-13 在 `com.oceanjin.spool.verify`
+      隔离演示库重建并逐张复核）：六个既有场景均为真实当前界面；新增项目管理场景；
+      项目主图同时覆盖批注当标题、圆圈编号、固定左栏/线轴面板和右侧栏。
+- [ ] **引擎位那一侧（v0.4.0 新增）**：一台**没装 claude / codex / gemini** 的机器上，
+      设置→引擎那一页说得清「没检测到」，三个当前动作不出现且不报错
 - [ ] **换装后所有 MCP 客户端要完全退出重开**（⌘Q，不是关窗口）。
       schema 升级之后，还连着旧二进制的客户端会报「数据库比这个 MCP 服务新」——
       那是**正确的保护**，不是坏了

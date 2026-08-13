@@ -34,6 +34,14 @@ cd "$(dirname "$0")/../site/assets/shots"
 cp ../../../docs/screenshots/S1.png capture-page.png
 cp ../../../docs/screenshots/S2.png project-window.png
 
+# Story evidence is intentionally a small, current set rather than a second
+# screenshot gallery. All three files come from the isolated demo build used for
+# the current repository close-out: one capture scene, one project context view,
+# and one readable excerpt proving an attributed AI append with a citation.
+cp ../../../docs/screenshots/app-capture.png story-capture.png
+cp ../../../docs/screenshots/app-project.png story-project.png
+cp ../../../docs/screenshots/mcp-filed-detail.png story-ai-writeback.png
+
 # SAVE: browser tab/address and capture toast, both from the complete S1 scene.
 sips -c 260 800 --cropOffset 1 1 capture-page.png \
   --out capture-page-source-detail.png >/dev/null
@@ -74,6 +82,9 @@ slots=(
   "mcp-search.png          840 1680"
   "mcp-write.png           840 1680"
   "pack-dialog.png         380 760"
+  "story-capture.png       1160 2320"
+  "story-project.png       920"
+  "story-ai-writeback.png  760"
 )
 
 rm -f ./*.webp

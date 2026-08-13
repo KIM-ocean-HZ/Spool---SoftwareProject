@@ -5,15 +5,15 @@
 > `CASE_STUDY_LEDGER.md`, which holds every figure with the command that reproduces it —
 > **this page states, that page proves.** No number appears here that the ledger cannot check.
 >
-> **Status.** Draft, English (`DESIGN_CASE_STUDY.md` §4, phase three). It becomes the
-> spoolapp.org page in phase five, which is gated behind the architecture diagram and the
-> screenshot rebuild — both scheduled for after the application code is finished. Nothing here
-> is waiting on anyone.
+> **Status.** Repository evidence page and English Story source are **publish-ready as of
+> 2026-08-13** (`DESIGN_CASE_STUDY.md` §4, phases four and five). The architecture diagram,
+> current isolated-demo screenshots, and notarisation evidence card now exist in
+> `site/story.html`. Commit, push, deployment, and the GitHub repository description remain
+> separate external actions and were not performed.
 >
-> **Sections still blocked**, and on what: the **architecture diagram** (§3 has the sketch it
-> gets drawn from), the **screenshots** (the current set is stale), and the **notarisation
-> receipt** (captured at the first v0.4.0 release — the one figure that cannot be recovered
-> afterwards).
+> **Traceability.** The rendered architecture still takes §3 below as its fact source. The three
+> public product scenes come from the `com.oceanjin.spool.verify` isolated library, and the
+> notarisation card transcribes the immutable fields preserved in `CASE_STUDY_LEDGER.md` §1.2.
 
 ---
 
@@ -125,8 +125,8 @@ Spool is one binary that runs in three modes, over local channels only.
           ┌───────────────────┐  ┌────────────────────┐
           │ Your AI client    │  │ Your logged-in CLI │
           │ Claude Desktop,   │  │ Claude Code,       │
-          │ ChatGPT desktop,  │  │ Codex CLI          │
-          │ Cursor, …         │  │                    │
+          │ Cursor, Codex in  │  │ Codex CLI,         │
+          │ ChatGPT desktop   │  │ Gemini CLI         │
           └─────────┬─────────┘  └─────────┬──────────┘
                     │                      │
                     ▼                      ▼
@@ -138,6 +138,11 @@ Spool is one binary that runs in three modes, over local channels only.
 
 Read it as three claims, each of which is checkable:
 
+The Story page now implements this same topology as a labelled, horizontally scrollable diagram:
+desktop GUI and capture overlay → Rust/Tauri core → one SQLite source of truth, with separate
+`spool --mcp` and CLI-subprocess branches. Both real outbound paths end at programs the user
+authorised; the diagram explicitly places Spool itself on the no-HTTP side of the network line.
+
 **One database, no server.** Everything is in one local SQLite file. There is no Spool server, no
 account, no sync, no telemetry. Deleting one directory deletes the product's entire memory of
 you.
@@ -148,14 +153,14 @@ It listens on no network port, so there is nothing to expose or misconfigure. Wh
 model is the *same* deterministic pack the GUI produces, from a renderer that exists twice — once
 in TypeScript, once in Rust — with a test that fails unless both produce identical bytes.
 
-**The CLI engine slot is a subprocess, not an integration.** For the four maintenance jobs (distil
-a project, flag duplicates, follow up on things you asked it to watch, write a weekly review),
-Spool starts a coding CLI you already installed and logged into. No API key is stored, entered, or
-needed, because Spool is never the thing making the request. This is also why the feature can
-exist at all: an ordinary user cannot obtain an API key or run a local model, and every built-in
-provider would have weakened the privacy story. Mid-project, the built-in AI layer was removed
-entirely for exactly that reason — the guiding analogy being that Spool is the editor and the AI
-is the plugin, not the other way round.
+**The CLI engine slot is a subprocess, not an integration.** For the three user-visible actions
+(follow up on things you asked it to watch, write a cross-project weekly review, or draft the
+lines worth watching), Spool starts Claude Code, Codex CLI, or Gemini CLI when that tool is already
+installed and logged in. Gemini supports Weekly Review and draft goals, but not Follow Up. No API
+key is stored, entered, or needed, because Spool is never the thing making the request. This is
+also why the feature can exist at all: a built-in provider would have weakened the privacy story.
+Mid-project, the built-in AI layer was removed entirely for exactly that reason — the guiding
+analogy being that Spool is the editor and the AI is the plugin, not the other way round.
 
 The web-facing consequence: **Spool makes no network request, ever**, and its content-security
 policy forbids one structurally rather than by policy. Content leaves this machine only inside a
@@ -178,9 +183,9 @@ write*.
 | Anything else | — | **nothing** | — |
 
 Three switches, not one: MCP reading, AI writing, and the engine actions — and the engine
-requires the first two. Of the four engine actions, exactly one (Follow up) is given web tools,
-and only against lines the user wrote themselves describing what to watch. The other three run
-with the web switched off.
+requires the first two. Of the three user-visible actions, exactly one (Follow Up) is given web
+tools, and only against lines the user wrote themselves describing what to watch. The other two
+run with the web switched off.
 
 ### What an AI may do to the library
 
@@ -208,12 +213,10 @@ overwritten, and when a pack omits retired material it says so, along with how t
 **Why the paranoia is proportionate.** The Follow up feature reads web pages and writes into the
 library, which is the shape of a privilege-escalation chain: a page injects text, the text edits
 what to search for next, and the next search is under the attacker's control. That is why the
-write half of every proposal goes through a human gate that cannot be turned off, and why a
-proposed feature to let an AI attach arbitrary local files was rejected outright — the walkable
-version of that chain ends with a private key in the library and then in the next pack. The
-replacement design, specified but not yet built, narrows it so paths can only originate in a file
-dialog the user opened: the AI may request access within a set the user chose, and nothing else.
-That breaks the chain rather than mitigating it.
+write half of every proposal goes through a human gate that cannot be turned off, and why an AI
+cannot attach an arbitrary local path. The shipped `request_file_access` tool stores no file and
+opens nothing: it queues a request for the user, and any usable path must originate in a file
+dialog the user controls. That breaks the chain rather than mitigating it.
 
 ---
 
@@ -242,12 +245,24 @@ Three things learned doing it, all of which cost time once:
   recompile, so every new build silently lost the input-monitoring grant — the settings toggle
   still looked enabled while the check returned false.
 
-**Verification, both artefacts** (`spctl -a -vv -t install`): each must report
-`Notarized Developer ID`. The signing authority is checked too, because the release path overrides
-the development certificate via environment variables and a failed override is silent.
+**Verification, both artefacts** (`spctl -a -vv -t install`): each reported
+`accepted` with `source=Notarized Developer ID`. The signing authority is checked too, because the
+release path overrides the development certificate via environment variables and a failed
+override is silent.
 
-*The notarisation receipt — submission id and timestamp — goes here, captured at the first v0.4.0
-release. It is the only figure in this case study that cannot be recomputed later.*
+The original Apple submission output is not stored as an image, so the case study does not invent
+a terminal receipt. It publishes the preserved release fields as a semantic evidence card instead:
+
+| Preserved field | v0.4.0 evidence |
+|---|---|
+| App submission | `89ebaceb-f883-4b1c-a6eb-86392769d132` · **Accepted** |
+| DMG submission | `f7a15d9a-737d-4132-a54e-578d9f41fd7f` · **Accepted** |
+| Tagged commit | `84625db` |
+| Artefact | `Spool_0.4.0_aarch64.dmg` |
+| SHA-256 | `933b9a7fb10a25f72cbd922c7c0a1d89fe02ef83b6a3885fba0dc0ec08b7df54` |
+| Gatekeeper | `accepted` · `source=Notarized Developer ID` · both artefacts |
+
+Source: `CASE_STUDY_LEDGER.md` §1.2; captured 2026-08-08.
 
 ---
 
@@ -271,7 +286,7 @@ as no longer valid, and it leaves the pack while staying in the library and stay
 which costs nothing in an append-only model.
 
 **An external AI found the write path from one plain sentence.** Given one ordinary request with no
-tool names, the ChatGPT desktop app created a project and filed **11 blocks** averaging 970
+tool names, a Codex conversation inside the ChatGPT desktop app created a project and filed **11 blocks** averaging 970
 characters, walking a seven-step chain unprompted — including calling the pack tool on itself to
 check its own work. It hit two errors and recovered from both unaided, which says the refusal
 messages are actionable enough to be read by a model, not just by a person.
@@ -282,7 +297,7 @@ messages are actionable enough to be read by a model, not just by a person.
 
 ## 7. What broke, and what changed because of it
 
-Seven incidents with full postmortems: **`CASE_STUDY_LEDGER.md` §3.** Each is written to answer
+Selected incidents with full postmortems: **`CASE_STUDY_LEDGER.md` §3.** Each is written to answer
 what became structurally different, not what got patched. Three are worth naming here.
 
 **The live database was wiped (2026-05-29).** Every block, gone. The migration code had an
@@ -335,6 +350,14 @@ Stated here rather than discovered later. Full list: **`CASE_STUDY_LEDGER.md` §
   after you click" (synthetic clicks do not drive the webview).
 - **One CLI limitation is stated in the interface rather than hidden**: Codex's built-in shell tool
   cannot be removed the way Claude Code's can, so Spool runs it read-only sandboxed instead.
+
+### Repository/publication state
+
+The repository-side case study is closed with three current, traceable product scenes: the real
+capture overlay, the current numbered project timeline with both side rails, and the attributed
+MCP write-back. The Story source includes the architecture and notarisation evidence above and
+links to the interactive demo instead of promising an unrecorded video. Publishing those sources,
+and changing the GitHub description, still require separate explicit authorisation.
 
 ---
 

@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The making of Spool — engineering story</title>
-<meta name="description" content="How Spool was designed and built: a local-first context hub with deterministic packing, cross-language golden tests, and an MCP-first AI architecture.">
+<title>The making of Spool — product and engineering story</title>
+<meta name="description" content="How Spool became a local-first project context hub: the product loop, three-surface architecture, AI write boundary, release evidence, measurements, failures, and limits.">
 <link rel="canonical" href="https://spoolapp.org/story.html">
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
+
+<a class="skip-link" href="#story">Skip to the story</a>
 
 <div class="nav-shell">
   <header class="wrap nav">
@@ -17,7 +19,7 @@
       <img src="assets/spool-logo-full.svg" alt="">
       Spool <span class="zh">思簿</span>
     </a>
-    <nav class="nav-links">
+    <nav class="nav-links" aria-label="Primary">
       <a href="./#demo">Try it</a>
       <a href="privacy.html">Privacy</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
@@ -26,212 +28,375 @@
   </header>
 </div>
 
-<div class="wrap" style="padding-top:2.5rem">
+<div class="wrap story-wrap">
 <div class="story-grid">
 
-<aside class="story-toc" aria-label="Contents">
-  <div class="toc-title">Contents</div>
-  <a href="#problem">The problem</a>
-  <a href="#constitution">A constitution before code</a>
-  <a href="#architecture">Architecture</a>
-  <a href="#verification">Verification discipline</a>
-  <a href="#incident">The incident</a>
-  <a href="#pivot">Removing the AI</a>
-  <a href="#status">Where it stands</a>
+<aside class="story-toc">
+  <nav aria-label="Story contents">
+    <div class="toc-title">Contents</div>
+    <a href="#user">Who it is for</a>
+    <a href="#product">What it does</a>
+    <a href="#architecture">Three surfaces</a>
+    <a href="#privacy">Privacy and writing</a>
+    <a href="#release">Signing and notarisation</a>
+    <a href="#measurement">What measurement changed</a>
+    <a href="#failures">Failures and fixes</a>
+    <a href="#boundaries">Boundaries</a>
+  </nav>
 </aside>
 
-<main class="article numbered">
+<main id="story" class="article numbered" tabindex="-1">
 
 <h1>The making of Spool</h1>
-<p class="lede">A design-and-engineering account of building a local-first context hub —
-the decisions, the discipline, and one production incident that shaped the system.</p>
+<p class="lede">A product-and-engineering account of a local-first project context hub:
+who it serves, what crosses the network boundary, what an AI may write, and what changed only
+after the system met real work.</p>
 
-<h2 id="problem">The problem</h2>
-<p>Long-running projects shred their own context. A key argument lives in one AI conversation,
-a decision in an email, a reference in a browser tab closed three weeks ago. Large language
-models make this worse, not better: they remember nothing between conversations, so every
-session begins with re-explanation — and the quality of that re-explanation silently caps the
-quality of the answer.</p>
-<p>Spool's bet is narrow: if capturing a fragment costs one keypress, and re-assembling a
-project's context costs one paste, people will actually do both.</p>
+<h2 id="user">Who it is for</h2>
+<p>Spool is for people carrying several long-lived workstreams across tools that do not share
+memory: researchers, graduate students, developers, and people building something alone. The
+common cost is not “taking notes.” It is having to reconstruct the same project for every new AI
+conversation — which paper matters, which decision already failed, and what changed since last
+week.</p>
+<p>The product sets a deliberately narrow target: re-entering a project should cost one paste,
+not an archaeological dig through chats, mail, tabs, and half-remembered decisions. It sits
+upstream of document tools. A project is a quiet, append-only log, not a collaborative canvas or
+a replacement for Notion.</p>
+<p class="story-disclosure"><strong>Research boundary.</strong> The first version was built by
+dogfooding against the developer’s own multi-project workload. That produced useful reversals,
+but it is not external user research; validation with other users remains a post-release step.</p>
 
-<h2 id="constitution">A constitution before code</h2>
-<p>The product is governed by six non-negotiable principles, written down before implementation
-and used to reject features ever since:</p>
-<ol>
-  <li><strong>Capture must be zero-friction</strong> — one keypress, no decisions.</li>
-  <li><strong>Local-first, private by default</strong> — the app makes no network requests at all.</li>
-  <li><strong>A project is a log, not a chat</strong> — append-only, time-ordered, quiet.</li>
-  <li><strong>Retrieval is deterministic</strong> — packing and search never call AI or the network.</li>
-  <li><strong>AI is a librarian, not an author</strong> — anything an AI files is attributed,
-      append-only, and can never overwrite what the user wrote by hand.</li>
-  <li><strong>Exactly two tiers of structure</strong> — Workspace → Project, no infinite nesting.</li>
+<h2 id="product">What the product does</h2>
+<p>Three verbs form one loop. None of them needs a model in the critical path.</p>
+<ol class="story-flow" aria-label="Spool product loop">
+  <li>
+    <strong>Capture</strong>
+    <span>Double-tap Option after copying to file the clipboard with its time and source, while a
+    confirmation overlay accepts the thought that made it worth saving.</span>
+  </li>
+  <li>
+    <strong>Project</strong>
+    <span>Keep fragments in a time-ordered log with exactly two levels of structure: Workspace,
+    then Project.</span>
+  </li>
+  <li>
+    <strong>Pack</strong>
+    <span>Assemble the current project into deterministic Markdown that can be pasted into any AI
+    client. The same project produces the same bytes on the same day.</span>
+  </li>
 </ol>
-<p>The most consequential of these is №5. It later became an enforced write policy, a
-data-hygiene audit tool, and the reason the product could remove its built-in AI entirely.</p>
 
-<h2 id="architecture">Architecture</h2>
-<p>Spool is a Tauri 2 application: a Rust core with a React/TypeScript front end, backed by a
-single SQLite database. The packer is implemented twice — once per language — and pinned to
-byte-identical output by golden tests.</p>
-
-<svg class="arch-svg" viewBox="0 0 720 310" role="img" aria-label="Architecture diagram: the React GUI and the pack assembler sit above the Rust core, which owns the SQLite database; external MCP clients such as Claude Desktop connect to the Rust core over stdio.">
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d6cdb3"/>
-    </marker>
-    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
-    </marker>
-  </defs>
-
-  <rect class="box" x="30" y="30" width="210" height="72" rx="8"/>
-  <text class="lbl" x="46" y="60">GUI — React / TypeScript</text>
-  <text class="sub" x="46" y="80">curation surface · capture overlay</text>
-
-  <rect class="box" x="300" y="30" width="170" height="72" rx="8"/>
-  <text class="lbl" x="316" y="60">Packer ×2</text>
-  <text class="sub" x="316" y="80">pure function · golden-locked</text>
-
-  <rect class="box" x="30" y="170" width="210" height="90" rx="8"/>
-  <text class="lbl" x="46" y="200">Rust core — Tauri 2</text>
-  <text class="sub" x="46" y="220">CGEventTap capture · IPC</text>
-  <text class="mono" x="46" y="240">spool --mcp → MCP server</text>
-
-  <rect class="box" x="300" y="170" width="170" height="90" rx="8"/>
-  <text class="lbl" x="316" y="200">SQLite</text>
-  <text class="sub" x="316" y="220">one local file · FTS5 trigram</text>
-  <text class="sub" x="316" y="240">pre-migration snapshots</text>
-
-  <rect class="box box-accent" x="520" y="170" width="170" height="90" rx="8"/>
-  <text class="lbl" x="536" y="200">Your AI clients</text>
-  <text class="sub" x="536" y="220">Claude Desktop · Cursor · …</text>
-  <text class="sub" x="536" y="240">read · search · file (attributed)</text>
-
-  <path class="flow" d="M 135 102 L 135 170"/>
-  <text class="sub" x="142" y="140">IPC</text>
-  <path class="flow" d="M 240 66 L 300 66"/>
-  <path class="flow" d="M 385 102 L 385 170"/>
-  <text class="sub" x="392" y="140">reads</text>
-  <path class="flow" d="M 240 215 L 300 215"/>
-  <path class="flow flow-accent" d="M 520 215 L 470 215" marker-end="url(#arrow-accent)"/>
-  <text class="mono" x="482" y="292" text-anchor="middle">stdio · MCP</text>
-  <path class="flow flow-accent" d="M 605 260 C 605 290, 250 300, 145 262" marker-end="url(#arrow-accent)"/>
-</svg>
-
-<ul>
-  <li><strong>Storage</strong> — SQLite with FTS5 full-text search using a trigram tokenizer
-      (chosen so Chinese text searches correctly), plus a LIKE fallback for short queries.</li>
-  <li><strong>Capture pipeline</strong> — a global double-tap ⌥ gesture (CGEventTap), a
-      non-activating always-on-top overlay for confirmation, and automatic source detection
-      down to the browser tab title.</li>
-  <li><strong>The packer</strong> — the crown feature — is a pure function from project state to
-      Markdown. No AI, no network: the same project packs to the same bytes on the same day.</li>
-  <li><strong>MCP server</strong> — Spool exposes its library to AI clients over the Model
-      Context Protocol via stdio: eighteen tools for reading, searching, filing, and auditing.
-      Every AI write carries a source label it cannot set itself; what the user wrote by hand is
-      read-only to machines, and anything an AI wants to change rather than append goes through a
-      queue the user approves.</li>
-</ul>
-
-<figure class="story-shot-proof story-shot-single">
-  <div class="story-shot-pan story-shot-pan-single" tabindex="0" role="group"
-       aria-label="Close-up of the project notes; scroll sideways inside the image to read each sentence on a narrow screen">
+<figure class="story-shot-proof story-shot-current">
+  <div class="story-shot-scroll story-shot-capture" tabindex="0" role="region"
+       aria-labelledby="capture-caption">
     <picture>
-      <source type="image/webp" srcset="assets/shots/mcp-filed-detail-readable.webp">
-      <img class="shot" src="assets/shots/mcp-filed-detail-readable.png" alt="Close-up of a Spool project: the user's complete note at 00:30, then a complete AI-written block at 16:04 badged Claude · MCP, with its own annotation and a citation pointing back to the user's note" width="1900" height="430" loading="lazy" decoding="async">
+      <source type="image/webp"
+              srcset="assets/shots/story-capture-1160.webp 1160w, assets/shots/story-capture.webp 3600w"
+              sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
+      <img class="shot" src="assets/shots/story-capture.png"
+           alt="An isolated Spool demo capture scene: a browser page remains in place while the Spool confirmation overlay appears in the upper-right corner with the captured source and note field"
+           width="3600" height="2260" loading="lazy" decoding="async">
     </picture>
   </div>
-  <figcaption class="shot-caption">Principle №5, enforced in the data model: an AI client filed the lower block over
-MCP. It is badged with its author, appended <em>below</em> the user's note rather than over it, and
-its citation line names the exact block it answers.</figcaption>
+  <figcaption id="capture-caption" class="shot-caption">Capture in the isolated demo build:
+the source application stays visible while Spool confirms the saved fragment in a corner.</figcaption>
 </figure>
 
-<h2 id="verification">Verification discipline</h2>
-<p>Determinism is a testable promise, so the test suite is built around it:</p>
-<ul>
-  <li><strong>Cross-language golden files.</strong> The pack format is implemented twice —
-      in TypeScript for the GUI and in Rust for the MCP server. Golden tests pin both
-      implementations to byte-identical output, so the two surfaces can never drift apart.</li>
-  <li><strong>Migration lockstep.</strong> Schema migrations live in a registry with
-      version constants asserted on both the TypeScript and Rust sides; the app snapshots the
-      database automatically before any migration runs.</li>
-  <li><strong>313 automated tests</strong> across Vitest and cargo, including digest
-      determinism, a read-only library audit tool (<code>check_library</code>) whose report
-      is itself byte-stable within a day, and a cross-language golden test that fails unless
-      the TypeScript and Rust pack renderers agree byte for byte.</li>
-</ul>
-<p>Beyond unit tests, each release batch went through an adversarial review loop with scored
-acceptance: 8.5 → 7.7 → 9.5 → 9.8 across four rounds. The dip to 7.7 was the process working —
-a reviewer catching a data-hygiene gap that a later round proved fixed.</p>
+<h2 id="architecture">How the three surfaces relate</h2>
+<p>The desktop interface, MCP server, and CLI engine slot are three local surfaces around one
+source of truth. The diagram separates “runs on your Mac” from “belongs to the Spool process” so
+the network claim can be inspected rather than inferred.</p>
 
-<h2 id="incident">The incident that shaped the system</h2>
-<p>On 2026-05-29, a development build wiped the live database: a schema-rebuild branch in the
-migration code met a build/database version skew, and the "rebuild" path ran against real data.
-The postmortem produced the guardrails that now define the data layer: automatic pre-migration
-snapshots, a migration registry with dual-side version constants, mandatory backups before any
-operation touching the live database, and an isolated-build workflow for on-device verification
-so development builds can never again open the production file by accident.</p>
-<blockquote>A data-loss incident is not a line anyone wants on a project page. It is on this one
-because the guards it produced are the most load-bearing engineering in the product.</blockquote>
+<figure class="story-architecture">
+  <div class="arch-scroll" tabindex="0" role="region"
+       aria-label="Architecture diagram; on a narrow screen, scroll sideways to inspect every component and network path">
+    <svg class="arch-svg" viewBox="0 0 1160 610" role="img"
+         aria-label="Spool architecture: the GUI and capture overlay connect locally to the Rust and Tauri core and one SQLite database. The spool --mcp mode uses stdio with an external MCP client. The core spawns Claude Code, Codex CLI, or Gemini CLI as a subprocess. Only the external MCP client and CLI subprocess contact their own providers over two separate network paths; Spool itself sends no HTTP requests.">
+      <title>Spool’s local architecture and two outbound paths</title>
+      <desc>The Spool process contains its desktop GUI, capture overlay, Rust and Tauri core,
+      spool --mcp stdio server, and one SQLite database. An external MCP client connects over
+      stdio. The core can spawn Claude Code, Codex CLI, or Gemini CLI as a separate subprocess. The external
+      MCP client and the CLI subprocess contact their respective providers over two distinct
+      network paths. No arrow crosses from Spool itself to the network.</desc>
+      <defs>
+        <marker id="story-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arch-marker" d="M 0 0 L 10 5 L 0 10 z"/>
+        </marker>
+        <marker id="story-arrow-accent" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+        </marker>
+      </defs>
 
-<h2 id="pivot">Removing the AI to build a better AI product</h2>
-<p>Mid-project, Spool shipped optional built-in AI providers. They were removed — entirely.
-Ordinary users can't obtain API keys or run local models, and every built-in provider weakened
-the privacy story. The replacement is architectural: Spool is the <em>context repository</em>,
-and AI clients the user already owns operate on it through MCP. The analogy that guided the
-decision: Spool is the editor; the AI is a plugin. Since the pivot, the app's content-security
-policy structurally blocks all outbound network traffic — the privacy policy is enforced by
-the build, not by promises.</p>
+      <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
+      <text class="arch-kicker" x="42" y="47">YOUR MAC</text>
 
-<h2 id="status">Where it stands</h2>
-<p>v0.4.0 is feature-complete and packaged for macOS. v0.3.0 closed the original twelve
-implementation phases, from the data layer through capture hardening, full-text search, project
-digests, cross-project references, and the MCP surface. The logo — a spool seen from above, its
-thread pulling free — was designed in-house, down to the tray icon's alpha-channel template
-rendering.</p>
-<p>v0.4.0 is about what happens to a memory once it is being written to. A context store that an
-AI can append to has two failure modes that do not exist in a notebook: facts going stale with
-nothing marking them, and machine-written text quietly acquiring the authority of hand-written
-text. Both got mechanisms rather than warnings. A block can be retired — it leaves the pack, stays
-in the library, stays searchable, and the pack states that it was left out. A newer block can point
-at the one sentence an older block got wrong, with the older block printed in full and still
-standing on everything else. An annotation records who wrote it, so a note an AI filed renders
-differently from one you wrote and can never be read as your judgement. Anything an AI wants to
-change rather than append arrives as a proposal you approve.</p>
-<p>The same release opens a second, narrower channel: if a supported coding CLI you already own is
-installed and logged in, Spool can run Follow Up against the lines you asked it to watch, write a
-cross-project Weekly Review, or help draft those follow-up targets. Spool still makes no network
-request itself and stores no key — the request leaves from that subprocess, on your own account's
-quota, and every run is watchable while it happens. Follow Up is the only action that receives web
-search tools; the others read the library without them.</p>
+      <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
+      <text class="arch-kicker" x="66" y="92">SPOOL · ONE LOCAL BINARY</text>
 
-<figure class="story-shot-proof">
-  <picture class="story-shot-overview">
-    <source type="image/webp"
-            srcset="assets/shots/app-thread-after-860.webp 860w, assets/shots/app-thread-after.webp 2420w"
-            sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
-    <img class="shot" src="assets/shots/app-thread-after.png" alt="The complete Spool project holding six blocks: a pinned goal, a captured job posting, an AI-chat answer, the user's note, a Claude · MCP conclusion and an email" width="2420" height="1750" loading="lazy" decoding="async">
-  </picture>
-  <div class="story-shot-pan story-shot-pan-detail" tabindex="0" role="group"
-       aria-label="Close-up of the project notes; scroll sideways inside the image to read each sentence on a narrow screen">
+      <rect class="box" x="70" y="116" width="194" height="72" rx="8"/>
+      <text class="lbl" x="88" y="145">Desktop GUI</text>
+      <text class="sub" x="88" y="166">React · TypeScript</text>
+
+      <rect class="box" x="70" y="224" width="194" height="72" rx="8"/>
+      <text class="lbl" x="88" y="253">Capture overlay</text>
+      <text class="sub" x="88" y="274">global gesture · local window</text>
+
+      <rect class="box" x="322" y="116" width="184" height="180" rx="8"/>
+      <text class="lbl" x="342" y="149">Rust / Tauri core</text>
+      <text class="sub" x="342" y="174">capture · IPC · policy</text>
+      <text class="sub" x="342" y="197">deterministic packer</text>
+      <text class="sub" x="342" y="220">subprocess boundary</text>
+      <text class="mono" x="342" y="259">no HTTP client</text>
+
+      <rect class="box" x="554" y="116" width="128" height="180" rx="8"/>
+      <text class="lbl" x="574" y="149">SQLite</text>
+      <text class="sub" x="574" y="174">one local file</text>
+      <text class="sub" x="574" y="197">single source</text>
+      <text class="sub" x="574" y="220">of truth</text>
+      <text class="mono" x="574" y="259">FTS5</text>
+
+      <rect class="box box-accent" x="322" y="320" width="184" height="52" rx="8"/>
+      <text class="lbl" x="342" y="342">spool --mcp</text>
+      <text class="mono" x="342" y="360">stdio MCP server</text>
+
+      <rect class="box box-external" x="770" y="90" width="300" height="100" rx="8"/>
+      <text class="lbl" x="792" y="123">External MCP client</text>
+      <text class="sub" x="792" y="147">Claude Desktop · Cursor · …</text>
+      <text class="sub" x="792" y="166">Codex in ChatGPT desktop</text>
+      <text class="mono" x="792" y="183">client owns provider connection</text>
+
+      <rect class="box box-external" x="770" y="270" width="300" height="100" rx="8"/>
+      <text class="lbl" x="792" y="303">CLI engine subprocess</text>
+      <text class="sub" x="792" y="325">Claude Code · Codex CLI</text>
+      <text class="sub" x="792" y="344">Gemini CLI · no Follow Up</text>
+      <text class="mono" x="792" y="362">user-installed · user-authenticated</text>
+
+      <rect class="provider-box" x="144" y="498" width="300" height="82" rx="41"/>
+      <text class="lbl" x="294" y="531" text-anchor="middle">MCP client’s provider</text>
+      <text class="sub" x="294" y="554" text-anchor="middle">network path 1 · outside Spool</text>
+
+      <rect class="provider-box" x="716" y="498" width="300" height="82" rx="41"/>
+      <text class="lbl" x="866" y="531" text-anchor="middle">CLI’s provider</text>
+      <text class="sub" x="866" y="554" text-anchor="middle">network path 2 · outside Spool</text>
+
+      <path class="flow" d="M 264 152 L 322 152"/>
+      <text class="flow-label" x="293" y="141" text-anchor="middle">IPC</text>
+      <path class="flow" d="M 264 260 L 322 260"/>
+      <text class="flow-label" x="293" y="249" text-anchor="middle">local</text>
+      <path class="flow" d="M 506 206 L 554 206"/>
+      <text class="flow-label" x="530" y="195" text-anchor="middle">SQL</text>
+      <path class="flow" d="M 414 296 L 414 320"/>
+      <path class="flow flow-accent" d="M 770 140 C 686 140, 606 346, 506 346"/>
+      <text class="flow-label accent-label" x="649" y="265">stdio · MCP</text>
+      <path class="flow flow-accent" d="M 506 272 C 606 272, 654 320, 770 320"/>
+      <text class="flow-label accent-label" x="637" y="304">spawn + stdio</text>
+
+      <path class="network-line" d="M 860 190 C 840 438, 430 438, 350 498"/>
+      <text class="network-label" x="565" y="449">NETWORK PATH 1</text>
+      <path class="network-line" d="M 920 370 C 920 430, 866 445, 866 498"/>
+      <text class="network-label" x="928" y="449">NETWORK PATH 2</text>
+
+      <text class="arch-no-http" x="66" y="381">Spool itself sends no HTTP requests.</text>
+      <text class="arch-network-boundary" x="42" y="462">NETWORK BOUNDARY — ONLY THE TWO ACCENT PATHS CROSS IT</text>
+    </svg>
+  </div>
+  <figcaption class="shot-caption">The network boundary is literal: the external MCP client and
+  the user-authenticated CLI subprocess can contact their own providers. Spool itself makes no
+  HTTP request, stores no provider key, and listens on no network port.</figcaption>
+</figure>
+
+<p>The GUI and capture overlay communicate with the Rust/Tauri core locally. That core owns one
+SQLite database. Running <code>spool --mcp</code> exposes the same library over stdio to an AI
+client; the CLI engine slot instead starts Claude Code, Codex CLI, or Gemini CLI as a separate
+process. Gemini supports Weekly Review and draft goals, but not Follow Up. Both routes preserve
+the distinction between Spool’s local work and another program’s network work.</p>
+
+<figure class="story-shot-proof story-shot-current">
+  <div class="story-shot-scroll story-shot-project" tabindex="0" role="region"
+       aria-labelledby="project-caption">
     <picture>
-      <source type="image/webp" srcset="assets/shots/app-thread-after-detail.webp">
-      <img class="shot" src="assets/shots/app-thread-after-detail.png" alt="Close-up from the same project: an AI-chat capture, the user's complete 00:30 note, and a complete Claude · MCP note carrying its annotation and citation back to the earlier captured decision" width="1930" height="700" loading="lazy" decoding="async">
+      <source type="image/webp"
+              srcset="assets/shots/story-project-920.webp 920w, assets/shots/story-project.webp 1229w"
+              sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
+      <img class="shot" src="assets/shots/story-project.png"
+           alt="The Machine learning course project in an isolated Spool demo library, showing the fixed Workspace and Spool sidebar, numbered timeline blocks, a note used as a title, and the AI client activity rail"
+           width="1229" height="734" loading="lazy" decoding="async">
     </picture>
   </div>
-  <figcaption class="shot-caption">The current build: one project holding five human-captured fragments and one
-conclusion filed by an AI client over MCP — each carrying its own time, source, and annotations.</figcaption>
+  <figcaption id="project-caption" class="shot-caption">One current project surface: fixed
+  navigation and Spool panels on the left, numbered blocks in the log, annotations that can act
+  as titles, and AI client activity on the right.</figcaption>
 </figure>
 
-<p class="no-print"><em>A 2–3 minute demo video is being recorded for the v0.4.0 release and
-will be embedded here. Meanwhile, the <a href="./#demo">interactive demo</a> walks the same
-loop in your browser.</em></p>
+<h2 id="privacy">Privacy and the write boundary</h2>
+<p>Reading and writing are separate permissions. Content leaves the machine only inside a
+program the user installed and authorised; the program that crosses the network is named at each
+path.</p>
+
+<div class="story-table-scroll" tabindex="0" role="region"
+     aria-label="Network and writing paths; scroll sideways on a narrow screen">
+  <table>
+    <thead>
+      <tr><th scope="col">Path</th><th scope="col">What can cross</th><th scope="col">Network client</th></tr>
+    </thead>
+    <tbody>
+      <tr><th scope="row">MCP client</th><td>What the client explicitly reads from the local stdio server</td><td>The external AI client</td></tr>
+      <tr><th scope="row">CLI engine action</th><td>The project blocks required by the chosen action</td><td>Claude Code, Codex CLI, or Gemini CLI; Gemini excludes Follow Up</td></tr>
+      <tr><th scope="row">Anything else</th><td>Nothing</td><td>None</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<ul class="story-rules">
+  <li><strong>AI may append; it may not overwrite.</strong> Machine-written blocks carry a
+  server-enforced source label and cannot replace a user-authored block.</li>
+  <li><strong>AI may not borrow the user’s authority.</strong> Annotation authorship is stored,
+  so a machine note renders as machine framing rather than as the user’s judgement.</li>
+  <li><strong>AI may propose a correction; the user decides.</strong> The original stays visible
+  and searchable. Retiring material is a human action.</li>
+</ul>
+
+<figure class="story-shot-proof story-shot-current">
+  <div class="story-shot-scroll story-shot-writeback" tabindex="0" role="region"
+       aria-labelledby="writeback-caption">
+    <picture>
+      <source type="image/webp"
+              srcset="assets/shots/story-ai-writeback-760.webp 760w, assets/shots/story-ai-writeback.webp 990w"
+              sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
+      <img class="shot" src="assets/shots/story-ai-writeback.png"
+           alt="A current isolated demo project detail: user-authored block number four followed by block number five, badged Claude · MCP and carrying a citation back to the earlier source"
+           width="990" height="170" loading="lazy" decoding="async">
+    </picture>
+  </div>
+  <figcaption id="writeback-caption" class="shot-caption">The write boundary in the current
+  build: an attributed <span class="nowrap">Claude · MCP</span> block is appended after the
+  user’s source and cites it; it does not overwrite it or present itself as the user.</figcaption>
+</figure>
+
+<h2 id="release">Distribution, signing, and notarisation</h2>
+<p>Spool ships directly as a Developer ID–signed, Apple-notarised disk image. The Mac App Store
+is not the distribution path because sandboxing conflicts with the system-wide capture gesture.
+The application and the disk image are checked separately: users download the wrapper, so a
+notarised application inside an unnotarised disk image is not enough.</p>
+
+<div class="release-evidence" role="group" aria-labelledby="release-evidence-title">
+  <div class="release-evidence-head">
+    <p class="kicker">Release evidence</p>
+    <h3 id="release-evidence-title">v0.4.0 signing and notarisation receipt</h3>
+  </div>
+  <dl>
+    <div>
+      <dt>App submission</dt>
+      <dd><code>89ebaceb-f883-4b1c-a6eb-86392769d132</code> <strong class="status-accepted">Accepted</strong></dd>
+    </div>
+    <div>
+      <dt>DMG submission</dt>
+      <dd><code>f7a15d9a-737d-4132-a54e-578d9f41fd7f</code> <strong class="status-accepted">Accepted</strong></dd>
+    </div>
+    <div>
+      <dt>Tagged commit</dt>
+      <dd><code>84625db</code></dd>
+    </div>
+    <div>
+      <dt>Artifact</dt>
+      <dd><code>Spool_0.4.0_aarch64.dmg</code></dd>
+    </div>
+    <div class="evidence-wide">
+      <dt>SHA-256</dt>
+      <dd><code>933b9a7fb10a25f72cbd922c7c0a1d89fe02ef83b6a3885fba0dc0ec08b7df54</code></dd>
+    </div>
+    <div class="evidence-wide">
+      <dt>Gatekeeper</dt>
+      <dd><code>accepted</code> · <code>source=Notarized Developer ID</code> · both artifacts</dd>
+    </div>
+  </dl>
+  <p class="evidence-source">Source: <a href="https://github.com/KIM-ocean-HZ/spool/blob/main/docs/CASE_STUDY_LEDGER.md#12-release-record">Case Study Ledger §1.2</a>, captured 2026-08-08.</p>
+</div>
+
+<p><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Inspect the release and its
+assets on GitHub</a>. The website’s stable download URL points to the fixed-name copy published
+alongside the versioned artifact.</p>
+
+<h2 id="measurement">What measurement changed</h2>
+<p>The case-study ledger records commands and source evidence for every public figure. Three
+measurements changed product priorities rather than merely describing the finished system.</p>
+
+<div class="measurement-grid">
+  <article>
+    <h3>Context volume came from pasted documents</h3>
+    <p>One real project packed to <strong>26,163 of 50,000 characters</strong>. User-pasted
+    material contributed <strong>95%</strong>; AI clients contributed <strong>5%</strong>, with
+    average AI-written blocks <strong>11× smaller</strong>. Staleness moved ahead of AI-output
+    deduplication.</p>
+  </article>
+  <article>
+    <h3>Deduplication was a one-time recovery</h3>
+    <p>The measured duplicate pair occupied <strong>13% of the pack</strong>. Retirement solved
+    the immediate volume problem while keeping the older block in the library and search.</p>
+  </article>
+  <article>
+    <h3>The external write path was discoverable</h3>
+    <p>From one plain-language request, an external client created a project and filed
+    <strong>11 blocks</strong> averaging <strong>970 characters</strong>. It recovered from
+    <strong>2 errors</strong> without help, then used the pack tool to check its work.</p>
+  </article>
+</div>
+<p>A separate live web-search run cost approximately <strong>$0.45</strong> and exposed failures
+that mocks and prompt inspection had not revealed.</p>
+
+<h2 id="failures">Failures that changed the system</h2>
+<p>The useful unit in a postmortem is not the patch; it is the guard that remains.</p>
+
+<div class="failure-list">
+  <article>
+    <h3>The live database was wiped</h3>
+    <p>A development build met a newer live schema and took an unconditional rebuild path.
+    Recovery carved <strong>33 blocks</strong> from SQLite free pages, but project titles were
+    gone. The durable changes were fail-closed migrations, a named migration registry with
+    cross-language version checks, automatic pre-migration snapshots, isolated on-device builds,
+    and a rule that first-run seed data is reachable only from an empty database.</p>
+  </article>
+  <article>
+    <h3>A prompt rule failed on its first real run</h3>
+    <p>Follow-up findings required a source URL, yet <strong>2 of 3</strong> proposals omitted it
+    because the model placed links in its closing message. The prompt was made field-specific;
+    the next measured run produced links in <strong>5 of 5</strong> proposals. The standing rule
+    is now simple: text in a prompt is not a behaviour until a real run proves it.</p>
+  </article>
+  <article>
+    <h3>The packaged window was blank while every automated check passed</h3>
+    <p>A state selector allocated a new array on each call and triggered an infinite render.
+    Nothing in the automated suite opened a packaged window. Release verification now includes
+    looking at the isolated signed build; visual health is no longer inferred from compilation.</p>
+  </article>
+</div>
+
+<h2 id="boundaries">Boundaries, not promises</h2>
+<ul>
+  <li><strong>macOS only in practice.</strong> Capture, focus handling, and process-group
+  cancellation contain platform-specific work that would need redesign on another system.</li>
+  <li><strong>No auto-update.</strong> A new version is a manual download from the direct release.</li>
+  <li><strong>Source-visible, all rights reserved.</strong> The repository has no licence granting
+  reuse.</li>
+  <li><strong>Two checks remain human.</strong> The authorised capture gesture sits upstream of
+  synthetic events, and the packaged webview cannot be trusted from synthetic clicks; both are
+  escalated to a person rather than claimed as automated.</li>
+  <li><strong>Spool is not a server, sync service, team workspace, or document editor.</strong>
+  It stores one local project log and prepares context for tools the user already chose.</li>
+</ul>
+
+<p class="story-demo no-print">There is no placeholder video. The
+<a href="./#demo">interactive browser demo</a> walks through the capture → project → pack loop;
+the screenshots above are from the current isolated desktop build.</p>
 
 <hr>
-<p class="muted">Spool is designed and built by Ocean (<a href="https://github.com/KIM-ocean-HZ">KIM-ocean-HZ</a>).
-Source, roadmap, and the full product constitution are on
-<a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>.</p>
+<p class="muted">Spool is designed and built by Ocean
+(<a href="https://github.com/KIM-ocean-HZ">KIM-ocean-HZ</a>). Source, roadmap, and the full
+product constitution are on <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>;
+reproducible public figures live in the
+<a href="https://github.com/KIM-ocean-HZ/spool/blob/main/docs/CASE_STUDY_LEDGER.md">Case Study Ledger</a>.</p>
 
 </main>
 </div>

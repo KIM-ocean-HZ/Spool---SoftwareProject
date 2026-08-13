@@ -37,7 +37,8 @@ Spool compresses "re-explaining" into "a single paste."
 
 ## Status
 
-**v0.4.0** — feature-complete and shipping. macOS primary; Windows/Linux feasible via Tauri (capture-trigger details differ).
+**v0.4.0** — feature-complete and shipping on macOS. Windows and Linux builds are not implemented;
+capture, focus, cancellation, paths, and distribution require platform-specific work.
 
 - **Distribution**: Developer ID–signed, Apple-notarized `.dmg`, straight from [Releases](https://github.com/KIM-ocean-HZ/spool/releases/latest). Not on the Mac App Store — sandboxing conflicts structurally with the global capture trigger.
 - **Website**: [spoolapp.org](https://spoolapp.org), with an interactive walkthrough of capture → pack → re-brief → MCP in English and Chinese.
@@ -192,29 +193,33 @@ PLAN_EN.md            # the project blueprint and source of truth
 
 Taken with a library built purely for demonstration — the projects and notes in them are invented, so nothing personal appears.
 
-**One project, five fragments.** A goal you set, a job posting you read, an answer from an AI chat, a decision of your own, an email from a recruiter — each keeping its time and its source.
+**One project, five fragments.** A course reference, a note used as the next block's title, an AI-chat explanation, your revision plan, and a conclusion filed by an AI — each keeping its number, time, source, and author. The fixed project rail stays on the left; the AI activity rail stays on the right.
 
-![The Spool main window: workspaces and projects in the sidebar, and a project of five fragments with their times, sources and annotations](docs/screenshots/app-project.png)
+![The current Spool main window for a machine-learning project: a fixed workspace and project rail, five numbered timeline blocks including a note used as a title, and the AI activity rail on the right](docs/screenshots/app-project.png)
 
-**The capture confirmation**, on whatever screen you are already on — the first words of what was saved, the project it went to, a note box ready for the thought you had, and undo. The main window never comes forward.
+**The capture confirmation** keeps the saved text, its Study / Machine learning course destination, the detected source, an active note box, and undo/redo in one compact overlay. The main window never has to come forward.
 
-![Spool's corner overlay: the first words of the saved fragment, the project Work / Job search it was filed under, and an undo button](docs/screenshots/capture-toast.png)
+![The current Spool capture confirmation: Definition of classification algorithm filed to Study / Machine learning course, with its source, an active note field, Done, undo and redo](docs/screenshots/capture-toast.png)
 
-**Pack** turns the project into paste-ready Markdown: your own words first, sources kept as sources, anything an AI wrote marked so you can check it.
+**Pack** turns those five blocks into paste-ready Markdown: scope controls stay visible, the authority instructions explain how to read each source, and anything an AI wrote remains marked.
 
-![The pack dialog over a project: the assembled briefing as plain text, with scope choices and a copy button](docs/screenshots/app-pack.png)
+![The current Pack dialog over the machine-learning project: five blocks assembled as plain text, with range choices, authority instructions, a character count and a copy button](docs/screenshots/app-pack.png)
 
-**A finished project**, condensed to its conclusion and the fragments that mattered.
+**A finished project**, condensed to the conclusion you chose, with a one-click path to reopen it.
 
-![A completed project's digest: the conclusion in a box, and the two highlighted fragments below](docs/screenshots/app-digest.png)
+![The current completed-project digest for Portfolio site: a conclusion in its own field, the project's metadata, Pack and Reopen controls](docs/screenshots/app-digest.png)
 
-**Through MCP, your own AI reads the library directly** — here it answers from workspaces and projects on the Mac, without a pack or a paste.
+**Project management stays a list, not another tree.** Active work is ordered by deadline or creation date, workspace and block count stay scannable, and completed work keeps its conclusion.
 
-![An AI client listing the Spool library: workspaces for work, study and life, each with its projects and note counts](docs/screenshots/mcp-library.png)
+![The current Projects screen: seven active projects with workspace, block count and deadline, followed by one completed project with its conclusion](docs/screenshots/app-projects.png)
 
-**And when it files something back, it signs its name.** The AI's block is appended *below* the user's note — never over it — labelled `Claude · MCP`, with a `↩` line pointing at the exact fragment it answers.
+**Through MCP, your own AI reads the library directly** — this read-only Codex CLI run queried the isolated demo server and reported its current totals without a pack or a paste.
 
-![Close-up inside Spool: the user's own note, and directly below it a block written by an AI, marked Claude · MCP, with a reference line pointing back at the cited note](docs/screenshots/mcp-filed-detail.png)
+![A current Codex CLI result from the isolated Spool MCP server: the final Life-workspace rows and totals of three workspaces, eight projects, seven active, one done and twenty-three blocks](docs/screenshots/mcp-library.png)
+
+**And when it files something back, it signs its name.** Block 5 is appended *below* the user's block 4 — never over it — labelled `Claude · MCP`, with a `↩` line pointing at the exact fragment it answers.
+
+![Close-up inside the current Spool project: numbered user block 4, followed by numbered AI block 5 marked Claude · MCP and a reference line back to block 4](docs/screenshots/mcp-filed-detail.png)
 
 ## License
 
