@@ -375,13 +375,8 @@ const EN: Record<string, string> = {
     'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
   '去下载': 'Get it',
   '装好后这里就能一键接入': 'Once installed, one-click connect works here',
-  '用法就这一段：粘给 AI 直接能用，你自己读也看得懂':
-    'This one paragraph is the whole how-to: paste it to your AI, or just read it yourself',
-  '复制使用提示': 'Copy usage briefing',
   '这一块的编号 — AI 说「#12」指的就是它。点一下定位':
     'This block\u2019s number — when an AI says \u201c#12\u201d, this is what it means. Click to locate it',
-  '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。':
-    'I keep my project notes in Spool, and you can read them directly now.\n\nThings you can do for me:\n· "What have I been up to?" — start with a briefing across all my projects\n· "Where am I stuck on <a project>, and what have I settled?" — read that project in full\n· "Save that conclusion into <a project>" — store it back for me (I have to turn on "Let AI write" in Spool first)\n\nTwo rules: refer to things by project title and block number (like #12), never by an internal id; and every block you write is labelled with your name automatically, so I can always see which ones are yours.',
   '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
   '在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
     'Where to ask: in the chat box for Claude Desktop and for a Codex conversation in ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
@@ -417,26 +412,7 @@ const EN: Record<string, string> = {
   // while saying which half of it works.
   'ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool':
     'Codex in the ChatGPT desktop app, the Codex CLI and the editor extensions share this config. An ordinary ChatGPT chat cannot reach your machine, so it cannot use Spool.',
-  '跳到你的 AI 软件': 'Jump to your AI app',
-  // 2026-08-12 — the clipboard carries an OPENING, not a question. The trailing space in the
-  // English forms is deliberate: it is where the user's own words start.
-  'Spool 里的「{title}」：': 'The "{title}" project in Spool: ',
-  '把开头复制好（带着项目名），并跳到你的 AI 软件':
-    'Copy the opening (with the project name) and jump to your AI app',
-  '把开头复制好（带着项目名），并跳到 {app}':
-    'Copy the opening (with the project name) and jump to {app}',
-  '命令已复制——在你的终端里粘上，回车就行':
-    'Command copied — paste it in your terminal and press return',
-  '开头已复制——粘上之后接着写你要问什么':
-    'Opening copied — paste it, then write what you want to ask',
-  '开头已复制，{app} 已经在前面了——⌘V 之后接着写你要问什么':
-    'Opening copied and {app} is up front — ⌘V, then write what you want to ask',
-  '跳到哪个？': 'Jump to which?',
-  '跳到 {app}': 'Jump to {app}',
   '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',
-  '{app} 已经在前面了': '{app} is up front now',
-  '{app} 是终端里的，Spool 打不开它': '{app} runs in your terminal — Spool cannot open it',
-  'Claude Code 在终端里，Spool 只能帮你复制。': 'Claude Code lives in your terminal, so Spool can only copy.',
   '接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
     'Hooking up Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',
@@ -754,25 +730,13 @@ const EN: Record<string, string> = {
   '这次什么也没回来': 'nothing came back this time',
 
   // 「问 AI」 (§9.13) — the row's one-click question.
-  '问 AI': 'Ask AI',
   '把这个项目的问题复制好，并跳到你的 AI 软件':
     'Copy a question about this project and bring your AI app to the front',
-  '拿哪个问？': 'Ask in which app?',
-  '看看接了哪些…': 'Checking what is connected…',
   '只复制': 'copy only',
-  '还没有接上的 AI 软件。去设置里一键接一个，这里就能用了。':
-    'No AI app is connected yet. Connect one in Settings and this starts working.',
-  'MCP 服务还没打开。去设置里打开并接一个 AI 软件，这里就能用了。':
-    'The MCP service is off. Turn it on in Settings and connect an AI app, and this starts working.',
-  '打开设置': 'Open Settings',
   '问题已复制，{app} 已经在前面了——⌘V 回车就行':
     'Question copied, and {app} is in front — just ⌘V and hit return',
   '问题已复制——在你的终端里粘上就行':
     'Question copied — paste it in your terminal',
-  '打不开 {app}：{msg}': 'Could not open {app}: {msg}',
-  // ⚠️ The prompt itself is translated, unlike the pack's authority header: this one is the
-  // USER speaking to their own AI, so it follows the app's language like every other line
-  // they read. Titles only, never ids (mcp.rs's naming rule).
   '读一下我 Spool 里「{title}」这个项目的完整脉络，然后告诉我三件事：我卡在哪、已经定下来了什么、接下来该做什么。':
     'Read the full thread of my Spool project “{title}”, then tell me three things: where I am stuck, what I have already settled, and what to do next.',
 

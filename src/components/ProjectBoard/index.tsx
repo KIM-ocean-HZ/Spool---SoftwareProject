@@ -9,7 +9,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import AskAiButton from './AskAiButton';
 import StatusDot from '@/components/ui/StatusDot';
 import {
   blockStatsByThread,
@@ -33,14 +32,18 @@ import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 //
 // So a card became a **row that opens**. Clicking no longer navigates — it expands, and the
 // jump is one of the buttons inside. That is the trade the request makes explicit: a card
-// had exactly one action, so click could BE that action; a row with five needs the click to
-// mean "show me the five".
+// had exactly one action, so click could BE that action; a row with several needs the click
+// to mean "show me the several".
 //
-// The five, and why each is here rather than only inside the project:
+// ⚠️ 2026-08-15 — 「问 AI」 is gone from this row. It copied an opener naming this project and
+// brought the AI client forward; Ocean retired that whole route together with the codex plugin
+// and the rail's client nav (see RightRail/McpBar's header). Do not add it back here: the row
+// acts on the project, and handing the project to some other app is not one of those acts.
+//
+// The four, and why each is here rather than only inside the project:
 //   * 跳转   — the old click, now labelled. Nothing else in the row navigates.
 //   * 打包   — 「展开显示 pack」. Runs through PackHost, so a project that has never been
 //              opened gets its blocks loaded on demand (components/Pack/PackHost).
-//   * 问 AI  — the point of the whole row (AskAiButton).
 //   * 完成 / 重新打开 — 「点击已完成也需要可以重新打开」. A board that could only finish
 //              projects was a one-way door.
 //   * 删除   — 「项目管理加入删除键」. Goes through the same soft delete + undo toast as the
@@ -58,7 +61,7 @@ import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 // another one (every project in one flat table), so the dimension he sorts by simply was not
 // here. ⚠️ **A column, not grouping** — §9.13 had just finished making this screen lighter and
 // grouping would put the weight straight back. A column also lets the move happen in place:
-// the sidebar's 移动到工作区 menu is reused verbatim as a sixth row action, so there is one
+// the sidebar's 移动到工作区 menu is reused verbatim as one more row action, so there is one
 // menu and one behaviour, not two that drift.
 
 type Sort = 'deadline' | 'created';
@@ -236,7 +239,6 @@ export default function ProjectBoard() {
               label={t('打包')}
               onClick={() => setPacking(th.id)}
             />
-            <AskAiButton threadTitle={title} />
             {/* Same menu as the sidebar's right-click one (Sidebar/ThreadListItem), same
                 patch call — moved here because a column you cannot act on just tells you
                 where the project is, and the complaint was that it was in the wrong place. */}

@@ -1,14 +1,32 @@
 import { invoke } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { t } from '@/lib/i18n';
 
-// The AI clients Spool can wire itself into, shared by the two surfaces that care.
+// The AI clients Spool can wire itself into.
 //
 // This table lived inside Settings/McpConfig while connecting was the only thing anyone did
-// with it. DESIGN_WORKBENCH §9.13 added a second reader — 项目管理's 「问 AI」 button, which
-// needs to know which clients are ALREADY connected so it can offer them — so it moved here
-// rather than being copied. The Rust side's own table (mcp.rs client_config_paths) is the
-// authority on where each config file lives; this is only the user-facing half.
+// with it. DESIGN_WORKBENCH §9.13 added a second reader — 项目管理's 「问 AI」 button — so it
+// moved here rather than being copied; that reader is gone (2026-08-15) and Settings is again
+// the only one, but the file stays split: the Rust side's own table (mcp.rs
+// client_config_paths) is the authority on where each config file lives, and this is the
+// user-facing half of the same thing.
+//
+// ⚠️⚠️ **What this file no longer holds, and what it would cost to write again.**
+// Until 2026-08-15 it also carried `HOW_TO_ADDRESS` — how to name Spool inside each client's
+// own chat box — plus `askPrompt` / `askInClient` / `focusClient` / `readConnectedClients`,
+// which put an opener on the clipboard and brought that client forward. All of it went with
+// the 「帮用户去别的 AI 里点名 Spool」 route (RightRail/McpBar's header has Ocean's reasoning).
+//
+// The table was three measurements deep, not a guess, and re-deriving it is the expensive
+// part. **Before anyone builds an addressing feature again, read those measurements rather
+// than re-running them** — `docs/HANDOFF.md §0-now.3-ter…septies` and
+// `docs/CASE_STUDY_LEDGER.md §3.39–3.41`. The three that cost the most:
+//   ① A pasted `@spool` is inert in Codex — the client builds a mention when the user PICKS
+//      one, never from characters, so no clipboard can carry one.
+//   ② Claude Code's `/` menu SHOWS `/spool:catch_up (MCP)` but only answers to
+//      `/mcp__spool__catch_up`, and it splits arguments on whitespace with quotes passed
+//      through verbatim — so a quoted title matches nothing at all.
+//   ③ There is no shared convention to fall back on: `@` opens a FILE path in Claude Code and
+//      pulls in files or chat participants in Cursor / VS Code / Windsurf, so a guessed prefix
+//      is worse than naming nothing.
 
 /** 2026-07-31 (Ocean): Claude Code promoted to a first-class one-click target, and the
  *  other popular clients that keep their MCP servers in a plain JSON file joined it. */
@@ -96,173 +114,4 @@ export const readClientsSeen = async (): Promise<Record<string, ClientSeen>> => 
     console.warn('[mcp] client heartbeat read failed', e);
     return {};
   }
-};
-
-/**
- * How each client is addressed **in its own chat box**, so that one paste lands on Spool
- * instead of on whatever the model would otherwise reach for.
- *
- * ⚠️ **A client is in this table only when its own vendor documents the syntax, or somebody
- * watched it work.** There is no shared convention here to fall back on — `@` in Claude Code
- * opens a FILE path, and in Cursor / VS Code / Windsurf it pulls in files or chat
- * participants, so a guessed prefix sends the client hunting for a file called `spool`, which
- * is worse than not naming the server at all. An unlisted client gets the plain sentence.
- *
- * What is known, and how:
- *
- *   * **Codex** — ⚠️⚠️ **nothing. `@spool` was removed on 2026-08-12 after three measurements,
- *     and the reason must survive here or somebody will add it back.**
- *     ① A pasted `@spool` is inert: the client builds a mention when the user PICKS it out of
- *     the picker, not from the characters, so no clipboard can carry one. ② The entry that
- *     picker offered for Spool was not this server at all — it serialised as
- *     `plugin://computer-use@openai-bundled?app=com.oceanjin.spool`, i.e. OpenAI's Computer
- *     Use plugin pointed at the Spool app ("reading the screen and performing UI actions").
- *     Pasting it produced a real chip, the model named the project back, and it still read
- *     nothing: 「没有获得 Spool 内部内容的读取/操作接口」. ③ The reason there was no connector to
- *     mention: that picker lists **plugins** (`[plugins."name@marketplace"]` in
- *     `~/.codex/config.toml`), while Spool installs itself as a plain `[mcp_servers.spool]`
- *     entry — two registries, one namespace.
- *
- *     ⚠️⚠️ **Later the same day `@spool` was seen working, and it still does not belong here.**
- *     Spool was packaged as a codex plugin and installed on one machine; after that the picker
- *     did resolve `plugin://spool@spool`, and in a Codex conversation the mention addressed
- *     this server. **It works because that machine has the plugin installed by hand.** Ocean
- *     decided on 2026-08-12 not to ship the plugin with the app (the reason it was built —
- *     reaching ordinary ChatGPT chats — is architecturally impossible, see the row comment in
- *     MCP_CLIENTS). A syntax that only works for the one person who hand-installed something
- *     is not an addressing rule; it is a trap for everybody else, who would paste `@spool` and
- *     get plain text. **If the plugin ever ships with the app, this bullet is the place to
- *     revisit — and not before.**
- *   * **Claude Code** — `/mcp__<server>__<prompt>`, and on 2026-08-12 this stopped being a
- *     documented format and became a measured one (a throwaway MCP server that logged every
- *     `prompts/get`, driven through a real interactive session on a pty, v2.1.221/228). Three
- *     things came out of it, and the last two are why the argument is bare:
- *     ① **The name the picker SHOWS is not the name it answers to.** Typing `/` lists the
- *     prompt as `/spool:catch_up (MCP)`; typing that string back gets `Unknown command`.
- *     Selecting the row inserts `/mcp__spool__catch_up [project]` — the display label is a
- *     prettified alias, and a user who reads the menu and retypes what they saw gets nothing.
- *     ② **Arguments are split on whitespace and quotes are not special.** `catch_up "申请规划"`
- *     arrives as `project: "申请规划"`, quote marks and all, and `resolve_thread` matches on
- *     substrings — so the quoted form the docs show (`create_issue "Bug in login flow" high`)
- *     fails outright here: 「No project whose title contains ""申请规划""」.
- *     ③ **A title with a space loses everything after the space** — `机器学习 课` arrives as
- *     `机器学习`. Nothing on the clipboard can prevent that, and it is survivable only because
- *     the first word is by definition a substring of the title it came from: the server
- *     resolves it, or names the projects it could mean. Quoting to keep the title whole trades
- *     that recoverable case for a certain failure.
- *     The server key is `spool` because Spool writes that entry itself (mcp.rs
- *     `configure_client`), and `catch_up` is a real prompt with a `project` argument.
- *   * **Claude Desktop** — prompts and resources arrive through the ＋ menu, not by typing.
- *     Nothing to put in a clipboard, so it stays out.
- *   * **VS Code / Cursor / Windsurf** — VS Code's docs give `/<server>.<prompt>` while older
- *     ones give `/mcp.<server>.<prompt>`; which one a given install answers to is a version
- *     question nobody here has measured. Out until somebody sees one work.
- *
- * ⚠️ `slash` is a complete invocation — the prompt on the other end arrives with the project's
- * overview already embedded, which no sentence on a clipboard can carry. A prefix the user
- * finishes was the other shape this table held; it is gone with `@spool`, and it should only
- * come back attached to a client where somebody watched a pasted prefix actually address the
- * server.
- */
-type Addressing = { kind: 'slash'; command: string };
-
-const HOW_TO_ADDRESS: Partial<Record<McpClient, Addressing>> = {
-  'claude-code': { kind: 'slash', command: '/mcp__spool__catch_up' },
-};
-
-/** What the clipboard will hold for this client — the UI needs it to say what to do next. */
-export type AddressingKind = 'slash' | 'plain';
-
-export const addressingKind = (client: McpClient): AddressingKind =>
-  HOW_TO_ADDRESS[client]?.kind ?? 'plain';
-
-/**
- * What 「问 AI」 puts on the clipboard: **an opening, not a question.**
- *
- * ⚠️ Titles only, never ids — the hard naming rule the MCP server opens every pack with. A
- * prompt carrying `sbC2zgTo…` would teach the model to say ids back to the user.
- *
- * 2026-08-12, Ocean, having used it: 「这个提示词太长了，只能提供一个前置提示词…后文让用户
- * 自己写，每个用户的诉求不一样」. It used to paste a whole three-part question ("where am I
- * stuck / what is settled / what next"), which is one user's need written into everybody's
- * clipboard — and the longer it was, the more of it had to be deleted before it could become
- * anybody else's question. What is left is the part no user should have to type: which
- * project, said the way this client understands.
- */
-export const askPrompt = (title: string, client?: McpClient): string => {
-  const name = title.trim() || t('无标题');
-  const how = client ? HOW_TO_ADDRESS[client] : undefined;
-  // Bare, never quoted: the client passes quote marks through to the server verbatim, where
-  // the title match is on substrings and a stray `"` matches nothing at all. See ② and ③ in
-  // HOW_TO_ADDRESS — both were measured, and both point the same way.
-  if (how?.kind === 'slash') return `${how.command} ${name}`;
-  // The colon is the whole point of the shape: it ends Spool's half and hands the caret over.
-  return t('Spool 里的「{title}」：', { title: name });
-};
-
-/**
- * Bring a client to the front and nothing else.
- *
- * Returns whether anything was focused. `false` means Spool cannot open it — Claude Code is a
- * CLI and which terminal it lives in is not knowable from here (lib.rs focus_mcp_client).
- */
-export const focusClient = (client: McpClient): Promise<boolean> =>
-  invoke<boolean>('focus_mcp_client', { client });
-
-/**
- * One click, both halves: the question goes on the clipboard and the client comes forward.
- *
- * Returns whether the app was actually focused, same as `focusClient`.
- */
-export const askInClient = async (
-  client: McpClient,
-  threadTitle: string,
-): Promise<boolean> => {
-  await writeText(askPrompt(threadTitle, client));
-  return focusClient(client);
-};
-
-/** One connected client, as both surfaces that offer a client need it. */
-export interface ConnectedClient {
-  /** A key from MCP_CLIENTS where the server recognised the product; the name the client
-   *  reported for itself where it did not. */
-  key: string;
-  label: string;
-  /** When it last called a tool, or null if it has not connected since Spool started
-   *  recording (mcp.rs `record_client_seen` — an old, still-running child never re-connects). */
-  lastSeen: number | null;
-  /** Whether Spool can address it: put the question on the clipboard and open the app.
-   *  False for a client the server could not identify — there is no app to open. */
-  addressable: boolean;
-}
-
-/**
- * Every client that is reachable right now, newest use first.
- *
- * Two half-truths merged into one list. The config read says an entry EXISTS; the heartbeat
- * says somebody USED it — and on 2026-08-11 those disagreed for twenty hours (CASE_STUDY
- * LEDGER §3.33). A client counts as connected if either half says so:
- *
- *   * configured but never seen — normal right after 一键接入, and the row is what tells the
- *     user to go and use it;
- *   * seen but not configured — a client Spool did not write the config for (someone added
- *     `spool` by hand), which is still a client that can be asked.
- */
-export const readConnectedClients = async (): Promise<ConnectedClient[]> => {
-  const [statuses, seen] = await Promise.all([readClientStatuses(), readClientsSeen()]);
-  const rows: ConnectedClient[] = MCP_CLIENTS.filter(
-    ({ key }) => isConnected(statuses[key]) || key in seen,
-  ).map(({ key, label }) => ({
-    key,
-    label,
-    lastSeen: seen[key]?.last_seen ?? null,
-    addressable: true,
-  }));
-  // Clients the server could not put a name to are listed as themselves rather than dropped
-  // — that is how the mapping table gets corrected (mcp.rs `client_key_from_info`).
-  for (const [key, v] of Object.entries(seen)) {
-    if (rows.some((r) => r.key === key)) continue;
-    rows.push({ key, label: v.label || key, lastSeen: v.last_seen, addressable: false });
-  }
-  return rows.sort((a, b) => (b.lastSeen ?? -1) - (a.lastSeen ?? -1));
 };

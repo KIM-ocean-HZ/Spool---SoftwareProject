@@ -15,8 +15,8 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
 import { formatRelative } from '@/lib/utils/time';
 
-// The client table moved to lib/mcp/clients.ts (§9.13): 项目管理's 「问 AI」 needs the same
-// list to know which clients are already connected, and one table beats two.
+// The client table lives in lib/mcp/clients.ts (§9.13) — it was shared with 项目管理's 「问 AI」
+// until that was removed on 2026-08-15, and this page is now its only reader.
 //
 // Clients that take their config through a GUI (Cherry Studio, DeepChat, …) can't be
 // written from outside — they use the copy-snippet below (decision ②: that's enough).
@@ -39,7 +39,6 @@ export default function McpConfig() {
   // the installed .app both show a path that works. Resolved once, on demand.
   const [exePath, setExePath] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
-  const [promptCopied, setPromptCopied] = useState(false);
   // 任务二 B1 (2026-07-12): the user-facing scenario list, collapsed by default (§2.5).
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
@@ -100,22 +99,11 @@ export default function McpConfig() {
     }
   };
 
-  // Ocean #3 (2026-07-09): a paste-ready briefing for the AI client (project
-  // instructions or the top of a chat). The server's initialize instructions carry the
-  // same rules, but not every client honours them — this puts the user in control.
-  const copyUsagePrompt = async (): Promise<void> => {
-    try {
-      await writeText(
-        t(
-          '我在用 Spool（思簿）记项目笔记，你现在已经能直接读到它了。\n\n你可以这样帮我：\n· 「我最近在忙什么？」——先看一份跨项目的近况简报\n· 「〈某个项目〉我卡在哪、定下来了什么？」——读那个项目的完整脉络\n· 「把刚才这段结论存进〈某个项目〉」——替我存回去（需要我在 Spool 里打开「允许 AI 写入」）\n\n两条规矩：跟我说话只用项目标题和块号（比如 #12），别把内部 id 说出来；你写进去的每一块都会自动带上来源标签，我随时看得出哪些是你写的。',
-        ),
-      );
-      setPromptCopied(true);
-      setTimeout(() => setPromptCopied(false), 1500);
-    } catch (e) {
-      console.error('[settings] copy usage prompt failed', e);
-    }
-  };
+  // ⚠️ 2026-08-15 — 「复制使用提示」 lived here (Ocean #3, 2026-07-09): a paste-ready briefing
+  // telling the AI what Spool is and how to ask it things. Removed with the rest of the
+  // 「帮用户去别的 AI 里点名 Spool」 route (RightRail/McpBar's header has the reasoning). What it
+  // said is not lost — the server sends the same rules in its `initialize` instructions, which
+  // is the copy that arrives whether or not anyone remembered to paste one.
 
   return (
     <div className="py-2.5">
@@ -258,21 +246,6 @@ export default function McpConfig() {
         <p className="mt-1 text-[11px] text-muted">
           {t('当前是开发构建 — 安装正式版后需重新接入')}
         </p>
-      )}
-      {/* Ocean #3: paste-ready usage briefing for the AI side. */}
-      {mcpEnabled && (
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="min-w-0 text-xs text-muted">
-            {t('用法就这一段：粘给 AI 直接能用，你自己读也看得懂')}
-          </span>
-          <button
-            type="button"
-            onClick={() => void copyUsagePrompt()}
-            className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
-          >
-            {promptCopied ? t('已复制') : t('复制使用提示')}
-          </button>
-        </div>
       )}
       {/* 任务二 B1 (2026-07-12): scenario phrases for the USER (the seeded MCP
           tutorial thread can never reach an existing library — 5/29 red line — so

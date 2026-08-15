@@ -192,9 +192,9 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
       {/* §9.4 丙 (2026-08-11, Ocean:「MCP 才是主要的对话写入工具，放在最顶上」). The CLI
           engine used to hold this row; it now lives inside the follow-up editor, beside the
           only thing that spends it.
-          2026-08-12: it also became the way INTO those clients — the title is what a click
-          carries across (components/mcp/ClientMenu). */}
-      <McpBar threadTitle={thread?.title ?? null} onCollapse={onCollapse} />
+          ⚠️ 2026-08-15: it briefly also became the way INTO those clients; that nav is gone
+          along with the codex plugin — see McpBar's header. It reports, it does not route. */}
+      <McpBar onCollapse={onCollapse} />
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {/* §9.1 主体, in order of how much it wants you right now. */}

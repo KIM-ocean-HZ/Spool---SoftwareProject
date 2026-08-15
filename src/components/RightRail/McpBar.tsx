@@ -1,6 +1,5 @@
-import { ChevronDown, ChevronRight, PanelRightClose } from 'lucide-react';
+import { PanelRightClose } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import ClientMenu from '@/components/mcp/ClientMenu';
 import { useT } from '@/lib/i18n';
 import { readClientsSeen, type ClientSeen } from '@/lib/mcp/clients';
 import { formatRelative } from '@/lib/utils/time';
@@ -22,26 +21,22 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // to describe right now.
 const REFRESH_MS = 20_000;
 
-// 2026-08-12 (Ocean: 「加上一个导航去客户端的快捷键，点击就可以直接打开跳转」) — this row was
-// a readout and is now a way in. It said which AI last used Spool and then left the user to go
-// and find that app themselves, which is the same friction 「问 AI」 exists to remove, one
-// panel higher up.
-//
-// ⚠️ **The fold lists CONNECTED clients, not seen ones.** The line above still reports the
-// heartbeat (that is what makes it true), but a menu built from the heartbeat alone would omit
-// the client somebody just hooked up and never used — the very one they are looking for. That
-// merge lives in `readConnectedClients`, and 「问 AI」 renders the same list from it.
+// ⚠️⚠️ **This row is a READOUT and nothing else. Do not make it a way in again.**
+// 2026-08-12 it grew a fold that listed connected clients, and a click copied an opener
+// addressed to Spool and brought that app forward (Ocean then: 「加上一个导航去客户端的快捷键」).
+// Ocean removed it 2026-08-15, together with 项目管理's 「问 AI」 and the codex plugin — the
+// whole 「帮用户去别的 AI 里点名 Spool」 route. What it actually bought was a sentence on the
+// clipboard; what it cost was a surface promising Spool could hand work over, which is exactly
+// the silent-failure shape the codex plugin was retired for. Removing the nav is what took
+// `focus_mcp_client`, `askInClient` and HOW_TO_ADDRESS out with it.
 export default function McpBar({
-  threadTitle,
   onCollapse,
 }: {
-  threadTitle: string | null;
   onCollapse: () => void;
 }): JSX.Element {
   const t = useT();
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
   const [seen, setSeen] = useState<Record<string, ClientSeen>>({});
-  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const read = (): void => void readClientsSeen().then(setSeen);
@@ -66,21 +61,13 @@ export default function McpBar({
   return (
     <div className="flex-none border-b border-line">
       <div className="flex items-center gap-1 px-2 py-1.5">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          title={t('跳到你的 AI 软件')}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-[13px] text-ink-2 transition-colors hover:bg-paper-2"
+        <span
+          className={`min-w-0 flex-1 truncate px-1 py-0.5 text-[13px] ${
+            line.dim ? 'text-muted' : 'text-ink-2'
+          }`}
         >
-          {/* Always a chevron now: the fold is no longer a second copy of the line above it,
-              it is where every connected client can be jumped to. */}
-          {open ? (
-            <ChevronDown size={11} className="flex-none text-muted" />
-          ) : (
-            <ChevronRight size={11} className="flex-none text-muted" />
-          )}
-          <span className={`truncate ${line.dim ? 'text-muted' : ''}`}>{line.text}</span>
-        </button>
+          {line.text}
+        </span>
         <button
           type="button"
           onClick={onCollapse}
@@ -91,16 +78,6 @@ export default function McpBar({
           <PanelRightClose size={13} />
         </button>
       </div>
-
-      {open && (
-        <div className="pb-1.5">
-          <ClientMenu
-            threadTitle={threadTitle}
-            heading={threadTitle ? t('拿哪个问？') : t('跳到哪个？')}
-            onPicked={() => setOpen(false)}
-          />
-        </div>
-      )}
     </div>
   );
 }

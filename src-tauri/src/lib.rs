@@ -247,58 +247,6 @@ fn open_mcp_client_page(client: String) -> Result<(), String> {
     }
 }
 
-/// DESIGN_WORKBENCH §9.13 — bring a connected MCP client to the front.
-///
-/// Ocean 2026-08-07: 「MCP 对话有摩擦，项目管理刚好可以一键进行提问」, with three sketches of
-/// what "one click" could mean. Two of them are not buildable and it matters why:
-///
-///   * *"a new chat window already open, tagged spool#project, waiting for the prompt"* —
-///     nothing lets one app compose into another's chat box. There is no automation surface
-///     for it in Claude Desktop, Cursor, or ChatGPT.
-///   * *"a more convenient protocol between MCP and Spool"* — MCP is a server protocol: the
-///     client calls us, we cannot call the client, and there is no "start a conversation"
-///     verb in it.
-///
-/// The third one is real, and this is its second half: the JS side puts the question on the
-/// clipboard, then this brings the app forward so the paste lands where the user is looking.
-///
-/// ⚠️ Returns `false` for `claude-code` rather than guessing a terminal. Claude Code is a
-/// CLI, and which terminal it lives in (Terminal / iTerm / Ghostty / an editor pane) is not
-/// knowable from here — focusing the wrong one is worse than focusing nothing, so the UI
-/// says "paste it in your terminal" instead. Fixed key→app table; no user input reaches
-/// `open`.
-#[tauri::command]
-fn focus_mcp_client(client: String) -> Result<bool, String> {
-    let app = match client.as_str() {
-        "claude" => "Claude",
-        "cursor" => "Cursor",
-        "vscode" => "Visual Studio Code",
-        "windsurf" => "Windsurf",
-        // One config file backs ChatGPT desktop and the Codex CLI (mcp.rs
-        // client_config_paths). The desktop app is the one that can be focused.
-        "codex" => "ChatGPT",
-        "claude-code" => return Ok(false),
-        other => return Err(format!("unknown MCP client: {other}")),
-    };
-    #[cfg(target_os = "macos")]
-    {
-        let status = std::process::Command::new("open")
-            .arg("-a")
-            .arg(app)
-            .status()
-            .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err(format!("could not bring {app} to the front"));
-        }
-        Ok(true)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = app;
-        Err("macOS only".into())
-    }
-}
-
 // §2.1 route A (2026-07-31): a fresh Input Monitoring grant never becomes visible to
 // the already-running process — probe evidence: same signed binary, a new process
 // preflights granted=1 while the pre-grant process polls 0 for 90+ minutes. So the
@@ -382,7 +330,6 @@ pub fn run() {
             mcp_clients_seen,
             configure_mcp_client,
             open_mcp_client_page,
-            focus_mcp_client,
             input_monitoring_granted,
             accessibility_granted,
             request_capture_access,
