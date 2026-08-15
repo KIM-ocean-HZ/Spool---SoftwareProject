@@ -612,6 +612,19 @@ export default function CaptureOverlay() {
                 e.stopPropagation();
                 return;
               }
+              // ⌘Z, 丙 (Ocean 2026-08-15). With text in the box this is the ordinary
+              // "undo my typing" every app has, so it is handed to the textarea untouched;
+              // with the box empty there is nothing here to undo, so it means the capture.
+              //
+              // ⚠️ Reachable only because capture.rs does NOT claim ⌘Z globally when the
+              // toast takes the foreground — a global shortcut fires before the webview.
+              // ⚠️ ⇧⌘Z is redo and never ends a capture.
+              if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                if (e.currentTarget.value.length > 0) return;
+                e.preventDefault();
+                onUndo();
+                return;
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 finishNote();
@@ -641,12 +654,17 @@ export default function CaptureOverlay() {
         </div>
       )}
 
-      {/* Footer — concise, icon-only: ↩ undo, ⤳ redirect (dropdown). */}
+      {/* Footer — concise, icon-only: ↩ undo, ⤳ redirect (dropdown).
+          ⚠️ The ⌘Z half of 丙 is advertised on the undo button's tooltip rather than in the
+          note box's placeholder (Ocean 2026-08-15): at 340px a third bracketed hint wraps
+          the box taller, and the placeholder disappears the moment the user starts typing —
+          which is exactly when they might reach for ⌘Z. The key belongs on the button that
+          already does the same thing. */}
       <div className="flex items-center gap-1 border-t border-line bg-paper-2/30 px-2 py-1">
         <button
           onClick={() => void onUndo()}
           className="rounded p-1 text-muted hover:bg-paper hover:text-ink"
-          title={tr('撤销刚才的捕捉')}
+          title={tr('撤销刚才的捕捉 · ⌘Z')}
           aria-label={tr('撤销')}
         >
           <RotateCcw size={13} />

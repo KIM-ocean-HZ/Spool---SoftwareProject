@@ -163,7 +163,7 @@ fn run_once<R: Runtime>(app: &AppHandle<R>) -> std::io::Result<()> {
 fn on_message<R: Runtime>(app: &AppHandle<R>, msg: &serde_json::Value) {
     match msg.get("t").and_then(serde_json::Value::as_str).unwrap_or("") {
         // The toast is on screen — safe to hand it the foreground now.
-        "shown" => crate::capture::on_overlay_shown(),
+        "shown" => crate::capture::on_overlay_shown(app),
         // Every dismiss path (Enter / Esc / ✕ / click-outside / the 8s dwell) funnels
         // here so focus restoration happens BEFORE the window is ordered out.
         "hide" => crate::capture::on_overlay_hide(app),

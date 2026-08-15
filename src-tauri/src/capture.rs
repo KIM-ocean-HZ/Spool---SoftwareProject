@@ -874,6 +874,54 @@ fn ax_focused_app_pid() -> Option<i32> {
     }
 }
 
+// Who owns the frontmost ORDINARY window, straight from the window server.
+//
+// ⚠️⚠️ **Why this exists next to ax_focused_app_pid, which looks like it answers the same
+// question.** Measured 2026-08-15 with both grants in place: `AXFocusedApplication` is None
+// whenever a browser is frontmost, and None for our own overlay helper. It answered
+// correctly only for Spool's main window. Capture out of a browser is the single most common
+// capture there is, so leaning on AX alone left note-first broken in exactly the place it
+// was built for — and silently, because None is indistinguishable from "nothing to do".
+//
+// The window server has no such blind spot: it knows who owns the front window whether or
+// not that app implements accessibility, and it needs no grant to say so (owner pid and
+// layer are not the screen contents that Screen Recording gates).
+//
+// `kCGWindowListOptionOnScreenOnly` returns windows front-to-back, and layer 0 is the
+// ordinary window layer — skipping everything above steps over floating panels, menu-bar
+// extras and the toast itself (always-on-top), so the answer is "the app whose real window
+// the user is looking at".
+#[cfg(target_os = "macos")]
+fn frontmost_window_owner_pid() -> Option<i32> {
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{
+        copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListOptionOnScreenOnly,
+        kCGWindowOwnerPID,
+    };
+
+    let info = copy_window_info(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)?;
+    let layer_key = unsafe { CFString::wrap_under_get_rule(kCGWindowLayer) };
+    let pid_key = unsafe { CFString::wrap_under_get_rule(kCGWindowOwnerPID) };
+    let num = |d: &CFDictionary<CFString, CFType>, k: &CFString| -> Option<i32> {
+        d.find(k).and_then(|v| v.downcast::<CFNumber>()).and_then(|n| n.to_i32())
+    };
+    for raw in info.iter() {
+        let dict = unsafe {
+            CFDictionary::<CFString, CFType>::wrap_under_get_rule(*raw as *const _)
+        };
+        if num(&dict, &layer_key) != Some(0) {
+            continue;
+        }
+        if let Some(pid) = num(&dict, &pid_key).filter(|p| *p > 0) {
+            return Some(pid);
+        }
+    }
+    None
+}
+
 // Make `pid` the active app. Returns false when the accessibility server refuses (no
 // grant, or the target has no AX presence) — every caller treats that as "leave focus
 // where it is", never as an error worth surfacing.
@@ -896,18 +944,32 @@ fn ax_set_frontmost(pid: i32) -> bool {
     }
 }
 
-// The app to take the foreground from and hand it back to, or None when there is
-// nothing to do: Accessibility isn't granted (fall back to the name route), or Spool is
-// already the active app (Ocean's 2026-08-01 test: that case already works untouched).
-// The overlay process counts as Spool for this — a re-capture while a toast is still up
-// finds IT frontmost, and "restoring" focus to the toast would strand the user there.
+// The app to take the foreground from and hand it back to, or None when there is nothing
+// to do: Accessibility isn't granted (fall back to the name route), or the toast already
+// holds the foreground — a re-capture while one is still up finds the OVERLAY frontmost,
+// and "restoring" focus to the toast would strand the user there.
+//
+// ⚠️⚠️ **The main process is deliberately NOT an exception here. Do not add one back.**
+// It was one until 2026-08-15, justified by a test Ocean ran on 2026-08-01 at 02:01 — when
+// the toast was still a window of THIS process, so "Spool is already active" did mean the
+// note box would receive keystrokes. `74b87f1` moved the toast into its own process at
+// 12:20 the same day and the exception outlived its premise: activation is per PROCESS, so
+// the main window being active says nothing about whether the helper gets the keyboard. The
+// symptom was narrow enough to survive two weeks of dogfooding — capture from any other app
+// worked, and only capturing from inside Spool dropped the user's typing into the main
+// window. Ocean 2026-08-15: 「我需要让 spool 抢占所有」.
+// ⚠️ Two sources, in this order, because neither alone is enough (both measured 2026-08-15):
+// `AXFocusedApplication` is the more precise question — it names the app the keyboard is
+// actually going to — but it answers None for whole classes of app, browsers among them.
+// The window server always answers; it just answers a slightly coarser question. Falling
+// back rather than replacing keeps the precise answer wherever it exists.
 #[cfg(target_os = "macos")]
 fn ax_source_app_pid() -> Option<i32> {
     if !crate::double_tap::accessibility_granted() {
         return None;
     }
-    let pid = ax_focused_app_pid()?;
-    if pid == std::process::id() as i32 || Some(pid) == crate::overlay::helper_pid() {
+    let pid = ax_focused_app_pid().or_else(frontmost_window_owner_pid)?;
+    if Some(pid) == crate::overlay::helper_pid() {
         None
     } else {
         Some(pid)
@@ -927,8 +989,13 @@ pub fn show_capture_overlay<R: Runtime>(
     // query would only ever answer "Spool". Never stash "Spool" itself — activating it
     // by name makes LaunchServices launch a SECOND instance against the same SQLite file
     // (the 2026-05-29 incident pattern), and there is nothing to restore anyway.
+    // Whether this capture will hand the toast the foreground. Kept as a LOCAL rather than
+    // re-read from ACTIVATE_ON_SHOWN further down: the helper's "shown" reply is processed on
+    // the stdout reader thread, so by the time this function reaches the undo decision the
+    // atomic may already have been swapped back to false by on_overlay_shown — a race that
+    // silently reinstated the global ⌘Z on exactly the captures that had just taken focus.
     #[cfg(target_os = "macos")]
-    {
+    let will_activate = {
         let source_pid = ax_source_app_pid();
         // Name route (no Accessibility grant): restore-only, no activation. Skipped
         // entirely when we have a pid, so the two stashes never both hold a value.
@@ -948,7 +1015,10 @@ pub fn show_capture_overlay<R: Runtime>(
         // for its "shown" reply — activating an app whose window isn't up yet would
         // leave the note box unfocused (see on_overlay_shown).
         ACTIVATE_ON_SHOWN.store(source_pid.is_some(), Ordering::SeqCst);
-    }
+        source_pid.is_some()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let will_activate = false;
     let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
     let (origin_x, origin_y) = send_overlay_show(&app, "show", payload)?;
     // §9.13: arm the click-outside dismiss watch over the toast's frame, and grab the
@@ -963,14 +1033,28 @@ pub fn show_capture_overlay<R: Runtime>(
     );
     #[cfg(not(target_os = "macos"))]
     let _ = (origin_x, origin_y); // click-outside dismiss is macOS-only (CGEventTap)
-    register_undo_shortcut(&app);
+    // ⌘Z is claimed GLOBALLY only when the note box will not be able to answer it itself.
+    //
+    // Ocean 2026-08-15 picked 丙: with text in the box ⌘Z is the ordinary "undo my typing"
+    // every app has; with the box empty it means the capture. The first half can only be
+    // honoured by the textarea, and a global shortcut would take the key before the webview
+    // ever sees it — so when the toast is about to take the foreground we do NOT register,
+    // and CaptureOverlay's own key handler decides (both halves, one place).
+    //
+    // When we are not taking the foreground the user cannot type into the box at all, so it
+    // is necessarily empty and 丙's second half is the only reachable case — exactly what
+    // the global shortcut does. `on_overlay_shown` registers it late if activation is
+    // refused, which is the same situation arriving by a different route.
+    if !will_activate {
+        register_undo_shortcut(&app);
+    }
     Ok(())
 }
 
 // The overlay process reports its window is on screen. Hand it the foreground if this
 // was a capture toast raised from another app — see the "Note-first activation" section.
 // Activating the OVERLAY's pid (not ours) is what leaves the main window untouched.
-pub fn on_overlay_shown() {
+pub fn on_overlay_shown<R: Runtime>(app: &AppHandle<R>) {
     #[cfg(target_os = "macos")]
     {
         if !ACTIVATE_ON_SHOWN.swap(false, Ordering::SeqCst) {
@@ -984,8 +1068,15 @@ pub fn on_overlay_shown() {
             // clicking into the note box, which is a legitimate activation the OS
             // always honours.
             eprintln!("[capture] AXFrontmost refused — note box needs a click to type into");
+            // …but the keyboard never reaches the box, so nobody can type into it and the
+            // webview will never see a ⌘Z. show_capture_overlay skipped the global claim on
+            // the strength of an activation that did not happen; make it now, or an undo
+            // from the source app has no route at all.
+            register_undo_shortcut(app);
         }
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 // Every dismiss path in the overlay (Enter / Esc / ✕ / click-outside / the 8s dwell)

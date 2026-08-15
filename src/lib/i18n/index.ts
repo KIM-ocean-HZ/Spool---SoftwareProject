@@ -606,7 +606,7 @@ const EN: Record<string, string> = {
   // 删除项目 / 删除工作区 的撤销标签与侧栏按钮共用同一个键（见上）。
   '关闭 (Esc)': 'Close (Esc)',
   '留一句想法…（Enter 保存，Esc 跳过）': 'Leave a thought… (Enter saves, Esc skips)',
-  '撤销刚才的捕捉': 'Undo this capture',
+  '撤销刚才的捕捉 · ⌘Z': 'Undo this capture · ⌘Z',
   '撤销': 'Undo',
   '改投到其它项目': 'Redirect to another project',
   '改投': 'Redirect',
