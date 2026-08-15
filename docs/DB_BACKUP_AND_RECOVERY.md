@@ -23,6 +23,24 @@ Bundle identifier：`com.oceanjin.spool`
 
 > ⚠️ **触发提醒**：不要用 `SCHEMA_VERSION` 与现有库不匹配的旧构建去打开同一个库（例如 `git checkout` 到一个旧 commit 再 `npm run tauri dev`）。现在这种情况 App 会**启动报错并明确提示**，而不是默默清空——这是防护生效，不是 bug。换回版本匹配的构建即可。
 
+## 2-bis. 升级会自动迁移吗？会 —— 但换机器还没有入口（2026-08-15 查证）
+
+**同一台机器上装新版本，数据自动迁移，用户不需要做任何事。** 理由：
+
+1. 数据在 `~/Library/Application Support/com.oceanjin.spool/`，**在 app bundle 之外**。
+   装新版 `.dmg` 只替换 `/Applications/Spool.app`，不碰数据目录。
+2. 启动时 `migrateSchema()` 比对 `PRAGMA user_version` 与 `SCHEMA_VERSION`（当前 **21**），
+   按 `MIGRATIONS` 注册表**逐步前进，每步单独 checkpoint**，中断后下次启动可续。
+3. 迁移前自动 `VACUUM INTO` 留快照（见 §2）。
+
+⚠️ **缺的是另一件事：换机器 / 换库时用户可见的导出与导入入口。**
+现在只有下面 §3 的终端命令，app 内没有「导出库 / 导入库」。
+功能一旦做出来，导出文件在新机导入后照常走 `migrateSchema()` 自动升级，
+**所以导出格式不需要自己再发明一套版本兼容**。排期见 `docs/BACKLOG-2026-08-15.md` §1.1。
+
+⚠️ **降级会被拒绝启动**（用旧构建打开新库会报错而不是清空）——这是 §2 的防线，不是 bug，
+但导入功能的文案要说清楚，否则用户会以为导入失败。
+
 ## 3. 随手手动备份
 
 退出 App 后直接拷三件套：

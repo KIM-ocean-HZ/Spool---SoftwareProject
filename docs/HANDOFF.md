@@ -1,12 +1,116 @@
-# 交接文档 — 2026-08-12(给下一个窗口:**官网清单做完了、S1 换成无人脸那张、已推上线;只剩 demo 那一条要他拍板**)
+# 交接文档 — 2026-08-15(**开工面已移到 `docs/BACKLOG-2026-08-15.md`**)
 
-> ⭐⭐⭐⭐ **最新一窗在 §0-ship。以那一节为准。**
-> §0-site / §1-site 是同一天下午写的,**「S1 有人脸要他拍板」「其余各屏一件没动」「全部未提交」这三条已经过期** —— 见 §0-ship。
+> ⭐⭐⭐⭐⭐ **2026-08-15：当前开工面是 `docs/BACKLOG-2026-08-15.md`,不在本文件里。**
+> 本文件下面全部转为历史工作史。
+>
+> **这一窗做了什么**:验收 Codex 08-13 那两轮 + 记录 Ocean 的 dogfood 发现和决策。
+>
+> **验收结论:全部复现,没有虚报。** Vitest 361/361、tsc clean、Rust 72/72、中文专项 9/9、
+> i18n `(none missing)`;两个生成器重跑**零漂移**;视觉回归**独立重跑 15/15 PASS**;
+> README 七张截图都在、都是 08-13 拍的,肉眼核过是演示库不是真库;
+> 提交署名干净、作者是 Ocean;`src/**`、`src-tauri/**` 零改动;红线仍全过。
+> Windows 报告那条承重结论单独验了:`capture.rs:757` 的 `RESTORE_FOCUS_APP` 确实没 cfg 门控,
+> 而它用的 `use std::sync::Mutex` 是 macOS 门控的 —— **Windows 下真的编译不过,报告没夸大**。
+>
+> ⚠️ **本窗最要紧的一条更正**:三份 Codex 交接文档都写着「未提交、未推送、未部署」,
+> **实际全部已提交、已推送、已上线**(`42f2c79` = `origin/main`,两次 Pages 部署 success)。
+> 文档写于 08-13 16:10–16:14,Ocean 16:19:13 就提交了 —— 写的时候是对的,5 分钟后被现实盖过。
+> 三份文档的状态段本轮已更正。
+>
+> ⚠️ 另外发现一条**没人记过的对外断路**:中文站首页有 **4 处**链接指向 `../story.html`,
+> 而 `/zh/story.html` **不存在** —— 中文访客点「Story」会掉进整页英文。已批补中文,记在 backlog。
+
+---
+
+> ⭐⭐⭐⭐ **以下是历史。§0-accept 是 08-13 那一窗的验收记录。**
+> §0-ship 讲的是 08-12 推上线那一窗,**内容仍然有效**;但它之后 Codex 又做了一轮(截图可读性 + 中文全量重译),
+> 那一轮**全部还在工作区、没提交没推**,所以 **spoolapp.org 上现在还是 §0-ship 那一版** —— 见 §0-accept。
+> §0-site / §1-site 是 08-12 下午写的,**「S1 有人脸要他拍板」「其余各屏一件没动」「全部未提交」这三条已经过期**。
 > §0-cc(Claude Code 验收)仍然有效,只是**已经推上去了**。
 
 ---
 
-## 0-ship. ⭐⭐⭐⭐ 下一窗开工面(**以这一节为准**)
+## 0-accept. ⭐⭐⭐⭐ 下一窗开工面(**以这一节为准**)
+
+### 0-accept.1 这一窗干了什么
+
+**没写页面,只做验收。** Codex 在 `33af559` 之上做了两件事(截图可读性 + 从英文事实源全量重译中文),
+交接写在 `docs/HANDOFF-CODEX.md` 和 `docs/COLLABORATION-CODEX-2026-08-13.md`。
+本窗按那份文档的 §0.2 逐项独立实测,**不引用它自己的 PASS 记录**。
+
+⚠️ **`docs/HANDOFF-CODEX.md` 是 Codex 那一侧的开工面,本文件是 Claude Code 这一侧的。两份都要留。**
+
+### 0-accept.2 自动验证:全部复现,数字与 Codex 记录一致
+
+| 项 | 结果 |
+|---|---|
+| `bash -n` + `bash scripts/build-site-shots.sh` | PASS,⭐ **46 个生成文件重跑后逐字节相同,零漂移** |
+| `node --check` demo.js / build-site-zh.mjs / site-zh-strings.mjs | 全 PASS |
+| `node scripts/build-site-zh.mjs` | 两张中文页生成成功 |
+| `npx vitest run scripts/build-site-zh.test.mjs` | **9 / 9** |
+| `node scripts/i18n-check.mjs` | `(none missing)` |
+| `npx vitest run` | 32 文件 / **361 / 361** |
+| `npx tsc --noEmit` | PASS |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | **72 / 72**,只有既存的 `updated_at` warning |
+| `git diff --check` | PASS |
+
+`S1/S2` 与 `capture-page/project-window` 的 SHA 完全相同;`project-window-mobile` 已无任何引用。
+
+### 0-accept.3 §0.2 那七项:六项通过
+
+- **中文首页通读** —— 正文、CTA、11 条 FAQ、HEAD metadata、Demo 各状态全读完。没有机翻腔、歧义或事实偏差。
+  Hero 精确为 `同一个项目,<br>不必解释第二遍。`。⚠️ Hero「第二遍」/ 尾部 CTA「第二次」看着像不一致,
+  **但英文源本身就是两句不同的话(`Never explain your project twice.` / `Stop explaining the same project again.`),不是翻译问题,别去「修」。**
+- **中英 Privacy 对照** —— 逐段一致,页脚导航无漏译,`docs/PRIVACY.md` 与网页版同步。
+  一处不对称:**中文版比英文版多**了「更正提议进待审、AI 不能替你作废」两句;两句都是真的,是中文更完整。
+- **键盘路径** —— Tab 34 站(英文 1440)/ 28 站(中文 390),**0 个缺焦点框、0 个往回跳**;
+  13 个 `summary`(Pack + MCP + FAQ)**Enter 和 Space 都能开合**;语言切换 Enter 双向、双档全通。
+- **Demo 全流程** —— ⭐ **12 条纯键盘走完**(中英 × 三档 × Keep/Drop)。Keep 后 2 条、Drop 后 1 条、
+  待审卡消失、rail 走满 5 步、横向溢出 0、控制台 0 报错。
+- **390px 全部触控目标** —— 46 个(含弹窗打开、FAQ 展开、Demo 每一阶段)。**所有按钮 ≥ 44px**。
+  7 个 18px 页脚链接虽低于 24px,但最小中心距 **52px**,**通过 WCAG 2.5.8 间距豁免**。
+- **图片加载 + 几何** —— **60 / 60 全部加载成功**;768/1440 单行三图、顶边误差 **0**、底边 **≤1.53px**;
+  ⭐ 四个框选区域与裁图坐标(`620,590,700,410` 等)**逐一精确对上**。
+
+### 0-accept.4 ⚠️⚠️ 唯一没签的一条:细节裁图把笔记正文从中间切断
+
+**四张「放大镜」细节图的右边缘都切在句子中间**,裁图 PNG 本身就是这样(不是渲染问题);
+在 1440 的页面上能看见橙色框的右边缘**从字中间穿过去**。
+
+| 图 | 图上能读到 | 被切掉的 |
+|---|---|---|
+| `project-window-source-detail` | `A model that does well on the data it was trained on` | `and badly on new data has overfitted. A bigger model is not the fix.`(⭐ **只显示约 47%**) |
+| 同上 | `Regularisation is a fee charged for complexity: t` | 后面整句 |
+| `project-window-ai-detail` | `Revision plan: redo problem set 3 with the fee i` / `Before Friday: problem set 3 question 2 is the o` | 两条都切 |
+| `mcp-filed-detail-readable` / `app-thread-after-detail` | `Order of work: rewrite the resume summary first` / `Next step: the current resume still leads with wo` | 同上 |
+
+⚠️ **要紧在于:本轮任务书写的就是「让 `02 · KEEP` 的笔记正文可读」,而被切掉的正好是笔记正文。**
+`alt` 也跟着对不上 —— 它承诺「the quoted passage / 引用原文」,画面里读不到完整的那句。
+
+✅ **没切坏的部分**:编号、日期、来源、`Claude · MCP` 署名、引用回指这五样**都清楚可读**;
+SAVE 那两张、Story 全景图的 `alt`(六条记录)**完全准确**;Story 的 **16:04** 时间戳修正**是对的**。
+
+⚠️ **修起来不是一行的事**:note #2 要约 **1500px** 宽(现在 700),note #3 要 **2100px 以上**;
+裁图变扁会连带影响右栏那套**按宽高比解出来的列宽**(SAVE 左栏 58.95% / KEEP 65.11%)。
+**两条路 Ocean 挑**:① 就这样不动(其余五样可读,已达大半目标);② 重切 + 重算列宽。**本窗没动。**
+
+### 0-accept.5 环境与边界
+
+**浏览器**:Google Chrome **151.0.7922.109**,macOS 26.5,经 `playwright-core` 以 **headless** 驱动
+(⚠️ **不是手动开的窗口**)。视口 390 / 768 / 1440 CSS px = 100% 缩放;
+几何与触控测量用 **DPR 1**,可读性肉眼判断用 **DPR 2** 的元素截图(对应 Retina Mac 的真实观感)。
+静态服务器用 `python3 -m http.server 4173 --directory site`,已关闭。
+
+**边界**:`src/**`、`src-tauri/**` 无改动也无未跟踪文件;中文生成物只由生成器产生;
+没有新增 `/zh/story.html`;没跑 Tauri GUI。跨浏览器、视觉回归、Lighthouse / 完整 WCAG、用户计时**均未做**
+—— 按 HANDOFF-CODEX §0.3 属可选,**没记成失败**。四处时长承诺确认已删除。
+
+⚠️ **没有暂存、提交、推送、部署。** 工作区 **32 条**,`HEAD` = `origin/main` = `33af559`。
+**推 `main` 会直接更新 spoolapp.org,必须先让 Ocean 明确许可。**
+
+---
+
+## 0-ship. ⭐⭐⭐ 08-12 推上线那一窗(**内容仍有效,但它之后还有 §0-accept**)
 
 ### 0-ship.1 手上是什么
 
