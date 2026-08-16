@@ -706,17 +706,22 @@ pub(crate) fn active_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> 
 // Since we anchor the *top* edge, window height doesn't enter the math (resizing
 // for the picker grows the window downward instead of upward).
 //
+// The anchor is the monitor's *work area* (macOS: NSScreen.visibleFrame), not its full
+// frame. Measuring the monitor origin instead put the toast 20pt from the top of the
+// *screen*, which on a machine whose menu bar is taller than that (any notched Mac)
+// left the card's top edge — its border and the upper half of both top corners —
+// underneath the menu bar. Found by measuring S1, 2026-08-16 (BACKLOG §4.5).
+//
 // Computed here rather than in the overlay process because this process is the one that
 // arms the click-outside dismiss watch (§9.13), and both must describe the same frame.
 // The origin is in global logical points.
 fn overlay_origin<R: Runtime>(app: &AppHandle<R>) -> Result<(f64, f64), String> {
     let monitor = active_monitor(app).ok_or_else(|| "no monitor available".to_string())?;
     let scale = monitor.scale_factor();
-    let mpos = monitor.position();
-    let msize = monitor.size();
-    let m_left = mpos.x as f64 / scale;
-    let m_top = mpos.y as f64 / scale;
-    let m_width = msize.width as f64 / scale;
+    let work = monitor.work_area();
+    let m_left = work.position.x as f64 / scale;
+    let m_top = work.position.y as f64 / scale;
+    let m_width = work.size.width as f64 / scale;
     let target_x = m_left + m_width - OVERLAY_WIDTH as f64 - OVERLAY_SCREEN_MARGIN as f64;
     let target_y = m_top + OVERLAY_SCREEN_MARGIN as f64;
     Ok((target_x, target_y))
