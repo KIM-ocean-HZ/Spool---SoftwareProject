@@ -43,9 +43,11 @@ cp ../../../docs/screenshots/app-project.png story-project.png
 cp ../../../docs/screenshots/mcp-filed-detail.png story-ai-writeback.png
 
 # SAVE: browser tab/address and capture toast, both from the complete S1 scene.
-sips -c 260 800 --cropOffset 1 1 capture-page.png \
+# Row 78 is where the screen's top band ends: the browser window and the overlay
+# card both start there, so both crops are offset past it.
+sips -c 260 800 --cropOffset 79 1 capture-page.png \
   --out capture-page-source-detail.png >/dev/null
-sips -c 392 680 --cropOffset 0 2880 capture-page.png \
+sips -c 430 680 --cropOffset 78 2880 capture-page.png \
   --out capture-toast.png >/dev/null
 # KEEP: two in-place magnifiers over the complete project window. The narrower
 # S2 wraps the long notes so each crop can keep every sentence to its full stop.

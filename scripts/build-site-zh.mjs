@@ -32,6 +32,7 @@ const BANNER =
 const TOGGLE = {
   'index.html': '<a class="lang-toggle" href="../" hreflang="en" lang="en">EN</a>',
   'privacy.html': '<a class="lang-toggle" href="../privacy.html" hreflang="en" lang="en">EN</a>',
+  'story.html': '<a class="lang-toggle" href="../story.html" hreflang="en" lang="en">EN</a>',
 };
 
 /* End of the element whose opening tag ends at `from`, counting nested tags of
@@ -179,14 +180,14 @@ function applyHead(html, page) {
   return out;
 }
 
-/* One directory down, so shared assets and the English-only story page need to
-   climb back out. Everything else (./ , #anchors, privacy.html, absolute URLs)
-   already means the right thing inside /zh/. A srcset lists several paths in one
-   attribute, so the match has to allow a comma before the path, not just the
-   opening quote. */
+/* One directory down, so shared assets need to climb back out. Everything else
+   (./ , #anchors, story.html, privacy.html, absolute URLs) already means the
+   right thing inside /zh/, now that every page here has a Chinese twin. A
+   srcset lists several paths in one attribute, so the match has to allow a
+   comma before the path, not just the opening quote. */
 function applyPaths(html) {
   const relative = /(["]|,\s*)assets\//g;
-  const out = html.replace(relative, '$1../assets/').replaceAll('"story.html"', '"../story.html"');
+  const out = html.replace(relative, '$1../assets/');
   /* absolute https://spoolapp.org/assets/… URLs are left alone on purpose, so
      only re-check the shapes that were meant to be rewritten */
   const missed = out.match(relative);

@@ -7,11 +7,11 @@ Usage:
   scripts/visual-regression.sh update [BASE_URL]
   scripts/visual-regression.sh check  [BASE_URL]
 
-Capture the full length of the five static-site routes at 390, 768, and 1440
+Capture the full length of the six static-site routes at 390, 768, and 1440
 CSS pixels, using a 1200px viewport to exercise lazy loading before capture.
 
 Modes:
-  update  Replace the 15 baseline PNGs after an intentional visual change.
+  update  Replace the 18 baseline PNGs after an intentional visual change.
   check   Capture current PNGs, compare every file, and write highlighted diffs.
 
 Defaults and overrides:
@@ -137,10 +137,12 @@ ROUTES=(
   "home|/"
   "zh-home|/zh/"
   "story|/story.html"
+  "zh-story|/zh/story.html"
   "privacy|/privacy.html"
   "zh-privacy|/zh/privacy.html"
 )
 WIDTHS=(390 768 1440)
+SNAPSHOT_COUNT=$(( ${#ROUTES[@]} * ${#WIDTHS[@]} ))
 
 capture_snapshot() {
   local name="$1"
@@ -392,7 +394,7 @@ if [[ "$MODE" == "update" ]]; then
   for captured in "$CAPTURE_DIR"/*.png; do
     install -m 0644 "$captured" "$BASELINE_DIR/$(basename "$captured")"
   done
-  echo "Updated 15 visual baselines in $BASELINE_DIR"
+  echo "Updated $SNAPSHOT_COUNT visual baselines in $BASELINE_DIR"
   exit 0
 fi
 
@@ -424,4 +426,4 @@ fi
 
 rm -f -- "$CURRENT_DIR"/*.png "$DIFF_DIR"/*.png
 rmdir "$CURRENT_DIR" "$DIFF_DIR" 2>/dev/null || true
-echo "All 15 visual snapshots passed; no current captures or diffs were retained."
+echo "All $SNAPSHOT_COUNT visual snapshots passed; no current captures or diffs were retained."

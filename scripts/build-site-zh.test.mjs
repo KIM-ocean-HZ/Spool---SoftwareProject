@@ -55,6 +55,18 @@ describe('site/zh is in sync with the English pages', () => {
     expect(html).not.toContain('The demo needs JavaScript');
   });
 
+  it('translates the story page, including its image descriptions', () => {
+    const html = pages['story.html'];
+    for (const [key, value] of Object.entries(ZH)) {
+      if (key.startsWith('story-alt-')) {
+        expect(html).toContain(` alt="${escapeAttribute(value)}"`);
+      }
+    }
+    expect(html).toContain(`<title>${HEAD['story.html'].title}</title>`);
+    expect(html).not.toContain('The making of Spool');
+    expect(html).not.toContain('>Contents<');
+  });
+
   it('translates the privacy footer outside the replaced policy body', () => {
     const html = pages['privacy.html'];
     expect(html).toContain(`>${ZH['foot-copy']}<`);

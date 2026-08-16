@@ -1694,7 +1694,7 @@ README gallery:
 
 | Claim | Story file | Source | Intrinsic size |
 |---|---|---|---:|
-| capture without foregrounding the main app | `site/assets/shots/story-capture.png` | `docs/screenshots/app-capture.png` | 3600 × 2260 |
+| capture without foregrounding the main app | `site/assets/shots/story-capture.png` | `docs/screenshots/app-capture.png` | 3600 × 2338 |
 | a numbered project log with both side rails | `site/assets/shots/story-project.png` | `docs/screenshots/app-project.png` | 1229 × 734 |
 | AI conclusion filed with source badge and citation | `site/assets/shots/story-ai-writeback.png` | `docs/screenshots/mcp-filed-detail.png` | 990 × 170 |
 

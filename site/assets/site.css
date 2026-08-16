@@ -698,10 +698,10 @@ picture { display: block; }
   pointer-events: none;
 }
 .capture-scene .zoom-box-one {
-  left: 0.027778%; top: 0.044248%; width: 22.222222%; height: 11.504425%;
+  left: 0.027778%; top: 3.378956%; width: 22.222222%; height: 11.120616%;
 }
 .capture-scene .zoom-box-two {
-  left: 80%; top: 0; width: 18.888889%; height: 17.345133%;
+  left: 80%; top: 3.336185%; width: 18.888889%; height: 18.391788%;
 }
 .keep-magnifier-stage { overflow: visible; }
 .keep-magnifier-stage > .keep-lens {
@@ -788,10 +788,10 @@ picture { display: block; }
     align-items: start;
   }
   /* Exact aspect-ratio solutions, including the 1rem gap:
-     SAVE: 2260/3600 = 260/800 + 392/680. KEEP uses one overview with
+     SAVE: 2338/3600 = 260/800 + 430/680. KEEP uses one overview with
      its two magnified crops overlaid in place, so it needs no column split. */
   .shot-proof.capture-scene {
-    grid-template-columns: minmax(0, calc(58.9486% + 1.031px)) minmax(0, 1fr);
+    grid-template-columns: minmax(0, calc(59.5815% + 0.425px)) minmax(0, 1fr);
   }
   .proof-overview,
   .proof-details {

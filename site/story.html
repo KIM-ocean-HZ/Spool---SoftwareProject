@@ -6,12 +6,15 @@
 <title>The making of Spool — product and engineering story</title>
 <meta name="description" content="How Spool became a local-first project context hub: the product loop, three-surface architecture, AI write boundary, release evidence, measurements, failures, and limits.">
 <link rel="canonical" href="https://spoolapp.org/story.html">
+<link rel="alternate" hreflang="en" href="https://spoolapp.org/story.html">
+<link rel="alternate" hreflang="zh-Hans" href="https://spoolapp.org/zh/story.html">
+<link rel="alternate" hreflang="x-default" href="https://spoolapp.org/story.html">
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 
-<a class="skip-link" href="#story">Skip to the story</a>
+<a class="skip-link" href="#story" data-i18n="story-skip">Skip to the story</a>
 
 <div class="nav-shell">
   <header class="wrap nav">
@@ -19,11 +22,12 @@
       <img src="assets/spool-logo-full.svg" alt="">
       Spool <span class="zh">思簿</span>
     </a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="./#demo">Try it</a>
-      <a href="privacy.html">Privacy</a>
+    <nav class="nav-links" aria-label="Primary" data-i18n-aria="story-nav-aria">
+      <a href="./#demo" data-i18n="nav-try">Try it</a>
+      <a href="privacy.html" data-i18n="nav-privacy">Privacy</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg">Download</a>
+      <a class="lang-toggle" href="zh/story.html" hreflang="zh-Hans" lang="zh">中文</a>
+      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
 </div>
@@ -32,56 +36,56 @@
 <div class="story-grid">
 
 <aside class="story-toc">
-  <nav aria-label="Story contents">
-    <div class="toc-title">Contents</div>
-    <a href="#user">Who it is for</a>
-    <a href="#product">What it does</a>
-    <a href="#architecture">Three surfaces</a>
-    <a href="#privacy">Privacy and writing</a>
-    <a href="#release">Signing and notarisation</a>
-    <a href="#measurement">What measurement changed</a>
-    <a href="#failures">Failures and fixes</a>
-    <a href="#boundaries">Boundaries</a>
+  <nav aria-label="Story contents" data-i18n-aria="story-toc-aria">
+    <div class="toc-title" data-i18n="story-toc-title">Contents</div>
+    <a href="#user" data-i18n="story-toc-user">Who it is for</a>
+    <a href="#product" data-i18n="story-toc-product">What it does</a>
+    <a href="#architecture" data-i18n="story-toc-arch">Three surfaces</a>
+    <a href="#privacy" data-i18n="story-toc-privacy">Privacy and writing</a>
+    <a href="#release" data-i18n="story-toc-release">Signing and notarisation</a>
+    <a href="#measurement" data-i18n="story-toc-measurement">What measurement changed</a>
+    <a href="#failures" data-i18n="story-toc-failures">Failures and fixes</a>
+    <a href="#boundaries" data-i18n="story-toc-boundaries">Boundaries</a>
   </nav>
 </aside>
 
 <main id="story" class="article numbered" tabindex="-1">
 
-<h1>The making of Spool</h1>
-<p class="lede">A product-and-engineering account of a local-first project context hub:
+<h1 data-i18n="story-h1">The making of Spool</h1>
+<p class="lede" data-i18n="story-lede">A product-and-engineering account of a local-first project context hub:
 who it serves, what crosses the network boundary, what an AI may write, and what changed only
 after the system met real work.</p>
 
-<h2 id="user">Who it is for</h2>
-<p>Spool is for people carrying several long-lived workstreams across tools that do not share
+<h2 id="user" data-i18n="story-user-h">Who it is for</h2>
+<p data-i18n="story-user-p1">Spool is for people carrying several long-lived workstreams across tools that do not share
 memory: researchers, graduate students, developers, and people building something alone. The
 common cost is not “taking notes.” It is having to reconstruct the same project for every new AI
 conversation — which paper matters, which decision already failed, and what changed since last
 week.</p>
-<p>The product sets a deliberately narrow target: re-entering a project should cost one paste,
+<p data-i18n="story-user-p2">The product sets a deliberately narrow target: re-entering a project should cost one paste,
 not an archaeological dig through chats, mail, tabs, and half-remembered decisions. It sits
 upstream of document tools. A project is a quiet, append-only log, not a collaborative canvas or
 a replacement for Notion.</p>
-<p class="story-disclosure"><strong>Research boundary.</strong> The first version was built by
+<p class="story-disclosure" data-i18n="story-user-disclosure"><strong>Research boundary.</strong> The first version was built by
 dogfooding against the developer’s own multi-project workload. That produced useful reversals,
 but it is not external user research; validation with other users remains a post-release step.</p>
 
-<h2 id="product">What the product does</h2>
-<p>Three verbs form one loop. None of them needs a model in the critical path.</p>
-<ol class="story-flow" aria-label="Spool product loop">
+<h2 id="product" data-i18n="story-product-h">What the product does</h2>
+<p data-i18n="story-product-p">Three verbs form one loop. None of them needs a model in the critical path.</p>
+<ol class="story-flow" aria-label="Spool product loop" data-i18n-aria="story-flow-aria">
   <li>
-    <strong>Capture</strong>
-    <span>Double-tap Option after copying to file the clipboard with its time and source, while a
+    <strong data-i18n="story-flow-1-t">Capture</strong>
+    <span data-i18n="story-flow-1-d">Double-tap Option after copying to file the clipboard with its time and source, while a
     confirmation overlay accepts the thought that made it worth saving.</span>
   </li>
   <li>
-    <strong>Project</strong>
-    <span>Keep fragments in a time-ordered log with exactly two levels of structure: Workspace,
+    <strong data-i18n="story-flow-2-t">Project</strong>
+    <span data-i18n="story-flow-2-d">Keep fragments in a time-ordered log with exactly two levels of structure: Workspace,
     then Project.</span>
   </li>
   <li>
-    <strong>Pack</strong>
-    <span>Assemble the current project into deterministic Markdown that can be pasted into any AI
+    <strong data-i18n="story-flow-3-t">Pack</strong>
+    <span data-i18n="story-flow-3-d">Assemble the current project into deterministic Markdown that can be pasted into any AI
     client. The same project produces the same bytes on the same day.</span>
   </li>
 </ol>
@@ -94,26 +98,29 @@ but it is not external user research; validation with other users remains a post
               srcset="assets/shots/story-capture-1160.webp 1160w, assets/shots/story-capture.webp 3600w"
               sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
       <img class="shot" src="assets/shots/story-capture.png"
+           data-i18n-alt="story-alt-capture"
            alt="An isolated Spool demo capture scene: a browser page remains in place while the Spool confirmation overlay appears in the upper-right corner with the captured source and note field"
-           width="3600" height="2260" loading="lazy" decoding="async">
+           width="3600" height="2338" loading="lazy" decoding="async">
     </picture>
   </div>
-  <figcaption id="capture-caption" class="shot-caption">Capture in the isolated demo build:
+  <figcaption id="capture-caption" class="shot-caption" data-i18n="story-cap-capture">Capture in the isolated demo build:
 the source application stays visible while Spool confirms the saved fragment in a corner.</figcaption>
 </figure>
 
-<h2 id="architecture">How the three surfaces relate</h2>
-<p>The desktop interface, MCP server, and CLI engine slot are three local surfaces around one
+<h2 id="architecture" data-i18n="story-arch-h">How the three surfaces relate</h2>
+<p data-i18n="story-arch-p">The desktop interface, MCP server, and CLI engine slot are three local surfaces around one
 source of truth. The diagram separates “runs on your Mac” from “belongs to the Spool process” so
 the network claim can be inspected rather than inferred.</p>
 
 <figure class="story-architecture">
   <div class="arch-scroll" tabindex="0" role="region"
+       data-i18n-aria="story-arch-scroll-aria"
        aria-label="Architecture diagram; on a narrow screen, scroll sideways to inspect every component and network path">
     <svg class="arch-svg" viewBox="0 0 1160 610" role="img"
+         data-i18n-aria="story-arch-svg-aria"
          aria-label="Spool architecture: the GUI and capture overlay connect locally to the Rust and Tauri core and one SQLite database. The spool --mcp mode uses stdio with an external MCP client. The core spawns Claude Code, Codex CLI, or Gemini CLI as a subprocess. Only the external MCP client and CLI subprocess contact their own providers over two separate network paths; Spool itself sends no HTTP requests.">
-      <title>Spool’s local architecture and two outbound paths</title>
-      <desc>The Spool process contains its desktop GUI, capture overlay, Rust and Tauri core,
+      <title data-i18n="story-arch-svg-title">Spool’s local architecture and two outbound paths</title>
+      <desc data-i18n="story-arch-svg-desc">The Spool process contains its desktop GUI, capture overlay, Rust and Tauri core,
       spool --mcp stdio server, and one SQLite database. An external MCP client connects over
       stdio. The core can spawn Claude Code, Codex CLI, or Gemini CLI as a separate subprocess. The external
       MCP client and the CLI subprocess contact their respective providers over two distinct
@@ -130,84 +137,84 @@ the network claim can be inspected rather than inferred.</p>
       </defs>
 
       <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
-      <text class="arch-kicker" x="42" y="47">YOUR MAC</text>
+      <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">YOUR MAC</text>
 
       <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
-      <text class="arch-kicker" x="66" y="92">SPOOL · ONE LOCAL BINARY</text>
+      <text class="arch-kicker" x="66" y="92" data-i18n="story-arch-one-binary">SPOOL · ONE LOCAL BINARY</text>
 
       <rect class="box" x="70" y="116" width="194" height="72" rx="8"/>
-      <text class="lbl" x="88" y="145">Desktop GUI</text>
+      <text class="lbl" x="88" y="145" data-i18n="story-arch-gui">Desktop GUI</text>
       <text class="sub" x="88" y="166">React · TypeScript</text>
 
       <rect class="box" x="70" y="224" width="194" height="72" rx="8"/>
-      <text class="lbl" x="88" y="253">Capture overlay</text>
-      <text class="sub" x="88" y="274">global gesture · local window</text>
+      <text class="lbl" x="88" y="253" data-i18n="story-arch-overlay">Capture overlay</text>
+      <text class="sub" x="88" y="274" data-i18n="story-arch-overlay-sub">global gesture · local window</text>
 
       <rect class="box" x="322" y="116" width="184" height="180" rx="8"/>
       <text class="lbl" x="342" y="149">Rust / Tauri core</text>
-      <text class="sub" x="342" y="174">capture · IPC · policy</text>
-      <text class="sub" x="342" y="197">deterministic packer</text>
-      <text class="sub" x="342" y="220">subprocess boundary</text>
-      <text class="mono" x="342" y="259">no HTTP client</text>
+      <text class="sub" x="342" y="174" data-i18n="story-arch-core-1">capture · IPC · policy</text>
+      <text class="sub" x="342" y="197" data-i18n="story-arch-core-2">deterministic packer</text>
+      <text class="sub" x="342" y="220" data-i18n="story-arch-core-3">subprocess boundary</text>
+      <text class="mono" x="342" y="259" data-i18n="story-arch-core-4">no HTTP client</text>
 
       <rect class="box" x="554" y="116" width="128" height="180" rx="8"/>
       <text class="lbl" x="574" y="149">SQLite</text>
-      <text class="sub" x="574" y="174">one local file</text>
-      <text class="sub" x="574" y="197">single source</text>
-      <text class="sub" x="574" y="220">of truth</text>
+      <text class="sub" x="574" y="174" data-i18n="story-arch-db-1">one local file</text>
+      <text class="sub" x="574" y="197" data-i18n="story-arch-db-2">single source</text>
+      <text class="sub" x="574" y="220" data-i18n="story-arch-db-3">of truth</text>
       <text class="mono" x="574" y="259">FTS5</text>
 
       <rect class="box box-accent" x="322" y="320" width="184" height="52" rx="8"/>
       <text class="lbl" x="342" y="342">spool --mcp</text>
-      <text class="mono" x="342" y="360">stdio MCP server</text>
+      <text class="mono" x="342" y="360" data-i18n="story-arch-mcp-sub">stdio MCP server</text>
 
       <rect class="box box-external" x="770" y="90" width="300" height="100" rx="8"/>
-      <text class="lbl" x="792" y="123">External MCP client</text>
+      <text class="lbl" x="792" y="123" data-i18n="story-arch-client">External MCP client</text>
       <text class="sub" x="792" y="147">Claude Desktop · Cursor · …</text>
-      <text class="sub" x="792" y="166">Codex in ChatGPT desktop</text>
-      <text class="mono" x="792" y="183">client owns provider connection</text>
+      <text class="sub" x="792" y="166" data-i18n="story-arch-client-sub">Codex in ChatGPT desktop</text>
+      <text class="mono" x="792" y="183" data-i18n="story-arch-client-mono">client owns provider connection</text>
 
       <rect class="box box-external" x="770" y="270" width="300" height="100" rx="8"/>
-      <text class="lbl" x="792" y="303">CLI engine subprocess</text>
+      <text class="lbl" x="792" y="303" data-i18n="story-arch-cli">CLI engine subprocess</text>
       <text class="sub" x="792" y="325">Claude Code · Codex CLI</text>
-      <text class="sub" x="792" y="344">Gemini CLI · no Follow Up</text>
-      <text class="mono" x="792" y="362">user-installed · user-authenticated</text>
+      <text class="sub" x="792" y="344" data-i18n="story-arch-cli-sub">Gemini CLI · no Follow Up</text>
+      <text class="mono" x="792" y="362" data-i18n="story-arch-cli-mono">user-installed · user-authenticated</text>
 
       <rect class="provider-box" x="144" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="294" y="531" text-anchor="middle">MCP client’s provider</text>
-      <text class="sub" x="294" y="554" text-anchor="middle">network path 1 · outside Spool</text>
+      <text class="lbl" x="294" y="531" text-anchor="middle" data-i18n="story-arch-provider-1">MCP client’s provider</text>
+      <text class="sub" x="294" y="554" text-anchor="middle" data-i18n="story-arch-provider-1-sub">network path 1 · outside Spool</text>
 
       <rect class="provider-box" x="716" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="866" y="531" text-anchor="middle">CLI’s provider</text>
-      <text class="sub" x="866" y="554" text-anchor="middle">network path 2 · outside Spool</text>
+      <text class="lbl" x="866" y="531" text-anchor="middle" data-i18n="story-arch-provider-2">CLI’s provider</text>
+      <text class="sub" x="866" y="554" text-anchor="middle" data-i18n="story-arch-provider-2-sub">network path 2 · outside Spool</text>
 
       <path class="flow" d="M 264 152 L 322 152"/>
       <text class="flow-label" x="293" y="141" text-anchor="middle">IPC</text>
       <path class="flow" d="M 264 260 L 322 260"/>
-      <text class="flow-label" x="293" y="249" text-anchor="middle">local</text>
+      <text class="flow-label" x="293" y="249" text-anchor="middle" data-i18n="story-arch-flow-local">local</text>
       <path class="flow" d="M 506 206 L 554 206"/>
       <text class="flow-label" x="530" y="195" text-anchor="middle">SQL</text>
       <path class="flow" d="M 414 296 L 414 320"/>
       <path class="flow flow-accent" d="M 770 140 C 686 140, 606 346, 506 346"/>
       <text class="flow-label accent-label" x="649" y="265">stdio · MCP</text>
       <path class="flow flow-accent" d="M 506 272 C 606 272, 654 320, 770 320"/>
-      <text class="flow-label accent-label" x="637" y="304">spawn + stdio</text>
+      <text class="flow-label accent-label" x="637" y="304" data-i18n="story-arch-flow-spawn">spawn + stdio</text>
 
       <path class="network-line" d="M 860 190 C 840 438, 430 438, 350 498"/>
-      <text class="network-label" x="565" y="449">NETWORK PATH 1</text>
+      <text class="network-label" x="565" y="449" data-i18n="story-arch-path-1">NETWORK PATH 1</text>
       <path class="network-line" d="M 920 370 C 920 430, 866 445, 866 498"/>
-      <text class="network-label" x="928" y="449">NETWORK PATH 2</text>
+      <text class="network-label" x="928" y="449" data-i18n="story-arch-path-2">NETWORK PATH 2</text>
 
-      <text class="arch-no-http" x="66" y="381">Spool itself sends no HTTP requests.</text>
-      <text class="arch-network-boundary" x="42" y="462">NETWORK BOUNDARY — ONLY THE TWO ACCENT PATHS CROSS IT</text>
+      <text class="arch-no-http" x="66" y="381" data-i18n="story-arch-no-http">Spool itself sends no HTTP requests.</text>
+      <text class="arch-network-boundary" x="42" y="462" data-i18n="story-arch-boundary">NETWORK BOUNDARY — ONLY THE TWO ACCENT PATHS CROSS IT</text>
     </svg>
   </div>
-  <figcaption class="shot-caption">The network boundary is literal: the external MCP client and
+  <figcaption class="shot-caption" data-i18n="story-cap-arch">The network boundary is literal: the external MCP client and
   the user-authenticated CLI subprocess can contact their own providers. Spool itself makes no
   HTTP request, stores no provider key, and listens on no network port.</figcaption>
 </figure>
 
-<p>The GUI and capture overlay communicate with the Rust/Tauri core locally. That core owns one
+<p data-i18n="story-arch-p2">The GUI and capture overlay communicate with the Rust/Tauri core locally. That core owns one
 SQLite database. Running <code>spool --mcp</code> exposes the same library over stdio to an AI
 client; the CLI engine slot instead starts Claude Code, Codex CLI, or Gemini CLI as a separate
 process. Gemini supports Weekly Review and draft goals, but not Follow Up. Both routes preserve
@@ -221,40 +228,42 @@ the distinction between Spool’s local work and another program’s network wor
               srcset="assets/shots/story-project-920.webp 920w, assets/shots/story-project.webp 1229w"
               sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
       <img class="shot" src="assets/shots/story-project.png"
+           data-i18n-alt="story-alt-project"
            alt="The Machine learning course project in an isolated Spool demo library, showing the fixed Workspace and Spool sidebar, numbered timeline blocks, a note used as a title, and the AI client activity rail"
            width="1229" height="734" loading="lazy" decoding="async">
     </picture>
   </div>
-  <figcaption id="project-caption" class="shot-caption">One current project surface: fixed
+  <figcaption id="project-caption" class="shot-caption" data-i18n="story-cap-project">One current project surface: fixed
   navigation and Spool panels on the left, numbered blocks in the log, annotations that can act
   as titles, and AI client activity on the right.</figcaption>
 </figure>
 
-<h2 id="privacy">Privacy and the write boundary</h2>
-<p>Reading and writing are separate permissions. Content leaves the machine only inside a
+<h2 id="privacy" data-i18n="story-privacy-h">Privacy and the write boundary</h2>
+<p data-i18n="story-privacy-p">Reading and writing are separate permissions. Content leaves the machine only inside a
 program the user installed and authorised; the program that crosses the network is named at each
 path.</p>
 
 <div class="story-table-scroll" tabindex="0" role="region"
+     data-i18n-aria="story-table-aria"
      aria-label="Network and writing paths; scroll sideways on a narrow screen">
   <table>
     <thead>
-      <tr><th scope="col">Path</th><th scope="col">What can cross</th><th scope="col">Network client</th></tr>
+      <tr><th scope="col" data-i18n="story-th-path">Path</th><th scope="col" data-i18n="story-th-what">What can cross</th><th scope="col" data-i18n="story-th-client">Network client</th></tr>
     </thead>
     <tbody>
-      <tr><th scope="row">MCP client</th><td>What the client explicitly reads from the local stdio server</td><td>The external AI client</td></tr>
-      <tr><th scope="row">CLI engine action</th><td>The project blocks required by the chosen action</td><td>Claude Code, Codex CLI, or Gemini CLI; Gemini excludes Follow Up</td></tr>
-      <tr><th scope="row">Anything else</th><td>Nothing</td><td>None</td></tr>
+      <tr><th scope="row" data-i18n="story-td-1-a">MCP client</th><td data-i18n="story-td-1-b">What the client explicitly reads from the local stdio server</td><td data-i18n="story-td-1-c">The external AI client</td></tr>
+      <tr><th scope="row" data-i18n="story-td-2-a">CLI engine action</th><td data-i18n="story-td-2-b">The project blocks required by the chosen action</td><td data-i18n="story-td-2-c">Claude Code, Codex CLI, or Gemini CLI; Gemini excludes Follow Up</td></tr>
+      <tr><th scope="row" data-i18n="story-td-3-a">Anything else</th><td data-i18n="story-td-3-b">Nothing</td><td data-i18n="story-td-3-c">None</td></tr>
     </tbody>
   </table>
 </div>
 
 <ul class="story-rules">
-  <li><strong>AI may append; it may not overwrite.</strong> Machine-written blocks carry a
+  <li data-i18n="story-rule-1"><strong>AI may append; it may not overwrite.</strong> Machine-written blocks carry a
   server-enforced source label and cannot replace a user-authored block.</li>
-  <li><strong>AI may not borrow the user’s authority.</strong> Annotation authorship is stored,
+  <li data-i18n="story-rule-2"><strong>AI may not borrow the user’s authority.</strong> Annotation authorship is stored,
   so a machine note renders as machine framing rather than as the user’s judgement.</li>
-  <li><strong>AI may propose a correction; the user decides.</strong> The original stays visible
+  <li data-i18n="story-rule-3"><strong>AI may propose a correction; the user decides.</strong> The original stays visible
   and searchable. Retiring material is a human action.</li>
 </ul>
 
@@ -266,41 +275,42 @@ path.</p>
               srcset="assets/shots/story-ai-writeback-760.webp 760w, assets/shots/story-ai-writeback.webp 990w"
               sizes="(max-width: 900px) calc(100vw - 3rem), 704px">
       <img class="shot" src="assets/shots/story-ai-writeback.png"
+           data-i18n-alt="story-alt-writeback"
            alt="A current isolated demo project detail: user-authored block number four followed by block number five, badged Claude · MCP and carrying a citation back to the earlier source"
            width="990" height="170" loading="lazy" decoding="async">
     </picture>
   </div>
-  <figcaption id="writeback-caption" class="shot-caption">The write boundary in the current
+  <figcaption id="writeback-caption" class="shot-caption" data-i18n="story-cap-writeback">The write boundary in the current
   build: an attributed <span class="nowrap">Claude · MCP</span> block is appended after the
   user’s source and cites it; it does not overwrite it or present itself as the user.</figcaption>
 </figure>
 
-<h2 id="release">Distribution, signing, and notarisation</h2>
-<p>Spool ships directly as a Developer ID–signed, Apple-notarised disk image. The Mac App Store
+<h2 id="release" data-i18n="story-release-h">Distribution, signing, and notarisation</h2>
+<p data-i18n="story-release-p">Spool ships directly as a Developer ID–signed, Apple-notarised disk image. The Mac App Store
 is not the distribution path because sandboxing conflicts with the system-wide capture gesture.
 The application and the disk image are checked separately: users download the wrapper, so a
 notarised application inside an unnotarised disk image is not enough.</p>
 
 <div class="release-evidence" role="group" aria-labelledby="release-evidence-title">
   <div class="release-evidence-head">
-    <p class="kicker">Release evidence</p>
-    <h3 id="release-evidence-title">v0.4.0 signing and notarisation receipt</h3>
+    <p class="kicker" data-i18n="story-release-kicker">Release evidence</p>
+    <h3 id="release-evidence-title" data-i18n="story-release-title">v0.4.0 signing and notarisation receipt</h3>
   </div>
   <dl>
     <div>
-      <dt>App submission</dt>
-      <dd><code>89ebaceb-f883-4b1c-a6eb-86392769d132</code> <strong class="status-accepted">Accepted</strong></dd>
+      <dt data-i18n="story-dt-app">App submission</dt>
+      <dd><code>89ebaceb-f883-4b1c-a6eb-86392769d132</code> <strong class="status-accepted" data-i18n="story-accepted">Accepted</strong></dd>
     </div>
     <div>
-      <dt>DMG submission</dt>
-      <dd><code>f7a15d9a-737d-4132-a54e-578d9f41fd7f</code> <strong class="status-accepted">Accepted</strong></dd>
+      <dt data-i18n="story-dt-dmg">DMG submission</dt>
+      <dd><code>f7a15d9a-737d-4132-a54e-578d9f41fd7f</code> <strong class="status-accepted" data-i18n="story-accepted">Accepted</strong></dd>
     </div>
     <div>
-      <dt>Tagged commit</dt>
+      <dt data-i18n="story-dt-commit">Tagged commit</dt>
       <dd><code>84625db</code></dd>
     </div>
     <div>
-      <dt>Artifact</dt>
+      <dt data-i18n="story-dt-artifact">Artifact</dt>
       <dd><code>Spool_0.4.0_aarch64.dmg</code></dd>
     </div>
     <div class="evidence-wide">
@@ -309,90 +319,90 @@ notarised application inside an unnotarised disk image is not enough.</p>
     </div>
     <div class="evidence-wide">
       <dt>Gatekeeper</dt>
-      <dd><code>accepted</code> · <code>source=Notarized Developer ID</code> · both artifacts</dd>
+      <dd data-i18n="story-dd-gatekeeper"><code>accepted</code> · <code>source=Notarized Developer ID</code> · both artifacts</dd>
     </div>
   </dl>
-  <p class="evidence-source">Source: <a href="https://github.com/KIM-ocean-HZ/spool/blob/main/docs/CASE_STUDY_LEDGER.md#12-release-record">Case Study Ledger §1.2</a>, captured 2026-08-08.</p>
+  <p class="evidence-source" data-i18n="story-evidence-source">Source: <a href="https://github.com/KIM-ocean-HZ/spool/blob/main/docs/CASE_STUDY_LEDGER.md#12-release-record">Case Study Ledger §1.2</a>, captured 2026-08-08.</p>
 </div>
 
-<p><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Inspect the release and its
+<p data-i18n="story-release-link"><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">Inspect the release and its
 assets on GitHub</a>. The website’s stable download URL points to the fixed-name copy published
 alongside the versioned artifact.</p>
 
-<h2 id="measurement">What measurement changed</h2>
-<p>The case-study ledger records commands and source evidence for every public figure. Three
+<h2 id="measurement" data-i18n="story-measurement-h">What measurement changed</h2>
+<p data-i18n="story-measurement-p">The case-study ledger records commands and source evidence for every public figure. Three
 measurements changed product priorities rather than merely describing the finished system.</p>
 
 <div class="measurement-grid">
   <article>
-    <h3>Context volume came from pasted documents</h3>
-    <p>One real project packed to <strong>26,163 of 50,000 characters</strong>. User-pasted
+    <h3 data-i18n="story-m1-h">Context volume came from pasted documents</h3>
+    <p data-i18n="story-m1-p">One real project packed to <strong>26,163 of 50,000 characters</strong>. User-pasted
     material contributed <strong>95%</strong>; AI clients contributed <strong>5%</strong>, with
     average AI-written blocks <strong>11× smaller</strong>. Staleness moved ahead of AI-output
     deduplication.</p>
   </article>
   <article>
-    <h3>Deduplication was a one-time recovery</h3>
-    <p>The measured duplicate pair occupied <strong>13% of the pack</strong>. Retirement solved
+    <h3 data-i18n="story-m2-h">Deduplication was a one-time recovery</h3>
+    <p data-i18n="story-m2-p">The measured duplicate pair occupied <strong>13% of the pack</strong>. Retirement solved
     the immediate volume problem while keeping the older block in the library and search.</p>
   </article>
   <article>
-    <h3>The external write path was discoverable</h3>
-    <p>From one plain-language request, an external client created a project and filed
+    <h3 data-i18n="story-m3-h">The external write path was discoverable</h3>
+    <p data-i18n="story-m3-p">From one plain-language request, an external client created a project and filed
     <strong>11 blocks</strong> averaging <strong>970 characters</strong>. It recovered from
     <strong>2 errors</strong> without help, then used the pack tool to check its work.</p>
   </article>
 </div>
-<p>A separate live web-search run cost approximately <strong>$0.45</strong> and exposed failures
+<p data-i18n="story-measurement-cost">A separate live web-search run cost approximately <strong>$0.45</strong> and exposed failures
 that mocks and prompt inspection had not revealed.</p>
 
-<h2 id="failures">Failures that changed the system</h2>
-<p>The useful unit in a postmortem is not the patch; it is the guard that remains.</p>
+<h2 id="failures" data-i18n="story-failures-h">Failures that changed the system</h2>
+<p data-i18n="story-failures-p">The useful unit in a postmortem is not the patch; it is the guard that remains.</p>
 
 <div class="failure-list">
   <article>
-    <h3>The live database was wiped</h3>
-    <p>A development build met a newer live schema and took an unconditional rebuild path.
+    <h3 data-i18n="story-f1-h">The live database was wiped</h3>
+    <p data-i18n="story-f1-p">A development build met a newer live schema and took an unconditional rebuild path.
     Recovery carved <strong>33 blocks</strong> from SQLite free pages, but project titles were
     gone. The durable changes were fail-closed migrations, a named migration registry with
     cross-language version checks, automatic pre-migration snapshots, isolated on-device builds,
     and a rule that first-run seed data is reachable only from an empty database.</p>
   </article>
   <article>
-    <h3>A prompt rule failed on its first real run</h3>
-    <p>Follow-up findings required a source URL, yet <strong>2 of 3</strong> proposals omitted it
+    <h3 data-i18n="story-f2-h">A prompt rule failed on its first real run</h3>
+    <p data-i18n="story-f2-p">Follow-up findings required a source URL, yet <strong>2 of 3</strong> proposals omitted it
     because the model placed links in its closing message. The prompt was made field-specific;
     the next measured run produced links in <strong>5 of 5</strong> proposals. The standing rule
     is now simple: text in a prompt is not a behaviour until a real run proves it.</p>
   </article>
   <article>
-    <h3>The packaged window was blank while every automated check passed</h3>
-    <p>A state selector allocated a new array on each call and triggered an infinite render.
+    <h3 data-i18n="story-f3-h">The packaged window was blank while every automated check passed</h3>
+    <p data-i18n="story-f3-p">A state selector allocated a new array on each call and triggered an infinite render.
     Nothing in the automated suite opened a packaged window. Release verification now includes
     looking at the isolated signed build; visual health is no longer inferred from compilation.</p>
   </article>
 </div>
 
-<h2 id="boundaries">Boundaries, not promises</h2>
+<h2 id="boundaries" data-i18n="story-boundaries-h">Boundaries, not promises</h2>
 <ul>
-  <li><strong>macOS only in practice.</strong> Capture, focus handling, and process-group
+  <li data-i18n="story-b1"><strong>macOS only in practice.</strong> Capture, focus handling, and process-group
   cancellation contain platform-specific work that would need redesign on another system.</li>
-  <li><strong>No auto-update.</strong> A new version is a manual download from the direct release.</li>
-  <li><strong>Source-visible, all rights reserved.</strong> The repository has no licence granting
+  <li data-i18n="story-b2"><strong>No auto-update.</strong> A new version is a manual download from the direct release.</li>
+  <li data-i18n="story-b3"><strong>Source-visible, all rights reserved.</strong> The repository has no licence granting
   reuse.</li>
-  <li><strong>Two checks remain human.</strong> The authorised capture gesture sits upstream of
+  <li data-i18n="story-b4"><strong>Two checks remain human.</strong> The authorised capture gesture sits upstream of
   synthetic events, and the packaged webview cannot be trusted from synthetic clicks; both are
   escalated to a person rather than claimed as automated.</li>
-  <li><strong>Spool is not a server, sync service, team workspace, or document editor.</strong>
+  <li data-i18n="story-b5"><strong>Spool is not a server, sync service, team workspace, or document editor.</strong>
   It stores one local project log and prepares context for tools the user already chose.</li>
 </ul>
 
-<p class="story-demo no-print">There is no placeholder video. The
+<p class="story-demo no-print" data-i18n="story-demo">There is no placeholder video. The
 <a href="./#demo">interactive browser demo</a> walks through the capture → project → pack loop;
 the screenshots above are from the current isolated desktop build.</p>
 
 <hr>
-<p class="muted">Spool is designed and built by Ocean
+<p class="muted" data-i18n="story-colophon">Spool is designed and built by Ocean
 (<a href="https://github.com/KIM-ocean-HZ">KIM-ocean-HZ</a>). Source, roadmap, and the full
 product constitution are on <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>;
 reproducible public figures live in the
@@ -404,15 +414,16 @@ reproducible public figures live in the
 
 <footer>
   <div class="wrap">
-    <div>Spool 思簿 · © 2026 · All rights reserved</div>
+    <div data-i18n="foot-copy">Spool 思簿 · © 2026 · All rights reserved</div>
     <div>
-      <a href="./">Home</a> ·
+      <a href="./" data-i18n="foot-home">Home</a> ·
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
-      <a href="privacy.html">Privacy</a>
+      <a href="privacy.html" data-i18n="nav-privacy">Privacy</a>
     </div>
   </div>
 </footer>
 
+<script src="assets/lang.js" defer></script>
 <script src="assets/main.js" defer></script>
 </body>
 </html>

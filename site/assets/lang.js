@@ -4,7 +4,7 @@
    that were shared while the toggle was still client-side.
 
    The other language's address is read off the toggle in the nav, so a page
-   without a translation (story.html) simply has no toggle and no forwarding. */
+   without a translation simply has no toggle and no forwarding. */
 (function () {
   'use strict';
 
