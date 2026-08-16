@@ -30,6 +30,7 @@ interface Props {
 export default function FollowUpPanel({ thread, onClose }: Props) {
   const t = useT();
   const [draft, setDraft] = useState('');
+  const [draftStanding, setDraftStanding] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [showAnswered, setShowAnswered] = useState(false);
   const enqueue = useEngineStore((s) => s.enqueue);
@@ -55,11 +56,11 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
-  const commitDraft = (standing: boolean): void => {
+  const commitDraft = (): void => {
     const text = draft.trim();
     if (!text) return;
     setDraft('');
-    void add(text, standing);
+    void add(text, draftStanding);
   };
 
   // The AI reads the project and says what is missing. It appends lines rather than
@@ -97,7 +98,7 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
               {t('这个项目跟进什么')}
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              {t('一行一件事。AI 以后就照这几行去查——「单次跟进」查到答案就自己收起来，「永久跟进」的不会。')}
+              {t('一行一件事，AI 以后就照这几行去查。「单次跟进」查到答案就结束；「永久跟进」会一直查下去，只有你能结束。')}
             </p>
           </div>
           <button
@@ -118,11 +119,19 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
 
           <div className="space-y-1.5">
             {openItems.map((item) => (
-              <ItemRow key={item.id} item={item} />
+              // Opening the retired group on a close is the whole feedback for the action:
+              // without it a row the user just clicked simply vanishes, and where it went is
+              // behind a collapsed summary they have no reason to open.
+              <ItemRow key={item.id} item={item} onClosed={() => setShowAnswered(true)} />
             ))}
           </div>
 
-          <div className="mt-2 flex items-start gap-2">
+          {/* Adding uses the SAME picker the rows use, and that is the point of it being here:
+              it used to be two buttons, 「加上」 and 「永久跟进」 — one an action, the other a
+              kind — so the kind read as a second way to save rather than as a property of the
+              line. Choosing it here is what teaches that the same control on a row is
+              something you can press. */}
+          <div className="mt-2 rounded border border-line bg-paper-2/30 px-2.5 py-2">
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -132,29 +141,21 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
                 if (isImeComposing(e.nativeEvent)) return;
                 if (e.key !== 'Enter' || e.shiftKey) return;
                 e.preventDefault();
-                commitDraft(false);
+                commitDraft();
               }}
               rows={2}
               placeholder={t('再加一条。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。')}
-              className="min-w-0 flex-1 resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 text-xs leading-relaxed text-ink outline-none focus:border-accent"
+              className="w-full resize-none bg-transparent text-xs leading-relaxed text-ink outline-none"
             />
-            <div className="flex flex-none flex-col gap-1">
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <KindPicker standing={draftStanding} onPick={setDraftStanding} />
               <button
                 type="button"
-                onClick={() => commitDraft(false)}
+                onClick={commitDraft}
                 disabled={!draft.trim()}
-                className="rounded border border-line bg-paper px-2 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted"
+                className="flex-none rounded border border-line bg-paper px-2.5 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted"
               >
                 {t('加上')}
-              </button>
-              <button
-                type="button"
-                onClick={() => commitDraft(true)}
-                disabled={!draft.trim()}
-                title={t('查到一次答案也不收起来')}
-                className="rounded border border-line bg-paper px-2 py-1 text-[11px] text-muted transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40"
-              >
-                {t('永久跟进')}
               </button>
             </div>
           </div>
@@ -187,8 +188,8 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
                 className="text-[11px] text-muted transition-colors hover:text-ink"
               >
                 {showAnswered
-                  ? t('收起已经答了的')
-                  : t('已经答了的（{n}）', { n: answered.length })}
+                  ? t('收起不再跟进的')
+                  : t('不再跟进的（{n}）', { n: answered.length })}
               </button>
               {showAnswered && (
                 <div className="mt-1.5 space-y-1.5">
@@ -214,14 +215,61 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
   );
 }
 
-/** One live line: editable in place, with the marker that decides whether an AI may ever
+/** 单次 / 永久 as a two-option picker, in both places a kind is chosen.
+ *
+ *  ⚠️ Ocean 2026-08-17: 「我根本没看出来单次跟进是个按钮可以点击」. It used to be one chip
+ *  showing the CURRENT kind, and a lone label naming a state cannot also say that it is
+ *  pressable — worse, the half it hid (that a line can be permanent) is the half that
+ *  explains the feature. Showing both options costs one row and removes the guess: what is
+ *  highlighted is what this line IS, the other one is what pressing would make it.
+ */
+function KindPicker({
+  standing,
+  onPick,
+}: {
+  standing: boolean;
+  onPick: (standing: boolean) => void;
+}) {
+  const t = useT();
+  const option = (value: boolean, label: string, title: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={standing === value}
+      title={title}
+      onClick={() => {
+        if (standing !== value) onPick(value);
+      }}
+      className={`px-1.5 py-0.5 text-[10px] transition-colors ${value ? 'border-l border-line' : ''} ${
+        standing === value
+          ? 'bg-accent-soft text-accent'
+          : 'bg-paper text-muted hover:bg-paper-2 hover:text-ink-2'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t('这一条跟进到什么时候')}
+      className="flex flex-none overflow-hidden rounded border border-line"
+    >
+      {option(false, t('单次跟进'), t('查到答案就结束——AI 替你查到了，也可以替你结束它'))}
+      {option(true, t('永久跟进'), t('一直查下去。AI 结束不了它，只有你能'))}
+    </div>
+  );
+}
+
+/** One live line: editable in place, with the kind that decides whether an AI may ever
  *  close it, and the two ways it can leave the list. */
-function ItemRow({ item }: { item: FollowUpItem }) {
+function ItemRow({ item, onClosed }: { item: FollowUpItem; onClosed: () => void }) {
   const t = useT();
   const edit = useFollowUpStore((s) => s.edit);
   const setStanding = useFollowUpStore((s) => s.setStanding);
   const close = useFollowUpStore((s) => s.close);
   const remove = useFollowUpStore((s) => s.remove);
+  const restore = useFollowUpStore((s) => s.restore);
   const [text, setText] = useState(item.text);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -256,36 +304,45 @@ function ItemRow({ item }: { item: FollowUpItem }) {
         }}
         className="w-full resize-none bg-transparent text-xs leading-relaxed text-ink outline-none"
       />
-      <div className="mt-0.5 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => void setStanding(item.id, !item.standing)}
-          title={
-            item.standing
-              ? t('永久跟进：AI 查到答案也不会把它收起来')
-              : t('查到答案就收起来。点一下改成永久跟进')
-          }
-          className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
-            item.standing
-              ? 'bg-accent-soft text-accent'
-              : 'text-muted hover:bg-paper-2 hover:text-ink-2'
-          }`}
-        >
-          {item.standing ? t('永久跟进') : t('单次跟进')}
-        </button>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <KindPicker standing={item.standing} onPick={(v) => void setStanding(item.id, v)} />
         <div className="flex flex-none items-center gap-1">
+          {/* ⚠️ Ocean 2026-08-17: 「用户无法意识到这是任务被解决了」. A bare ✓ was carrying the
+              one action in the panel nobody expects to exist, behind a tooltip. It says what
+              it does now — and says it differently per kind, because 「已解决」 is a lie on a
+              standing watch: what that kind watches is whether something CHANGES, so finding
+              out today's answer never finishes it. Both still retire the row; only the
+              sentence the user is agreeing to differs. */}
           <button
             type="button"
-            onClick={() => void close(item.id)}
-            title={t('这条已经有答案了，收起来')}
-            className="rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+            onClick={() => {
+              void close(item.id);
+              onClosed();
+            }}
+            title={
+              item.standing
+                ? t('不用再跟进了，收进下面「不再跟进的」，随时能重新跟进')
+                : t('这条已经有答案了，收进下面「不再跟进的」，随时能重新跟进')
+            }
+            className="flex items-center gap-1 rounded border border-line bg-paper px-1.5 py-0.5 text-[10px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
           >
-            <Check size={12} />
+            <Check size={11} className="flex-none" />
+            {item.standing ? t('结束跟进') : t('已解决')}
           </button>
+          {/* Deleting is the one thing here that leaves nothing behind, so it is the one
+              thing that gets a way back (Ocean 2026-08-17). A confirmation dialog was the
+              other option and it is the worse one: it charges every deletion for the one
+              that was a mistake, on a list meant to be pruned freely. */}
           <button
             type="button"
-            onClick={() => void remove(item.id)}
+            onClick={() =>
+              void (async () => {
+                const gone = await remove(item.id);
+                if (gone) toast.undo(t('删掉了'), t('撤销'), () => void restore(gone));
+              })()
+            }
             title={t('不跟进这个了，直接删掉')}
+            aria-label={t('不跟进这个了，直接删掉')}
             className="rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
           >
             <Trash2 size={12} />
@@ -309,13 +366,15 @@ function AnsweredRow({ item }: { item: FollowUpItem }) {
           </p>
         )}
       </div>
+      {/* Same reason the close button carries words now: this is the way back, and a bare
+          ↺ leaves the user guessing whether retiring a line was reversible at all. */}
       <button
         type="button"
         onClick={() => void reopen(item.id)}
-        title={t('重新跟进')}
-        className="flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+        className="flex flex-none items-center gap-1 rounded border border-line bg-paper px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:border-accent hover:text-accent"
       >
-        <RotateCcw size={12} />
+        <RotateCcw size={11} className="flex-none" />
+        {t('重新跟进')}
       </button>
     </div>
   );

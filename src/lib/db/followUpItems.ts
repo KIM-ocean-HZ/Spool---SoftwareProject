@@ -192,6 +192,40 @@ export const deleteFollowUpItem = async (id: string): Promise<void> => {
   await db.execute('DELETE FROM follow_up_items WHERE id = $1', [id]);
 };
 
+/** Put a just-deleted row back exactly as it was, for the 撤销 on the toast (Ocean
+ *  2026-08-17 — a line he had typed went for good on one click of an icon he had not meant
+ *  to press, and there was no way back from it).
+ *
+ *  ⚠️ It restores the ORIGINAL id, which is what makes this an undo rather than retyping:
+ *  `answer_block_id` and anything that ever cites a line point at that id, and minting a new
+ *  one would leave a row that looks right and is pointed at by nothing. */
+export const restoreFollowUpItem = async (item: FollowUpItem): Promise<void> => {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO follow_up_items
+       (id, thread_id, text, why, standing, fingerprint, status, proposed_by, sort_order,
+        created_at, approved_at, last_raised_at, answered_at, answer_block_id, outcome)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+    [
+      item.id,
+      item.threadId,
+      item.text,
+      item.why,
+      item.standing ? 1 : 0,
+      followUpFingerprint(item.text),
+      item.status,
+      item.proposedBy,
+      item.sortOrder,
+      item.createdAt,
+      item.approvedAt,
+      item.lastRaisedAt,
+      item.answeredAt,
+      item.answerBlockId,
+      item.outcome,
+    ],
+  );
+};
+
 // ---------------------------------------------------------------------------------------
 // The review side: lines an AI proposed, waiting for the user.
 // ---------------------------------------------------------------------------------------

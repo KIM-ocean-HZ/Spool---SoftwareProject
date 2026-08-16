@@ -1,8 +1,9 @@
-import { Bot, ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
+import { ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import LiveRun from "./LiveRun";
 import McpBar from "./McpBar";
 import ProjectFiles from "./ProjectFiles";
+import RailSection from "./RailSection";
 import RunCard from "./RunCard";
 import { createBlock } from "@/lib/db/blocks";
 import type { EngineRun } from "@/lib/db/engineRuns";
@@ -210,7 +211,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
           along with the codex plugin — see McpBar's header. It reports, it does not route. */}
       <McpBar onCollapse={onCollapse} />
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      {/* ⚠️ `px-2` is the sidebar's own container padding, and it is what lets the headings
+          and rows inside sit at `px-3` — the same left edge every row in the left rail sits
+          on (Sidebar/SectionLabel). The two columns line up because they use one number, not
+          because someone matched them by eye. */}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-3">
         {/* §9.1 主体, in order of how much it wants you right now. */}
         <LiveRun />
 
@@ -262,154 +267,160 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
 
         {/* §9.3 #2 — 新进展. The first level shows the target itself, permanently visible
             rather than only inside the editor; 「改」 is a quiet link into the second. */}
-        {/* ⚠️ A frame rather than a top rule (Ocean 2026-08-11: 「右侧边栏的跟进窗口做成有框线的」).
-            Same treatment as the sidebar's value panel: a hairline border and no fill of its
-            own, so it reads as one thing without becoming a raised card. It earns the frame for
-            the same reason that one did — everything else in this column is a run that came and
-            will go, and this is a standing statement of what the project is watching for. */}
-        {showActions && (
-          <div className="space-y-1 rounded-md border border-line p-2.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[12px] uppercase tracking-wide text-muted">
-                {t("跟进内容")}
-              </span>
-              <button
-                type="button"
-                onClick={onEditBrief}
-                className="flex-none text-[12px] text-muted transition-colors hover:text-accent"
-              >
-                {followUpLines.length > 0 ? t("编辑") : t("定一个")}
-              </button>
-            </div>
-            {/* v22 (§8.7): one line per row, and a row an AI has answered is not in here —
-                it is folded away inside the editor, still reopenable (§8.6). What this column
-                states is what the project is watching NOW. */}
-            {followUpLines.length > 0 ? (
-              <ul className="space-y-0.5 text-[12px] leading-relaxed text-ink-2">
-                {followUpLines.map((item) => (
-                  <li key={item.id} className="flex gap-1.5">
-                    <span className="flex-none text-muted">·</span>
-                    <span className="min-w-0 break-words">{item.text}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-[12px] leading-relaxed text-muted">
-                {t("还没定。定几行「要跟进什么」，之后才能让 AI 出去查。")}
-              </p>
-            )}
-            {/* §7.8.5-2 — the button is withheld, not disabled, on an engine that cannot
-                carry this action; a greyed control invites a hunt for the switch that turns
-                it on, and there isn't one. The brief itself stays visible and editable:
-                switching to a subscription engine later should find it already written. */}
-            {/* ⚠️ A rule above it and a border around it (2026-08-12, Ocean: 「联网搜索的按钮
-                和上面的跟进内容之间划一条线，或者把它做成一个按钮，不然不明显」). It was bare
-                text with an icon, sitting flush under the brief in the same frame — so the one
-                control in this panel that reaches the open web read as one more line of the
-                brief. Both halves of what he offered, because they fix different halves of the
-                problem: the rule separates it from the text above, the border says it is a
-                thing you press. It stays inline-width, not a full-width bar (§9.13 #2). */}
-            {followUpLines.length > 0 &&
-              (engineSupportsWeb(status?.selected ?? null) ? (
-                <div className="mt-2 border-t border-line pt-2">
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() =>
-                      enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
-                    }
-                    title={t("照你定的那几行联网搜索")}
-                    className="flex items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[13px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
-                  >
-                    <Globe size={12} className="flex-none" />
-                    {t("联网搜索")}
-                  </button>
-                </div>
-              ) : (
-                <p className="mt-2 border-t border-line pt-2 text-[12px] leading-relaxed text-muted">
-                  {t("联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。")}
-                </p>
-              ))}
-          </div>
-        )}
-
-        {/* ⚠️ **「跟进用的」 is no longer in this column** (2026-08-12, Ocean: 「『选择跟进用的
-            AI』，把这个选择键放到编辑的面板里面，这个按钮不常用」). It moved into the follow-up
-            editor (ThreadView/FollowUpPanel) — one panel deeper, reached by 编辑, which is
-            where you already are when you are deciding what a follow-up should do.
-            ⚠️ It cost the thing the 2026-08-11 note here defended: with no engine installed
-            the 跟进 block does not render, so 「没检测到引擎」 has nowhere to appear in the rail.
-            That trade is deliberate and it is not a silent one — the 「装了 Claude Code 或
-            Codex…」 line further up this column already tells a user with no engine what to
-            install, and Settings → AI still reports what was detected. A permanently-visible
-            picker for a decision taken once is what he asked to be rid of. */}
-
-        {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
-            no files says so and offers the ＋), because this is now the ONLY place a file can
-            be added or seen: the block action bar's 📎 and 🔗 are gone. */}
-        {thread && <ProjectFiles threadId={thread.id} />}
-
-        {/* R2's durable half — the one surviving fold, and the only thing in the rail that
-            is reference rather than action. Absent entirely in a project no AI has touched
-            (§2.5 安静原则 — a thread the user keeps to themselves grows no AI panel). */}
-        {writtenCount > 0 && (
-          <div className="border-t border-line pt-2.5">
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 text-left text-[11px] text-muted transition-colors hover:text-ink-2"
+        {/* ⚠️ The frame Ocean asked for on 2026-08-11 (「右侧边栏的跟进窗口做成有框线的」) is
+            gone — the reasoning, and what replaced it, is in RailSection.tsx. */}
+        {/* The three STANDING sections, in one wrapper so `first:` in RailSection means
+            "the first section" rather than "the first thing in the column" — the run cards
+            above are transient and keep their own card shape. */}
+        <div className="space-y-3">
+          {showActions && (
+            <RailSection
+              title={t("跟进内容")}
+              action={
+                <button
+                  type="button"
+                  onClick={onEditBrief}
+                  className="flex-none text-[12px] text-muted transition-colors hover:text-accent"
+                >
+                  {followUpLines.length > 0 ? t("编辑") : t("定一个")}
+                </button>
+              }
             >
-              {historyOpen ? (
-                <ChevronDown size={10} className="flex-none" />
+              {/* v22 (§8.7): one line per row, and a row an AI has answered is not in here —
+                  it is folded away inside the editor, still reopenable (§8.6). What this column
+                  states is what the project is watching NOW. */}
+              {followUpLines.length > 0 ? (
+                <ul>
+                  {followUpLines.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex gap-1.5 rounded-md px-3 py-1 text-sm leading-relaxed text-ink-2"
+                    >
+                      <span className="flex-none text-muted">·</span>
+                      <span className="min-w-0 break-words">{item.text}</span>
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                <ChevronRight size={10} className="flex-none" />
+                <p className="px-3 text-[12px] leading-relaxed text-muted">
+                  {t("还没定。定几行「要跟进什么」，之后才能让 AI 出去查。")}
+                </p>
               )}
-              <Bot size={10} className="flex-none" />
-              <span className="truncate">
-                {t("这个项目里有 {n} 块是 AI 写的", { n: writtenCount })}
-              </span>
-            </button>
-            {historyOpen && (
-              <div className="mt-1 space-y-1.5">
-                {written.map((g) => (
-                  <div key={`${g.source}-${g.at}`}>
-                    <div className="text-[11px] text-muted">
-                      {t("{source} · {when} · {n} 块", {
-                        source: g.source,
-                        when: when(g.at),
-                        n: g.blocks.length,
-                      })}
-                    </div>
-                    <ul className="mt-0.5 space-y-0.5">
-                      {g.blocks.map((b) => (
-                        <li key={b.id}>
-                          {/* Clicking scrolls to it and flashes it — the same path a search
-                              result takes, so "go look and change your mind" is one click
-                              from the audit line. */}
-                          <button
-                            type="button"
-                            onClick={() => highlight(b.id)}
-                            title={t("跳到这一块")}
-                            className="flex w-full items-baseline gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-paper-2"
-                          >
-                            {b.seq !== null && (
-                              <span className="flex-none font-mono text-[11px] text-muted">
-                                #{b.seq}
-                              </span>
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2">
-                              {b.content}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+              {/* §7.8.5-2 — the button is withheld, not disabled, on an engine that cannot
+                  carry this action; a greyed control invites a hunt for the switch that turns
+                  it on, and there isn't one. The brief itself stays visible and editable:
+                  switching to a subscription engine later should find it already written. */}
+              {/* ⚠️ 2026-08-12 Ocean offered two ways to stop this reading as one more line of
+                  the brief: 「和上面的跟进内容之间划一条线，或者把它做成一个按钮」. It used to have
+                  both. It keeps the second — it is a bordered control, plainly a thing you press
+                  — and drops the rule, because 2026-08-17 put a rule BETWEEN sections: a divider
+                  inside a section and a divider around it, in the same column, is the noise that
+                  pass exists to remove. It stays inline-width, not a full-width bar (§9.13 #2). */}
+              {followUpLines.length > 0 &&
+                (engineSupportsWeb(status?.selected ?? null) ? (
+                  <div className="mt-2 px-3">
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() =>
+                        enqueue(thread.id, thread.title, "follow_up", timeoutSecs)
+                      }
+                      title={t("照你定的那几行联网搜索")}
+                      className="flex items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[13px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
+                    >
+                      <Globe size={12} className="flex-none" />
+                      {t("联网搜索")}
+                    </button>
                   </div>
+                ) : (
+                  <p className="mt-2 px-3 text-[12px] leading-relaxed text-muted">
+                    {t("联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。")}
+                  </p>
                 ))}
-              </div>
-            )}
-          </div>
-        )}
+            </RailSection>
+          )}
+
+          {/* ⚠️ **「跟进用的」 is no longer in this column** (2026-08-12, Ocean: 「『选择跟进用的
+              AI』，把这个选择键放到编辑的面板里面，这个按钮不常用」). It moved into the follow-up
+              editor (ThreadView/FollowUpPanel) — one panel deeper, reached by 编辑, which is
+              where you already are when you are deciding what a follow-up should do.
+              ⚠️ It cost the thing the 2026-08-11 note here defended: with no engine installed
+              the 跟进 block does not render, so 「没检测到引擎」 has nowhere to appear in the rail.
+              That trade is deliberate and it is not a silent one — the 「装了 Claude Code 或
+              Codex…」 line further up this column already tells a user with no engine what to
+              install, and Settings → AI still reports what was detected. A permanently-visible
+              picker for a decision taken once is what he asked to be rid of. */}
+
+          {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
+              no files says so and offers the ＋), because this is now the ONLY place a file can
+              be added or seen: the block action bar's 📎 and 🔗 are gone. */}
+          {thread && <ProjectFiles threadId={thread.id} />}
+
+          {/* R2's durable half — the one surviving fold, and the only thing in the rail that
+              is reference rather than action. Absent entirely in a project no AI has touched
+              (§2.5 安静原则 — a thread the user keeps to themselves grows no AI panel). */}
+          {writtenCount > 0 && (
+            <RailSection
+              title={t("AI 写的")}
+              action={
+                // ⚠️ The chevron sits AFTER the words, per Sidebar/SectionLabel's rule: anything
+                // before the name pushes it off the one vertical everything else lines up on.
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  className="flex flex-none items-center gap-0.5 text-[12px] text-muted transition-colors hover:text-accent"
+                >
+                  {historyOpen ? t("收起") : t("{n} 块", { n: writtenCount })}
+                  {historyOpen ? (
+                    <ChevronDown size={11} className="flex-none" />
+                  ) : (
+                    <ChevronRight size={11} className="flex-none" />
+                  )}
+                </button>
+              }
+            >
+              {historyOpen && (
+                <div className="space-y-2">
+                  {written.map((g) => (
+                    <div key={`${g.source}-${g.at}`}>
+                      <div className="px-3 text-[12px] text-muted">
+                        {t("{source} · {when} · {n} 块", {
+                          source: g.source,
+                          when: when(g.at),
+                          n: g.blocks.length,
+                        })}
+                      </div>
+                      <ul>
+                        {g.blocks.map((b) => (
+                          <li key={b.id}>
+                            {/* Clicking scrolls to it and flashes it — the same path a search
+                                result takes, so "go look and change your mind" is one click
+                                from the audit line. */}
+                            <button
+                              type="button"
+                              onClick={() => highlight(b.id)}
+                              title={t("跳到这一块")}
+                              className="flex w-full items-baseline gap-1.5 rounded-md px-3 py-1 text-left transition-colors hover:bg-paper-2/60"
+                            >
+                              {b.seq !== null && (
+                                <span className="flex-none font-mono text-[12px] text-muted">
+                                  #{b.seq}
+                                </span>
+                              )}
+                              <span className="min-w-0 flex-1 truncate text-sm text-ink-2">
+                                {b.content}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </RailSection>
+          )}
+        </div>
       </div>
 
       {/* ⚠️ The bottom action row is gone with the two actions it held (see the note at the

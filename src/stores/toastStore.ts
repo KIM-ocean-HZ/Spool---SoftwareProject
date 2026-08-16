@@ -15,11 +15,21 @@ export interface Toast {
   // a toast line, so the line says what happened and this sits behind a 详情 disclosure.
   // A toast carrying one does not auto-dismiss: it would vanish mid-read.
   detail?: string;
+  /** One way back from what just happened — 「撤销」 (Ocean 2026-08-17, after a line he had
+   *  typed went for good on one click of 🗑). ⚠️ The undo lives HERE rather than as a
+   *  confirmation dialog on purpose: a dialog charges every deletion for the one that was a
+   *  mistake, and this list is meant to be pruned freely. */
+  action?: { label: string; run: () => void };
 }
 
 interface ToastState {
   toasts: Toast[];
-  push: (message: string, kind?: ToastKind, detail?: string) => void;
+  push: (
+    message: string,
+    kind?: ToastKind,
+    detail?: string,
+    action?: Toast['action'],
+  ) => void;
   dismiss: (id: number) => void;
   clear: () => void;
 }
@@ -29,14 +39,19 @@ let nextId = 1;
 // one system. Errors stay 1s longer because they often quote a path the user might
 // want to read before it disappears.
 const LIFETIME_MS: Record<ToastKind, number> = { notice: 2500, error: 3500 };
+// One with a way back has to outlive the moment of realising you need it: 2.5s is enough
+// to read a confirmation and not enough to change your mind about a deletion.
+const UNDO_LIFETIME_MS = 7000;
 
 export const useToastStore = create<ToastState>((set, get) => ({
   toasts: [],
-  push: (message, kind = 'notice', detail) => {
+  push: (message, kind = 'notice', detail, action) => {
     const id = nextId++;
-    set((s) => ({ toasts: [...s.toasts, { id, kind, message, detail }] }));
+    set((s) => ({ toasts: [...s.toasts, { id, kind, message, detail, action }] }));
     // Something with a body to expand waits for the user (Esc or the × clears it).
-    if (detail === undefined) setTimeout(() => get().dismiss(id), LIFETIME_MS[kind]);
+    if (detail === undefined) {
+      setTimeout(() => get().dismiss(id), action ? UNDO_LIFETIME_MS : LIFETIME_MS[kind]);
+    }
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   clear: () => set({ toasts: [] }),
@@ -47,4 +62,7 @@ export const toast = {
   notice: (msg: string, detail?: string) =>
     useToastStore.getState().push(msg, 'notice', detail),
   error: (msg: string, detail?: string) => useToastStore.getState().push(msg, 'error', detail),
+  /** 「…… 撤销」 — the line says what happened, the button undoes it. */
+  undo: (msg: string, label: string, run: () => void) =>
+    useToastStore.getState().push(msg, 'notice', undefined, { label, run }),
 };

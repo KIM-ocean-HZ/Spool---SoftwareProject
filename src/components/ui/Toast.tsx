@@ -40,6 +40,10 @@ export default function ToastRack() {
 function ToastItem({ item, onDismiss }: { item: Toast; onDismiss: () => void }) {
   const [open, setOpen] = useState(false);
   const isError = item.kind === 'error';
+  const act = (): void => {
+    item.action?.run();
+    onDismiss();
+  };
   return (
     <div
       className="pointer-events-auto flex max-w-[360px] items-start gap-2 rounded-md border bg-paper px-3 py-2 text-xs"
@@ -69,6 +73,17 @@ function ToastItem({ item, onDismiss }: { item: Toast; onDismiss: () => void }) 
           </>
         )}
       </div>
+      {/* The way back sits ON the toast, not behind a dialog: the toast is the only moment
+          the user is still looking at what just happened. */}
+      {item.action && (
+        <button
+          type="button"
+          onClick={act}
+          className="flex-none rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent"
+        >
+          {item.action.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={onDismiss}

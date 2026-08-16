@@ -14,6 +14,7 @@ import {
   listFollowUpItems,
   listFollowUpProposals,
   reopenFollowUpItem,
+  restoreFollowUpItem,
   setFollowUpItemStanding,
   updateFollowUpItemText,
 } from './followUpItems';
@@ -180,6 +181,31 @@ describe('follow-up items (DESIGN_FOLLOW_UP §8)', () => {
     await deleteFollowUpItem(item!.id);
 
     expect(await listFollowUpItems(threadId)).toEqual([]);
+  });
+
+  // The 撤销 behind the toast (Ocean 2026-08-17). ⚠️ Every column has to come back, id
+  // included: this is the one operation in the panel that leaves nothing to reconstruct
+  // from, and a restore that quietly dropped a field would look like it worked.
+  it('puts a deleted line back exactly as it was, id and all', async () => {
+    await addFollowUpItem(threadId, '要盯的那件事', true);
+    const [before] = await listFollowUpItems(threadId);
+    // A closed line can be deleted too, so the fields only an answered row carries have to
+    // survive the round trip as well.
+    await closeFollowUpItem(before!.id, '查出来没变', null);
+    const [answered] = await listFollowUpItems(threadId);
+
+    const gone = await deleteFollowUpItem(answered!.id).then(() => answered!);
+    expect(await listFollowUpItems(threadId)).toEqual([]);
+
+    await restoreFollowUpItem(gone);
+
+    expect(await listFollowUpItems(threadId)).toEqual([answered]);
+    // The fingerprint is what the duplicate check reads, and nothing else would notice if
+    // it came back wrong — the line would just silently stop matching itself.
+    const [{ fingerprint }] = handle
+      .prepare('SELECT fingerprint FROM follow_up_items WHERE id = ?1')
+      .all(gone.id) as { fingerprint: string }[];
+    expect(fingerprint).toBe(followUpFingerprint(gone.text));
   });
 
   // §8.4 — a line an AI proposes outlives this conversation and steers what the next one

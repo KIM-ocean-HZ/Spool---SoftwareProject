@@ -584,27 +584,35 @@ const EN: Record<string, string> = {
   '加进跟进清单了': 'Added to the follow-up list',
 
   // §8.2 / §8.7 — the follow-up list itself: one list, two kinds of line.
-  '一行一件事。AI 以后就照这几行去查——「单次跟进」查到答案就自己收起来，「永久跟进」的不会。':
-    'One thing per line. Follow-ups search by these — a line gets put away once it is answered, unless it is marked “watch for good”.',
+  '一行一件事，AI 以后就照这几行去查。「单次跟进」查到答案就结束；「永久跟进」会一直查下去，只有你能结束。':
+    'One thing per line — follow-ups search by these. A one-off ends once it is answered; a permanent one keeps being checked, and only you can end it.',
   '还没定。写一条要跟进的，之后 AI 才知道该去查什么。':
     'Nothing yet. Write one thing to watch, so an AI knows what to go and check.',
   '再加一条。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
     'Add one more. For example: whether the tool I depend on has shipped a new version, and whether anything in it breaks.',
   '加上': 'Add',
-  '永久跟进': 'Watch for good',
-  '查到一次答案也不收起来': 'Stays on the list even after it is answered once',
   '回车＝加一条；⇧回车在同一条里换行。': 'Enter adds it; ⇧Enter breaks a line inside one.',
   'AI 加了 {n} 条，你可以改也可以删': 'The AI added {n} line(s) — edit or delete any of them',
-  '永久跟进：AI 查到答案也不会把它收起来':
-    'Watched for good: an AI cannot put this away, even once it has an answer',
-  '查到答案就收起来。点一下改成永久跟进':
-    'Put away once answered. Click to watch it for good instead',
-  '单次跟进': 'Until answered',
-  '这条已经有答案了，收起来': 'This one has an answer — put it away',
+  // The kind picker. Both options are always on screen: a lone chip naming the current one
+  // reads as a label rather than a control (Ocean 2026-08-17).
+  '这一条跟进到什么时候': 'How long to follow this one up',
+  '单次跟进': 'One-off',
+  '永久跟进': 'Permanent',
+  '查到答案就结束——AI 替你查到了，也可以替你结束它':
+    'Ends once it is answered — an AI that finds the answer may end it for you',
+  '一直查下去。AI 结束不了它，只有你能':
+    'Checked for good. An AI can never end this one — only you can',
+  '已解决': 'Solved',
+  '结束跟进': 'Stop following',
+  '这条已经有答案了，收进下面「不再跟进的」，随时能重新跟进':
+    'This one has its answer — files it under “no longer followed”, and you can pick it back up any time',
+  '不用再跟进了，收进下面「不再跟进的」，随时能重新跟进':
+    'No longer worth following — files it under “no longer followed”, and you can pick it back up any time',
   '不跟进这个了，直接删掉': 'Stop watching this — delete it',
-  '收起已经答了的': 'Hide the answered ones',
-  '已经答了的（{n}）': 'Answered ({n})',
-  '重新跟进': 'Watch it again',
+  '删掉了': 'Deleted',
+  '收起不再跟进的': 'Hide the ones no longer followed',
+  '不再跟进的（{n}）': 'No longer followed ({n})',
+  '重新跟进': 'Follow it again',
 
 
   // Capture overlay / undo card
@@ -768,7 +776,10 @@ const EN: Record<string, string> = {
   '{n} 条待你过目': '{n} waiting for you',
   '装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。':
     'This fills up once Claude Code or Codex is installed and “Let AI write” is on.',
-  '这个项目里有 {n} 块是 AI 写的': '{n} block(s) here were written by an AI',
+  // The rail's third section heading. It is a heading now rather than a sentence, because
+  // all three sections share one shape (RightRail/RailSection) — the count moved to the
+  // right of the line, where 编辑 and 加文件 sit on the other two.
+  'AI 写的': 'Written by AI',
 
   // Follow-up, first level (§9.3 #2).
   '跟进内容': 'Watching for',

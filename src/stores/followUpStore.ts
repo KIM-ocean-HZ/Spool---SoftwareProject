@@ -26,7 +26,9 @@ interface FollowUpState {
   setStanding: (id: string, standing: boolean) => Promise<void>;
   close: (id: string) => Promise<void>;
   reopen: (id: string) => Promise<void>;
-  remove: (id: string) => Promise<void>;
+  /** Resolves with the row that was deleted, so the caller can offer to put it back. */
+  remove: (id: string) => Promise<FollowUpItem | null>;
+  restore: (item: FollowUpItem) => Promise<void>;
 }
 
 export const useFollowUpStore = create<FollowUpState>((set, get) => {
@@ -58,6 +60,13 @@ export const useFollowUpStore = create<FollowUpState>((set, get) => {
     // sentence on their behalf would put words in the library nobody wrote.
     close: (id) => after(db.closeFollowUpItem(id, null)),
     reopen: (id) => after(db.reopenFollowUpItem(id)),
-    remove: (id) => after(db.deleteFollowUpItem(id)),
+    // Handing the row back is what makes 撤销 possible: once it is out of the table there is
+    // nothing left to read it from, and the panel is the last place that still had it.
+    remove: async (id) => {
+      const gone = get().items.find((i) => i.id === id) ?? null;
+      await after(db.deleteFollowUpItem(id));
+      return gone;
+    },
+    restore: (item) => after(db.restoreFollowUpItem(item)),
   };
 });

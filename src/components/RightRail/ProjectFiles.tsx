@@ -1,4 +1,5 @@
 import { File, Folder, Plus, X } from 'lucide-react';
+import RailSection from './RailSection';
 import { useT } from '@/lib/i18n';
 import type { Attachment } from '@/lib/db/attachments';
 import { basename, openTarget, pickFiles } from '@/lib/utils/openTarget';
@@ -63,40 +64,40 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
   };
 
   return (
-    <div className="space-y-1 border-t border-line pt-2.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-wide text-muted">{t('项目文件')}</span>
+    <RailSection
+      title={t('项目文件')}
+      action={
         <button
           type="button"
           onClick={() => void add()}
           title={t('从文件选择器里加一个文件')}
-          className="flex flex-none items-center gap-0.5 text-[11px] text-muted transition-colors hover:text-accent"
+          className="flex flex-none items-center gap-0.5 text-[12px] text-muted transition-colors hover:text-accent"
         >
-          <Plus size={11} />
           {t('加文件')}
+          <Plus size={11} />
         </button>
-      </div>
-
+      }
+    >
       {files.length === 0 ? (
-        <p className="px-1 text-[11px] leading-relaxed text-muted">
+        <p className="px-3 text-[12px] leading-relaxed text-muted">
           {t('这个项目还没有文件。加进来的文件默认谁都不读，打包时也不会带上正文。')}
         </p>
       ) : (
-        <ul className="space-y-0.5">
+        <ul>
           {files.map((a) => {
             const Icon = a.kind === 'folder' ? Folder : File;
             // v2.8 §20.2: the opt-in only means anything once there is text to inline, so
             // the control appears only on a file that actually has some.
             const canInline = a.kind === 'file' && a.extractedText != null;
             return (
-              <li key={a.id} className="group/file rounded px-1 py-0.5 hover:bg-paper-2">
+              <li key={a.id} className="group/file rounded-md px-3 py-1 hover:bg-paper-2/60">
                 <div className="flex items-center gap-1.5">
-                  <Icon size={11} className="flex-none text-muted" />
+                  <Icon size={12} className="flex-none text-muted" />
                   <button
                     type="button"
                     onClick={() => void open(a.target)}
                     title={a.target}
-                    className="min-w-0 flex-1 truncate text-left text-[12px] text-ink-2 transition-colors hover:text-accent"
+                    className="min-w-0 flex-1 truncate text-left text-sm text-ink-2 transition-colors hover:text-accent"
                   >
                     {a.label.trim() || basename(a.target)}
                   </button>
@@ -111,8 +112,8 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                   </button>
                 </div>
                 {canInline && (
-                  <div className="space-y-0.5 pl-[18px]">
-                    <label className="flex cursor-pointer items-center gap-1 text-[11px] text-muted">
+                  <div className="space-y-0.5 pl-[20px]">
+                    <label className="flex cursor-pointer items-center gap-1 text-[12px] text-muted">
                       <input
                         type="checkbox"
                         checked={a.includeInPack}
@@ -125,7 +126,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                         it back. Coloured when on, because a standing permission that looks
                         exactly like a permission you never gave is the failure mode. */}
                     <label
-                      className={`flex cursor-pointer items-center gap-1 text-[11px] ${
+                      className={`flex cursor-pointer items-center gap-1 text-[12px] ${
                         a.aiAccess ? 'text-accent' : 'text-muted'
                       }`}
                       title={t('关掉之后，AI 想再读它就得重新问你一次。')}
@@ -145,6 +146,6 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
           })}
         </ul>
       )}
-    </div>
+    </RailSection>
   );
 }
