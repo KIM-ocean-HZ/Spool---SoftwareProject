@@ -651,12 +651,12 @@ fixture,而 M5 跑几次就知道那个洞要不要紧。**这一条留到 M5 �
 |---|---|
 | schema **v22**:`follow_up_items` 一张表 + 索引 | `schema.sql`;`client.ts` 的 v21→v22 迁移把每个项目的 brief 逐行搬进来(`standing=1`),**只做加法,`follow_up_brief` 一个字节没动** |
 | 清单的存取 | `lib/db/followUpItems.ts`。增、改、关、重开、删,加提案的批准/驳回 |
-| 面板 = 行清单 | `FollowUpPanel.tsx`:每行可改、行尾切「一直盯着 / 答完就收」、✓ 收起、🗑 删掉;已答的折在下面能重开 |
+| 面板 = 行清单 | `FollowUpPanel.tsx`:每行可改、行尾切「永久跟进 / 单次跟进」、✓ 收起、🗑 删掉;已答的折在下面能重开 |
 | 右栏 | 逐行列出在盯的东西;跟面板共用 `stores/followUpStore.ts`,改一处两处一起动 |
 | 待审面 | 逐条卡(`ReviewPanel.tsx` 的 `FollowUpLineCard`),两个键「加进去 / 不用」 |
 | MCP 读 | `get_follow_up_brief` 改返回清单(名字没改,§8.7);`get_project_overview` 的 `follow_up.watching`;`list_threads` 的 `open_follow_up_lines` / `follow_up_waiting_for_user` |
 | MCP 写 | **去掉** `suggest_follow_up_brief`,**加** `suggest_follow_up_item`(落 `proposed`,受写入开关管,带 `annotations`);`OPENERS` / `INSTRUCTION_BODY` 都改了 |
-| 引擎那条路**行为不变** | `follow_up_brief_of()` 现在读**标了「一直盯着」的行**并拼起来 —— 迁移后那正是原来 brief 的内容,所以跟进跑起来跟前一天一模一样 |
+| 引擎那条路**行为不变** | `follow_up_brief_of()` 现在读**标了「永久跟进」的行**并拼起来 —— 迁移后那正是原来 brief 的内容,所以跟进跑起来跟前一天一模一样 |
 
 **验证**:Vitest **31 文件 / 354**、tsc clean、cargo **74 / 74**(只剩既存 `updated_at` warning)、
 i18n `(none missing)`、`git diff --check` PASS。
@@ -668,7 +668,7 @@ i18n `(none missing)`、`git diff --check` PASS。
    而这个值 **两侧都要写、两侧都要比**(TS 写用户手打的行,Rust 写 AI 提的行),
    一旦漂移,查重就**悄无声息地不再命中**。所以改成「小写 + 压空白」——三行,两边能写得一模一样,
    而且 Rust 那边 `trigram_set` 本来就是这么归一化的。两侧各有一份**同样的测试向量**互相钉住。
-2. **引擎跟进只读「一直盯着」的行**,不读一次性问题。这样 M5 是**行为中性**的:
+2. **引擎跟进只读「永久跟进」的行**,不读一次性问题。这样 M5 是**行为中性**的:
    迁移完跑一次跟进,跟迁移前那天跑出来的东西一样。把一次性问题也喂给它是 M6 ——
    **而且必须跟「关掉条目」一起做**,否则它每周都会重问一遍已经答过的东西。
 3. **`suggest_follow_up_item` 默认提「一次性」**,`standing` 要显式传 true。
@@ -691,13 +691,30 @@ i18n `(none missing)`、`git diff --check` PASS。
 | `close_follow_up_item(item_id, outcome, answer_block_id?)` | `mcp.rs`。翻成 `'answered'`,**永不删行**;`outcome` 必填(面板上那一行底下显示的就是它,M5 已经会渲染);`answer_block_id` 可空,但传了就**在写入时**核对它存在、且在同一个项目里 |
 | 三种拒绝 | **长期盯守**当场拒并指出路(提议退休,别自己关)· 还在**待审**的拒(没进清单谈不上收尾)· **已经收过**的拒(重开是用户的事) |
 | 路由文本 | `OPENERS` 新增「这个有答案了 / X 定下来了」一条,并在「跟进一下」那条尾巴上接了收尾;`INSTRUCTION_BODY` 加了「答完要收,而且要说收的是哪一条」和「standing 的不许收」 |
-| 引擎也读一次性问题 | `follow_up_brief_of` → **`follow_up_targets_of`**:一份清单两段,「一直盯着的」照旧是搜索规则,「还没答上的问题」带 `item_id` 一起喂进去 |
+| 引擎也读一次性问题 | `follow_up_brief_of` → **`follow_up_targets_of`**:一份清单两段,「永久跟进的」照旧是搜索规则,「还没答上的问题」带 `item_id` 一起喂进去 |
 | 闸口跟着改 | 原来的闸是「没有长期盯守就不许跑」,现在是「**清单上一条 open 的都没有**才不许跑」 |
 
 **验证**:cargo **75 / 75**(新增一条 `a_line_is_retired_not_deleted_and_a_standing_one_cannot_be`)、
 Vitest **31 / 354**、tsc clean、i18n `(none missing)`、`git diff --check` PASS。
 另外用**真的 stdio MCP 客户端**对着隔离工作台库跑通了四条:长期盯守拒 · 待审拒 ·
 一次性成功(行还在,`status='answered'` + outcome + `answered_at`)· 重复关拒。
+
+#### ✅ 用词:「盯」全部改成「跟进」,两种行叫「单次跟进 / 永久跟进」(Ocean 2026-08-16)
+
+他看完面板当场定的两条:**中文不说「盯」,一律说「跟进」**;
+**「一直盯着 / 答完就收」太模糊,改成「永久跟进 / 单次跟进」**。
+
+⚠️ **改的边界是「谁在说话」,不是「哪个文件」**:
+
+- **Spool 自己说的话全改** —— 面板、右栏、待审卡、i18n 键(中文串就是键)、
+  MCP 的报错与回执原话、以及提示词里 Spool 给这两种行起的名字。
+- **「用户可能会说的话」原样留着** —— `OPENERS` 里的 `现在在盯什么` / `再盯一件事`
+  是用来**匹配用户嘴里的词**的,删掉只会让路由变差;
+  同理测试样例里用户自己写的行(`盯 CMU 的截止日期有没有改`)也不动 ——
+  用户当然可以在自己的行里写「盯」。
+  ⭐ 顺带给 `OPENERS` **加了**「现在在跟进什么」:面板现在教的是这个词,他就会这么说。
+- **两个既存死键没动**(`改要盯的东西`、`定几行「要盯什么」…`)——
+  M5 之前就没人用,按 CLAUDE.md §3 不顺手清既存死代码。
 
 #### ⭐ 落地时才看清的三件
 

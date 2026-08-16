@@ -490,7 +490,7 @@ const EN: Record<string, string> = {
     'Set a few lines of "what to watch" before the AI can go looking',
   '照你定的那几行,让本机的 {engine} 联网搜索有没有新进展':
     'Have the {engine} on this machine search the web for news, against the lines you set',
-  '这个项目要盯什么': 'What should this project watch?',
+  '这个项目跟进什么': 'What should this project watch?',
   '一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。':
     'One per line. For example: whether CMU’s application deadline or GRE requirements have changed.',
   '让 AI 看看还缺什么': 'Let the AI see what is missing',
@@ -574,8 +574,8 @@ const EN: Record<string, string> = {
   // DESIGN_FOLLOW_UP §8.4 — an AI proposing ONE line for a project's follow-up list. This is
   // approval of a line that will tell the NEXT conversation what to go looking for, so it is
   // read one at a time rather than as a rewrite of the whole list.
-  '{client} 想给〈{title}〉加一条要盯的': '{client} wants to add something for ‹{title}› to watch',
-  '加进去之后会一直盯着，不会因为查到一次答案就消失。想改去项目里的「这个项目要盯什么」。':
+  '{client} 想给〈{title}〉加一条要跟进的': '{client} wants to add something for ‹{title}› to watch',
+  '加进去之后是「永久跟进」，不会因为查到一次答案就消失。想改去项目里的「这个项目跟进什么」。':
     'Once added, this is watched for good — answering it once does not retire it. To edit it later, open “What this project watches for” inside the project.',
   '加进去之后，AI 查到答案就会把它收起来——收起来还看得见，也能再打开。':
     'Once added, an AI can put it away as soon as it has an answer — put away is still visible, and can be reopened.',
@@ -584,27 +584,27 @@ const EN: Record<string, string> = {
   '加进跟进清单了': 'Added to the follow-up list',
 
   // §8.2 / §8.7 — the follow-up list itself: one list, two kinds of line.
-  '一行一件事。AI 以后就照这几行去查——查到答案的会自己收起来，写着「一直盯着」的不会。':
+  '一行一件事。AI 以后就照这几行去查——「单次跟进」查到答案就自己收起来，「永久跟进」的不会。':
     'One thing per line. Follow-ups search by these — a line gets put away once it is answered, unless it is marked “watch for good”.',
-  '还没定。写一条要盯的，之后 AI 才知道该去查什么。':
+  '还没定。写一条要跟进的，之后 AI 才知道该去查什么。':
     'Nothing yet. Write one thing to watch, so an AI knows what to go and check.',
   '再加一条。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
     'Add one more. For example: whether the tool I depend on has shipped a new version, and whether anything in it breaks.',
   '加上': 'Add',
-  '一直盯着': 'Watch for good',
+  '永久跟进': 'Watch for good',
   '查到一次答案也不收起来': 'Stays on the list even after it is answered once',
   '回车＝加一条；⇧回车在同一条里换行。': 'Enter adds it; ⇧Enter breaks a line inside one.',
   'AI 加了 {n} 条，你可以改也可以删': 'The AI added {n} line(s) — edit or delete any of them',
-  '一直盯着：AI 查到答案也不会把它收起来':
+  '永久跟进：AI 查到答案也不会把它收起来':
     'Watched for good: an AI cannot put this away, even once it has an answer',
-  '查到答案就收起来。点一下改成一直盯着':
+  '查到答案就收起来。点一下改成永久跟进':
     'Put away once answered. Click to watch it for good instead',
-  '答完就收': 'Until answered',
+  '单次跟进': 'Until answered',
   '这条已经有答案了，收起来': 'This one has an answer — put it away',
-  '不盯这个了，直接删掉': 'Stop watching this — delete it',
+  '不跟进这个了，直接删掉': 'Stop watching this — delete it',
   '收起已经答了的': 'Hide the answered ones',
   '已经答了的（{n}）': 'Answered ({n})',
-  '再盯回来': 'Watch it again',
+  '重新跟进': 'Watch it again',
 
 
   // Capture overlay / undo card
@@ -773,7 +773,7 @@ const EN: Record<string, string> = {
   // Follow-up, first level (§9.3 #2).
   '跟进内容': 'Watching for',
   '定一个': 'Set one',
-  '还没定。定几行「要盯什么」，之后才能让 AI 出去查。':
+  '还没定。定几行「要跟进什么」，之后才能让 AI 出去查。':
     'Not set yet. Write a few lines of what to watch for, and the AI can go and look.',
   '照你定的那几行联网搜索': 'Search the web, following the lines you wrote',
   '联网搜索': 'Search the web',

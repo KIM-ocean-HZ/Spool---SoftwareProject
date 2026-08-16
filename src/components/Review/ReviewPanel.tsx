@@ -288,7 +288,7 @@ function FollowUpLineCard({
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-2">
           <Globe size={12} className="flex-none text-muted" />
-          {t('{client} 想给〈{title}〉加一条要盯的', {
+          {t('{client} 想给〈{title}〉加一条要跟进的', {
             client: proposal.proposedBy || 'AI',
             title: proposal.threadTitle || t('（无标题）'),
           })}
@@ -310,7 +310,7 @@ function FollowUpLineCard({
 
       <p className="mt-2 text-[10px] leading-relaxed text-muted">
         {proposal.standing
-          ? t('加进去之后会一直盯着，不会因为查到一次答案就消失。想改去项目里的「这个项目要盯什么」。')
+          ? t('加进去之后是「永久跟进」，不会因为查到一次答案就消失。想改去项目里的「这个项目跟进什么」。')
           : t('加进去之后，AI 查到答案就会把它收起来——收起来还看得见，也能再打开。')}
       </p>
 

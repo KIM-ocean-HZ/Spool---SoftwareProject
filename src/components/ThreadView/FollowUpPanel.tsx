@@ -14,7 +14,7 @@ import { toast } from '@/stores/toastStore';
 //
 // It was one textarea holding the whole brief until v22. Ocean decided on 2026-08-16 that
 // the list stays ONE list, and rows are what let a single line be pointed at: answered,
-// reopened, or dropped. Two kinds of line live in it, and the 「一直盯着」 marker is what
+// reopened, or dropped. Two kinds of line live in it, and the 「永久跟进」 marker is what
 // keeps merging them safe (§8.2) — an AI may close a one-off line the moment it answers it,
 // and may never close a standing watch, or answering "the deadline is March 1" once would
 // quietly stop the project being watched at all.
@@ -94,10 +94,10 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
           <div className="min-w-0">
             <h2 className="flex items-center gap-1.5 font-serif text-xl text-ink">
               <Globe size={15} className="flex-none" />
-              {t('这个项目要盯什么')}
+              {t('这个项目跟进什么')}
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              {t('一行一件事。AI 以后就照这几行去查——查到答案的会自己收起来，写着「一直盯着」的不会。')}
+              {t('一行一件事。AI 以后就照这几行去查——「单次跟进」查到答案就自己收起来，「永久跟进」的不会。')}
             </p>
           </div>
           <button
@@ -112,7 +112,7 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           {openItems.length === 0 && (
             <p className="rounded border border-dashed border-line px-2.5 py-3 text-center text-xs text-muted">
-              {t('还没定。写一条要盯的，之后 AI 才知道该去查什么。')}
+              {t('还没定。写一条要跟进的，之后 AI 才知道该去查什么。')}
             </p>
           )}
 
@@ -154,7 +154,7 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
                 title={t('查到一次答案也不收起来')}
                 className="rounded border border-line bg-paper px-2 py-1 text-[11px] text-muted transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-40"
               >
-                {t('一直盯着')}
+                {t('永久跟进')}
               </button>
             </div>
           </div>
@@ -262,8 +262,8 @@ function ItemRow({ item }: { item: FollowUpItem }) {
           onClick={() => void setStanding(item.id, !item.standing)}
           title={
             item.standing
-              ? t('一直盯着：AI 查到答案也不会把它收起来')
-              : t('查到答案就收起来。点一下改成一直盯着')
+              ? t('永久跟进：AI 查到答案也不会把它收起来')
+              : t('查到答案就收起来。点一下改成永久跟进')
           }
           className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
             item.standing
@@ -271,7 +271,7 @@ function ItemRow({ item }: { item: FollowUpItem }) {
               : 'text-muted hover:bg-paper-2 hover:text-ink-2'
           }`}
         >
-          {item.standing ? t('一直盯着') : t('答完就收')}
+          {item.standing ? t('永久跟进') : t('单次跟进')}
         </button>
         <div className="flex flex-none items-center gap-1">
           <button
@@ -285,7 +285,7 @@ function ItemRow({ item }: { item: FollowUpItem }) {
           <button
             type="button"
             onClick={() => void remove(item.id)}
-            title={t('不盯这个了，直接删掉')}
+            title={t('不跟进这个了，直接删掉')}
             className="rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
           >
             <Trash2 size={12} />
@@ -312,7 +312,7 @@ function AnsweredRow({ item }: { item: FollowUpItem }) {
       <button
         type="button"
         onClick={() => void reopen(item.id)}
-        title={t('再盯回来')}
+        title={t('重新跟进')}
         className="flex-none rounded p-1 text-muted transition-colors hover:bg-paper-2 hover:text-ink"
       >
         <RotateCcw size={12} />

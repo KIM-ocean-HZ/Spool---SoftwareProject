@@ -295,7 +295,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               </ul>
             ) : (
               <p className="text-[12px] leading-relaxed text-muted">
-                {t("还没定。定几行「要盯什么」，之后才能让 AI 出去查。")}
+                {t("还没定。定几行「要跟进什么」，之后才能让 AI 出去查。")}
               </p>
             )}
             {/* §7.8.5-2 — the button is withheld, not disabled, on an engine that cannot
