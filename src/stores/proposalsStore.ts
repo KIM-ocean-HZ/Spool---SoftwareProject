@@ -3,8 +3,8 @@ import * as files from '@/lib/db/fileAccess';
 import type { FileAccessRequest } from '@/lib/db/fileAccess';
 import * as db from '@/lib/db/proposals';
 import type { ProposalBatch } from '@/lib/db/proposals';
-import * as threadsDb from '@/lib/db/threads';
-import type { BriefSuggestion } from '@/lib/db/threads';
+import * as followUp from '@/lib/db/followUpItems';
+import type { FollowUpProposal } from '@/lib/db/followUpItems';
 import { t } from '@/lib/i18n';
 import { useBlocksStore } from './blocksStore';
 import { useThreadsStore } from './threadsStore';
@@ -30,8 +30,8 @@ interface ProposalsState {
   batches: ProposalBatch[] | null;
   /** DESIGN_PROJECT_FILES §3.4 — files an AI has asked to read. */
   fileRequests: FileAccessRequest[] | null;
-  /** 决定 5 — proposed rewrites of a project's follow-up brief. */
-  briefSuggestions: BriefSuggestion[] | null;
+  /** DESIGN_FOLLOW_UP §8.4 — lines an AI proposed for a project's follow-up list. */
+  followUpProposals: FollowUpProposal[] | null;
   /** Everything waiting on the user, in one number: the sidebar badge. */
   pendingCount: number;
   /** Batches past their 7 days — one line on the screen, never approvable. */
@@ -46,8 +46,8 @@ interface ProposalsState {
   clearExpired: () => Promise<void>;
   approveFiles: (requestId: string) => Promise<void>;
   rejectFiles: (requestId: string) => Promise<void>;
-  applyBrief: (threadId: string) => Promise<void>;
-  dismissBrief: (threadId: string) => Promise<void>;
+  approveFollowUp: (itemId: string) => Promise<void>;
+  dismissFollowUp: (itemId: string) => Promise<void>;
 }
 
 // Everything the approved blocks touched has to be re-read: they landed through a path
@@ -61,15 +61,15 @@ const reloadLibrary = async (): Promise<void> => {
 // Load everything the screen shows, in one place, so the three kinds can never be read
 // from different moments in time.
 const loadAll = async (): Promise<
-  Pick<ProposalsState, 'batches' | 'fileRequests' | 'briefSuggestions'>
+  Pick<ProposalsState, 'batches' | 'fileRequests' | 'followUpProposals'>
 > => {
   const now = Date.now();
-  const [batches, fileRequests, briefSuggestions] = await Promise.all([
+  const [batches, fileRequests, followUpProposals] = await Promise.all([
     db.listPendingBatches(now),
     files.listPendingFileRequests(now),
-    threadsDb.listBriefSuggestions(),
+    followUp.listFollowUpProposals(),
   ]);
-  return { batches, fileRequests, briefSuggestions };
+  return { batches, fileRequests, followUpProposals };
 };
 
 // What every act-on-something path does afterwards: re-count for the badge, re-read what
@@ -85,14 +85,14 @@ const settle = async (get: () => ProposalsState, set: Setter): Promise<void> => 
   const nothingLeft =
     state.batches!.length === 0 &&
     state.fileRequests!.length === 0 &&
-    state.briefSuggestions!.length === 0;
+    state.followUpProposals!.length === 0;
   if (nothingLeft) get().close();
 };
 
 export const useProposalsStore = create<ProposalsState>((set, get) => ({
   batches: null,
   fileRequests: null,
-  briefSuggestions: null,
+  followUpProposals: null,
   pendingCount: 0,
   expiredBatches: 0,
   panelOpen: false,
@@ -101,13 +101,13 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
   refresh: async () => {
     try {
       const now = Date.now();
-      const [proposals, expiredBatches, fileRequests, briefs] = await Promise.all([
+      const [proposals, expiredBatches, fileRequests, followUpLines] = await Promise.all([
         db.countPending(now),
         db.countExpiredBatches(now),
         files.countPendingFileRequests(now),
-        threadsDb.countBriefSuggestions(),
+        followUp.countFollowUpProposals(),
       ]);
-      set({ pendingCount: proposals + fileRequests + briefs, expiredBatches });
+      set({ pendingCount: proposals + fileRequests + followUpLines, expiredBatches });
       // Keep an open screen honest: a second client could have queued more while the
       // user was reading.
       if (get().panelOpen) set(await loadAll());
@@ -125,11 +125,12 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
       set(await loadAll());
     } catch (e) {
       console.warn('[proposals] load failed', e);
-      set({ batches: [], fileRequests: [], briefSuggestions: [] });
+      set({ batches: [], fileRequests: [], followUpProposals: [] });
     }
   },
 
-  close: () => set({ panelOpen: false, batches: null, fileRequests: null, briefSuggestions: null }),
+  close: () =>
+    set({ panelOpen: false, batches: null, fileRequests: null, followUpProposals: null }),
 
   approve: async (batchId, keepIds) => {
     if (get().busy) return;
@@ -194,17 +195,19 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
     }
   },
 
-  // 决定 5 — the 过目 gate closing. This click is the only thing that can move a suggested
-  // brief into the one Spool actually goes out to the web with.
-  applyBrief: async (threadId) => {
+  // DESIGN_FOLLOW_UP §8.4 — the 过目 gate closing, one line at a time. This click is the
+  // only thing that can put a line into what Spool goes out to the web with, and it is
+  // per line on purpose: the whole-brief suggestion it replaces made the user take or
+  // leave a whole rewrite, and could silently overwrite one they had not read yet.
+  approveFollowUp: async (itemId) => {
     if (get().busy) return;
     set({ busy: true });
     try {
-      await threadsDb.applyBriefSuggestion(threadId);
+      await followUp.approveFollowUpProposal(itemId);
       await useThreadsStore.getState().loadAll();
-      toast.notice(t('跟进目标已经换成新的了'));
+      toast.notice(t('加进跟进清单了'));
     } catch (e) {
-      console.error('[brief] apply failed', e);
+      console.error('[follow-up] approve failed', e);
       toast.error(t('存不下来：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
     } finally {
       set({ busy: false });
@@ -212,13 +215,13 @@ export const useProposalsStore = create<ProposalsState>((set, get) => ({
     }
   },
 
-  dismissBrief: async (threadId) => {
+  dismissFollowUp: async (itemId) => {
     if (get().busy) return;
     set({ busy: true });
     try {
-      await threadsDb.dismissBriefSuggestion(threadId);
+      await followUp.dismissFollowUpProposal(itemId);
     } catch (e) {
-      console.error('[brief] dismiss failed', e);
+      console.error('[follow-up] dismiss failed', e);
     } finally {
       set({ busy: false });
       await settle(get, set);

@@ -491,20 +491,11 @@ const EN: Record<string, string> = {
   '照你定的那几行,让本机的 {engine} 联网搜索有没有新进展':
     'Have the {engine} on this machine search the web for news, against the lines you set',
   '这个项目要盯什么': 'What should this project watch?',
-  '写清楚要盯的几件事。以后每次「跟进」，AI 就照这几行出去查——它只找这几行说的东西。':
-    'Name the things worth watching. Every "Follow up" run works from these lines — and looks for nothing else.',
   '一行一件事。比如：CMU 的申请截止日期和 GRE 要求有没有变。':
     'One per line. For example: whether CMU’s application deadline or GRE requirements have changed.',
   '让 AI 看看还缺什么': 'Let the AI see what is missing',
   'AI 在读这个项目…': 'The AI is reading this project…',
   '这一步只读你库里的东西，不联网。': 'This step only reads your library. It does not go online.',
-  '就按这个找': 'Use this',
-  '关掉跟进': 'Turn it off',
-  '清空就等于关掉跟进': 'Clearing the text turns follow-up off',
-  '跟进目标已定好': 'Saved — this is what it will watch',
-  '回车换下一条，自动编号；⇧回车在同一条里换行。':
-    'Return starts the next point and numbers it; ⇧Return breaks a line inside one.',
-  '已关掉这个项目的跟进': 'Follow-up is off for this project',
   '存不下来：{msg}': 'Could not save: {msg}',
   '跟进：提了 {n} 条待你过目': 'Follow up: {n} item(s) waiting for you',
   '跟进：这次没有新东西': 'Follow up: nothing new this time',
@@ -580,16 +571,40 @@ const EN: Record<string, string> = {
     '{n} file(s) are now readable by an AI. You can untick them under Project files at any time.',
   '没能打开权限：{msg}': 'Could not grant it: {msg}',
 
-  // 决定 5 — an AI proposing a rewrite of a project's follow-up brief. Both texts are shown:
-  // this is approval of a change to what Spool will go looking for on the open web.
-  '{client} 建议改〈{title}〉要盯的东西': '{client} suggests changing what ‹{title}› watches for',
-  '现在盯的是': 'Watching for now',
-  '它建议换成': 'It suggests instead',
-  '它建议开始盯这些': 'It suggests starting to watch for',
-  '这几行就是以后「跟进」出去查东西时照着找的规则。换了之后想再改，去项目里的「这个项目要盯什么」。':
-    'These lines are the rules every future follow-up searches by. To edit them later, open “What this project watches for” inside the project.',
+  // DESIGN_FOLLOW_UP §8.4 — an AI proposing ONE line for a project's follow-up list. This is
+  // approval of a line that will tell the NEXT conversation what to go looking for, so it is
+  // read one at a time rather than as a rewrite of the whole list.
+  '{client} 想给〈{title}〉加一条要盯的': '{client} wants to add something for ‹{title}› to watch',
+  '加进去之后会一直盯着，不会因为查到一次答案就消失。想改去项目里的「这个项目要盯什么」。':
+    'Once added, this is watched for good — answering it once does not retire it. To edit it later, open “What this project watches for” inside the project.',
+  '加进去之后，AI 查到答案就会把它收起来——收起来还看得见，也能再打开。':
+    'Once added, an AI can put it away as soon as it has an answer — put away is still visible, and can be reopened.',
+  '加进去': 'Add it',
   '不用': 'No thanks',
-  '跟进目标已经换成新的了': 'Follow-up target updated',
+  '加进跟进清单了': 'Added to the follow-up list',
+
+  // §8.2 / §8.7 — the follow-up list itself: one list, two kinds of line.
+  '一行一件事。AI 以后就照这几行去查——查到答案的会自己收起来，写着「一直盯着」的不会。':
+    'One thing per line. Follow-ups search by these — a line gets put away once it is answered, unless it is marked “watch for good”.',
+  '还没定。写一条要盯的，之后 AI 才知道该去查什么。':
+    'Nothing yet. Write one thing to watch, so an AI knows what to go and check.',
+  '再加一条。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
+    'Add one more. For example: whether the tool I depend on has shipped a new version, and whether anything in it breaks.',
+  '加上': 'Add',
+  '一直盯着': 'Watch for good',
+  '查到一次答案也不收起来': 'Stays on the list even after it is answered once',
+  '回车＝加一条；⇧回车在同一条里换行。': 'Enter adds it; ⇧Enter breaks a line inside one.',
+  'AI 加了 {n} 条，你可以改也可以删': 'The AI added {n} line(s) — edit or delete any of them',
+  '一直盯着：AI 查到答案也不会把它收起来':
+    'Watched for good: an AI cannot put this away, even once it has an answer',
+  '查到答案就收起来。点一下改成一直盯着':
+    'Put away once answered. Click to watch it for good instead',
+  '答完就收': 'Until answered',
+  '这条已经有答案了，收起来': 'This one has an answer — put it away',
+  '不盯这个了，直接删掉': 'Stop watching this — delete it',
+  '收起已经答了的': 'Hide the answered ones',
+  '已经答了的（{n}）': 'Answered ({n})',
+  '再盯回来': 'Watch it again',
 
 
   // Capture overlay / undo card
@@ -765,8 +780,6 @@ const EN: Record<string, string> = {
   // The brief editor's placeholder. Replaced 2026-08-06 (Ocean #10: the CMU example was too
   // niche) and never translated — the shape is the point, so the English keeps it concrete
   // enough to act as a search rule rather than becoming an abstraction.
-  '一行一件事。比如：我在用的这个工具出没出新版本，有没有不兼容的改动。':
-    'One thing per line. For example: whether the tool I use has shipped a new version, and whether anything breaks.',
 
   // The maintenance actions — a fixed row at the bottom of the rail since §9.13, where the
   // two sentences-pretending-to-be-controls that used to live here became one labelled

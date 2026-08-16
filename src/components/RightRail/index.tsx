@@ -19,6 +19,7 @@ import {
   useEngineStore,
   type EngineKind,
 } from "@/stores/engineStore";
+import { useFollowUpStore } from "@/stores/followUpStore";
 import { useProposalsStore } from "@/stores/proposalsStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { toast } from "@/stores/toastStore";
@@ -94,6 +95,15 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const actionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
   const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
 
+  // v22 (§8.7) — what this project follows up is a list of rows now, loaded for whichever
+  // project is open and shared with the editor behind 编辑 so both move together.
+  const loadFollowUp = useFollowUpStore((s) => s.load);
+  const followUpItems = useFollowUpStore((s) => s.items);
+  const followUpLines = useMemo(
+    () => followUpItems.filter((i) => i.status === "open"),
+    [followUpItems],
+  );
+
   const pending = useProposalsStore((s) => s.pendingCount);
   const openReview = useProposalsStore((s) => s.open);
   const highlight = useSearchStore((s) => s.highlight);
@@ -108,6 +118,10 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   useEffect(() => {
     void loadRuns(thread?.id ?? null);
   }, [thread?.id, loadRuns]);
+
+  useEffect(() => {
+    if (thread?.id) void loadFollowUp(thread.id);
+  }, [thread?.id, loadFollowUp]);
 
   const busyOnThisThread =
     current?.threadId === thread?.id ||
@@ -264,18 +278,26 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                 onClick={onEditBrief}
                 className="flex-none text-[12px] text-muted transition-colors hover:text-accent"
               >
-                {thread.followUpBrief ? t("编辑") : t("定一个")}
+                {followUpLines.length > 0 ? t("编辑") : t("定一个")}
               </button>
             </div>
-            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
-              {thread.followUpBrief ? (
-                thread.followUpBrief
-              ) : (
-                <span className="text-muted">
-                  {t("还没定。定几行「要盯什么」，之后才能让 AI 出去查。")}
-                </span>
-              )}
-            </p>
+            {/* v22 (§8.7): one line per row, and a row an AI has answered is not in here —
+                it is folded away inside the editor, still reopenable (§8.6). What this column
+                states is what the project is watching NOW. */}
+            {followUpLines.length > 0 ? (
+              <ul className="space-y-0.5 text-[12px] leading-relaxed text-ink-2">
+                {followUpLines.map((item) => (
+                  <li key={item.id} className="flex gap-1.5">
+                    <span className="flex-none text-muted">·</span>
+                    <span className="min-w-0 break-words">{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[12px] leading-relaxed text-muted">
+                {t("还没定。定几行「要盯什么」，之后才能让 AI 出去查。")}
+              </p>
+            )}
             {/* §7.8.5-2 — the button is withheld, not disabled, on an engine that cannot
                 carry this action; a greyed control invites a hunt for the switch that turns
                 it on, and there isn't one. The brief itself stays visible and editable:
@@ -287,7 +309,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                 brief. Both halves of what he offered, because they fix different halves of the
                 problem: the rule separates it from the text above, the border says it is a
                 thing you press. It stays inline-width, not a full-width bar (§9.13 #2). */}
-            {thread.followUpBrief &&
+            {followUpLines.length > 0 &&
               (engineSupportsWeb(status?.selected ?? null) ? (
                 <div className="mt-2 border-t border-line pt-2">
                   <button

@@ -19,7 +19,6 @@ const thread: Thread = {
   deadline: null,
   status: 'active',
   isCaptureTarget: false,
-  followUpBrief: null,
   autoMaintain: null,
   createdAt: T(0),
   updatedAt: T(0),

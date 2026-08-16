@@ -139,6 +139,24 @@ export const fingerprint = (text: string): string =>
       .trim(),
   );
 
+/** §8.7 — what two lines of a follow-up list have to share to count as the same line.
+ *
+ *  ⚠️ Deliberately NOT `fingerprint` above, even though both answer "have I seen this text
+ *  already". The MCP server computes this one too (mcp.rs `follow_up_fingerprint`), because
+ *  it is what rejects a model that proposes the same line in every conversation — and the
+ *  two implementations have to agree exactly or the check silently stops firing. `fingerprint`
+ *  cannot be mirrored exactly: it leans on `\p{P}\p{S}`, and no Rust char class reproduces
+ *  those two categories. Lowercase + collapsed whitespace can be, in three lines on each
+ *  side — and it is already what the Rust near-duplicate detector normalises with
+ *  (`trigram_set`).
+ *
+ *  It catches a line proposed again word for word, which is what a model repeating itself
+ *  across conversations actually does; a genuine rewording gets through, the same boundary
+ *  §4.2 measured for the dedupe gate, and with the same answer — better to let a duplicate
+ *  through than to swallow a real one. */
+export const followUpFingerprint = (text: string): string =>
+  text.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+
 export interface Candidate {
   id: string;
   content: string;

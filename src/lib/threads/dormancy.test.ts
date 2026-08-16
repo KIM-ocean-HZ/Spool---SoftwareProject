@@ -13,7 +13,6 @@ const thread = (over: Partial<Thread>): Thread => ({
   deadline: null,
   status: 'active',
   isCaptureTarget: false,
-  followUpBrief: null,
   autoMaintain: null,
   createdAt: NOW - 30 * 86_400_000,
   updatedAt: NOW - 30 * 86_400_000,

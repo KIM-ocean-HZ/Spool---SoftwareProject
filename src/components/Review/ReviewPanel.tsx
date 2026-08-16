@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useT } from '@/lib/i18n';
 import type { FileAccessRequest } from '@/lib/db/fileAccess';
 import { passageSource, type ProposalBatch } from '@/lib/db/proposals';
-import type { BriefSuggestion } from '@/lib/db/threads';
+import type { FollowUpProposal } from '@/lib/db/followUpItems';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 
@@ -30,7 +30,7 @@ export default function ReviewPanel() {
   const open = useProposalsStore((s) => s.panelOpen);
   const batches = useProposalsStore((s) => s.batches);
   const fileRequests = useProposalsStore((s) => s.fileRequests);
-  const briefSuggestions = useProposalsStore((s) => s.briefSuggestions);
+  const followUpProposals = useProposalsStore((s) => s.followUpProposals);
   const expiredBatches = useProposalsStore((s) => s.expiredBatches);
   const busy = useProposalsStore((s) => s.busy);
   const close = useProposalsStore((s) => s.close);
@@ -38,8 +38,8 @@ export default function ReviewPanel() {
   const reject = useProposalsStore((s) => s.reject);
   const approveFiles = useProposalsStore((s) => s.approveFiles);
   const rejectFiles = useProposalsStore((s) => s.rejectFiles);
-  const applyBrief = useProposalsStore((s) => s.applyBrief);
-  const dismissBrief = useProposalsStore((s) => s.dismissBrief);
+  const approveFollowUp = useProposalsStore((s) => s.approveFollowUp);
+  const dismissFollowUp = useProposalsStore((s) => s.dismissFollowUp);
   const clearExpired = useProposalsStore((s) => s.clearExpired);
   // Subscribe to the stored map, then flatten here. NOT useThreadsStore(selectAllThreadsFlat):
   // that selector builds a fresh array on every call, so zustand's useSyncExternalStore sees
@@ -95,7 +95,7 @@ export default function ReviewPanel() {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
           {batches === null ? (
             <p className="py-8 text-center text-xs text-muted">{t('加载中…')}</p>
-          ) : batches.length + (fileRequests?.length ?? 0) + (briefSuggestions?.length ?? 0) ===
+          ) : batches.length + (fileRequests?.length ?? 0) + (followUpProposals?.length ?? 0) ===
             0 ? (
             <p className="py-8 text-center text-xs text-muted">{t('没有待你过目的。')}</p>
           ) : (
@@ -113,13 +113,13 @@ export default function ReviewPanel() {
                   onReject={() => void rejectFiles(r.requestId)}
                 />
               ))}
-              {(briefSuggestions ?? []).map((s) => (
-                <BriefCard
-                  key={s.threadId}
-                  suggestion={s}
+              {(followUpProposals ?? []).map((p) => (
+                <FollowUpLineCard
+                  key={p.id}
+                  proposal={p}
                   busy={busy}
-                  onApply={() => void applyBrief(s.threadId)}
-                  onDismiss={() => void dismissBrief(s.threadId)}
+                  onApprove={() => void approveFollowUp(p.id)}
+                  onDismiss={() => void dismissFollowUp(p.id)}
                 />
               ))}
               {batches.map((batch) => (
@@ -259,24 +259,27 @@ function FileRequestCard({
 }
 
 /**
- * 决定 5 — an AI's proposed rewrite of a project's follow-up brief.
+ * DESIGN_FOLLOW_UP §8.4 — one line an AI proposed for a project's follow-up list.
  *
- * ⚠️ This card IS the security control, not a nicety. The brief is what Spool takes out to
- * the open web; a tool that wrote it directly would close the loop
- * «网页注入 → 改 brief → 改变下次搜索方向» (DESIGN_FOLLOW_UP §2.5). So the old and the new
- * text are shown together — the user is being asked to approve a DIFF in what their machine
- * will go looking for, and a card that showed only the new text would hide exactly the part
- * an injected instruction would be hiding in.
+ * ⚠️ This card IS the security control, not a nicety. A line here outlives the conversation
+ * that produced it: the next conversation, with a different model, reads it as something the
+ * user wants looked into and goes looking. A tool that filed one directly would let a page
+ * an AI happened to read plant a standing search instruction in the user's library
+ * (§2.5's injection risk with a privilege escalation on the end). Ocean 拍板 2026-08-16:
+ * 要点一下.
+ *
+ * One line per card, rather than the whole-list rewrite this replaces: the user approves
+ * what they read, and nothing they have not read can ride along with it.
  */
-function BriefCard({
-  suggestion,
+function FollowUpLineCard({
+  proposal,
   busy,
-  onApply,
+  onApprove,
   onDismiss,
 }: {
-  suggestion: BriefSuggestion;
+  proposal: FollowUpProposal;
   busy: boolean;
-  onApply: () => void;
+  onApprove: () => void;
   onDismiss: () => void;
 }) {
   const t = useT();
@@ -285,44 +288,41 @@ function BriefCard({
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-2">
           <Globe size={12} className="flex-none text-muted" />
-          {t('{client} 建议改〈{title}〉要盯的东西', {
-            client: suggestion.by || 'AI',
-            title: suggestion.title || t('（无标题）'),
+          {t('{client} 想给〈{title}〉加一条要盯的', {
+            client: proposal.proposedBy || 'AI',
+            title: proposal.threadTitle || t('（无标题）'),
           })}
         </span>
       </div>
 
-      {suggestion.current && (
-        <div className="mt-2 rounded border border-line bg-paper px-2.5 py-2">
-          <div className="text-[10px] uppercase tracking-wide text-muted">{t('现在盯的是')}</div>
-          <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted">
-            {suggestion.current}
-          </p>
-        </div>
-      )}
-
       <div className="mt-2 rounded border border-line bg-paper px-2.5 py-2">
-        <div className="text-[10px] uppercase tracking-wide text-muted">
-          {suggestion.current ? t('它建议换成') : t('它建议开始盯这些')}
-        </div>
-        <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-ink">
-          {suggestion.suggested}
+        <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-ink">
+          {proposal.text}
         </p>
+        {/* §3.4 第 3 条 — the one thing the user actually judges: not "is this true" but
+            "what has this got to do with me". */}
+        {proposal.why && (
+          <p className="mt-1.5 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted">
+            {proposal.why}
+          </p>
+        )}
       </div>
 
       <p className="mt-2 text-[10px] leading-relaxed text-muted">
-        {t('这几行就是以后「跟进」出去查东西时照着找的规则。换了之后想再改，去项目里的「这个项目要盯什么」。')}
+        {proposal.standing
+          ? t('加进去之后会一直盯着，不会因为查到一次答案就消失。想改去项目里的「这个项目要盯什么」。')
+          : t('加进去之后，AI 查到答案就会把它收起来——收起来还看得见，也能再打开。')}
       </p>
 
       <div className="mt-2.5 flex items-center gap-2">
         <button
           type="button"
           disabled={busy}
-          onClick={onApply}
+          onClick={onApprove}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-accent/60 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent transition-colors enabled:hover:border-accent enabled:hover:bg-accent/15 disabled:opacity-40"
         >
           <Check size={12} />
-          {t('就按这个找')}
+          {t('加进去')}
         </button>
         <button
           type="button"
@@ -338,7 +338,6 @@ function BriefCard({
     </div>
   );
 }
-
 interface CardProps {
   batch: ProposalBatch;
   titleOf: (threadId: string) => string;

@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
+import { followUpFingerprint } from '@/lib/engine/followUp';
 import schemaSql from './schema.sql?raw';
 
 export const INBOX_WORKSPACE_TITLE = '默认工作区';
@@ -35,7 +36,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -657,6 +658,78 @@ const MIGRATIONS: Migration[] = [
         } catch (e) {
           console.info(`[db] ${table}.corrected_quote: not added (likely exists)`, e);
         }
+      }
+    },
+  },
+  {
+    // v22 (DESIGN_FOLLOW_UP §8.7, Ocean 2026-08-16「合成一份清单」) — what a project follows
+    // up stops being one blob of text in `threads.follow_up_brief` and becomes one row per
+    // line in `follow_up_items`, so a single line can be pointed at, answered and reopened.
+    //
+    // ⚠️⚠️ This is the only step in M5 that can touch a real library, so it is ADDITIVE ONLY:
+    // CREATE TABLE plus INSERTs. It does not UPDATE `threads`, does not touch `blocks`, and
+    // above all does not rebuild a table — a rebuild branch is what emptied the live library
+    // on 2026-05-29 (§6.3-9). `follow_up_brief` is left exactly as it was and simply stops
+    // being read; the user's lines exist in both places afterwards, and that is deliberate:
+    // if this step is ever wrong, the original text is still sitting there untouched.
+    //
+    // Re-runnable: a crash between the CREATE and the INSERTs resumes on the next launch
+    // (user_version is only checkpointed after the whole step), and the backfill skips any
+    // project that already has rows, so a half-run never doubles a line.
+    from: 21,
+    to: 22,
+    name: 'split-follow-up-brief-into-items',
+    run: async (db) => {
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS follow_up_items (
+          id              TEXT PRIMARY KEY,
+          thread_id       TEXT NOT NULL,
+          text            TEXT NOT NULL,
+          why             TEXT,
+          standing        INTEGER NOT NULL DEFAULT 0,
+          fingerprint     TEXT NOT NULL,
+          status          TEXT NOT NULL,
+          proposed_by     TEXT,
+          sort_order      INTEGER NOT NULL,
+          created_at      INTEGER NOT NULL,
+          approved_at     INTEGER,
+          last_raised_at  INTEGER,
+          answered_at     INTEGER,
+          answer_block_id TEXT,
+          outcome         TEXT
+        )`);
+      await db.execute(`
+        CREATE INDEX IF NOT EXISTS idx_follow_up_items_thread
+          ON follow_up_items(thread_id, status, sort_order)`);
+
+      const threads = await db.select<{ id: string; follow_up_brief: string }[]>(
+        `SELECT id, follow_up_brief FROM threads
+          WHERE follow_up_brief IS NOT NULL AND TRIM(follow_up_brief) <> ''`,
+      );
+      const now = Date.now();
+      for (const t of threads) {
+        const already = await db.select<{ c: number }[]>(
+          'SELECT COUNT(*) AS c FROM follow_up_items WHERE thread_id = $1',
+          [t.id],
+        );
+        if ((already[0]?.c ?? 0) > 0) continue;
+        // Every line the user had approved is a STANDING watch: that is what a brief was.
+        // The numbering the old textarea wrote ("1. …") is display, not content — it is
+        // stripped here so a line does not carry a stale ordinal once rows can be reordered.
+        const lines = t.follow_up_brief
+          .split('\n')
+          .map((l) => l.replace(/^\s*\d+[.、)]\s*/, '').trim())
+          .filter((l) => l.length > 0);
+        for (const [i, line] of lines.entries()) {
+          await db.execute(
+            `INSERT INTO follow_up_items
+               (id, thread_id, text, why, standing, fingerprint, status, proposed_by,
+                sort_order, created_at, approved_at)
+             VALUES ($1, $2, $3, NULL, 1, $4, 'open', NULL, $5, $6, $6)`,
+            [nanoid(), t.id, line, followUpFingerprint(line), i, now],
+          );
+        }
+        console.info(`[db] v22: ${lines.length} follow-up line(s) carried across for ${t.id}`);
       }
     },
   },

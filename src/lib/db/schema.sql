@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS threads (
   -- v11 (DESIGN_FOLLOW_UP §3.2): what this project wants watched on the open web, and
   -- what the last run already saw. NULL brief = follow-up is off for this project, which
   -- is why there is no separate on/off column.
+  --
+  -- ⚠️ v22 (DESIGN_FOLLOW_UP §8.2, Ocean 2026-08-16「合成一份清单」): `follow_up_brief` is
+  -- a LEGACY column. What a project follows up now lives one row per line in
+  -- `follow_up_items`, because the list holds two kinds of line with different lifetimes
+  -- and only rows can be pointed at individually. The v22 migration copied every line
+  -- across; nothing reads this column any more.
+  -- ⚠️⚠️ It is kept, not dropped, and so are the three `follow_up_brief_suggested*`
+  -- columns below: dropping a column in SQLite rebuilds the whole table, and a rebuild
+  -- branch is what emptied the live library on 2026-05-29. An unread column costs nothing.
   follow_up_brief    TEXT,
   follow_up_state    TEXT,                        -- JSON: last run time + URLs/fingerprints already proposed
   -- v12 (DESIGN_WORKBENCH §4.3): per-project opt-out for automatic maintenance.
@@ -57,6 +66,45 @@ CREATE TABLE IF NOT EXISTS threads (
 
 CREATE INDEX IF NOT EXISTS idx_threads_workspace
   ON threads(workspace_id, updated_at DESC) WHERE deleted_at IS NULL;
+
+-- v22 (DESIGN_FOLLOW_UP §8.7) — one row per line of what a project follows up.
+-- One list, as Ocean decided on 2026-08-16, holding two kinds of line:
+--
+--   standing = 1  a watch that never completes ("has the deadline moved"). An AI may NOT
+--                 close it — it can only propose retiring it, which the user settles.
+--   standing = 0  a question that retires the moment it is answered.
+--
+-- ⚠️ The marker is what keeps merging the two into one list safe (§8.2): without it, an AI
+-- that answers "the deadline is March 1" closes the standing watch as well, and the project
+-- silently stops being watched — the one thing this feature exists to do.
+CREATE TABLE IF NOT EXISTS follow_up_items (
+  id              TEXT PRIMARY KEY,
+  thread_id       TEXT NOT NULL,
+  text            TEXT NOT NULL,             -- one line: the thing watched, or the open question
+  why             TEXT,                      -- one line: why it matters here (AI-proposed rows)
+  standing        INTEGER NOT NULL DEFAULT 0,
+  -- Identity for the duplicate check, computed on BOTH sides (followUpFingerprint in
+  -- lib/engine/followUp.ts, follow_up_fingerprint in mcp.rs): lowercase + collapsed
+  -- whitespace, kept that simple precisely so the two agree exactly.
+  fingerprint     TEXT NOT NULL,
+  -- 'proposed' → waiting on the review screen (§8.4: an AI may never file one directly,
+  -- because a line here outlives this conversation and steers the next one's searches)
+  -- 'open'     → live
+  -- 'answered' → retired but still visible and reopenable (§8.6: closing is not deleting)
+  -- A rejected proposal leaves no row at all — same rule as a rejected block proposal.
+  status          TEXT NOT NULL,
+  proposed_by     TEXT,                      -- the client that proposed it, for the review card
+  sort_order      INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL,
+  approved_at     INTEGER,
+  last_raised_at  INTEGER,                   -- §8.5: so the same line is not raised twice a day
+  answered_at     INTEGER,
+  answer_block_id TEXT,                      -- the block that answered it; NULL is legitimate
+  outcome         TEXT                       -- one line: what the answer was ("nothing changed")
+);
+
+CREATE INDEX IF NOT EXISTS idx_follow_up_items_thread
+  ON follow_up_items(thread_id, status, sort_order);
 
 -- Block: a captured fragment, a handwritten draft, or an @-reference.
 -- A file/folder/URL becomes an attachment on a block (see §9.6) — there is no anchor kind.

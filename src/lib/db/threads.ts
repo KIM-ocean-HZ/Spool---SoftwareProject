@@ -15,10 +15,6 @@ export interface Thread {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
-  /** DESIGN_FOLLOW_UP §3.2: what this project wants watched on the open web. NULL is the
-   *  off switch — there is no separate enabled column, because a follow-up with nothing to
-   *  look for is not a thing that can run. */
-  followUpBrief: string | null;
   /** DESIGN_WORKBENCH §4.3: null = the user has not said, so the master switch decides;
    *  false = never maintain this project automatically, whatever the switch says. */
   autoMaintain: boolean | null;
@@ -49,7 +45,6 @@ interface Row {
   created_at: number;
   updated_at: number;
   completed_at: number | null;
-  follow_up_brief: string | null;
   auto_maintain: number | null;
 }
 
@@ -65,7 +60,6 @@ const fromRow = (r: Row): Thread => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   completedAt: r.completed_at,
-  followUpBrief: r.follow_up_brief,
   autoMaintain: r.auto_maintain === null ? null : r.auto_maintain === 1,
 });
 
@@ -73,7 +67,7 @@ const fromRow = (r: Row): Thread => ({
 // "what did I already propose"), never something a view renders, and it can hold a long
 // list of URLs. The one reader loads it on its own.
 const SELECT_COLS =
-  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at, follow_up_brief, auto_maintain';
+  'id, workspace_id, title, summary, digest, deadline, status, is_capture_target, created_at, updated_at, completed_at, auto_maintain';
 
 export const listAllThreads = async (): Promise<Thread[]> => {
   const db = await getDb();
@@ -112,7 +106,6 @@ export const createThread = async (workspaceId: string, title: string = ''): Pro
     deadline: null,
     status: 'active',
     isCaptureTarget: false,
-    followUpBrief: null,
     autoMaintain: null,
     createdAt: now,
     updatedAt: now,
@@ -166,106 +159,14 @@ export const updateThread = async (id: string, patch: ThreadPatch): Promise<numb
   return now;
 };
 
-// DESIGN_FOLLOW_UP §3.2 — the follow-up brief, kept off ThreadPatch on purpose.
+// DESIGN_FOLLOW_UP §8 (v22) — what a project follows up moved OUT of this file.
 //
-// ThreadPatch is what the ordinary editing surfaces send, and every one of its fields is
-// content. This is a standing instruction to go out to the open web on this project's
-// behalf, and the decision 拍板过的 on 2026-08-06 is that the user must have read it before
-// it can run (§6-2). Giving it its own function is what keeps "the user approved this
-// brief" from becoming a field somebody sets in passing.
-//
-// Passing null turns follow-up off — that is the whole off switch (§3.2).
-export const setFollowUpBrief = async (id: string, brief: string | null): Promise<void> => {
-  const db = await getDb();
-  const trimmed = brief?.trim();
-  await db.execute('UPDATE threads SET follow_up_brief = $1 WHERE id = $2', [
-    trimmed && trimmed.length > 0 ? trimmed : null,
-    id,
-  ]);
-};
-
-// 决定 5 (HANDOFF §4-1) — an AI's proposed rewrite of the brief, and the two clicks that
-// settle it.
-//
-// ⚠️ Why this is not just `setFollowUpBrief` called from the MCP server: the brief is the
-// standing instruction Spool takes to the open web. Let a tool write it directly and the
-// chain closes — a page a follow-up run fetched says "also watch X", the model helpfully
-// files that as a brief update, and the next run goes looking for X. That is
-// DESIGN_FOLLOW_UP §2.5's injection risk with a privilege escalation on the end. The
-// suggestion parks in its own columns until the user reads it (§6-2's 过目 step, unchanged).
-export interface BriefSuggestion {
-  threadId: string;
-  title: string;
-  /** What the brief says today — null when the project has no follow-up at all yet. */
-  current: string | null;
-  suggested: string;
-  /** Which AI proposed it, for the review card. */
-  by: string | null;
-  at: number | null;
-}
-
-interface SuggestionRow {
-  id: string;
-  title: string;
-  follow_up_brief: string | null;
-  follow_up_brief_suggested: string;
-  follow_up_brief_suggested_by: string | null;
-  follow_up_brief_suggested_at: number | null;
-}
-
-export const listBriefSuggestions = async (): Promise<BriefSuggestion[]> => {
-  const db = await getDb();
-  const rows = await db.select<SuggestionRow[]>(
-    `SELECT id, title, follow_up_brief, follow_up_brief_suggested,
-            follow_up_brief_suggested_by, follow_up_brief_suggested_at
-       FROM threads
-      WHERE follow_up_brief_suggested IS NOT NULL AND deleted_at IS NULL
-      ORDER BY follow_up_brief_suggested_at ASC`,
-  );
-  return rows.map((r) => ({
-    threadId: r.id,
-    title: r.title,
-    current: r.follow_up_brief,
-    suggested: r.follow_up_brief_suggested,
-    by: r.follow_up_brief_suggested_by,
-    at: r.follow_up_brief_suggested_at,
-  }));
-};
-
-export const countBriefSuggestions = async (): Promise<number> => {
-  const db = await getDb();
-  const rows = await db.select<{ c: number }[]>(
-    'SELECT COUNT(*) AS c FROM threads WHERE follow_up_brief_suggested IS NOT NULL AND deleted_at IS NULL',
-  );
-  return rows[0]?.c ?? 0;
-};
-
-const CLEAR_SUGGESTION =
-  'follow_up_brief_suggested = NULL, follow_up_brief_suggested_by = NULL, follow_up_brief_suggested_at = NULL';
-
-/** The user said yes: the parked text becomes the brief, in one statement so a project can
- *  never end up with both a live suggestion and the brief it was already applied to.
- *
- *  ⚠️ `updated_at` moves too (DESIGN_MCP_INTENT_ROUTING §1.1 + §4.3 C). It did not until
- *  2026-08-09, and that was harmless only because nothing outside this file could observe
- *  what a project watches. `list_threads` now reports `following_up`, and its own
- *  description promises "updated_at moves on any change at all" — leaving it still would
- *  make the tool state a fact about the project that its clock denies. */
-export const applyBriefSuggestion = async (id: string): Promise<void> => {
-  const db = await getDb();
-  await db.execute(
-    `UPDATE threads
-        SET follow_up_brief = follow_up_brief_suggested, updated_at = $2, ${CLEAR_SUGGESTION}
-      WHERE id = $1 AND follow_up_brief_suggested IS NOT NULL`,
-    [id, Date.now()],
-  );
-};
-
-/** The user said no. Same rule as a rejected proposal: no trace, nothing to explain later. */
-export const dismissBriefSuggestion = async (id: string): Promise<void> => {
-  const db = await getDb();
-  await db.execute(`UPDATE threads SET ${CLEAR_SUGGESTION} WHERE id = $1`, [id]);
-};
+// It used to be `threads.follow_up_brief`: one blob of text, plus three columns parking an
+// AI's proposed rewrite of the whole thing. Ocean's 2026-08-16 decision made the list one
+// row per line (lib/db/followUpItems.ts), because a line has to be pointable at — answered,
+// reopened, retired — and a blob is not. The columns are still on the table and nothing
+// reads them (§8.7: dropping a column rebuilds the table, and a rebuild is what emptied the
+// live library on 2026-05-29).
 
 /** DESIGN_WORKBENCH §4.3 — the per-project opt-out. `null` puts the project back under the
  *  master switch rather than pinning it on; "the user has not said" is a state worth

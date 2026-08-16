@@ -22,7 +22,6 @@ const thread = (patch: Partial<Thread>): Thread => ({
   createdAt: NOON(2026, 7, 8),
   updatedAt: NOW,
   completedAt: null,
-  followUpBrief: null,
   autoMaintain: null,
   ...patch,
 });

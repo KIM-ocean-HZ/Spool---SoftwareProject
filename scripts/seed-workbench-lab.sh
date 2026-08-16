@@ -43,9 +43,9 @@
 #     supersession states — a PINNED block retired outright, the block that replaced it,
 #     and a partial correction that leaves its target whole. That is what to look at when
 #     judging whether 「不作数了」 reads as 「删掉了」 anywhere it should not.
-#   跟进 (follow_up)     Tauri 2 升级       a follow_up_brief naming things that genuinely
+#   跟进 (follow_up)     Tauri 2 升级       a follow-up list naming things that genuinely
 #                                          move on the open web. Nothing else in the library
-#                                          has a brief, so the button is off everywhere else
+#                                          has a list, so the button is off everywhere else
 #                                          — which is itself worth seeing.
 #   周回顾 (weekly_review) all of the above  every project has blocks dated across the last
 #                                          six days, in a believable order. A review run on
@@ -142,8 +142,7 @@ INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES
   CAST(strftime('%s', date('now','localtime','-1 days') || ' 22:00:00','utc')*1000 AS INTEGER));
 
 INSERT INTO threads (id, workspace_id, title, summary, summary_source, digest, deadline,
-                     status, is_capture_target, created_at, updated_at, completed_at,
-                     follow_up_brief) VALUES
+                     status, is_capture_target, created_at, updated_at, completed_at) VALUES
  -- ===== 压缩 的料:一堆互相矛盾的调研,结论就埋在里面 =====
  -- No summary at all, so 压缩 has somewhere to put its conclusion and nothing to overwrite.
  -- Deadline 2 days out → the board row goes 「快到期」 orange.
@@ -151,7 +150,7 @@ INSERT INTO threads (id, workspace_id, title, summary, summary_source, digest, d
   CAST(strftime('%s', date('now','localtime','+2 days') || ' 23:59:00','utc')*1000 AS INTEGER),
   'active',1,
   CAST(strftime('%s', date('now','localtime','-21 days') || ' 10:00:00','utc')*1000 AS INTEGER),
-  CAST(strftime('%s', date('now','localtime') || ' 09:20:00','utc')*1000 AS INTEGER),NULL,NULL),
+  CAST(strftime('%s', date('now','localtime') || ' 09:20:00','utc')*1000 AS INTEGER),NULL),
 
  -- ===== 去重 的料:同一件事被抓了好几遍,摘要写在一半材料到齐之前 =====
  -- OVERDUE by 3 days → the board row goes red. The stale summary is the point: it says
@@ -161,9 +160,9 @@ INSERT INTO threads (id, workspace_id, title, summary, summary_source, digest, d
   CAST(strftime('%s', date('now','localtime','-3 days') || ' 23:59:00','utc')*1000 AS INTEGER),
   'active',0,
   CAST(strftime('%s', date('now','localtime','-30 days') || ' 14:00:00','utc')*1000 AS INTEGER),
-  CAST(strftime('%s', date('now','localtime','-1 days') || ' 22:00:00','utc')*1000 AS INTEGER),NULL,NULL),
+  CAST(strftime('%s', date('now','localtime','-1 days') || ' 22:00:00','utc')*1000 AS INTEGER),NULL),
 
- -- ===== 跟进 的料:唯一一个定了 brief 的项目 =====
+ -- ===== 跟进 的料:唯一一个有跟进清单的项目(清单本身在下面另插) =====
  -- Due today → the board row says 「今天到期」, the one case that only works because
  -- dueInDays compares calendar days rather than subtracting milliseconds (§9.4's trap).
  ('WbThTauriUpgrade00003','WbWsBuild00000000001','Tauri 2 升级',
@@ -171,22 +170,48 @@ INSERT INTO threads (id, workspace_id, title, summary, summary_source, digest, d
   CAST(strftime('%s', date('now','localtime') || ' 23:59:00','utc')*1000 AS INTEGER),
   'active',0,
   CAST(strftime('%s', date('now','localtime','-40 days') || ' 11:00:00','utc')*1000 AS INTEGER),
-  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER),NULL,
-  '1. Tauri 有没有出新的小版本,有没有破坏性改动
-2. tauri-plugin-store 和 tauri-plugin-sql 有没有跟着更新
-3. 有没有人写过 v1 → v2 迁移踩坑的文章'),
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER),NULL),
 
  -- ===== 周回顾 需要的第四个项目:没有截止日期,但这周一直在动 =====
  ('WbThWritingHabit00004','WbWsRead000000000002','写作习惯',NULL,NULL,NULL,NULL,'active',0,
   CAST(strftime('%s', date('now','localtime','-14 days') || ' 08:00:00','utc')*1000 AS INTEGER),
-  CAST(strftime('%s', date('now','localtime','-1 days') || ' 07:30:00','utc')*1000 AS INTEGER),NULL,NULL),
+  CAST(strftime('%s', date('now','localtime','-1 days') || ' 07:30:00','utc')*1000 AS INTEGER),NULL),
 
  -- ===== 一个已完成的,给 项目管理 的「已完成 + 重新打开」那一半 =====
  ('WbThOldLanding0000005','WbWsBuild00000000001','官网落地页改版',NULL,NULL,
   '最后定的是:首屏只讲一句话,把三个卖点挪到第二屏。改完转化没变,但跳出率降了。',NULL,'done',0,
   CAST(strftime('%s', date('now','localtime','-55 days') || ' 09:00:00','utc')*1000 AS INTEGER),
   CAST(strftime('%s', date('now','localtime','-9 days') || ' 18:00:00','utc')*1000 AS INTEGER),
-  CAST(strftime('%s', date('now','localtime','-9 days') || ' 18:00:00','utc')*1000 AS INTEGER),NULL);
+  CAST(strftime('%s', date('now','localtime','-9 days') || ' 18:00:00','utc')*1000 AS INTEGER));
+
+-- v22 (DESIGN_FOLLOW_UP §8.7): what a project follows up is one row per line now. These are
+-- STANDING watches (standing = 1) — exactly what the old one-blob brief held, which is what
+-- 跟进 searches by. `fingerprint` is lowercase + collapsed whitespace, the value both
+-- lib/db/followUpItems.ts and mcp.rs compute.
+INSERT INTO follow_up_items (id, thread_id, text, why, standing, fingerprint, status,
+                             proposed_by, sort_order, created_at, approved_at) VALUES
+ ('WbFuTauri00000000001','WbThTauriUpgrade00003',
+  'Tauri 有没有出新的小版本,有没有破坏性改动',NULL,1,
+  'tauri 有没有出新的小版本,有没有破坏性改动','open',NULL,0,
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER),
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER)),
+ ('WbFuTauri00000000002','WbThTauriUpgrade00003',
+  'tauri-plugin-store 和 tauri-plugin-sql 有没有跟着更新',NULL,1,
+  'tauri-plugin-store 和 tauri-plugin-sql 有没有跟着更新','open',NULL,1,
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER),
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER)),
+ ('WbFuTauri00000000003','WbThTauriUpgrade00003',
+  '有没有人写过 v1 → v2 迁移踩坑的文章',NULL,1,
+  '有没有人写过 v1 → v2 迁移踩坑的文章','open',NULL,2,
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER),
+  CAST(strftime('%s', date('now','localtime','-2 days') || ' 16:00:00','utc')*1000 AS INTEGER)),
+ -- One line an AI proposed and nobody has ruled on: the review screen needs something to
+ -- show, and the panel needs a case where a row exists WITHOUT being watched yet (§8.4).
+ ('WbFuTauri00000000004','WbThTauriUpgrade00003',
+  '2.12 的 tray API 改动会不会影响我们的托盘菜单','这个项目卡在托盘那一块',0,
+  '2.12 的 tray api 改动会不会影响我们的托盘菜单','proposed','Claude Desktop',3,
+  CAST(strftime('%s', date('now','localtime','-1 days') || ' 10:00:00','utc')*1000 AS INTEGER),
+  NULL);
 
 -- ---------------------------------------------------------------------------------------
 -- 压缩 的料。Contradictory on purpose: three candidates, each praised somewhere and
