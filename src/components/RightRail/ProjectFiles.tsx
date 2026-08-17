@@ -97,7 +97,7 @@ export default function ProjectFiles({ threadId }: { threadId: string }) {
                     type="button"
                     onClick={() => void open(a.target)}
                     title={a.target}
-                    className="min-w-0 flex-1 truncate text-left text-sm text-ink-2 transition-colors hover:text-accent"
+                    className="min-w-0 flex-1 truncate text-left text-[12px] text-ink-2 transition-colors hover:text-accent"
                   >
                     {a.label.trim() || basename(a.target)}
                   </button>

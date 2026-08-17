@@ -88,6 +88,28 @@ export const sanitizeSegment = (title: string): string => {
   return cleaned || UNTITLED;
 };
 
+/**
+ * Clean a folder name the USER typed (Ocean 2026-08-17: 「打包工作区变成文件夹需要让用户
+ * 可以自主命名」).
+ *
+ * ⭐ Deliberately NOT `sanitizeSegment`. That one normalises a name DERIVED from a project
+ * title — it turns spaces into dashes so generated filenames come out uniform. A name the
+ * user typed is not one we generated: 「学校 2026 秋」 should stay exactly that, spaces and
+ * all, and only what a filesystem genuinely cannot take gets removed. Still mirrored by
+ * `segment_is_safe` in pack.rs, which rejects rather than cleans.
+ *
+ * Falls back rather than failing: an empty box means "use the name you suggested".
+ */
+export const sanitizeFolderName = (input: string, fallback: string): string => {
+  const cleaned = oneLine(input)
+    .replace(/\p{Cc}/gu, '')
+    .replace(/[/\\:]/g, '-')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 80)
+    .trim();
+  return cleaned || fallback;
+};
+
 const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /** Makes a name unique within one directory. Sub-workspaces have no numeric prefix to

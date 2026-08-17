@@ -1,7 +1,12 @@
 import { FolderDown, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { PACK_RANGE_KEYS, type CitedBlock, type PackRange } from '@/lib/pack/assemble';
-import { buildPackFolder, type PackProject, type PackWorkspaceNode } from '@/lib/pack/folder';
+import {
+  buildPackFolder,
+  sanitizeFolderName,
+  type PackProject,
+  type PackWorkspaceNode,
+} from '@/lib/pack/folder';
 import { useLanguage, useT } from '@/lib/i18n';
 
 // 打包整个工作区 (DESIGN_WORKSPACE_PACK §1.1). ⭐ 「整个文件夹」 and 「挑几个」 are the SAME
@@ -70,6 +75,9 @@ export default function WorkspacePackDialog({
   const [selected, setSelected] = useState<Set<string>>(() => new Set(collectThreadIds(tree)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null = 「还没改过」, so the box keeps showing the suggested name and an emptied box falls
+  // back to it rather than exporting a folder called nothing (Ocean 2026-08-17: 自主命名).
+  const [nameEdit, setNameEdit] = useState<string | null>(null);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -126,7 +134,7 @@ export default function WorkspacePackDialog({
     setBusy(true);
     setError(null);
     try {
-      await onExport(built.folderName, built.files);
+      await onExport(sanitizeFolderName(nameEdit ?? built.folderName, built.folderName), built.files);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -213,6 +221,19 @@ export default function WorkspacePackDialog({
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-3">{renderNode(tree, 0)}</div>
+
+        {/* Ocean 2026-08-17: 「打包工作区变成文件夹需要让用户可以自主命名」. Pre-filled with the
+            suggested name so doing nothing behaves exactly as before, and cleared-to-empty
+            falls back to it — the box offers a name, it does not demand one. */}
+        <div className="flex flex-none items-center gap-2 border-t border-line bg-paper-2/30 px-5 py-2 text-[11px]">
+          <span className="flex-none text-muted">{t('文件夹名')}</span>
+          <input
+            value={nameEdit ?? built?.folderName ?? ''}
+            onChange={(e) => setNameEdit(e.target.value)}
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-md border border-line bg-paper px-2 py-0.5 text-ink outline-none transition-colors focus:border-accent"
+          />
+        </div>
 
         <div className="flex flex-none items-center gap-2 border-t border-line bg-paper-2/30 px-5 py-2 text-[11px]">
           <span className="text-muted">{t('打包范围?')}</span>

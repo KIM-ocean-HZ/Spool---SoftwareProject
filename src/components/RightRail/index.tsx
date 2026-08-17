@@ -294,7 +294,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                   {followUpLines.map((item) => (
                     <li
                       key={item.id}
-                      className="flex gap-1.5 rounded-md px-3 py-1 text-sm leading-relaxed text-ink-2"
+                      className="flex gap-1.5 rounded-md px-3 py-1 text-[12px] leading-relaxed text-ink-2"
                     >
                       <span className="flex-none text-muted">·</span>
                       <span className="min-w-0 break-words">{item.text}</span>
@@ -407,7 +407,7 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                                   #{b.seq}
                                 </span>
                               )}
-                              <span className="min-w-0 flex-1 truncate text-sm text-ink-2">
+                              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
                                 {b.content}
                               </span>
                             </button>

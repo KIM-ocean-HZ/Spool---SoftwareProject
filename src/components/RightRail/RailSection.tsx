@@ -12,6 +12,15 @@ import SectionLabel from '@/components/Sidebar/SectionLabel';
 //
 // — three containers, three heading treatments and four type sizes in one 340px column.
 //
+// ⚠️⚠️ That pass unified the headings and, without being asked to, took the BODIES up to
+// `text-sm` (14px). Ocean 2026-08-17, next install: 「右侧边栏的字体大小和左侧边栏要一致，
+// 现在字体有点大……尤其是跟进里面的内容，需要和工作区的文字一样大」. The bodies are back at
+// **12px** — which is both what the table above says they were, and what a workspace name in
+// the left rail is (`SectionLabel`). Rows: 跟进 (index.tsx), 项目文件 (ProjectFiles.tsx),
+// AI 写的块 (index.tsx). ⭐ A pass that unifies one dimension must not quietly move another:
+// nothing in 「统一风格」 asked for bigger type, and the regression outlived the window that
+// caused it because the only record of the old size was this comment.
+//
 // ⭐ The heading is `Sidebar/SectionLabel` itself, not a copy of it. That file says in so many
 // words that a fourth kind of section should use it rather than grow a fourth style, and what
 // it really enforces is the LEFT EDGE: heading and rows share the row padding, so everything

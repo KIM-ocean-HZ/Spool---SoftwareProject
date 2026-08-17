@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { buildPackFolder, indexSummary, sanitizeSegment, type PackProject } from './folder';
+import {
+  buildPackFolder,
+  indexSummary,
+  sanitizeFolderName,
+  sanitizeSegment,
+  type PackProject,
+} from './folder';
 
 const NOW = new Date('2026-08-17T14:30:00').getTime();
 
@@ -71,6 +77,29 @@ describe('sanitizeSegment', () => {
 
   it('refuses to end a name in a dot, which would confuse the extension', () => {
     expect(sanitizeSegment('v1.')).toBe('v1');
+  });
+});
+
+// Ocean 2026-08-17: the export folder is now named by the user, not only derived.
+describe('sanitizeFolderName', () => {
+  // ⚠️ The point of this function existing next to sanitizeSegment: a name the USER typed
+  // keeps its spaces. Routing this through sanitizeSegment would silently rewrite 「学校 2026
+  // 秋」 to 「学校-2026-秋」 — a normalisation that is right for a derived filename and wrong
+  // for one somebody chose.
+  it('keeps what the user typed, spaces and all', () => {
+    expect(sanitizeFolderName('学校 2026 秋', 'fallback')).toBe('学校 2026 秋');
+    expect(sanitizeFolderName('My Pack v2', 'fallback')).toBe('My Pack v2');
+  });
+
+  it('still removes what a path segment cannot hold', () => {
+    expect(sanitizeFolderName('a/b\\c:d', 'fallback')).toBe('a-b-c-d');
+    expect(sanitizeFolderName('..', 'fallback')).toBe('fallback');
+    expect(sanitizeFolderName('.hidden', 'fallback')).toBe('hidden');
+  });
+
+  it('an empty box means "use the name you suggested"', () => {
+    expect(sanitizeFolderName('', 'spool-学校-20260817')).toBe('spool-学校-20260817');
+    expect(sanitizeFolderName('   ', 'spool-学校-20260817')).toBe('spool-学校-20260817');
   });
 });
 
