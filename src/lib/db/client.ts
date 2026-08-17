@@ -112,12 +112,20 @@ const applySchema = async (db: Database): Promise<void> => {
 // Best-effort consistent snapshot taken before any schema change. VACUUM INTO copies the
 // live database through the SQL engine (correct even with an open WAL) and needs no fs
 // permission. A failure here must never block startup, so everything is swallowed.
-const backupDbBeforeMigration = async (db: Database, fromVersion: number): Promise<void> => {
+// `prefix` exists so the import path (DESIGN_LIBRARY_TRANSFER §2.2) can migrate a STAGED
+// copy of someone else's library through this same chain without dropping a file named
+// like a snapshot of the live one — restoring the wrong file is exactly the mistake a
+// misleading name causes.
+const backupDbBeforeMigration = async (
+  db: Database,
+  fromVersion: number,
+  prefix = 'spool',
+): Promise<void> => {
   try {
     const { appConfigDir, join } = await import('@tauri-apps/api/path');
     const dir = await appConfigDir();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = await join(dir, `spool.pre-migration-v${fromVersion}-${stamp}.db`);
+    const dest = await join(dir, `${prefix}.pre-migration-v${fromVersion}-${stamp}.db`);
     await db.execute(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
     console.info(`[db] pre-migration backup written: ${dest}`);
   } catch (e) {
@@ -758,7 +766,7 @@ const MIGRATIONS: Migration[] = [
 // — the one moment the tutorial thread may be seeded (§Task 3, 2026-07-09: never on an
 // existing database; the 2026-05-29 wipe class of bugs is exactly re-running seeds
 // against user data).
-const migrateSchema = async (db: Database): Promise<boolean> => {
+const migrateSchema = async (db: Database, backupPrefix = 'spool'): Promise<boolean> => {
   const rows = await db.select<{ user_version: number }[]>('PRAGMA user_version');
   let current = rows[0]?.user_version ?? 0;
   if (current === SCHEMA_VERSION) {
@@ -768,7 +776,7 @@ const migrateSchema = async (db: Database): Promise<boolean> => {
 
   // The schema is about to change. Snapshot first so every path below — the additive
   // registry steps AND the destructive rebuild — is recoverable.
-  await backupDbBeforeMigration(db, current);
+  await backupDbBeforeMigration(db, current, backupPrefix);
 
   // Walk the registry. Each completed step checkpoints user_version (PRAGMA doesn't
   // accept bound parameters; `to` is a code-local integer).
@@ -815,6 +823,17 @@ const migrateSchema = async (db: Database): Promise<boolean> => {
 // Test-only export (§19.3): lets the node:sqlite-backed Vitest cases drive the real
 // migration walk against historical schemas. Never called outside tests.
 export const __migrateSchemaForTest = migrateSchema;
+
+// What version of the schema this build understands. Read by the import path so it can
+// say WHICH side is out of date when a library arrives from a newer build.
+export const CURRENT_SCHEMA_VERSION = SCHEMA_VERSION;
+
+// Bring a staged import up to this build's schema, reusing the whole migration registry
+// (DESIGN_LIBRARY_TRANSFER §2.2 — the reason the export format needs no compatibility
+// story of its own). Returns true if the file turned out to be empty and was rebuilt,
+// which for an import means "nothing to merge".
+export const migrateStagedImport = (db: Database): Promise<boolean> =>
+  migrateSchema(db, 'spool.import');
 
 // Idempotent base-data guarantee: at least one workspace (the Inbox) and at least one
 // thread (the capture target). Runs at startup, and again after a deletion — so deleting

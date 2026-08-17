@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { clearAllData } from '@/lib/db/client';
 import { useT } from '@/lib/i18n';
 import BrowserAutomation from './BrowserAutomation';
+import LibraryTransfer from './LibraryTransfer';
 
 // 高级 tab (任务三 #2, 2026-07-12): the low-frequency machinery — the five-browser
 // automation permission rows and the destructive clear-all-data action — moves out of
@@ -30,6 +31,11 @@ export default function AdvancedConfig() {
         {t('浏览器自动化权限')}
       </h3>
       <BrowserAutomation />
+
+      <div className="mt-2 border-t border-line" />
+
+      <h3 className="pt-2.5 text-xs font-medium tracking-wide text-muted">{t('换机器')}</h3>
+      <LibraryTransfer />
 
       <div className="mt-2 border-t border-line" />
 

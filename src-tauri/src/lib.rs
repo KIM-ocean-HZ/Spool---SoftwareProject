@@ -5,6 +5,7 @@ pub mod engine;
 pub mod mcp;
 pub mod overlay;
 pub mod pack;
+pub mod transfer;
 
 use tauri::Manager;
 
@@ -324,6 +325,10 @@ pub fn run() {
             capture::probe_browser_automation,
             overlay::overlay_db_reply,
             pack::write_pack_folder,
+            transfer::export_library,
+            transfer::stage_import_db,
+            transfer::discard_import_staging,
+            transfer::count_missing_targets,
             ai_engine_status,
             ai_engine_run,
             ai_engine_cancel,

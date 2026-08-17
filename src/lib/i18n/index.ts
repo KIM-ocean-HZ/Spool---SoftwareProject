@@ -445,6 +445,32 @@ const EN: Record<string, string> = {
   '更新配置': 'Update config',
   '一键接入': 'Connect',
   '当前是开发构建 — 安装正式版后需重新接入': 'This is a dev build — reconnect after installing the release app',
+  '文件夹名': 'Folder name',
+  // 换机器 — 导出/导入整个库 (DESIGN_LIBRARY_TRANSFER)
+  '换机器': 'Moving to another machine',
+  '导出整个库': 'Export the whole library',
+  '存成一个文件,换机器的时候用它把东西带过去':
+    'Saves everything to one file — carry it to the other machine and import it there.',
+  '导出中…': 'Exporting…',
+  '导出': 'Export',
+  '导入一个库': 'Import a library',
+  '把另一台机器导出的文件合并进来,这台机器上现有的东西一条都不会被改':
+    'Merges a library exported elsewhere into this one. Nothing already here is changed.',
+  '导入中…': 'Importing…',
+  '导入': 'Import',
+  '已导出,{size}': 'Exported, {size}',
+  '带进来 {workspaces} 个工作区、{threads} 个项目、{blocks} 条信息':
+    'Brought in {workspaces} workspaces, {threads} projects, {blocks} blocks',
+  '这个文件里的东西,这台机器上已经都有了': 'Everything in that file was already on this machine',
+  '有 {n} 条这台机器上已经有了,跳过了': '{n} rows were already here and were skipped',
+  '有 {n} 个文件在这台机器上找不到 —— 文字都还在,只是点开会失败':
+    "{n} files are not on this machine — their text came across; only opening the file will fail",
+  '重新载入,看带进来的东西': 'Reload to see what arrived',
+  '这就是这台机器上正在用的那个库': 'That is the library this machine is already using',
+  '这个文件不是 Spool 的库': 'That file is not a Spool library',
+  '这份库来自更新的 Spool(v{theirs}),这台机器上的只认到 v{ours},请先更新 Spool':
+    'That library comes from a newer Spool (v{theirs}); this one only understands v{ours}. Update Spool first.',
+  '没做成,这台机器上的库没有被改动': "That didn't go through — the library on this machine is unchanged",
   '清除所有数据': 'Clear all data',
   '删除全部工作区、项目与信息块,不可恢复': 'Deletes every workspace, project and block. Irreversible.',
   '确认清除': 'Confirm clear',
