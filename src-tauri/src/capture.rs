@@ -80,7 +80,19 @@ pub fn get_foreground_app() -> Option<ForegroundApp> {
         }
         result
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: the Win32 foreground chain, no cache and no subprocess — it is three
+    // syscalls, so the reason the macOS path needs a cache does not exist here.
+    //
+    // ⚠️ `source` is the WINDOW CAPTION, not a browser tab read: for a browser the caption
+    // already ends in the tab title, and for everything else it is the document name. It
+    // is not the same guarantee as the macOS AppleScript tab read, and the port does not
+    // pretend otherwise (INVESTIGATION_WINDOWS_PORT §4.1 #5).
+    #[cfg(target_os = "windows")]
+    {
+        let (app, source) = crate::win32::foreground_app()?;
+        Some(ForegroundApp { app, source })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         None
     }
@@ -598,6 +610,14 @@ pub fn open_target(target: String) -> Result<(), String> {
     open_with_default_app(&target).map_err(|e| e.to_string())
 }
 
+/// Hand a URL (or path) to whatever the platform has registered for it. Exposed so
+/// lib.rs's MCP-client download links go through the same per-OS branch as project files
+/// instead of growing a second copy of it — the second copy was macOS-only, so every
+/// "get this client" link on Windows answered "macOS only".
+pub(crate) fn open_default_handler(target: &str) -> std::io::Result<()> {
+    open_with_default_app(target)
+}
+
 #[cfg(target_os = "macos")]
 fn open_with_default_app(target: &str) -> std::io::Result<()> {
     std::process::Command::new("open").arg(target).spawn().map(|_| ())
@@ -759,6 +779,11 @@ fn send_overlay_show<R: Runtime>(
 // Two stashes for the two routes below: the pid one is used whenever Accessibility is
 // granted (see the AX section), the name one is the fallback for when it isn't. Exactly
 // one of them is ever set for a given capture.
+//
+// ⚠️ Both stashes are macOS-only, and this one has to say so: `Mutex` is imported under
+// the same gate, so an ungated declaration here is a Windows compile error and nothing
+// else — every read and write below already sits inside a macOS block.
+#[cfg(target_os = "macos")]
 static RESTORE_FOCUS_APP: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(target_os = "macos")]
 static RESTORE_FOCUS_PID: Mutex<Option<i32>> = Mutex::new(None);

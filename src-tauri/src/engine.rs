@@ -497,6 +497,25 @@ pub fn select(engines: &[DetectedEngine], preferred: Option<EngineKind>) -> Opti
 }
 
 pub fn detect(preferred: Option<EngineKind>) -> EngineStatus {
+    // ⚠️ Windows: the engine is switched off at its own front door, and this is the whole
+    // gate — `EngineStatus::missing()` is already the state the entire UI renders nothing
+    // for (§1.4 / §2.1), so nothing downstream needs a second platform branch.
+    //
+    // Why it has to be off (INVESTIGATION_WINDOWS_PORT §4.1 #3, and Ocean's 2026-08-15
+    // decision 6 does not include the engine in the first Windows release): cancelling a
+    // run means `kill(-pgid)` on Unix, and `kill_group` has no Windows body at all. A user
+    // pressing Cancel would get a stopped-looking UI over a provider that keeps running,
+    // keeps billing, and keeps a `spool --mcp` grandchild holding the SQLite file open.
+    // The Windows answer is a Job Object with KILL_ON_JOB_CLOSE; until that exists and has
+    // been tested against a real grandchild, "stop means the whole tree stops" is a promise
+    // this build cannot keep, and a broken Cancel is worse than an absent feature.
+    //
+    // `cfg!` rather than `#[cfg]` on purpose: the detection machinery below stays compiled
+    // and type-checked on Windows, so the day the Job Object lands this is one line to
+    // delete instead of a module that has been rotting behind a gate.
+    if cfg!(windows) {
+        return EngineStatus::missing();
+    }
     let engines: Vec<DetectedEngine> = EngineKind::ALL.iter().filter_map(|k| detect_one(*k)).collect();
     let Some(sel) = select(&engines, preferred) else {
         return EngineStatus::missing();
@@ -1477,7 +1496,11 @@ mod tests {
     /// not go through that guard, so two streaming tests in parallel clobber each other's
     /// pid and the cancel test finds nothing to cancel. Serialise them here rather than
     /// weakening the production invariant to suit the test runner.
+    // Every caller is one of the Unix-gated streaming tests, so both of these are unused on
+    // Windows until those are rewritten per platform.
+    #[cfg(unix)]
     static STREAM_TESTS: Mutex<()> = Mutex::new(());
+    #[cfg(unix)]
     fn one_run_at_a_time() -> std::sync::MutexGuard<'static, ()> {
         // A panicking test poisons the lock; the next one still deserves to run.
         STREAM_TESTS.lock().unwrap_or_else(|e| e.into_inner())
@@ -1499,6 +1522,16 @@ mod tests {
 
     // The env is cleared before the run, so anything missing from this list is missing at
     // the CLI. `USER` looks droppable and is not — see `run_env`.
+    //
+    // ⚠️ Unix-gated, and this gate is a marker for work that has not been done rather than
+    // a platform detail. Five tests in this module carry it, and they are the ones that
+    // reach for `/bin/sh`, `$HOME`, `/opt/homebrew` or a process group — i.e. exactly the
+    // properties the engine needs and Windows expresses differently (`USERPROFILE`, a
+    // PATH+PATHEXT search, a Job Object). `detect()` returns `missing()` on Windows for the
+    // same reason, so what these tests cover is not shipping there and gating them hides
+    // nothing. When the engine is turned on for Windows, these five are the checklist —
+    // they must be rewritten per platform, not simply ungated.
+    #[cfg(unix)]
     #[test]
     fn run_env_carries_the_three_load_bearing_vars() {
         for kind in EngineKind::ALL {
@@ -1578,6 +1611,7 @@ mod tests {
     // The engine slot is invisible unless the CLI is found, so detection failing is the
     // same thing as the feature not existing. nvm is the case that broke: it keeps a bin
     // directory per node version, and `npm i -g` on this machine put codex inside one.
+    #[cfg(unix)] // see run_env_carries_the_three_load_bearing_vars
     #[test]
     fn candidate_paths_cover_the_version_managed_install_dirs() {
         let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
@@ -2082,6 +2116,7 @@ mod tests {
     // W4's whole point: lines have to arrive WHILE the child is alive. If they only landed
     // at exit this would compile, pass a shape test, and still leave the user staring at a
     // frozen panel for five minutes — 「等待中界面毫无变化」, unchanged.
+    #[cfg(unix)] // see run_env_carries_the_three_load_bearing_vars
     #[test]
     fn a_run_is_read_line_by_line_while_it_is_still_going() {
         let _serial = one_run_at_a_time();
@@ -2110,6 +2145,7 @@ mod tests {
     // A child whose stderr pipe fills blocks forever, and `claude --verbose` is chatty. The
     // 200KB below is well past the 64KB pipe buffer: without a second draining thread this
     // test hangs rather than fails, which is what it would do to a real run.
+    #[cfg(unix)] // see run_env_carries_the_three_load_bearing_vars
     #[test]
     fn a_noisy_stderr_cannot_wedge_the_run() {
         let _serial = one_run_at_a_time();
@@ -2121,6 +2157,7 @@ mod tests {
     }
 
     // A probe that never returns must not wedge the settings page.
+    #[cfg(unix)] // see run_env_carries_the_three_load_bearing_vars
     #[test]
     fn output_with_timeout_kills_a_hung_child() {
         let mut cmd = std::process::Command::new("/bin/sh");

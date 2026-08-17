@@ -9,11 +9,10 @@
 // same grammar — keeping the format simple and shared avoids a brittle dependency on
 // the global-shortcut crate's own accelerator parser.
 
-const isMac =
-  typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
+import { IS_MAC } from '@/lib/platform';
 
 // Default — must match Rust's search_accelerator().
-export const DEFAULT_SEARCH_ACCEL = isMac ? 'meta+shift+KeyF' : 'control+shift+KeyF';
+export const DEFAULT_SEARCH_ACCEL = IS_MAC ? 'meta+shift+KeyF' : 'control+shift+KeyF';
 
 // Build an accelerator from a keydown. Returns null for an unusable chord: the key
 // itself is a bare modifier, or there is no "real" modifier (a shift-only global
@@ -31,12 +30,16 @@ export function eventToAccelerator(e: KeyboardEvent): string | null {
   return [...mods, code].join('+');
 }
 
-const MOD_SYMBOL: Record<string, string> = {
-  meta: '⌘',
-  control: '⌃',
-  alt: '⌥',
-  shift: '⇧',
-};
+// How each modifier is drawn on the key the user will actually press. Mac keyboards print
+// the symbols; Windows keyboards print words, and a recorder that echoed `⌃⌥K` back at
+// somebody who just pressed Ctrl+Alt+K would read as though it had misheard them.
+//
+// ⚠️ `meta` on Windows is the Windows key, not Ctrl — the labels are not a rename of the
+// Mac ones. It is listed for completeness only: `RegisterHotKey` reserves Win chords for
+// the OS, so a recording containing it will fail to register and the settings row says so.
+const MOD_SYMBOL: Record<string, string> = IS_MAC
+  ? { meta: '⌘', control: '⌃', alt: '⌥', shift: '⇧' }
+  : { meta: 'Win+', control: 'Ctrl+', alt: 'Alt+', shift: 'Shift+' };
 
 const ARROW: Record<string, string> = { Up: '↑', Down: '↓', Left: '←', Right: '→' };
 const NAMED_KEY: Record<string, string> = {

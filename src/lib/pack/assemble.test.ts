@@ -225,6 +225,28 @@ describe('assemble', () => {
     expect(out).toContain('- baseline');
   });
 
+  // The same property on the other platform's separator. It gets its own test because
+  // the rule above held for a year while being false on Windows: a `/`-only basename
+  // returns a `C:\Users\…` path unchanged, so the pack carried the account name with
+  // nothing failing. Mirrored by mcp.rs's base_name — these two produce one artifact.
+  it('never prints a local path when the path is a Windows one', () => {
+    const blocks = [textBlock('b1', 'kickoff note')];
+    const attachments = [
+      attachment('a1', { label: '', target: 'C:\\Users\\Ocean\\Documents\\lecture-03.pdf' }),
+      attachment('a2', { kind: 'folder', label: '', target: 'C:\\Users\\Ocean\\repos\\baseline\\' }),
+      // A UNC share is a path too, and its host name is exactly the kind of thing that
+      // must not travel.
+      attachment('a3', { label: '', target: '\\\\nas-01\\team\\budget.xlsx' }),
+    ];
+    const out = assemble({ thread, blocks, attachments, now: NOW });
+    expect(out).not.toContain('C:\\Users');
+    expect(out).not.toContain('Ocean');
+    expect(out).not.toContain('nas-01');
+    expect(out).toContain('- lecture-03.pdf');
+    expect(out).toContain('- baseline');
+    expect(out).toContain('- budget.xlsx');
+  });
+
   it("inlines an attachment's extracted text only when include_in_pack === true (§20.2)", () => {
     const blocks = [textBlock('b1', 'see attached')];
     const attachments = [

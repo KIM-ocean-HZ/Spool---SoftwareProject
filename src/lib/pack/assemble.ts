@@ -156,9 +156,16 @@ const oneLine = (s: string): string => s.replace(/\s+/g, ' ').trim();
 // account name and the machine's directory layout, out the door. "Never leaves your
 // machine" is about Spool; the pack is the one artifact designed to leave it. A URL is
 // already public and travels whole; a local path shrinks to its file name.
+//
+// ⚠️ BOTH separators, and that is a privacy fix rather than tidiness: knowing only `/`,
+// this returned `C:\Users\Ocean\Secret\lecture-03.pdf` unchanged, so on Windows the whole
+// promise above silently stopped holding — the pack would carry the account name out the
+// door while the comment still said it did not. Mirrored in mcp.rs base_name; the same
+// two-separator rule already lives in utils/openTarget.ts basename.
 const baseName = (target: string): string => {
-  const trimmed = target.replace(/\/+$/, '');
-  return trimmed.slice(trimmed.lastIndexOf('/') + 1) || trimmed;
+  const trimmed = target.replace(/[/\\]+$/, '');
+  const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  return trimmed.slice(cut + 1) || trimmed;
 };
 
 // v15: every attachment is a local file or folder now, so every target shrinks to its name.

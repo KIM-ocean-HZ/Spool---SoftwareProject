@@ -36,6 +36,7 @@ import type { Workspace } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { t, useT } from '@/lib/i18n';
+import { IS_MAC } from '@/lib/platform';
 
 // Note-first (2026-07-31, DESIGN_CAPTURE_NOTE_FIRST): the toast opens with the note
 // editor visible and focused — capture invites a thought, typing is zero-friction.
@@ -106,7 +107,13 @@ type OverlayContent =
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
-  if (n.kind === 'empty') return t('剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥');
+  // The Windows wording names no chord at all: the trigger there is whatever the user
+  // bound in settings, and this helper process does not read settings.json. Telling them
+  // to "press it again" is both true and shorter than being specific would be.
+  if (n.kind === 'empty')
+    return IS_MAC
+      ? t('剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥')
+      : t('剪贴板为空 — 先复制要捕捉的内容，再按一次捕捉快捷键');
   if (n.kind === 'no-target') return t('没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」');
   return n.msg ?? t('捕捉失败');
 };

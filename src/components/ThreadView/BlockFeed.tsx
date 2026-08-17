@@ -1,12 +1,15 @@
 import { ArrowUpDown, PenLine } from 'lucide-react';
 import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { isUserWritten } from '@/lib/blocks/annotationAuthor';
+import { formatAccelerator } from '@/lib/capture/shortcut';
 import type { Block } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useDropStore } from '@/stores/dropStore';
 import { usePermissionStore } from '@/stores/permissionStore';
+import { IS_MAC } from '@/lib/platform';
 import { useSearchStore } from '@/stores/searchStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import BlockItem from './BlockItem';
 import DateNotices from './DateNotices';
 import { dateLocale, useT } from '@/lib/i18n';
@@ -97,6 +100,8 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   // 拍板点 2/5: the empty state forks on the capture grant, and the capture that takes a
   // new user to three gets a one-time line under it.
   const inputMonitoring = usePermissionStore((s) => s.inputMonitoring);
+  // Only read for the empty state's copy — off macOS it is the capture trigger itself.
+  const captureShortcut = useSettingsStore((s) => s.captureShortcut);
   const packHintBlockId = useCaptureStore((s) => s.packHintBlockId);
   // v2.8 §20.1 selection state. Anchor id drives shift-click range selection.
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
@@ -372,21 +377,28 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
                 grant, double-tapping ⌥ in another app does nothing at all — so that
                 state gets the draft box, the one path that needs no permission.
                 Never send the user after a gesture that cannot work yet. */}
-            {inputMonitoring === false ? (
+            {/* Off macOS the same rule applies with a different missing piece: the
+                gesture does not exist, so what stands in for "permission not granted
+                yet" is "no shortcut chosen yet" — and until one is, this screen must
+                not name a chord. Once bound it prints THAT chord, read from settings,
+                rather than a key the copy happens to remember. */}
+            {inputMonitoring === false || (!IS_MAC && !captureShortcut) ? (
               <>
                 <p className="text-sm italic text-muted">
                   {t('先在下面写一条试试——打字、按 Enter 就存下来了，不需要任何权限。')}
                 </p>
                 <p className="mt-2 text-xs italic text-muted/70">
-                  {t('想在别的 app 里复制就能存？那一步需要打开输入监听权限。')}
+                  {IS_MAC
+                    ? t('想在别的 app 里复制就能存？那一步需要打开输入监听权限。')
+                    : t('想在别的 app 里复制就能存？在设置里给捕捉定一个快捷键。')}
                 </p>
               </>
             ) : (
               <>
                 <p className="text-sm italic text-muted">
-                  {t('⌘C 复制后双击')}{' '}
+                  {IS_MAC ? t('⌘C 复制后双击') : t('复制之后按')}{' '}
                   <kbd className="rounded border border-line-strong bg-paper px-1 font-mono text-[10px] not-italic">
-                    ⌥
+                    {IS_MAC ? '⌥' : formatAccelerator(captureShortcut!)}
                   </kbd>{' '}
                   {t('捕捉第一条信息')}
                 </p>

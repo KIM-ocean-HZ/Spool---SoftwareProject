@@ -5,7 +5,14 @@ pub mod engine;
 pub mod mcp;
 pub mod overlay;
 pub mod pack;
+// Calendar time, split so that only the local-zone half needs the operating system —
+// see the module header for why mcp.rs no longer calls libc directly.
+mod systime;
 pub mod transfer;
+// The Windows syscalls that have no portable expression. Whole module is cfg'd out
+// elsewhere, like double_tap is off Windows.
+#[cfg(target_os = "windows")]
+mod win32;
 
 use tauri::Manager;
 
@@ -234,19 +241,11 @@ fn open_mcp_client_page(client: String) -> Result<(), String> {
         "gemini" => "https://github.com/google-gemini/gemini-cli",
         other => return Err(format!("unknown MCP client: {other}")),
     };
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = url;
-        Err("macOS only".into())
-    }
+    // Same opener the project-file rows use, so the URL takes the platform's registered
+    // handler rather than a second hand-rolled route per OS. Windows needs this to work:
+    // "MCP 接得上" is in the first release, and a client the user has not installed yet
+    // starts with the download page.
+    capture::open_default_handler(url).map_err(|e| e.to_string())
 }
 
 // §2.1 route A (2026-07-31): a fresh Input Monitoring grant never becomes visible to

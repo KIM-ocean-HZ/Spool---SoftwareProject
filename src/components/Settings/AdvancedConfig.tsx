@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { clearAllData } from '@/lib/db/client';
 import { useT } from '@/lib/i18n';
+import { IS_MAC } from '@/lib/platform';
 import BrowserAutomation from './BrowserAutomation';
 import LibraryTransfer from './LibraryTransfer';
 
@@ -27,12 +28,22 @@ export default function AdvancedConfig() {
 
   return (
     <div>
-      <h3 className="pt-2.5 text-xs font-medium tracking-wide text-muted">
-        {t('浏览器自动化权限')}
-      </h3>
-      <BrowserAutomation />
+      {/* macOS only, and hidden rather than disabled off it. These five rows grant
+          AppleScript Automation so capture can read a browser's active TAB TITLE; on
+          Windows the source label comes from the foreground window's caption instead
+          (win32.rs), which needs no grant and has no toggle. Rendering them anyway would
+          offer five permissions that do not exist, and `probe_browser_automation` answers
+          "macOS only" — a settings page whose every button reports an error. */}
+      {IS_MAC && (
+        <>
+          <h3 className="pt-2.5 text-xs font-medium tracking-wide text-muted">
+            {t('浏览器自动化权限')}
+          </h3>
+          <BrowserAutomation />
 
-      <div className="mt-2 border-t border-line" />
+          <div className="mt-2 border-t border-line" />
+        </>
+      )}
 
       <h3 className="pt-2.5 text-xs font-medium tracking-wide text-muted">{t('换机器')}</h3>
       <LibraryTransfer />

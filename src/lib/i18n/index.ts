@@ -13,6 +13,7 @@
 // transient toast produced mid-switch may use the previous language, which is fine).
 
 import { useCallback } from 'react';
+import { localizeKeyCaps } from '@/lib/platform';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 export type Language = 'zh' | 'en';
@@ -20,20 +21,27 @@ export type Language = 'zh' | 'en';
 const interpolate = (s: string, vars?: Record<string, string | number>): string =>
   vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s;
 
-export const t = (key: string, vars?: Record<string, string | number>): string => {
-  const lang = useSettingsStore.getState().language;
-  const s = lang === 'en' ? (EN[key] ?? key) : key;
-  return interpolate(s, vars);
-};
+// One pass, at the exit of the only function every visible string goes through. The copy
+// is written once with Mac symbols (they are the shortest way to write a chord, and this
+// is a Mac-first product); off macOS the symbols are spelled out as the words those
+// keyboards actually print. ⌘N really is Ctrl+N there — the handlers have always read
+// `metaKey || ctrlKey` — so this makes the LABEL true, it does not change any behaviour.
+//
+// ⚠️ It cannot fix a sentence that describes a gesture Windows does not have. Anything
+// mentioning the double-tap ⌥ trigger or a macOS permission needs its own copy, chosen at
+// the call site by IS_MAC — a mechanical substitution there would produce a fluent
+// instruction for something that cannot be done.
+const render = (key: string, lang: Language, vars?: Record<string, string | number>): string =>
+  localizeKeyCaps(interpolate(lang === 'en' ? (EN[key] ?? key) : key, vars));
+
+export const t = (key: string, vars?: Record<string, string | number>): string =>
+  render(key, useSettingsStore.getState().language, vars);
 
 // Reactive variant for components: re-renders on language change.
 export const useT = (): typeof t => {
   const lang = useSettingsStore((s) => s.language);
   return useCallback(
-    (key: string, vars?: Record<string, string | number>) => {
-      const s = lang === 'en' ? (EN[key] ?? key) : key;
-      return interpolate(s, vars);
-    },
+    (key: string, vars?: Record<string, string | number>) => render(key, lang, vars),
     [lang],
   );
 };
@@ -64,6 +72,11 @@ const EN: Record<string, string> = {
   '想在别的 app 里复制就存，需要开一个权限。在那之前 Spool 照样能用——在下面写笔记，或者在 Spool 里复制后双击 ⌥。':
     'Capturing from other apps needs one permission. Until then Spool still works — write notes below, or copy inside Spool and double-tap ⌥.',
   '打开捕捉': 'Turn on capture',
+  // Windows onboarding (2026-08-18): no TCC grant to ask for, but also no default
+  // capture chord — Ocean chose to have the first launch ask for one instead.
+  '想在别的 app 里复制就存，先给捕捉定一个快捷键。在那之前 Spool 照样能用——在下面直接写笔记。':
+    'To save things you copy in other apps, pick a capture shortcut first. Until then Spool still works — just write notes below.',
+  '设一个快捷键': 'Pick a shortcut',
   '在系统设置里勾选 Spool，然后完全退出 Spool（托盘图标 → 退出）再重新打开。没看到系统弹窗？点右边打开设置。':
     'Tick Spool in System Settings, then fully quit Spool (tray icon → Quit) and reopen. No system dialog? Open Settings on the right.',
   '已授权 — 重启 Spool 后生效': 'Granted — takes effect after Spool restarts',
@@ -107,6 +120,7 @@ const EN: Record<string, string> = {
   '设为捕捉': 'Set capture',
   '捕捉到此': 'Capture here',
   '之后的 ⌘C+双击 ⌥ 捕捉都会落进这个项目': 'Future ⌘C + double-tap ⌥ captures land in this project',
+  '之后捕捉到的内容都会落进这个项目': 'Anything captured from now on lands in this project',
   '移动到工作区': 'Move to workspace',
   '没有其他工作区': 'No other workspaces',
   '搜索全部内容 (⌘⇧F)': 'Search everything (⌘⇧F)',
@@ -326,6 +340,7 @@ const EN: Record<string, string> = {
   '松开以新建第一个块': 'Release to create the first block',
   '松开以新建一个块': 'Release to create a block',
   '⌘C 复制后双击': 'Copy with ⌘C, then double-tap',
+  '复制之后按': 'Copy, then press',
   '捕捉第一条信息': 'to capture your first piece',
   '捕捉后可以顺手留一句想法；或在下方直接写。':
     'Each capture invites a quick note; or write below.',
@@ -333,6 +348,8 @@ const EN: Record<string, string> = {
   // draft box is the one path that works with no permission at all.
   '先在下面写一条试试——打字、按 Enter 就存下来了，不需要任何权限。':
     "Try one below — type, press Enter, it's saved. No permission needed.",
+  '想在别的 app 里复制就能存？在设置里给捕捉定一个快捷键。':
+    'Want to save what you copy in other apps? Pick a capture shortcut in Settings.',
   '想在别的 app 里复制就能存？那一步需要打开输入监听权限。':
     'Want copying in any app to save here? That step needs the Input Monitoring permission.',
   '设置截止日期': 'Set deadline',
@@ -668,6 +685,8 @@ const EN: Record<string, string> = {
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
+  '剪贴板为空 — 先复制要捕捉的内容，再按一次捕捉快捷键':
+    'Clipboard is empty — copy what you want to capture, then press the capture shortcut again',
   '没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a project header',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',
@@ -713,6 +732,9 @@ const EN: Record<string, string> = {
   '内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。':
     'Built-in gesture: within 10 s of copying (⌘C), double-tap ⌥ to capture the clipboard — then just type in the popup to leave a note. The shortcuts below are customizable.',
   '可选 — 双击 ⌥ 之外的备用捕捉键': 'Optional — a fallback capture key besides double-tap ⌥',
+  '复制之后按下面这个快捷键，就能把剪贴板存进来，弹窗里可直接打字留一句想法。':
+    'Copy something, then press the shortcut below to save the clipboard. You can type a thought straight into the popup.',
+  '从别的软件里捕捉，全靠这个键': 'The only way to capture from another app',
   '未设置': 'Not set',
   '清除捕捉快捷键': 'Clear the capture shortcut',
   '搜索快捷键': 'Search shortcut',

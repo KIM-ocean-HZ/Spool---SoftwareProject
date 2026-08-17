@@ -397,35 +397,24 @@ pub struct AttachmentRow {
 }
 
 // ---------------------------------------------------------------------------------------
-// Time formatting — local time via libc::localtime_r, mirroring the frontend's
+// Time formatting — local time via crate::systime, mirroring the frontend's
 // formatPackTime/formatPackDate (JS Date renders in the machine's local zone; the pack
 // must read identically whether produced by PackDialog or by this server).
+//
+// The platform call lives in systime.rs; these are the four places that used to reach for
+// libc directly, three of them through Unix-only extensions that do not exist on Windows.
 // ---------------------------------------------------------------------------------------
 
-fn local_tm(epoch_ms: i64) -> libc::tm {
-    let secs = (epoch_ms.div_euclid(1000)) as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::localtime_r(&secs, &mut tm);
-    }
-    tm
-}
+use crate::systime::{self, Civil};
 
 pub fn format_pack_time(epoch_ms: i64) -> String {
-    let tm = local_tm(epoch_ms);
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min
-    )
+    let c = systime::local_from_epoch_ms(epoch_ms);
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", c.year, c.mon, c.mday, c.hour, c.min)
 }
 
 pub fn format_pack_date(epoch_ms: i64) -> String {
-    let tm = local_tm(epoch_ms);
-    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+    let c = systime::local_from_epoch_ms(epoch_ms);
+    format!("{:04}-{:02}-{:02}", c.year, c.mon, c.mday)
 }
 
 /// Same calendar day in the machine's local zone (DESIGN_FOLLOW_UP §8.5). Local, not a
@@ -438,26 +427,17 @@ fn same_day(a: i64, b: i64) -> bool {
 // v20 (DESIGN_MCP_INTENT_ROUTING §4.6) — the two columns that hold a DAY, not a moment.
 // `retrieved_at` / `recheck_after` go in as UTC midnight so that "retrieved 2026-08-09"
 // comes back out as the same nine characters the caller sent, on any machine; running them
-// through localtime_r like every other timestamp here would move half of them a day. The TS
-// twin is assemble.ts formatUtcDate.
-fn utc_tm(epoch_ms: i64) -> libc::tm {
-    let secs = (epoch_ms.div_euclid(1000)) as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::gmtime_r(&secs, &mut tm);
-    }
-    tm
-}
-
+// through the local zone like every other timestamp here would move half of them a day. The
+// TS twin is assemble.ts formatUtcDate.
 pub fn format_utc_date(epoch_ms: i64) -> String {
-    let tm = utc_tm(epoch_ms);
-    format!("{:04}-{:02}-{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday)
+    let c = systime::utc_from_epoch_ms(epoch_ms);
+    format!("{:04}-{:02}-{:02}", c.year, c.mon, c.mday)
 }
 
 // The inverse, for the two write tools: "YYYY-MM-DD" → UTC midnight in unix ms.
 //
-// ⚠️ The ranges are checked BEFORE timegm sees the struct, because timegm normalises out of
-// range rather than refusing: month 13 silently becomes January of the next year, and a
+// ⚠️ The ranges are checked BEFORE the conversion sees the struct, because it normalises out
+// of range rather than refusing: month 13 silently becomes January of the next year, and a
 // model that typo'd a date would get a stored value nobody would ever question. This is the
 // one place a caller's date can be rejected, so it rejects.
 pub fn parse_iso_date(s: &str) -> Option<i64> {
@@ -471,17 +451,16 @@ pub fn parse_iso_date(s: &str) -> Option<i64> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    tm.tm_year = year - 1900;
-    tm.tm_mon = month - 1;
-    tm.tm_mday = day;
-    let secs = unsafe { libc::timegm(&mut tm) };
-    if secs == -1 {
-        return None;
-    }
+    let ms = systime::epoch_ms_from_utc(&Civil {
+        year,
+        mon: month,
+        mday: day,
+        hour: 0,
+        min: 0,
+        sec: 0,
+    });
     // A short month absorbs the overflow the same way (31 April → 1 May), so the round trip
-    // is the check: what timegm produced has to spell what the caller wrote.
-    let ms = (secs as i64) * 1000;
+    // is the check: what the conversion produced has to spell what the caller wrote.
     (format_utc_date(ms) == s).then_some(ms)
 }
 
@@ -497,9 +476,13 @@ fn one_line(s: &str) -> String {
 // leave the machine, so a local path shrinks to its file name; a URL is already public
 // and travels whole. get_blocks' JSON keeps the full path — that one is for the caller,
 // not for pasting.
+//
+// ⚠️ Both separators — see the TS twin's comment. A `/`-only rule leaves a Windows path
+// whole, which turns the one artifact designed to leave the machine into a carrier for the
+// account name.
 fn base_name(target: &str) -> &str {
-    let trimmed = target.trim_end_matches('/');
-    match trimmed.rfind('/') {
+    let trimmed = target.trim_end_matches(['/', '\\']);
+    match trimmed.rfind(['/', '\\']) {
         Some(i) if i + 1 < trimmed.len() => &trimmed[i + 1..],
         _ => trimmed,
     }
@@ -2080,19 +2063,17 @@ const DIGEST_ANCHOR_CHARS: usize = 160;
 // line item rather than a second catalogue; the ones cut are the furthest away.
 const DIGEST_DEADLINE_CAP: usize = 8;
 
-// Local midnight of the calendar day `days_back` days before `now_ms`. Subtracting on
-// tm_mday (mktime normalizes out-of-range fields, tm_isdst = -1 resolves DST) keeps the
-// boundary at true local midnight even when a DST transition falls inside the window —
-// fixed-86400s arithmetic would drift it by ±1h (review finding).
+// Local midnight of the calendar day `days_back` days before `now_ms`. Subtracting on the
+// day-of-month (the platform conversion normalizes out-of-range fields and resolves DST)
+// keeps the boundary at true local midnight even when a DST transition falls inside the
+// window — fixed-86400s arithmetic would drift it by ±1h (review finding).
 fn window_start_ms(now_ms: i64, days_back: i64) -> i64 {
-    let mut tm = local_tm(now_ms);
-    tm.tm_hour = 0;
-    tm.tm_min = 0;
-    tm.tm_sec = 0;
-    tm.tm_mday -= days_back as libc::c_int;
-    tm.tm_isdst = -1;
-    let secs = unsafe { libc::mktime(&mut tm) };
-    (secs as i64) * 1000
+    let mut c = systime::local_from_epoch_ms(now_ms);
+    c.hour = 0;
+    c.min = 0;
+    c.sec = 0;
+    c.mday -= days_back as i32;
+    systime::epoch_ms_from_local(&c)
 }
 
 // Whole calendar days from `now_ms` to a deadline — 0 the day it is due, negative once it
@@ -3419,9 +3400,20 @@ fn new_id() -> Result<String, String> {
     const ALPHABET: &[u8; 64] =
         b"useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
     let mut bytes = [0u8; 21];
-    use std::io::Read;
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
+    // ⚠️ This is a RUNTIME platform split, not a compile-time one: `/dev/urandom` is a
+    // path, so the old code built for Windows perfectly well and only failed here, at the
+    // first `create_thread` or `add_block`. A read-only smoke test never reaches it
+    // (INVESTIGATION_WINDOWS_PORT §4.1 #13) — "the server connects" is not evidence that
+    // it can write.
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| f.read_exact(&mut bytes))
+            .map_err(|e| t!("随机源不可用: {e}", "No source of randomness available: {e}"))?;
+    }
+    #[cfg(windows)]
+    crate::win32::random_bytes(&mut bytes)
         .map_err(|e| t!("随机源不可用: {e}", "No source of randomness available: {e}"))?;
     Ok(bytes.iter().map(|b| ALPHABET[(b & 0x3F) as usize] as char).collect())
 }
@@ -6715,12 +6707,51 @@ struct ClientSpec {
     toml: bool,
 }
 
+// The user's home directory. Windows has no `HOME` — the variable every Unix tool reads
+// is `USERPROFILE` there, and a client that keeps a dot-file (Claude Code, Codex, Cursor,
+// Windsurf) puts it under exactly that.
+//
+// ⚠️ Reading `HOME` unconditionally is how this whole family of functions used to fail on
+// Windows, and it failed QUIETLY in the guidance-file case: `.ok()?` on a missing variable
+// is indistinguishable from "this client has no guidance file", so one-click would report
+// success with half the job undone.
+fn user_home() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let var = "USERPROFILE";
+    #[cfg(not(windows))]
+    let var = "HOME";
+    std::env::var_os(var).map(PathBuf::from)
+}
+
+// Where a GUI application (as opposed to a CLI's dot-file) keeps its per-user data.
+// Mirrors app_data_dir() above, which resolves the same three platforms for Spool's own
+// library — same split, same reasoning, and both have to agree with what Tauri's own
+// path resolver picks or the MCP server reads a different database than the app writes.
+fn client_app_data_root() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(user_home()?.join("Library/Application Support"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Roaming, not Local: this is where Claude Desktop and VS Code keep user config.
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| user_home().map(|h| h.join(".config")))
+    }
+}
+
 fn client_config_paths(client: &str) -> Result<ClientSpec, String> {
-    let home = std::env::var("HOME").map_err(|e| format!("no HOME: {e}"))?;
-    let home = PathBuf::from(home);
+    let home = user_home().ok_or_else(|| "no home directory".to_string())?;
+    let app_data = client_app_data_root()
+        .ok_or_else(|| "no per-user application data directory".to_string())?;
     let spec = match client {
         "claude" => {
-            let root = home.join("Library/Application Support/Claude");
+            let root = app_data.join("Claude");
             let cfg = root.join("claude_desktop_config.json");
             ClientSpec { root, cfg, key: "mcpServers", typed: false, toml: false }
         }
@@ -6738,7 +6769,7 @@ fn client_config_paths(client: &str) -> Result<ClientSpec, String> {
         // VS Code (Copilot chat). User-profile mcp.json — servers available in every
         // workspace, the equivalent of "user scope" elsewhere.
         "vscode" => {
-            let root = home.join("Library/Application Support/Code");
+            let root = app_data.join("Code");
             let cfg = root.join("User/mcp.json");
             ClientSpec { root, cfg, key: "servers", typed: true, toml: false }
         }
@@ -6944,7 +6975,7 @@ const GUIDANCE_END: &str = "<!-- spool:end -->";
 // where — and a guess writes a file into $HOME that no one will ever read. Left out on
 // purpose; add a row when it has actually been checked.
 fn client_guidance_path(client: &str) -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var("HOME").ok()?);
+    let home = user_home()?;
     match client {
         "codex" => Some(home.join(".codex/AGENTS.md")),
         "claude-code" => Some(home.join(".claude/CLAUDE.md")),
@@ -10853,6 +10884,29 @@ mod tests {
         }
     }
 
+    // §3.1-5 — the pack is the artifact that leaves the machine, so a local path shrinks to
+    // its name. Both separators, because a `/`-only rule is not a weaker version of this
+    // property on Windows, it is the property not holding at all: the whole
+    // `C:\Users\Ocean\…` string comes through, account name included, and nothing fails.
+    // Twin of assemble.ts baseName — the two render the same artifact.
+    #[test]
+    fn a_local_path_shrinks_to_its_name_on_either_platform() {
+        for (path, name) in [
+            ("/Users/hzjin/Library/files/lecture-03.pdf", "lecture-03.pdf"),
+            ("/Users/hzjin/repos/baseline/", "baseline"),
+            ("C:\\Users\\Ocean\\Documents\\lecture-03.pdf", "lecture-03.pdf"),
+            ("C:\\Users\\Ocean\\repos\\baseline\\", "baseline"),
+            ("\\\\nas-01\\team\\budget.xlsx", "budget.xlsx"),
+            // Mixed separators are legal on Windows and arrive from pickers and drops.
+            ("C:/Users/Ocean\\Desktop/notes.md", "notes.md"),
+            // Nothing to shrink: a bare name, and a target that is nothing but separators.
+            ("notes.md", "notes.md"),
+            ("\\\\", ""),
+        ] {
+            assert_eq!(base_name(path), name, "{path}");
+        }
+    }
+
     // §4.6 — where a block came from, recorded at the moment it is written, and read back
     // three ways: the pack line, get_blocks, and the overview's due_for_recheck count.
     #[test]
@@ -12088,14 +12142,26 @@ mod tests {
         assert!(!narrowed.contains("blocks total"));
     }
 
-    // One test on purpose: it redirects HOME to a temp dir, and env vars are
-    // process-global across the parallel test harness. No other test reads HOME.
+    // One test on purpose: it redirects the home directory to a temp dir, and env vars are
+    // process-global across the parallel test harness. No other test reads them.
+    //
+    // ⚠️ The two GUI clients (Claude Desktop, VS Code) live under a DIFFERENT root from the
+    // dot-file CLIs, and where that root is depends on the platform. Their paths are asked
+    // for rather than spelled out, so this test proves the same behaviours on Windows —
+    // spelling `Library/Application Support` here would have made it a macOS-only test that
+    // still compiled and still failed on the machine that mattered.
     #[test]
     fn one_click_client_config_status_merge_backup() {
         store_lang(Lang::Zh); // these fixtures are the Chinese rendering
         let tmp = std::env::temp_dir().join(format!("spool-mcp-cfg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
+        #[cfg(windows)]
+        {
+            std::env::set_var("USERPROFILE", &tmp);
+            std::env::set_var("APPDATA", tmp.join("AppData/Roaming"));
+        }
+        #[cfg(not(windows))]
         std::env::set_var("HOME", &tmp);
 
         // Client not installed: probe says so, configure refuses to invent dirs.
@@ -12111,7 +12177,7 @@ mod tests {
 
         // Existing config with other servers + a stale spool path: merge keeps
         // everything else, updates spool, and writes a .bak of the old file first.
-        let claude_dir = tmp.join("Library/Application Support/Claude");
+        let claude_dir = client_config_paths("claude").unwrap().root;
         std::fs::create_dir_all(&claude_dir).unwrap();
         let cfg = claude_dir.join("claude_desktop_config.json");
         std::fs::write(
@@ -12158,7 +12224,7 @@ mod tests {
         // VS Code keeps its servers under `servers`, not `mcpServers` — writing the
         // wrong key would leave the user with a config the client silently ignores.
         assert_eq!(client_status("vscode").unwrap(), "not-installed");
-        let vsc = tmp.join("Library/Application Support/Code/User");
+        let vsc = client_config_paths("vscode").unwrap().cfg.parent().unwrap().to_path_buf();
         std::fs::create_dir_all(&vsc).unwrap();
         assert_eq!(client_status("vscode").unwrap(), "unconfigured");
         assert_eq!(configure_client("vscode").unwrap(), "written");

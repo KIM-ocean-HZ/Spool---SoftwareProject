@@ -49,3 +49,18 @@ toml_edit = "0.25.11"
 core-graphics = "0.23"
 core-foundation = "0.9"
 foreign-types = "0.5"
+
+# Windows-only: the two things the port cannot fake (see win32.rs).
+#   - BCryptGenRandom, because MCP ids came from /dev/urandom and that device does not
+#     exist on Windows — read tools would work and every write would fail at id time.
+#   - GetForegroundWindow → pid → executable, because `get_foreground_app` returned None
+#     off macOS and every Windows capture would land with a blank source.
+# Version 0.61 on purpose: tauri already pulls that exact one into the graph, so this
+# adds API surface rather than a second copy of the crate.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

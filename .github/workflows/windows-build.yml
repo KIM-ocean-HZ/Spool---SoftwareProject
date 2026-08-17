@@ -1,0 +1,61 @@
+# Windows build — the only place this repo can compile for Windows.
+#
+# Why it exists: the development Mac has one Rust target (aarch64-apple-darwin), so
+# nothing here can be type-checked, let alone linked, without a Windows machine.
+# DESIGN_WINDOWS_PORT §4 called this the first step of the port, and it is: every
+# `cfg(target_os = "windows")` branch in src-tauri is unverified code until this job
+# goes green.
+#
+# ⚠️ Scoped to the port branch on purpose. It must not start running on `main` until
+# the Windows first release is a decided thing — see INVESTIGATION_WINDOWS_PORT §5.1.
+name: Windows build
+
+on:
+  push:
+    branches: [windows-port]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      # src-tauri/target is ~4GB from scratch; without a cache every push pays a full
+      # cold build of the dependency graph before it can tell us about a one-line typo.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Front end first: it is the cheap half, and `tsc -b` catches the TypeScript side
+      # of any platform split before we spend ten minutes on rustc.
+      - run: npm run build
+
+      - run: npx vitest run
+
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+      # NSIS only. `bundle.targets: "all"` would also build the MSI, which drags in WiX
+      # and the VBSCRIPT optional Windows feature for no first-release benefit
+      # (INVESTIGATION_WINDOWS_PORT §4.1 #8). Unsigned — Ocean's 2026-08-15 decision 5.
+      - name: Build installer
+        run: npx tauri build --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spool-windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
