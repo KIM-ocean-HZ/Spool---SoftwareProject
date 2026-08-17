@@ -3327,12 +3327,34 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
 // §20.13 v2 resources probe: threads as MCP resources (spool://thread/<id>) so clients
 // with native resource UX (@-mention in Claude Desktop) can pull a pack without a tool
 // call. Listed newest-activity first; the pack text itself is served by resources/read.
+//
+// ⭐ 2026-08-17 — the probe was finally RUN from a live MCP client (Claude Code), which
+// PLAN_EN §20.13 had left open since 2026-08-03. Protocol side is fine: 27 projects listed,
+// resources/read returns the pack. What the real library exposed is the `description`
+// column: it fell back to the WORKSPACE title, and only 2 of 27 projects have a summary —
+// so an @-picker showed 「学校」 twenty-four times, the same word against twenty-four
+// different schools.
+//
+// The fallback is now the head of the project's first live block, which is what
+// `indexSummary` in lib/pack/folder.ts already does for INDEX.md. That is not a coincidence
+// to be tidied away later — Ocean ruled on this exact question on 2026-08-17 (「每个项目的
+// 标题信息量足够了，加上 40 字辅助」), and `head_anchor` here is already the declared twin of
+// TS's `headAnchor`, same 40 characters. One rule, one number, two surfaces.
+//
+// ⚠️ The workspace title survives as the LAST resort — a project with neither a summary nor
+// a block. INDEX.md prints nothing in that case; a resource with an empty description just
+// looks broken in a picker, so the two differ here on purpose.
 const THREAD_URI_PREFIX: &str = "spool://thread/";
 
 fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.title, t.summary, w.title
+            "SELECT t.id, t.title, t.summary, w.title,
+                    (SELECT b.content FROM blocks b
+                      WHERE b.thread_id = t.id
+                        AND b.stale_at IS NULL
+                        AND trim(b.content) <> ''
+                      ORDER BY b.created_at ASC LIMIT 1)
              FROM threads t JOIN workspaces w ON w.id = t.workspace_id
              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
              ORDER BY t.updated_at DESC",
@@ -3344,10 +3366,16 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
             let title: String = r.get(1)?;
             let summary: Option<String> = r.get(2)?;
             let workspace: String = r.get(3)?;
+            let first_block: Option<String> = r.get(4)?;
+            let non_empty = |s: String| Some(s).filter(|s| !s.trim().is_empty());
             Ok(json!({
                 "uri": format!("{THREAD_URI_PREFIX}{id}"),
                 "name": if title.is_empty() { untitled().to_string() } else { title },
-                "description": summary.filter(|s| !s.trim().is_empty()).unwrap_or(workspace),
+                "description": summary
+                    .and_then(non_empty)
+                    .map(|s| head_anchor(&s))
+                    .or_else(|| first_block.and_then(non_empty).map(|c| head_anchor(&c)))
+                    .unwrap_or(workspace),
                 "mimeType": "text/plain",
             }))
         })
@@ -9365,6 +9393,64 @@ mod tests {
             serde_json::from_str(&search_blocks_json(&conn, "调参结论", None, None).unwrap()).unwrap();
         assert_eq!(gone["total"], 0);
         assert!(thread_resources(&conn).unwrap().is_empty());
+    }
+
+    // ⭐ 2026-08-17, after running the probe against the real library from a live MCP client:
+    // 25 of 27 projects had no summary, so every one of their descriptions was its WORKSPACE
+    // name — an @-picker showing 「学校」 twenty-four times. The fallback is now the head of the
+    // first live block, matching what INDEX.md does (lib/pack/folder.ts `indexSummary`).
+    #[test]
+    fn resource_description_falls_back_to_the_first_block_not_the_workspace() {
+        store_lang(Lang::Zh);
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '学校', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, status, created_at, updated_at)
+               VALUES ('t1', 'ws1', 'Columbia MSCS', 'active', 1, 30),
+                      ('t2', 'ws1', 'UIUC MSC',      'active', 1, 20),
+                      ('t3', 'ws1', '空项目',        'active', 1, 10);
+             -- t1: the first block by created_at is retired, so it must be skipped, exactly
+             -- as indexSummary skips a stale block on the TS side.
+             INSERT INTO blocks (id, thread_id, kind, content, stale_at, created_at)
+               VALUES ('b1', 't1', 'text', '这条已经不成立了', 99, 1),
+                      ('b2', 't1', 'text', '2026 Fall 总案例数 7 录取率 28%', NULL, 2);
+             -- t2: whitespace-only blocks are not a description either.
+             INSERT INTO blocks (id, thread_id, kind, content, stale_at, created_at)
+               VALUES ('b3', 't2', 'text', '   ', NULL, 1),
+                      ('b4', 't2', 'text', 'GPA 3.6 起报,今年缩招', NULL, 2);",
+        )
+        .unwrap();
+
+        let res = thread_resources(&conn).unwrap();
+        assert_eq!(res.len(), 3);
+        assert_eq!(res[0]["description"], "2026 Fall 总案例数 7 录取率 28%");
+        assert_eq!(res[1]["description"], "GPA 3.6 起报,今年缩招");
+        // ⚠️ Neither a summary nor a block: the workspace name is better than an empty
+        // description here, which is where this deliberately differs from INDEX.md.
+        assert_eq!(res[2]["description"], "学校");
+    }
+
+    // The 40-character cap is the twin of TS's `headAnchor` (assemble.ts). A summary long
+    // enough to fill a picker row is cut the same way on both sides — the number lives in
+    // PLACEHOLDER_HEAD_CHARS and must not grow a second definition here.
+    #[test]
+    fn resource_description_is_capped_like_the_pack_anchor() {
+        store_lang(Lang::Zh);
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        let long = "长".repeat(60);
+        conn.execute_batch(&format!(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+               VALUES ('ws1', '学校', 0, 1, 1);
+             INSERT INTO threads (id, workspace_id, title, summary, status, created_at, updated_at)
+               VALUES ('t1', 'ws1', 'x', '{long}', 'active', 1, 1);"
+        ))
+        .unwrap();
+
+        let res = thread_resources(&conn).unwrap();
+        assert_eq!(res[0]["description"], format!("{}…", "长".repeat(PLACEHOLDER_HEAD_CHARS)));
     }
 
     // v2.4 (6a): the GROUP BY rewrite of list_threads must keep the correlated-subquery
