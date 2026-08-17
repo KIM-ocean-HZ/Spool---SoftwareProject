@@ -1,5 +1,10 @@
 # Windows 版勘查 — 排在所有任务最后(Ocean 2026-07-30 定序)
 
+> ⚠️ **2026-08-18:首版已经动工,落地记录在本文件 §5(最新,看那一节)。**
+> 下面 §1–§4 是 2026-07-30 的勘查原文,**§2 那张「已经跨平台、别重复造」的表已经不准了**
+> (它说「双击模块 gated,所以 Windows 能编译」—— 那条 2026-08-13 就被
+> `INVESTIGATION_WINDOWS_PORT_2026-08-13.md` 推翻了)。留着看当时的判断,别照它开工。
+
 > **为什么单独成文**:这份勘查原本只写在 HANDOFF 里,2026-08-02 那次交接改写把它丢了
 > (Ocean 2026-08-03 发现)。交接文档每窗都会重写,**长期计划不能只活在那里**——所以搬到
 > 这里,HANDOFF 只留一行指针。
@@ -47,3 +52,86 @@
 **第一步就该用 CI 把「能编译」拿下** —— 仓库已经有 `.github/workflows/pages.yml`
 (官网自动部署),照它的样子加一个 `windows-latest` 的 build workflow 即可,不是从零搭。
 ⚠️ 加 workflow 属于对外动作的边缘(会跑在 GitHub 上),动之前跟 Ocean 说一声。
+
+---
+
+## 5. 首版落地(2026-08-18,分支 `windows-port`)
+
+> 状态:**代码写完、macOS 侧全绿、Windows 侧只有 CI 编译过**。
+> 一行都没有在真 Windows 上跑过 —— 装机验收由 Ocean 做,清单见
+> `docs/WINDOWS-CHECK.md`。
+
+### 5.1 开工前拍的两条(Ocean 2026-08-18)
+
+| # | 事项 | 他定的 |
+|---|---|---|
+| 1 | 怎么编译 | **GitHub Actions**(这台 Mac 只有 `aarch64-apple-darwin`,连 `cargo check` 都过不去 —— libsqlite3-sys 要为目标平台编 C) |
+| 2 | 捕捉默认快捷键 | **先不定** —— 首版不给默认值,第一次启动引导他自己按一个 |
+
+⭐ 第 2 条**逼出了一个不加不行的东西**:macOS 上「捕捉是空的」有横幅解释(权限没给),
+Windows 上没有权限这回事,于是首启会是**一个功能完全静默、且看不出为什么静默的 app**。
+所以 `PermissionBanner` 多了一个 `unbound` 相位 —— 它跟权限无关,但它跟那三个相位是
+**同一形状的问题**:捕捉是死的,而原因在屏幕上看不见。**语言切换器也在那条横幅里**,
+不复用它的话 Windows 首启连换语言的入口都没有。
+
+### 5.2 修掉的东西,按「症状离原因有多远」排
+
+| 改的地方 | 原来会怎样 |
+|---|---|
+| `capture.rs` `RESTORE_FOCUS_APP` 加 cfg 门 | 编译不过 —— `Mutex` 的 import 在 macOS 门里,静态量在门外 |
+| `systime.rs`(新)+ `mcp.rs` 四处调用点 | 编译不过 —— `localtime_r` / `gmtime_r` / `timegm` 是 Unix 扩展,Windows 的 libc 里**没有声明** |
+| `mcp.rs` `new_id` 走 CNG | ⚠️ **编译得过**。`/dev/urandom` 是一个**路径**不是一个符号,所以服务起得来、只读工具也跑得通,一直到第一次 `create_thread` / `add_block` 才报「随机源不可用」 |
+| `mcp.rs` `user_home()` / `client_app_data_root()` | 一键接入无条件读 `HOME`;Windows 没这个变量。更坏的是 `client_guidance_path` 用的是 `.ok()?` —— **变量不存在和「这个客户端没有指导文件」是同一个值**,于是「接入成功」会盖住半件没做的事 |
+| `assemble.ts` / `mcp.rs` 的 `base_name` 认 `\` | ⚠️ **隐私回归**:打包是**专门要离开这台机器**的东西,而 `/` 版本会让 `C:\Users\Ocean\...` 原样进包 —— 注释还写着「只外发文件名」 |
+| `engine.rs` `detect()` 在 Windows 直接 `missing()` | 取消一次运行是 `kill(-pgid)`,Windows 那一支是空的 |
+| `lib.rs` 托盘图标 | `icon_as_template` 是 macOS 概念,Windows 直接忽略 → 那张黑色模板图**画在 Windows 11 的深色托盘上**。关窗只是隐藏,托盘是回到 app、也是退出 app 的唯一路 |
+| `lib.rs` `open_mcp_client_page` 改走 `capture::open_default_handler` | 非 macOS 一律返回 `macOS only` —— 而「MCP 接得上」在首版范围里,没装客户端的用户第一步就是那个下载页 |
+| 界面文案(见 §5.3) | ⌘ 键帽、双击 ⌥、输入监听权限 |
+
+### 5.3 文案:两类,处理方式不一样
+
+1. **纯键帽**(`⌘⇧F`、`⌘Z`、`⌘,`)—— `lib/platform.ts` 的 `localizeKeyCaps`,
+   挂在 `i18n` 的 `t()` / `useT()` 出口上,**一处**。行为本来就是对的
+   (键盘处理一直读 `metaKey || ctrlKey`),错的只是标签。
+2. **描述一个 Windows 没有的动作**(「双击 ⌥」「打开输入监听权限」)——
+   ⚠️ **这一类不能机械替换**。替换出来是一句读着很顺、但那个动作根本做不了的指令。
+   按调用点用 `IS_MAC` 选文案:`ShortcutConfig`、`BlockFeed` 空状态、
+   `CaptureOverlay` 的「剪贴板为空」、`ThreadHeader` 的「捕捉到此」提示。
+
+⭐ `ShortcutConfig` 那两句是这条规矩最值钱的例子:macOS 上捕捉快捷键的说明是
+**「可选 —— 双击 ⌥ 之外的备用捕捉键」**,而 Windows 上它是**唯一的门**。
+照搬等于叫人跳过屋里唯一那扇门。
+
+### 5.4 打包
+
+`tauri.windows.conf.json`(平台配置和通用配置自动 merge),三条都是决定不是默认:
+
+- `targets: ["nsis"]` —— 不出 MSI。MSI 要 WiX 和 Windows 的 VBSCRIPT 可选功能,
+  首版换不到任何东西(调查报告 §4.1 #8)。
+- `webviewInstallMode: downloadBootstrapper` —— 装的时候联网拉 WebView2。
+  `offlineInstaller` 会让安装包大 127MB;现代 Windows 基本自带这个运行时。
+  ⚠️ **离线机器上会卡在这一步**,这是已知代价。
+- `nsis.installMode: currentUser` —— 装进用户目录,**不需要管理员权限**。
+
+⚠️ **通用配置里的 `macOSPrivateApi` 和 `bundle.macOS.signingIdentity` 故意没有搬走。**
+Windows 会忽略它们,而搬动它们要赌 Tauri 的 merge 行为 —— 赌输了是 macOS 的浮窗
+不透明或签名身份丢了,那是拿一个能跑的平台去换一个还没跑过的平台的整洁。
+
+**不签名**(Ocean 2026-08-15 决策 5),所以 SmartScreen 会拦,首次运行要手动放行。
+
+### 5.5 ⚠️ 首版故意不做的,和它们各自的理由
+
+| 不做 | 为什么 |
+|---|---|
+| **双击 Alt 手势** | 要 `WH_KEYBOARD_LL` 低级键盘钩子 + 吞键,杀软容易误判。Ocean 2026-08-15 决策 4 |
+| **click-outside 消失** | 同一条钩子路(`WH_MOUSE_LL`)。Esc / ✕ / 8 秒自动消失仍然在 |
+| **浮窗抢焦点 / 还焦点** | Windows 明确限制后台进程抢前台(`SetForegroundWindow` 可能直接被拒)。**首版不承诺「弹出即可打字」** —— 点一下笔记框再打字,数据一条都不会丢 |
+| **Engine(AI 维护 / 联网跟进)** | 见 §5.2。开它之前要先做 Job Object 全树取消 |
+| **浏览器活动标签页** | 没有通用 API。来源退到**窗口标题**,浏览器的窗口标题本来就带着当前标签页 |
+| **签名** | 决策 5 |
+
+### 5.6 ⚠️ 一行都没在真 Windows 上跑过
+
+CI 证明的是**能编译、能打出安装包、单测在 Windows 上是绿的**。它证明不了:
+托盘图标看不看得见、浮窗透不透明、快捷键注册会不会撞、`spool.exe --mcp` 被真客户端
+拉起来会不会闪黑框、一键接入写进去的路径客户端认不认。**这些全在 Ocean 的清单上。**

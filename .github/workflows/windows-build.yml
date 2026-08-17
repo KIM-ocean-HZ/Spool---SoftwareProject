@@ -20,6 +20,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # Before checkout, so it governs how the working tree is written. Git for Windows
+      # ships with autocrlf=true, which rewrites every checked-out text file to CRLF —
+      # and two suites here compare generated text to a committed fixture BYTE FOR BYTE
+      # (the cross-language pack golden, and the zh site's build-is-in-sync check). Both
+      # would fail on `\r` alone and say nothing about Windows.
+      #
+      # ⚠️ This is a property of the checkout, not of the product: a Windows user installs
+      # a built app and never has a working tree. Turning the conversion off is what makes
+      # the fixtures mean the same thing on both runners.
+      - run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4

@@ -470,9 +470,19 @@ pub fn run() {
                     44,
                     44,
                 );
+                // ⚠️ Windows has no template images: `icon_as_template` is a macOS
+                // concept and is simply ignored there, so the mark above would be drawn
+                // literally — black on the Windows 11 tray, which is dark by default.
+                // An invisible tray icon is not cosmetic here: closing the window only
+                // hides it, so the tray is the way back to the app and the only way to
+                // quit it. The bundled app icon is coloured and Tauri has already decoded
+                // it for the window, so it costs no new image feature.
+                #[cfg(not(target_os = "macos"))]
+                let icon =
+                    app.default_window_icon().cloned().map(|i| i.to_owned()).unwrap_or(icon);
                 TrayIconBuilder::with_id("main")
                     .icon(icon)
-                    .icon_as_template(true)
+                    .icon_as_template(cfg!(target_os = "macos"))
                     .tooltip("Spool · 思簿")
                     .menu(&initial_menu)
                     .on_menu_event(|app, event| {
