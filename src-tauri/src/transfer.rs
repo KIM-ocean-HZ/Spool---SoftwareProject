@@ -44,6 +44,26 @@ fn is_same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Make `dest` writable by VACUUM INTO (which refuses to overwrite), or refuse the export.
+///
+/// ⚠️⚠️ The ORDER of the two steps below is the entire safety property of this feature, and
+/// it lives in one function precisely so a test can hold it: a user who steers the save
+/// dialog into the data directory and accepts the name `spool.db` must be REFUSED, not have
+/// their live library deleted by the command meant to back it up. That is the 2026-05-29
+/// class of accident. As two loose statements in the command body, nothing would notice the
+/// day someone moved the deletion up.
+fn clear_export_target(dest: &Path, data_dir: &Path) -> Result<(), String> {
+    // Refuse FIRST. Never delete anything under the data directory.
+    if dest.starts_with(data_dir) {
+        return Err("不能导出到 Spool 自己的数据目录里".into());
+    }
+    // Only then carry out the replacement the save dialog already asked the user about.
+    if dest.exists() {
+        fs::remove_file(dest).map_err(|e| format!("替换不了已有的文件：{e}"))?;
+    }
+    Ok(())
+}
+
 /// Write the whole library out to `dest` as a single self-contained file.
 ///
 /// Returns the exported file's size in bytes.
@@ -56,20 +76,7 @@ pub fn export_library(app: tauri::AppHandle, dest: String) -> Result<u64, String
     }
 
     let dest_path = PathBuf::from(&dest);
-
-    // ⚠️⚠️ THIS CHECK MUST STAY ABOVE THE remove_file BELOW. A user who steers the save
-    // dialog into the data directory and accepts the name `spool.db` would otherwise have
-    // their live library deleted by the very command meant to back it up — the 2026-05-29
-    // class of accident. Nothing may be exported into the data directory, full stop.
-    if dest_path.starts_with(&dir) {
-        return Err("不能导出到 Spool 自己的数据目录里".into());
-    }
-
-    // The save dialog has already asked about replacing. VACUUM INTO refuses to write over
-    // an existing file, so the answer has to be carried out here.
-    if dest_path.exists() {
-        fs::remove_file(&dest_path).map_err(|e| format!("替换不了已有的文件：{e}"))?;
-    }
+    clear_export_target(&dest_path, &dir)?;
 
     // Read-only, exactly like the MCP server's connection: migrations run in the GUI and
     // an export must never be the thing that changes the library.
@@ -157,6 +164,69 @@ mod tests {
         let f = dir.join("spool.db");
         fs::write(&f, b"x").unwrap();
         assert!(is_same_file(&f, &dir.join(".").join("spool.db")));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Scratch dir shaped like the data directory, with a library in it.
+    fn fake_data_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("spool-export-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("spool.db"), b"the real library").unwrap();
+        dir
+    }
+
+    /// ⚠️⚠️ THE test of this feature. Refusing is not enough — refusing must not have
+    /// deleted anything on the way. If the guard ever moves below the remove_file, the
+    /// export command becomes a command that erases the library it exists to copy.
+    #[test]
+    fn refusing_an_export_into_the_data_dir_deletes_nothing() {
+        let dir = fake_data_dir("refuse");
+        let live = dir.join("spool.db");
+
+        let err = clear_export_target(&live, &dir).unwrap_err();
+
+        assert!(err.contains("数据目录"), "{err}");
+        assert!(live.exists(), "the live library was deleted by a REFUSED export");
+        assert_eq!(fs::read(&live).unwrap(), b"the real library");
+
+        // Not just spool.db — nothing under the data directory may be an export target,
+        // including the pre-migration snapshots that are the recovery path.
+        assert!(clear_export_target(&dir.join("spool.pre-migration-v22.db"), &dir).is_err());
+        assert!(clear_export_target(&dir.join("sub").join("x.db"), &dir).is_err());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// ⭐ `starts_with` on a Path compares COMPONENTS, not characters — a sibling directory
+    /// whose name merely begins with the data dir's name is a legitimate export target. This
+    /// pins that the guard was not written as a string prefix test, which would refuse it.
+    #[test]
+    fn a_sibling_whose_name_starts_the_same_is_still_allowed() {
+        let dir = fake_data_dir("sibling");
+        let neighbour = PathBuf::from(format!("{}-export.db", dir.to_string_lossy()));
+        let _ = fs::remove_file(&neighbour);
+
+        assert!(clear_export_target(&neighbour, &dir).is_ok());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Outside the data dir the answer the save dialog already collected is carried out:
+    /// VACUUM INTO will not write over a file, so the old one has to go first.
+    #[test]
+    fn an_existing_file_outside_the_data_dir_is_replaced() {
+        let dir = fake_data_dir("replace");
+        let out = std::env::temp_dir()
+            .join(format!("spool-export-out-{}.db", std::process::id()));
+        fs::write(&out, b"last week's export").unwrap();
+
+        assert!(clear_export_target(&out, &dir).is_ok());
+        assert!(!out.exists(), "VACUUM INTO would refuse to write over it");
+        // Absent is fine too — the common case is a brand-new file name.
+        assert!(clear_export_target(&out, &dir).is_ok());
+
         fs::remove_dir_all(&dir).unwrap();
     }
 
