@@ -18,7 +18,11 @@ export default function RecentSection() {
   const t = useT();
   const byWs = useThreadsStore((s) => s.threadsByWorkspace);
   const activeId = useThreadsStore((s) => s.activeId);
-  const select = useThreadsStore((s) => s.select);
+  // v23: a plain click here means 「只要这一个」 — it opens the project AND drops any
+  // multi-selection made in the tree below. ⚠️ Multi-select itself is not offered in
+  // these two lists: they repeat rows that also exist under a workspace, so a run
+  // selected here would have no single top-to-bottom order to mean anything against.
+  const clickRow = useThreadsStore((s) => s.clickRow);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
 
   const recent = useMemo(() => {
@@ -43,7 +47,7 @@ export default function RecentSection() {
         {recent.map((th) => (
           <li
             key={th.id}
-            onClick={() => select(th.id)}
+            onClick={() => clickRow(th.id, [th.id], { meta: false, shift: false })}
             className={`group flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
               th.id === activeId ? 'bg-paper-2' : 'hover:bg-paper-2/60'
             }`}

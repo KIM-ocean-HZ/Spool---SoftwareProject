@@ -15,6 +15,7 @@ import type { UndoEntry } from '@/lib/undo/undoLog';
 const refreshAfterUndoRedo = async (entry: UndoEntry): Promise<void> => {
   switch (entry.kind) {
     case 'thread_delete':
+    case 'thread_delete_many':
       await useThreadsStore.getState().loadAll();
       break;
     case 'workspace_delete':

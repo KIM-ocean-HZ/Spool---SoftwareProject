@@ -53,6 +53,7 @@ const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
   delete: '删除',
   highlight: '高亮',
   thread_delete: '删除项目',
+  thread_delete_many: '删除多个项目',
   workspace_delete: '删除工作区',
   forward: '复制',
   empty: '',

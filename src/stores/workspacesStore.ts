@@ -10,9 +10,11 @@ interface WorkspacesState {
   loading: boolean;
   error: string | null;
   load: () => Promise<void>;
-  create: (title?: string) => Promise<Workspace>;
+  create: (title?: string, parentId?: string | null) => Promise<Workspace>;
   rename: (id: string, title: string) => Promise<void>;
   reorder: (orderedIds: string[]) => Promise<void>;
+  /** v23: re-parent a workspace. `null` sends it back to the top level. */
+  move: (id: string, parentId: string | null) => Promise<void>;
   remove: (id: string) => Promise<void>;
 }
 
@@ -34,8 +36,8 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     }
   },
 
-  create: async (title = '') => {
-    const ws = await db.createWorkspace(title);
+  create: async (title = '', parentId = null) => {
+    const ws = await db.createWorkspace(title, parentId);
     set((s) => ({ workspaces: [...s.workspaces, ws] }));
     return ws;
   },
@@ -59,6 +61,17 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         })
         .filter((w): w is Workspace => w !== null),
     });
+  },
+
+  // ⚠️ setWorkspaceParent throws on a move that would build a ring (a workspace inside its
+  // own descendant). The throw is left to the caller: the drop target is what knows how to
+  // say no to the user, and swallowing it here would make an illegal drag look like it
+  // worked until the next reload.
+  move: async (id, parentId) => {
+    const updatedAt = await db.setWorkspaceParent(id, parentId);
+    set((s) => ({
+      workspaces: s.workspaces.map((w) => (w.id === id ? { ...w, parentId, updatedAt } : w)),
+    }));
   },
 
   remove: async (id) => {

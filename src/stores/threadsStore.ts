@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { ensureBaseData } from '@/lib/db/client';
 import * as db from '@/lib/db/threads';
 import type { Thread, ThreadPatch } from '@/lib/db/threads';
-import { buildThreadDeleteUndo, useUndoStore } from './undoStore';
+import { buildThreadDeleteManyUndo, buildThreadDeleteUndo, useUndoStore } from './undoStore';
 
 /** The sidebar's pinned entries — the two "projects" whose contents are not blocks.
  *  'board' is 项目管理 (every project), 'review' is 周回顾 (every project, over time). */
@@ -42,6 +42,16 @@ interface ThreadsState {
    *  of activeId (block loading, capture target, pack) would have to learn to skip it. The
    *  selected project stays selected underneath, so leaving the board goes back where you
    *  were. */
+  /** v23 sidebar multi-select (Ocean 2026-08-17「和 vscode 逻辑一样」).
+   *
+   *  ⚠️ Separate from `activeId`, which is 「哪个项目开在主区」 — one project, always. This is
+   *  「哪些行被圈住了」, for acting on several at once. A plain click sets both (select one and
+   *  open it); ⌘-click and ⇧-click only ever touch this one, so extending a selection never
+   *  yanks the main area away from what the user is reading — that is the VS Code behaviour
+   *  being copied, and the reason the two cannot be the same field. */
+  selectedIds: Set<string>;
+  /** Where a ⇧-click measures from: the last row clicked without ⇧. */
+  selectionAnchorId: string | null;
   pinnedView: PinnedView;
   loading: boolean;
   error: string | null;
@@ -52,7 +62,15 @@ interface ThreadsState {
   setSummary: (id: string, summary: string | null) => Promise<void>;
   setCaptureTarget: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  /** v23: delete a whole multi-selection under ONE undo entry (§ThreadDeleteManyPayload). */
+  removeMany: (ids: string[]) => Promise<void>;
+  /** v23: move a whole multi-selection into one workspace. */
+  moveMany: (ids: string[], workspaceId: string) => Promise<void>;
   select: (id: string | null) => void;
+  /** v23: one sidebar row click, VS Code rules. `ordered` is the list the row was drawn in,
+   *  top to bottom — the only thing that can define what 「一段」 means for ⇧-click. */
+  clickRow: (id: string, ordered: string[], mods: { meta: boolean; shift: boolean }) => void;
+  clearSelection: () => void;
   setCompleting: (id: string | null) => void;
   setPacking: (id: string | null) => void;
   /** Undo a completion: back to active, and the completion's two artefacts cleared.
@@ -82,6 +100,8 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
   captureTargetId: null,
   completingId: null,
   packingId: null,
+  selectedIds: new Set<string>(),
+  selectionAnchorId: null,
   pinnedView: null,
   loading: true,
   error: null,
@@ -104,6 +124,10 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
         // If the previously-active thread was deleted (here or via a workspace delete),
         // drop the selection so App re-selects the capture target.
         activeId: all.some((t) => t.id === s.activeId) ? s.activeId : null,
+        // Same rule for the multi-selection: a row that no longer exists cannot stay
+        // circled. ⚠️ This is also what makes an undone delete come back UNselected rather
+        // than restoring a selection the user has long since moved on from.
+        selectedIds: new Set([...s.selectedIds].filter((id) => all.some((t) => t.id === id))),
         loading: false,
         error: null,
       }));
@@ -178,9 +202,67 @@ export const useThreadsStore = create<ThreadsState>((set, get) => ({
     await get().loadAll();
   },
 
+  // v23: delete every selected project under ONE undo entry. Each row is soft-deleted with
+  // the same call the single delete makes; the batching is only in the undo entry and in the
+  // single reload at the end.
+  //
+  // ⚠️ The titles are snapshotted BEFORE the deletes, for the same reason the single case
+  // does it: afterwards the rows are gone and the toast has nothing to name.
+  removeMany: async (ids) => {
+    if (ids.length === 0) return;
+    const threads = ids.map((id) => ({
+      threadId: id,
+      title: selectThreadById(id)(get())?.title ?? '',
+    }));
+    for (const id of ids) await db.softDeleteThread(id);
+    useUndoStore.getState().pushUndo(buildThreadDeleteManyUndo({ threads }));
+    set({ selectedIds: new Set<string>(), selectionAnchorId: null });
+    await ensureBaseData();
+    await get().loadAll();
+  },
+
+  // v23: move every selected project into one workspace. Sequential rather than one
+  // statement so it goes through the same `patch` as a single drag — one path to keep right.
+  moveMany: async (ids, workspaceId) => {
+    for (const id of ids) await get().patch(id, { workspaceId });
+  },
+
   // Picking a project always leaves whichever pinned view was open — that IS what clicking a
   // card in the matrix means (§9.4: 「点击可以跳转到项目即可」).
   select: (id) => set({ activeId: id, pinnedView: null }),
+
+  // VS Code's three clicks, and nothing more:
+  //   plain — this row alone is selected, and it opens (the old behaviour, unchanged);
+  //   ⌘     — add/remove this row, leave the main area alone;
+  //   ⇧     — select the run between the anchor and this row, within the list it was drawn in.
+  //
+  // ⚠️ ⇧ ranges do not cross lists. A project can be drawn in 最近 AND in its workspace, so
+  // there is no single top-to-bottom order over the rail to measure a run against — 「这一段」
+  // only means something inside one list. ⌘ has no such problem and works anywhere.
+  clickRow: (id, ordered, { meta, shift }) => {
+    const { selectedIds, selectionAnchorId } = get();
+    if (shift && selectionAnchorId && selectionAnchorId !== id) {
+      const a = ordered.indexOf(selectionAnchorId);
+      const b = ordered.indexOf(id);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        set({ selectedIds: new Set(ordered.slice(lo, hi + 1)) });
+        return;
+      }
+      // Anchor is in some other list: fall through and treat this as a fresh anchor rather
+      // than selecting a run that spans two lists nobody can see as one.
+    }
+    if (meta) {
+      const next = new Set(selectedIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      set({ selectedIds: next, selectionAnchorId: id });
+      return;
+    }
+    set({ selectedIds: new Set([id]), selectionAnchorId: id, activeId: id, pinnedView: null });
+  },
+
+  clearSelection: () => set({ selectedIds: new Set<string>(), selectionAnchorId: null }),
 
   setCompleting: (id) => set({ completingId: id }),
 

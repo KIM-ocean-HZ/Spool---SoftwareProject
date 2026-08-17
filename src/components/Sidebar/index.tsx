@@ -10,6 +10,7 @@ import {
 import { useMemo } from 'react';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { useT } from '@/lib/i18n';
+import { buildWorkspaceTree, compareWorkspaceTitles } from '@/lib/workspaces/tree';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -44,6 +45,15 @@ export default function Sidebar({ onCollapse }: Props) {
         return d !== null && d <= DUE_SOON_DAYS;
       }).length;
   }, [threadsByWs]);
+  // v23: workspaces nest, so the rail draws a tree rather than a list — and 首字母 ordering
+  // (backlog §1.3 #1) is applied to the flat list before building, which orders every level
+  // in one step. ⚠️ Sorting here rather than in listWorkspaces on purpose: this is the rail's
+  // reading order, and the capture overlay's workspace picker has its own reasons for the
+  // order rows arrive in.
+  const tree = useMemo(
+    () => buildWorkspaceTree([...workspaces].sort(compareWorkspaceTitles)),
+    [workspaces],
+  );
   const openSearch = useSearchStore((s) => s.openSearch);
   const openSettings = useSettingsStore((s) => s.openPanel);
   // DESIGN_MCP_WRITE_ROLE §4.3: the only way in. A badge, in the footer, absent when the
@@ -161,11 +171,11 @@ export default function Sidebar({ onCollapse }: Props) {
             <p className="mt-2 text-xs text-muted">{t('点下方 + 工作区开始')}</p>
           </div>
         ) : (
-          workspaces.map((ws) => (
+          tree.map((node) => (
             <WorkspaceGroup
-              key={ws.id}
-              workspace={ws}
-              threads={threadsByWs[ws.id] ?? []}
+              key={node.workspace.id}
+              node={node}
+              threadsByWorkspace={threadsByWs}
               activeThreadId={activeId}
             />
           ))

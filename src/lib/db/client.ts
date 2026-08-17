@@ -36,7 +36,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -730,6 +730,25 @@ const MIGRATIONS: Migration[] = [
           );
         }
         console.info(`[db] v22: ${lines.length} follow-up line(s) carried across for ${t.id}`);
+      }
+    },
+  },
+  {
+    // v23 (DESIGN_WORKSPACE_PACK §4, Ocean 2026-08-15「可以在每个工作区内再新建工作区」) —
+    // workspaces stop being flat. One nullable column, nothing else: every existing
+    // workspace reads back as NULL = top level, which is exactly what it was, so this step
+    // is behaviour-neutral by construction.
+    //
+    // ⚠️ ADD COLUMN only — no table rebuild. A rebuild branch is what emptied the live
+    // library on 2026-05-29; there is no version of "add a parent pointer" that needs one.
+    from: 22,
+    to: 23,
+    name: 'add-workspace-parent-id',
+    run: async (db) => {
+      try {
+        await db.execute('ALTER TABLE workspaces ADD COLUMN parent_id TEXT');
+      } catch (e) {
+        console.info('[db] workspaces.parent_id: not added (likely exists)', e);
       }
     },
   },

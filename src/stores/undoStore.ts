@@ -18,6 +18,7 @@ import type {
   ForwardPayload,
   HighlightPayload,
   MergePayload,
+  ThreadDeleteManyPayload,
   ThreadDeletePayload,
   UndoEntry,
   WorkspaceDeletePayload,
@@ -97,6 +98,16 @@ export const buildThreadDeleteUndo = (payload: ThreadDeletePayload): UndoEntry =
   invalidated: false,
 });
 
+// v23: one entry for a whole multi-selection delete — see ThreadDeleteManyPayload.
+export const buildThreadDeleteManyUndo = (payload: ThreadDeleteManyPayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'thread_delete_many',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: [],
+  invalidated: false,
+});
+
 export const buildWorkspaceDeleteUndo = (payload: WorkspaceDeletePayload): UndoEntry => ({
   id: nanoid(),
   kind: 'workspace_delete',
@@ -132,9 +143,10 @@ export const threadIdForEntry = (entry: UndoEntry): string => {
       return entry.payload.block.threadId;
     case 'thread_delete':
       return entry.payload.threadId;
+    case 'thread_delete_many':
     case 'workspace_delete':
       // No single thread — the orchestration layer (runUndo) refreshes the workspace and
-      // thread stores instead of a block feed, so this is never used for this kind.
+      // thread stores instead of a block feed, so this is never used for these kinds.
       return '';
   }
 };
@@ -161,6 +173,18 @@ export const previewForEntry = (entry: UndoEntry): string => {
       return previewText(entry.payload.beforeContent);
     case 'thread_delete':
       return previewText(entry.payload.title);
+    // ⚠️ The count has to be in here. The toast names the op ("撤销:删除项目") and then shows
+    // this string — a five-project delete that reads back as one project name would look
+    // like four of them are still gone. `+4` rather than words: this function has no `t()`
+    // (it is a store module, and the toast lives in the overlay window with its own
+    // translator), and a number needs no translating.
+    case 'thread_delete_many': {
+      const [first, ...rest] = entry.payload.threads;
+      if (!first) return '';
+      return rest.length === 0
+        ? previewText(first.title)
+        : `${previewText(first.title)} +${rest.length}`;
+    }
     case 'workspace_delete':
       return '';
     case 'forward': {
@@ -238,6 +262,16 @@ const reverseAndBuildRedo = async (
       await restoreThread(threadId);
       return async () => {
         await softDeleteThread(threadId);
+      };
+    }
+    // v23 multi-select delete. Restoring one at a time is the same call the single case
+    // makes, so there is no second reversal path to keep in step with the first — only the
+    // loop is new. Order does not matter: threads carry no relation to each other.
+    case 'thread_delete_many': {
+      const { threads } = entry.payload;
+      for (const { threadId } of threads) await restoreThread(threadId);
+      return async () => {
+        for (const { threadId } of threads) await softDeleteThread(threadId);
       };
     }
     case 'workspace_delete': {

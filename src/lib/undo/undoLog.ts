@@ -11,6 +11,7 @@ export type UndoOpKind =
   | 'delete'
   | 'highlight'
   | 'thread_delete'
+  | 'thread_delete_many'
   | 'workspace_delete'
   | 'forward';
 
@@ -51,6 +52,15 @@ export interface HighlightPayload {
 export interface ThreadDeletePayload {
   threadId: string;
   title: string;
+}
+
+// v23: the sidebar can delete a multi-selection in one action, and that has to be ONE undo
+// entry — five entries would mean five Cmd+Z presses to put back what one click removed,
+// and the user would be five presses deep before knowing whether it worked. Each thread is
+// still soft-deleted individually (same call as the single case), so the reversal is just
+// the single reversal run over the list.
+export interface ThreadDeleteManyPayload {
+  threads: ThreadDeletePayload[];
 }
 
 // Step 6 §8.1: workspace soft-delete cascades to its active threads with one shared
@@ -97,6 +107,10 @@ export interface ThreadDeleteUndoEntry extends BaseEntry {
   kind: 'thread_delete';
   payload: ThreadDeletePayload;
 }
+export interface ThreadDeleteManyUndoEntry extends BaseEntry {
+  kind: 'thread_delete_many';
+  payload: ThreadDeleteManyPayload;
+}
 export interface WorkspaceDeleteUndoEntry extends BaseEntry {
   kind: 'workspace_delete';
   payload: WorkspaceDeletePayload;
@@ -112,6 +126,7 @@ export type UndoEntry =
   | MergeUndoEntry
   | HighlightUndoEntry
   | ThreadDeleteUndoEntry
+  | ThreadDeleteManyUndoEntry
   | WorkspaceDeleteUndoEntry
   | ForwardUndoEntry;
 

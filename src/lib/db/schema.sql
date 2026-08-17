@@ -1,9 +1,14 @@
 -- Spool data model (PLAN_EN.md §8.1). Three tiers: Workspace → Thread → Block.
 
 -- Workspace: big topic. The thinnest tier — just a grouping container.
+-- v23 (DESIGN_WORKSPACE_PACK §4): a workspace may sit inside another one. `parent_id` is
+-- NULL for a top-level workspace and holds another workspace's id otherwise. No foreign
+-- key on purpose — deletes here are soft (deleted_at), so the row a child points at is
+-- still present; orphan handling lives in lib/db/workspaces.ts, not in the engine.
 CREATE TABLE IF NOT EXISTS workspaces (
   id          TEXT PRIMARY KEY,            -- nanoid
   title       TEXT NOT NULL DEFAULT '',
+  parent_id   TEXT,                        -- NULL = top level; else the enclosing workspace
   sort_order  INTEGER NOT NULL DEFAULT 0,  -- manual sidebar ordering
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
