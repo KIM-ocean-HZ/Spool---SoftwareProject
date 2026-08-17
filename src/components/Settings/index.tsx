@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { IS_MAC } from '@/lib/platform';
 import { useSettingsStore } from '@/stores/settingsStore';
 import AdvancedConfig from './AdvancedConfig';
 import EngineConfig from './EngineConfig';
@@ -20,12 +21,17 @@ export default function Settings() {
   const t = useT();
   const open = useSettingsStore((s) => s.panelOpen);
   const close = useSettingsStore((s) => s.closePanel);
-  const [tab, setTab] = useState<Tab>('general');
+  const captureShortcut = useSettingsStore((s) => s.captureShortcut);
+  // Off macOS a missing capture shortcut means capture does not work AT ALL — there is no
+  // double-tap ⌥ behind it — and the onboarding banner's button leads straight here. So
+  // that one unfinished state picks the tab; everything else still lands on 通用.
+  const landingTab: Tab = !IS_MAC && !captureShortcut ? 'shortcuts' : 'general';
+  const [tab, setTab] = useState<Tab>(landingTab);
 
-  // Reopening always lands on 通用 — the dialog is transient, not a workspace.
+  // Reopening always lands on the same place — the dialog is transient, not a workspace.
   useEffect(() => {
-    if (open) setTab('general');
-  }, [open]);
+    if (open) setTab(landingTab);
+  }, [open, landingTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -43,7 +49,12 @@ export default function Settings() {
     { key: 'mcp', label: 'MCP' },
     // DESIGN_WORKBENCH §9.2 R5 — its own item, next to MCP rather than inside it: one hands
     // the library OUT to an AI you use elsewhere, the other lets a CLI here work FOR you.
-    { key: 'engine', label: t('AI 引擎') },
+    //
+    // ⚠️ Absent on Windows, where `engine::detect` reports no engine on purpose (cancelling
+    // a run cannot yet take the whole process tree with it). The page would render its
+    // "no CLI found — install claude or codex" state, which is an instruction that would
+    // not help: installing one changes nothing until the Job Object work lands.
+    ...(IS_MAC ? [{ key: 'engine' as const, label: t('AI 引擎') }] : []),
     { key: 'shortcuts', label: t('快捷键') },
     { key: 'advanced', label: t('高级') },
   ];

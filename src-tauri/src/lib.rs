@@ -445,11 +445,23 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // Ensure the AppLocalDataDir exists *before* the SQL plugin tries to open
-            // `sqlite:spool.db` against it. Some Tauri 2 plugin-sql versions don't
+            // Ensure the directory the SQL plugin will open `sqlite:spool.db` against
+            // exists *before* it tries. Some Tauri 2 plugin-sql versions don't
             // auto-create the parent dir on first launch and the frontend hangs forever
             // on `Database.load(...)`.
-            if let Ok(dir) = app.path().app_local_data_dir() {
+            //
+            // ⚠️ BOTH, because on macOS these are the same path and on Windows they are
+            // not: config dir is Roaming AppData, local data dir is Local AppData. The
+            // plugin resolves a relative sqlite URL against the CONFIG dir, so on Windows
+            // the line below was creating a directory nothing would ever open — and the
+            // failure mode is the worst one available: a first launch that hangs on a
+            // blank window, on the platform where nobody has a terminal open to see why.
+            // Creating a second empty directory is the whole cost of not finding that out
+            // from Ocean.
+            for dir in [app.path().app_config_dir(), app.path().app_local_data_dir()]
+                .into_iter()
+                .flatten()
+            {
                 let _ = std::fs::create_dir_all(&dir);
             }
 

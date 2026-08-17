@@ -2,6 +2,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
 import { followUpFingerprint } from '@/lib/engine/followUp';
+import { IS_MAC, localizeKeyCaps } from '@/lib/platform';
 import schemaSql from './schema.sql?raw';
 
 export const INBOX_WORKSPACE_TITLE = '默认工作区';
@@ -884,6 +885,11 @@ interface SeedBlock {
   content: string;
   annotation?: string;
   pinned?: boolean;
+  // Replacement copy for platforms without the double-tap ⌥ gesture (2026-08-18, Windows
+  // port). It sits HERE, next to the text it replaces, rather than being picked out by
+  // index at seed time: the two are one sentence written twice, and an index would keep
+  // pointing at whatever ends up in that slot after the next edit.
+  offMac?: string;
 }
 interface SeedThread {
   title: string;
@@ -891,10 +897,40 @@ interface SeedThread {
   blocks: SeedBlock[];
 }
 
+// The tutorial is DATABASE ROWS, not UI copy — what gets seeded on first launch is what
+// that install reads forever, so it cannot be re-rendered per platform later the way
+// `t()` re-renders a label. Hence one pass here, applied at module load so that seeding,
+// `TUTORIAL_SOURCES`, and the language switch's byte-for-byte matcher all read the same
+// text. (If only the seed were adjusted, a language switch would find no block matching
+// and silently skip the whole thread — the failure this file's own header warns about.)
+//
+// Two things happen: key caps follow the platform like everywhere else, and any block
+// carrying `offMac` is swapped whole. The second is not cosmetic — the capture block
+// tells a macOS user to double-tap ⌥ and to grant Input Monitoring, and on Windows
+// neither exists. It is block 2 of the guide, i.e. the first instruction a new user
+// follows, and following it would do nothing at all.
+const platformTutorial = (
+  raw: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp: SeedThread }>,
+): typeof raw => {
+  if (IS_MAC) return raw;
+  const block = (b: SeedBlock): SeedBlock => ({
+    ...b,
+    content: localizeKeyCaps(b.offMac ?? b.content),
+    ...(b.annotation === undefined ? {} : { annotation: localizeKeyCaps(b.annotation) }),
+  });
+  const thread = (s: SeedThread): SeedThread => ({ ...s, blocks: s.blocks.map(block) });
+  return Object.fromEntries(
+    Object.entries(raw).map(([lang, copy]) => [
+      lang,
+      { source: copy.source, gesture: thread(copy.gesture), mcp: thread(copy.mcp) },
+    ]),
+  ) as typeof raw;
+};
+
 // 任务二 A2 (2026-07-12, Ocean-approved): the MCP scenarios get their own thread —
 // one copy-paste phrase per block, the annotation naming the tool behind it. The
 // thread is its own demo material (its review phrase asks the AI to read it).
-const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp: SeedThread }> = {
+const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp: SeedThread }> = platformTutorial({
   zh: {
     source: 'Spool 指南',
     gesture: {
@@ -909,6 +945,11 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         {
           content:
             '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」项目。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
+          // 没有双击 ⌥ 的平台：手势不存在，「输入监听」权限也不存在，所以这一句是重写的
+          // 而不是替词。先设快捷键这一步必须排在最前面 —— 没设之前，这条教程里没有任何
+          // 一个动作是做得成的。
+          offMac:
+            '捕捉：先去顶部横幅点「设一个快捷键」（或设置 → 快捷键），给捕捉定一个组合键。之后在任何应用选中文字按 ⌘C，再按那个快捷键——内容自动落进「捕捉目标」项目。',
         },
         {
           content:
@@ -981,6 +1022,8 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         {
           content:
             'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target project. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
+          offMac:
+            'Capture: first press "Pick a shortcut" in the banner at the top (or Settings → Shortcuts) and choose a key combination for capture. Then select text in any app, press ⌘C, and press your shortcut — it lands in your capture-target project.',
         },
         {
           content:
@@ -1043,7 +1086,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
       ],
     },
   },
-};
+});
 
 const insertSeedThread = async (
   db: Database,
