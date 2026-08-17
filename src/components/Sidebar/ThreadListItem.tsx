@@ -1,23 +1,17 @@
 import { Pin } from 'lucide-react';
-import type { DragEvent, MouseEvent } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import CountdownBadge from '@/components/ui/CountdownBadge';
 import MenuDeleteItem from '@/components/ui/MenuDeleteItem';
 import StatusDot from '@/components/ui/StatusDot';
+import { useMenuPosition } from '@/components/ui/useMenuPosition';
 import type { Thread } from '@/lib/db/threads';
+import { startRailDrag } from '@/lib/sidebar/railDrag';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
-
-// dataTransfer MIME for an in-app thread drag. WorkspaceGroup checks for this type to
-// distinguish a thread being moved between workspaces from an OS file drag (§9.9).
-//
-// ⚠️ v23: the payload is now a COMMA-SEPARATED LIST of thread ids, because dragging a row
-// that is part of a multi-selection drags the whole selection. A single drag is a
-// one-element list, so `split(',')` covers both and there is no second format.
-export const THREAD_DRAG_MIME = 'application/x-spool-thread';
 
 interface Props {
   thread: Thread;
@@ -91,6 +85,7 @@ export default function ThreadListItem({
   // Right-click → move-to-workspace menu (§9.2; the other move path is drag). Tracked by
   // viewport coords so the menu anchors to the cursor regardless of sidebar scroll.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuPos = useMenuPosition(menu);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -110,9 +105,15 @@ export default function ThreadListItem({
   // (and does not silently drag rows the user cannot see the connection to).
   const acting = selected && selectedIds.size > 1 ? [...selectedIds] : [thread.id];
 
-  const onDragStart = (e: DragEvent<HTMLLIElement>) => {
-    e.dataTransfer.setData(THREAD_DRAG_MIME, acting.join(','));
-    e.dataTransfer.effectAllowed = 'move';
+  // Dragging this row into a workspace. ⚠️ Not `draggable` + `dragstart`: HTML5
+  // drag-and-drop is swallowed by Tauri's native drag-drop handler before the page ever sees
+  // it — the whole story, and why turning that handler off is not an option, is in
+  // lib/sidebar/railDrag. Pressing here only ARMS a drag; under the threshold it stays a
+  // click and onRowClick still runs.
+  const onPointerDown = (e: PointerEvent<HTMLLIElement>) => {
+    // Buttons and the rename input own their own gestures (pin, 设为捕捉, text selection).
+    if (editingTitle || (e.target as HTMLElement).closest('button, input')) return;
+    startRailDrag(e, acting, title);
   };
 
   const onRowClick = (e: MouseEvent<HTMLLIElement>) => {
@@ -147,15 +148,17 @@ export default function ThreadListItem({
 
   return (
     <li
-      draggable={!editingTitle}
-      onDragStart={onDragStart}
+      onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
       onClick={onRowClick}
       /* ⚠️ 选中 and 打开 are two different states and must not look the same. `active` (the
          project on screen) keeps the solid `bg-paper-2` it always had; a multi-selected row
          gets a ring instead — so a selection of five with one of them open reads as five
          circled rows, one of which is also the one you are reading. */
-      className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
+      /* `select-none`: pressing a row now starts a drag rather than an HTML5 one, and a
+         press that WebKit reads as the start of a text selection paints a blue smear across
+         the rail on the way to the workspace. The rename input opts back in below. */
+      className={`group relative cursor-pointer select-none rounded-md px-3 py-1.5 transition-colors ${
         active ? 'bg-paper-2' : 'hover:bg-paper-2/60'
       } ${selected && selectedIds.size > 1 ? 'ring-1 ring-inset ring-accent/50' : ''} ${
         dimmed ? 'opacity-50' : ''
@@ -186,7 +189,7 @@ export default function ThreadListItem({
               }}
               placeholder={t('无标题')}
               spellCheck={false}
-              className="w-full bg-transparent text-sm text-ink outline-none"
+              className="w-full select-text bg-transparent text-sm text-ink outline-none"
             />
           ) : (
             <span
@@ -245,8 +248,11 @@ export default function ThreadListItem({
       {menu && (
         <div
           role="menu"
-          className="fixed z-50 min-w-[160px] rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-card)]"
-          style={{ left: menu.x, top: menu.y }}
+          ref={menuPos.ref}
+          /* Same clamp + scroll as the workspace heading's menu — a project row at the
+             bottom of the rail had the same cut-off 删除 (useMenuPosition). */
+          className="fixed z-50 max-h-[calc(100vh-16px)] min-w-[160px] overflow-y-auto rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-card)]"
+          style={menuPos.style}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >

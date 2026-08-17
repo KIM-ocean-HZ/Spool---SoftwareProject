@@ -8,6 +8,7 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { useMemo } from 'react';
+import { RAIL_SCROLLER_ATTR } from '@/lib/sidebar/railDrag';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { useT } from '@/lib/i18n';
 import { buildWorkspaceTree, compareWorkspaceTitles } from '@/lib/workspaces/tree';
@@ -17,6 +18,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import FocusSection from './FocusSection';
+import RailDragGhost from './RailDragGhost';
 import RecentSection from './RecentSection';
 import SpoolCard from './SpoolCard';
 import WorkspaceGroup from './WorkspaceGroup';
@@ -84,7 +86,10 @@ export default function Sidebar({ onCollapse }: Props) {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-2 pb-4">
+      {/* `data-rail-scroller`: a project drag scrolls this element when the cursor nears its
+          top or bottom edge (lib/sidebar/railDrag). Without it a project could only ever be
+          dropped on a workspace that already happened to be on screen. */}
+      <div {...{ [RAIL_SCROLLER_ATTR]: '' }} className="flex-1 overflow-y-auto px-2 pb-4">
         {/* DESIGN_WORKBENCH §9.4 — 项目管理, pinned above everything.
             Ocean 2026-08-07: 「左侧边栏加入一个项目管理的一个总项目，显示方式和普通项目一样，
             只是置顶，然后它的工作区用来存放项目矩阵」.
@@ -218,6 +223,10 @@ export default function Sidebar({ onCollapse }: Props) {
           </button>
         </div>
       </footer>
+
+      {/* Outside the scroller on purpose: it is position:fixed and follows the cursor, so it
+          has no business being clipped by, or scrolling with, the list it started in. */}
+      <RailDragGhost />
     </aside>
   );
 }

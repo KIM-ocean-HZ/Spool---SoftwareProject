@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import PackHost from '@/components/Pack/PackHost';
+import WorkspacePackHost from '@/components/Pack/WorkspacePackHost';
 import PermissionBanner from '@/components/PermissionBanner';
 import ReviewPanel from '@/components/Review/ReviewPanel';
 import RightRail from '@/components/RightRail';
@@ -382,6 +383,7 @@ export default function App() {
       <SearchOverlay />
       <ReviewPanel />
       <PackHost />
+      <WorkspacePackHost />
       {briefOpen && activeThread && (
         <FollowUpPanel thread={activeThread} onClose={() => setBriefOpen(false)} />
       )}

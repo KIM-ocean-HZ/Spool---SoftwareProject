@@ -1,17 +1,20 @@
-import { ChevronDown, ChevronRight, FolderPlus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderPlus, Package, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, KeyboardEvent, MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import MenuDeleteItem from '@/components/ui/MenuDeleteItem';
+import { useMenuPosition } from '@/components/ui/useMenuPosition';
 import type { Thread } from '@/lib/db/threads';
+import { DROP_WORKSPACE_ATTR } from '@/lib/sidebar/railDrag';
 import { isDormant } from '@/lib/threads/dormancy';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceNode } from '@/lib/workspaces/tree';
 import { compareWorkspaceTitles } from '@/lib/workspaces/tree';
+import { useRailDragStore } from '@/stores/railDragStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import SectionLabel from './SectionLabel';
-import ThreadListItem, { THREAD_DRAG_MIME } from './ThreadListItem';
+import ThreadListItem from './ThreadListItem';
 
 interface Props {
   node: WorkspaceNode;
@@ -51,17 +54,19 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
   const [dormantOpen, setDormantOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [titleInput, setTitleInput] = useState(workspace.title);
-  const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Only this group's own highlight — the store changes on every pointermove, this is a
+  // boolean, so a group re-renders when the drag enters or leaves IT and not otherwise.
+  const dragOver = useRailDragStore((s) => s.overWorkspaceId === workspace.id);
 
   const allWorkspaces = useWorkspacesStore((s) => s.workspaces);
   const rename = useWorkspacesStore((s) => s.rename);
   const createWorkspace = useWorkspacesStore((s) => s.create);
   const moveWorkspace = useWorkspacesStore((s) => s.move);
   const removeWorkspace = useWorkspacesStore((s) => s.remove);
+  const setPackingWorkspace = useWorkspacesStore((s) => s.setPacking);
   const createThread = useThreadsStore((s) => s.create);
   const selectThread = useThreadsStore((s) => s.select);
-  const patchThread = useThreadsStore((s) => s.patch);
   const removeThread = useThreadsStore((s) => s.remove);
   const selectedIds = useThreadsStore((s) => s.selectedIds);
 
@@ -104,6 +109,7 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
   // reason: it is the one path that works without a drag, and it can list only the legal
   // destinations rather than letting the user find out on drop.
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuPos = useMenuPosition(menu);
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
@@ -144,39 +150,6 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
     [allWorkspaces, subtreeIds, workspace.parentId],
   );
 
-  // Cross-workspace drag-and-drop (§9.9): dropping a ThreadListItem here re-parents it.
-  // The OS file drag (Tauri's native bridge) carries no THREAD_DRAG_MIME, so it is
-  // ignored — preventDefault is what marks a drop zone, and we only call it for ours.
-  //
-  // ⚠️ v23: a nested group renders INSIDE this one's drop zone, so both handlers stop the
-  // event. Without that, a drop on 「材料准备」 bubbles to 「升学」 and the second handler wins
-  // — the project lands in the parent, one row above where the user let go of it.
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
-    if (!e.dataTransfer.types.includes(THREAD_DRAG_MIME)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    if (!dragOver) setDragOver(true);
-  };
-  const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    setDragOver(false);
-  };
-  const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    // v23: the payload is a list — dragging one row of a multi-selection brings the whole
-    // selection. A single drag arrives as a one-element list, so there is one path, not two.
-    const ids = e.dataTransfer.getData(THREAD_DRAG_MIME).split(',').filter(Boolean);
-    setDragOver(false);
-    if (ids.length === 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const all = Object.values(useThreadsStore.getState().threadsByWorkspace).flat();
-    const moving = ids.filter((id) =>
-      all.some((t) => t.id === id && t.workspaceId !== workspace.id),
-    );
-    for (const id of moving) void patchThread(id, { workspaceId: workspace.id });
-  };
-
   const { fresh, dormant, done } = useMemo(() => sortThreads(threads, Date.now()), [threads]);
   const headerTitle = workspace.title.trim() || t('未命名');
 
@@ -190,10 +163,12 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
   );
 
   return (
+    /* The drop zone for a project drag (lib/sidebar/railDrag). It is an attribute rather
+       than a handler because the drag hit-tests with elementFromPoint, which returns the
+       INNERMOST element under the cursor — so a drop on 「材料准备」 lands there and not in
+       its parent 「升学」, without either group having to stop an event travelling through it. */
     <div
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      {...{ [DROP_WORKSPACE_ATTR]: workspace.id }}
       className={`relative mt-3.5 rounded-md ${node.depth > 0 ? 'pl-3' : ''} ${
         dragOver ? 'bg-accent/5 ring-1 ring-accent/50' : ''
       }`}
@@ -271,6 +246,25 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
           title={t('在里面新建工作区')}
         >
           <FolderPlus size={12} />
+        </button>
+
+        {/* 打包整个工作区 (DESIGN_WORKSPACE_PACK §1.1 方案乙 — Ocean 2026-08-17). It joins ＋ and
+            📁+ on the same hover rather than inventing a menu, because it is the same kind of
+            act on the same row: what you get is said by which icon you press.
+
+            ⚠️ A BOX, not a folder — and specifically the same box 项目管理 and the project
+            header already use for 打包. It was FolderDown for an afternoon, and Ocean's
+            verdict was 「新建文件夹和打包文件夹长得太像了，有误导性」: two folder outlines side
+            by side, one making a folder and one reading one, is a coin toss. The rule the
+            comment above states (「what you get is said by which icon you press」) only works
+            if the icons are not the same drawing. */}
+        <button
+          onClick={() => setPackingWorkspace(workspace.id)}
+          className="invisible flex-none rounded p-0.5 text-muted hover:bg-paper-2 hover:text-ink group-hover:visible"
+          aria-label={t('打包整个工作区')}
+          title={t('打包整个工作区')}
+        >
+          <Package size={12} />
         </button>
 
         {/* ⚠️ The hover 🗑 used to be here too. Same rule as the project rows (Ocean
@@ -361,8 +355,11 @@ export default function WorkspaceGroup({ node, threadsByWorkspace, activeThreadI
       {menu && (
         <div
           role="menu"
-          className="fixed z-50 min-w-[160px] rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-card)]"
-          style={{ left: menu.x, top: menu.y }}
+          ref={menuPos.ref}
+          /* ⚠️ max-height + scroll, not just clamping: a library with twenty workspaces makes
+             the 移进工作区 list taller than the window, and then no position fits it. */
+          className="fixed z-50 max-h-[calc(100vh-16px)] min-w-[160px] overflow-y-auto rounded-md border border-line-strong bg-paper py-1 shadow-[var(--shadow-card)]"
+          style={menuPos.style}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >

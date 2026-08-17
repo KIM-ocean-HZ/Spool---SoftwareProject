@@ -17,6 +17,23 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Selected text wears the app's own colour, not the system blue (Ocean 2026-08-17:
+   「拖动的框选颜色能不能变成红色主题色，不要蓝色」). The macOS blue is the one thing on this
+   cream page that belongs to no palette at all — it turns up whenever text is selected, and
+   on a paper-coloured reading surface it reads as a foreign object.
+
+   ⚠️ Same WEIGHT as the system's (a solid fill with inverted text), only a different hue —
+   what he asked to change is the colour, not how loud a selection is.
+
+   ⚠️ NOT `var(--selection)`, despite the name: that token is the `==…==` user-highlight
+   span inside a block (lib/blocks/contentRuns), a different thing that happens to have the
+   better name first. Selecting text across a highlight paints over it, which is correct —
+   one is what the user marked, the other is what they are pointing at right now. */
+::selection {
+  background: var(--accent);
+  color: var(--paper);
+}
+
 .paper-bg {
   background:
     radial-gradient(circle at 20% 0%, rgba(180, 83, 9, 0.04), transparent 40%),

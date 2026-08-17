@@ -65,4 +65,9 @@ export const toast = {
   /** 「…… 撤销」 — the line says what happened, the button undoes it. */
   undo: (msg: string, label: string, run: () => void) =>
     useToastStore.getState().push(msg, 'notice', undefined, { label, run }),
+  /** Same shape as undo, opposite meaning: the button GOES somewhere rather than taking
+   *  something back (「已导出 · 打开文件夹」). Kept separate so a call site cannot read as an
+   *  undo it is not — it borrows undo's longer lifetime, which is what a button needs. */
+  action: (msg: string, label: string, run: () => void) =>
+    useToastStore.getState().push(msg, 'notice', undefined, { label, run }),
 };

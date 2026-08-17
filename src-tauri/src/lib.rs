@@ -4,6 +4,7 @@ mod double_tap;
 pub mod engine;
 pub mod mcp;
 pub mod overlay;
+pub mod pack;
 
 use tauri::Manager;
 
@@ -322,6 +323,7 @@ pub fn run() {
             capture::set_shortcuts,
             capture::probe_browser_automation,
             overlay::overlay_db_reply,
+            pack::write_pack_folder,
             ai_engine_status,
             ai_engine_run,
             ai_engine_cancel,

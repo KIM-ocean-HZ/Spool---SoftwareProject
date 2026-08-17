@@ -13,6 +13,14 @@ html, body, #root {
   background: transparent !important;
 }
 
+/* Same branded selection as the main window (styles/global.css). The overlay has a text
+   field the user types into, so it can show a selection too, and it would be the one place
+   still painting the system blue. */
+::selection {
+  background: var(--accent);
+  color: var(--paper);
+}
+
 body {
   font-family: var(--font-ui);
   color: var(--ink);

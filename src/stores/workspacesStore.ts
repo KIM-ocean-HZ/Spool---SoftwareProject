@@ -9,6 +9,11 @@ interface WorkspacesState {
   workspaces: Workspace[];
   loading: boolean;
   error: string | null;
+  /** Workspace whose 打包 dialog is open, or null. Same shape and same reason as
+   *  `threadsStore.packingId`: the dialog is mounted once in App, and two local useStates
+   *  would be two stacked dialogs. */
+  packingId: string | null;
+  setPacking: (id: string | null) => void;
   load: () => Promise<void>;
   create: (title?: string, parentId?: string | null) => Promise<Workspace>;
   rename: (id: string, title: string) => Promise<void>;
@@ -22,6 +27,9 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   workspaces: [],
   loading: true,
   error: null,
+  packingId: null,
+
+  setPacking: (packingId) => set({ packingId }),
 
   load: async () => {
     try {

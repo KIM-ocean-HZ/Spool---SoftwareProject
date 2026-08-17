@@ -94,6 +94,7 @@ const EN: Record<string, string> = {
   '删除项目': 'Delete project',
   '删除多个项目': 'Delete projects',
   '选中的 {n} 个项目': '{n} projects selected',
+  '{n} 个项目': '{n} projects',
   '删除这 {n} 个项目': 'Delete these {n} projects',
   '展开': 'Expand',
   '收起': 'Collapse',
@@ -248,6 +249,23 @@ const EN: Record<string, string> = {
   '关闭': 'Close',
   '详情': 'Details',
   '复制到剪贴板': 'Copy to clipboard',
+
+  // Workspace pack — DESIGN_WORKSPACE_PACK §1. ⚠️ The subtitle deliberately does NOT say
+  // 「直接粘贴」 like the single-project one: this produces a folder, and §2.3 says handing the
+  // AI one file out of it walks past the rules in INDEX.md.
+  '打包整个工作区': 'Pack this whole workspace',
+  '打包「{name}」': 'Pack “{name}”',
+  '纯本地组装 · 导出成一个文件夹，整个交给 AI':
+    'Assembled locally · exported as a folder — give the AI the whole folder',
+  '（子工作区）': '(sub-workspace)',
+  '{projects} 个项目 / {files} 个文件 · {chars} 字符':
+    '{projects} projects / {files} files · {chars} characters',
+  '导出文件夹': 'Export folder',
+  '正在导出…': 'Exporting…',
+  '导出到哪个文件夹？': 'Export into which folder?',
+  '已导出 {n} 个文件': 'Exported {n} files',
+  '打开文件夹': 'Open folder',
+  '读不出项目内容，导出取消了': 'Could not read the projects — export cancelled',
   '已复制': 'Copied',
   '{packed} / {total} 块 · {chars} 字符': '{packed} / {total} blocks · {chars} chars',
 
