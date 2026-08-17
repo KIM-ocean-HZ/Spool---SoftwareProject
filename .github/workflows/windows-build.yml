@@ -13,6 +13,12 @@ name: Windows build
 on:
   push:
     branches: [windows-port]
+    # A prose-only push cannot change what the installer does, and a full cold build is
+    # ~15 minutes. Skipping those keeps "the newest green run" the one that matches the
+    # code — which is what the install guide tells Ocean to download.
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
   workflow_dispatch:
 
 jobs:
