@@ -9,10 +9,12 @@
 
 <p align="center">
   <b><a href="https://spoolapp.org">spoolapp.org</a></b> ·
-  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg">Download for macOS</a></b>
+  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg">Download for macOS</a></b> ·
+  <b><a href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe">Download for Windows</a></b>
   <br>
   <sub>The site walks the whole loop in an interactive demo (English / 中文) — no install needed.<br>
-  The download is a signed, notarized <code>.dmg</code>. Free, offline, no account.</sub>
+  macOS: a signed, Apple-notarized <code>.dmg</code>. Windows: an x64 installer, not code-signed yet.<br>
+  Free, offline, no account.</sub>
 </p>
 
 At the moment you naturally produce a fragment of information — a good answer from an AI, a decision buried in an email, a link to a document, a half-formed thought — Spool lets you capture that fragment effortlessly, files fragments under a two-tier **Workspace → Project** structure, and packs any project into a paste-ready briefing on demand — so you can re-enter a project, or re-brief an AI, instantly.
@@ -31,18 +33,32 @@ Spool compresses "re-explaining" into "a single paste."
       └───────────── days later ──────────────┘
 ```
 
-- **Capture** — a global shortcut grabs whatever is on your clipboard and writes it into the current project. Rides existing Cmd+C muscle memory. No decisions at capture time. The confirmation overlay opens with the cursor already in a note box — type the thought that made you save this and press Enter, or click anywhere to skip. Your own note outlives the excerpt, and connected AIs treat it as the highest-signal line. The main window never has to come forward.
+- **Capture** — double-tap a modifier key (⌥ on macOS, Ctrl on Windows) and whatever is on your clipboard is written into the current project. Rides existing ⌘C / Ctrl+C muscle memory. No decisions at capture time. The confirmation overlay opens with the cursor already in a note box — type the thought that made you save this and press Enter, or click anywhere to skip. Your own note outlives the excerpt, and connected AIs treat it as the highest-signal line. The main window never has to come forward.
 - **Project** — an append-only timeline of fragments. Two tiers only: Workspace (big topic) → Project (one piece of work). No infinite nesting. On open the feed lands at the newest blocks — they ARE "where you left off," no manual status note to maintain.
 - **Pack** — one click assembles a paste-ready Markdown briefing of the project. Pure string assembly, no AI in the hot path, fully deterministic.
 
 ## Status
 
-**v0.4.0** — feature-complete and shipping on macOS. Windows and Linux builds are not implemented;
-capture, focus, cancellation, paths, and distribution require platform-specific work.
+**v0.5.0** — feature-complete and shipping on **macOS and Windows**. The two builds run the same
+library, the same pack, and the same capture gesture: a double-tap of one modifier key, ⌥ on macOS
+and Ctrl on Windows. What did not cross over is the macOS-specific work around focus handling and
+browser tab-title capture, so a Windows capture records the source application rather than the page.
+Linux is not implemented.
 
-- **Distribution**: Developer ID–signed, Apple-notarized `.dmg`, straight from [Releases](https://github.com/KIM-ocean-HZ/spool/releases/latest). Not on the Mac App Store — sandboxing conflicts structurally with the global capture trigger.
+- **Distribution — macOS**: Developer ID–signed, Apple-notarized `.dmg`, straight from [Releases](https://github.com/KIM-ocean-HZ/spool/releases/latest). Not on the Mac App Store — sandboxing conflicts structurally with the global capture trigger.
+- **Distribution — Windows**: an x64 NSIS installer built by CI, **not code-signed** in this first release, so SmartScreen warns once before it will install.
 - **Website**: [spoolapp.org](https://spoolapp.org), with an interactive walkthrough of capture → pack → re-brief → MCP in English and Chinese.
 - **No auto-update channel** yet: direct distribution means new versions are a manual download.
+
+### New in v0.5.0
+
+- **Windows.** NSIS installer, tray icon that stays legible on a dark taskbar, closing the window goes to the tray and says so the first time, and the same MCP hookup as macOS. Capture is a double-tap of **Ctrl**, read through **Raw Input** rather than a keyboard hook — which is what lets it work while antivirus software is watching for hook-based keyloggers. Neither platform binds a key combination out of the box; add one in Settings → Shortcuts if you want it.
+- **Undo covers your own writes.** A block you wrote can be undone, and in an empty composer ⌘Z / Ctrl+Z means "undo my last action" rather than nothing.
+- **Follow-up is a list of lines.** Each line is either *standing* (watch this indefinitely) or *one-off* (close it once answered). An AI on MCP can propose a line and close one it answered; proposals wait on the review screen, and a standing line refuses to be closed — without that distinction one answer would silently switch off a long-running watch.
+- **Workspaces nest**, projects sort alphabetically, the left rail supports multi-select, and a whole workspace can be **packed into a real folder** (`INDEX.md` plus one `.md` per project, sub-workspaces as sub-directories) that an AI opens a piece at a time. Nothing is summarized away to fit a budget.
+- **Moving to another machine.** Settings → Advanced → *Moving to another machine* exports the whole library and imports it elsewhere. Import merges; it does not replace.
+- **Provenance on a block**: source URL, retrieved-on date, review-by date, with reminders two months, one month and a week ahead. Corrections got a proper interface, and a corrected block keeps its original wording.
+- **Capture fixes**: typing goes straight into the note box again, and the overlay is placed by the screen's usable area so the menu bar no longer eats its top edge.
 
 ### New in v0.4.0
 
@@ -91,7 +107,7 @@ The full product constitution, rejected ideas, and the feature filter are in `PL
 - **Tailwind CSS** for layout; design tokens in CSS variables
 - **Zustand** for state
 - **SQLite** via `tauri-plugin-sql`, FTS5 with the trigram tokenizer
-- **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — 18 tools, read tools (list/search/dedup/pack) plus consented, attributed write tools
+- **MCP server** (`spool --mcp`, stdio, default OFF): the AI surface — 19 tools, 12 read (list/search/dedup/pack) plus 7 consented, attributed write tools
 - **CLI engine slot**: `claude`, `codex`, or `gemini` runs as a local subprocess for Follow Up, Weekly Review, and follow-up-goal drafting — detected on disk, never bundled, never given a key
 
 ## Building from source
@@ -105,26 +121,27 @@ npm run tauri build   # production .dmg / installer
 npm test              # vitest
 ```
 
-The macOS double-tap-⌥ capture trigger requires **Input Monitoring** permission (System Settings → Privacy & Security). Spool checks its status at launch and shows a setup banner while it is missing; using that banner's capture setup action triggers the macOS request, and the grant takes effect after restarting Spool. **Accessibility is optional** and does two things. First, it makes a *consumed* double-tap exclusive: when Spool captures, it deletes the second ⌥ press from the event stream, so other apps bound to the same gesture (Claude Desktop's quick entry, for one) do not also fire. Second, it is what hands the capture toast the keyboard, so the note box can be typed into straight away — macOS delivers keystrokes only to the active app, and `AXFrontmost` is the one route to activation that is honoured immediately rather than deferred. Without Accessibility, capture still works, but those apps may fire alongside it and the note box has to be clicked before it will take typing. A bare double-tap with nothing freshly copied is still passed through to them untouched. A user-bound capture shortcut (Settings → 全局快捷键) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+**On macOS**, the double-tap-⌥ capture trigger requires **Input Monitoring** permission (System Settings → Privacy & Security). Spool checks its status at launch and shows a setup banner while it is missing; using that banner's capture setup action triggers the macOS request, and the grant takes effect after restarting Spool. **Accessibility is optional** and does two things. First, it makes a *consumed* double-tap exclusive: when Spool captures, it deletes the second ⌥ press from the event stream, so other apps bound to the same gesture (Claude Desktop's quick entry, for one) do not also fire. Second, it is what hands the capture toast the keyboard, so the note box can be typed into straight away — macOS delivers keystrokes only to the active app, and `AXFrontmost` is the one route to activation that is honoured immediately rather than deferred. Without Accessibility, capture still works, but those apps may fire alongside it and the note box has to be clicked before it will take typing. A bare double-tap with nothing freshly copied is still passed through to them untouched. A user-bound capture shortcut (Settings → Shortcuts) works without either permission. On first capture from a browser, macOS will prompt once for **Automation** permission against that browser — granting it lets Spool tag captures with the active tab title instead of just the app name.
+
+**On Windows there is nothing to grant.** The double-tap of Ctrl is read through Raw Input, which asks for no permission and is not a keyboard hook. There is no tab-title equivalent: a capture records the application you copied from.
 
 ## AI via MCP (optional, no keys, no accounts)
 
 Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Codex — including a Codex conversation inside the ChatGPT desktop app — Cursor, or another MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly. An ordinary ChatGPT conversation runs remotely and cannot reach a local stdio server.
 
-**You do not need any of this to use Spool with an AI.** ⌘⇧P packs a project into Markdown you paste into a browser tab — nothing to install, nothing to connect, and no feature is withheld from you for skipping it. MCP buys exactly one thing: your AI fetches the context itself instead of waiting for you to paste it, and can file conclusions back with its name on them.
+**You do not need any of this to use Spool with an AI.** ⌘⇧P (Ctrl+Shift+P) packs a project into Markdown you paste into a browser tab — nothing to install, nothing to connect, and no feature is withheld from you for skipping it. MCP buys exactly one thing: your AI fetches the context itself instead of waiting for you to paste it, and can file conclusions back with its name on them.
 
-- **One-click hookup**: Settings → MCP → 一键接入 writes the client's config for you (with a backup). Restart the client so it can load the setting; Spool separately shows whether that client has actually connected. Next to it, 「复制使用提示」 is the single place the how-to lives — one short paragraph, readable by you and paste-ready for the AI.
+- **One-click hookup**: Settings → MCP → **Connect** writes the client's config for you (with a backup). Restart the client so it can load the setting; Spool separately shows whether that client has actually connected.
 - **Read tools** (12): list projects (with one-line summaries and read-budget hints), a cross-project digest of recent activity, full-text search, near-duplicate detection, block paging (including blocks you have retired), the same deterministic pack the GUI produces, a read-only library hygiene checkup, one call that answers "how is this project doing" in a single round-trip, a read of what a project is currently watching for, plus three that hand back a briefing and the job to do with it — distill one project, report one project's health, review the week across all of them.
-- **Write tools** (6, behind a second and separate consent): create a project, append a block (optionally citing the block it builds on, or proposing that one point in it was corrected), refresh a project's one-line summary, and queue a batch of blocks for your review. Two of the six store nothing at all — they put a request in front of you and wait: *ask to read a file already in a project*, and *suggest a change to what a project watches*. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand, never retire one of your blocks, and never write a note that reads as if you wrote it.
+- **Write tools** (7, behind a second and separate consent): create a project, append a block (optionally citing the block it builds on, or proposing that one point in it was corrected), refresh a project's one-line summary, queue a batch of blocks for your review, propose a new line for a project to follow up on, and close a follow-up line it has answered — a standing line refuses to be closed. One of the seven stores nothing at all: *ask to read a file already in a project* puts the request in front of you and waits. Every AI write carries an enforced source label (e.g. `Claude · MCP`) and shows a distinct badge in the GUI; an AI can never overwrite a summary you wrote by hand, never retire one of your blocks, and never write a note that reads as if you wrote it.
 - **What an AI can and cannot do to history**: it may append, and it may *propose* that one point in an older block was corrected — which you approve or discard. Marking a block as no longer valid stays yours alone.
 
 ### What to say once connected
 
-You talk to your AI in plain language — no tool names, no menus. The how-to is kept in exactly
-one place rather than repeated here: **Settings → MCP → 「复制使用提示」**, a short paragraph you
-can paste to your AI or simply read yourself. The server also tells every client how you are
-likely to phrase things, so a freshly connected AI opens by naming what it can do with your
-actual projects.
+You talk to your AI in plain language — no tool names, no menus, and nothing to paste to set it
+up. The server states its own rules and the phrasings you are likely to use in the `initialize`
+instructions it sends every client, so a freshly connected AI opens by naming what it can do with
+your actual projects. That copy arrives whether or not anyone remembered to hand it over.
 
 ## Maintenance by your own CLI (v0.4.0, optional, still no keys)
 
@@ -159,18 +176,21 @@ sandboxed instead. Gemini can run Weekly Review and draft goals, but not Follow 
 
 ## Keyboard shortcuts
 
-| Key | Action |
-|---|---|
-| Double-tap ⌥ | Capture clipboard, then just type to leave a note (macOS only, system-global) |
-| ⌘⇧F | Global search |
-| ⌘⇧P | Pack the active project |
-| ⌘N | New project in the current workspace |
-| ⌘, | Settings |
-| @ | Mention another project inside the composer |
-| Enter / Shift+Enter | Send / newline in the composer |
-| Esc | Dismiss any overlay, modal, or inline edit |
+Spool spells these with the modifier your platform actually prints: ⌘ on macOS, Ctrl on Windows.
 
-The global search shortcut is user-rebindable under **Settings → 全局快捷键**; an optional capture shortcut (unbound by default) can be recorded there too.
+| macOS | Windows | Action |
+|---|---|---|
+| Double-tap ⌥ | Double-tap Ctrl | Capture clipboard, then just type to leave a note (system-global) |
+| ⌘⇧F | Ctrl+Shift+F | Global search |
+| ⌘⇧P | Ctrl+Shift+P | Pack the active project |
+| ⌘N | Ctrl+N | New project in the current workspace |
+| ⌘, | Ctrl+, | Settings |
+| ⌘Z | Ctrl+Z | Undo the last action (in an empty composer) |
+| @ | @ | Mention another project inside the composer |
+| Enter / Shift+Enter | Enter / Shift+Enter | Send / newline in the composer |
+| Esc | Esc | Dismiss any overlay, modal, or inline edit |
+
+The global search shortcut is user-rebindable under **Settings → Shortcuts**; an optional capture shortcut (unbound by default) can be recorded there too.
 
 ## Project structure
 
