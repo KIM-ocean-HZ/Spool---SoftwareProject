@@ -34,6 +34,7 @@ import {
 import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
+import { useAppliedTheme } from '@/hooks/useTheme';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { t, useT } from '@/lib/i18n';
 import { IS_MAC } from '@/lib/platform';
@@ -122,6 +123,14 @@ const noticeText = (n: OverlayNotice): string => {
 
 export default function CaptureOverlay() {
   const tr = useT();
+  // 情人节限定版 (2026-08-19) — the toast is a separate window with its own bundle, so it applies
+  // the theme from its own root. It reads the SAME settings.json and re-reads on the
+  // `settings:changed` broadcast the main window already emits, so flipping the theme in
+  // Settings repaints this window too, with no restart and no message of its own.
+  // ⚠️ It needs this to be right for a reason the main window does not have: the toast is drawn
+  // over whatever app the user was copying from, so a cream card in a pink build would be the
+  // one piece of Spool visible on someone else's screen and the one piece that did not match.
+  useAppliedTheme();
   const [content, setContent] = useState<OverlayContent>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [threadsByWs, setThreadsByWs] = useState<Record<string, Thread[]>>({});

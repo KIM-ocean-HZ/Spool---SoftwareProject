@@ -204,7 +204,9 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
     });
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper-2/40">
+    /* `rail-wash`: same marker, same reason as the left rail — see Sidebar/index.tsx. Nothing
+       matches it in 经典; 情人节 tints both rails mint so they frame the blush page. */
+    <aside className="rail-wash flex h-full min-h-0 flex-col border-l border-line bg-paper-2/40">
       {/* §9.4 丙 (2026-08-11, Ocean:「MCP 才是主要的对话写入工具，放在最顶上」). The CLI
           engine used to hold this row; it now lives inside the follow-up editor, beside the
           only thing that spends it.

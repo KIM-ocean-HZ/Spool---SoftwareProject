@@ -3,6 +3,7 @@ import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import PackHost from '@/components/Pack/PackHost';
 import WorkspacePackHost from '@/components/Pack/WorkspacePackHost';
+import BreakReminder from '@/components/BreakReminder';
 import CloseToTrayHint from '@/components/CloseToTrayHint';
 import PermissionBanner from '@/components/PermissionBanner';
 import ReviewPanel from '@/components/Review/ReviewPanel';
@@ -27,7 +28,9 @@ import {
 import { t } from '@/lib/i18n';
 import { toast } from '@/stores/toastStore';
 import { useAutoMaintain } from '@/hooks/useAutoMaintain';
+import { useBreakReminder } from '@/hooks/useBreakReminder';
 import { useCapture } from '@/hooks/useCapture';
+import { useAppliedTheme } from '@/hooks/useTheme';
 import { useOverlayDbHost } from '@/hooks/useOverlayDbHost';
 import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
@@ -104,6 +107,12 @@ export default function App() {
   useUndo();
   // DESIGN_WORKBENCH §4.3 — off unless the user turned it on; the hook checks that itself.
   useAutoMaintain();
+  // 情人节限定版 (2026-08-19) — writes the theme onto <html>; the capture overlay does the same
+  // from its own root, off the same settings.json.
+  useAppliedTheme();
+  // 情人节 only, and the hook checks that itself: in 经典 it registers no listeners and no
+  // interval. Mounted HERE and not in the overlay on purpose — see the hook's header.
+  const breakReminder = useBreakReminder();
 
   // Settings load FIRST, and the resolved language is handed to the db module before
   // anything opens the database (2026-07-31, HANDOFF §2.2/§2.3): on a fresh install the
@@ -284,9 +293,14 @@ export default function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#faf7f0',
-          color: '#1c1a16',
-          fontFamily: 'Fraunces, Songti SC, serif',
+          /* Tokens, not the literal hexes these used to be. The values are identical in 经典
+             (tokens.css), so the shipped look is unchanged — but the 情人节 theme is applied by
+             then, and hard-coded cream here meant a cream flash on every single launch of it.
+             ⚠️ The fatal-error screen below/above keeps its literal hexes on purpose: it paints
+             when the database failed to open, and it should not depend on anything. */
+          background: 'var(--paper)',
+          color: 'var(--ink)',
+          fontFamily: 'var(--font-serif)',
           fontSize: '28px',
           fontStyle: 'italic',
         }}
@@ -393,6 +407,7 @@ export default function App() {
       )}
       <Settings />
       <CloseToTrayHint />
+      {breakReminder.open && <BreakReminder onDismiss={breakReminder.dismiss} />}
       <ToastRack />
     </>
   );

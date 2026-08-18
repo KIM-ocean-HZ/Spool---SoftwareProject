@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { spoolState, untilFull } from '@/lib/blocks/spoolProgress';
+import { HEART_STEPS, SPOOL_STEPS, spoolState, untilFull } from '@/lib/blocks/spoolProgress';
 import { countCaptures, countUserWrittenChars, listCapturesSince } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
+import { useIsValentine } from '@/hooks/useTheme';
+import HeartMeter, { FilledHearts } from './HeartMeter';
 import SpoolMeter, { FilledSpools } from './SpoolMeter';
 
 // 首日价值二期 (DESIGN_FIRST_DAY_VALUE) — 「我攒了多少」.
@@ -70,6 +72,11 @@ function Fact({ text }: { text: string }) {
 
 export default function SpoolCard() {
   const t = useT();
+  // 情人节限定版 (2026-08-19) — the ONE branch on the theme in this panel. Everything else here
+  // is a token, so the card's layout, its numbers and its rules are identical in both.
+  // ⚠️ Both marks live in the same 40×36 box, so this changes what is drawn and never where the
+  // two lines of text beside it begin (Ocean 2026-08-11: 「保证线轴左边只有两行字」).
+  const valentine = useIsValentine();
   // Every successful capture sets this, so it doubles as "something just landed, re-read".
   const flashBlockId = useCaptureStore((s) => s.flashBlockId);
   // …and this covers the rest of what moves the numbers: writing a note, editing a body,
@@ -110,7 +117,10 @@ export default function SpoolCard() {
 
   if (stats === null) return null;
 
-  const spool = spoolState(stats.captures);
+  // ⚠️ Only `level` differs between the two — 25 frames for the heart, 20 turns for the spool
+  // (spoolProgress). `filled` / `onSpool` / 还差 are facts about the library and come out the
+  // same either way, which is what stops one library from reporting two different 满轴数.
+  const spool = spoolState(stats.captures, valentine ? HEART_STEPS : SPOOL_STEPS);
 
   return (
     /* ⚠️ A frame, but still no fill — 变体 D, which Ocean picked out of B/C/D (HANDOFF §0.10 ①).
@@ -124,11 +134,19 @@ export default function SpoolCard() {
          makes the inner rule an internal division rather than a boundary in the rail. */
     <div className="mt-2.5 rounded-md border border-line px-3 py-2">
       <div className="flex items-center gap-3">
-        <SpoolMeter
-          level={spool.level}
-          full={spool.full}
-          label={t('线轴：每 100 条捕捉缠满一轴')}
-        />
+        {valentine ? (
+          <HeartMeter
+            level={spool.level}
+            full={spool.full}
+            label={t('爱心：每 100 条捕捉填满一颗')}
+          />
+        ) : (
+          <SpoolMeter
+            level={spool.level}
+            full={spool.full}
+            label={t('线轴：每 100 条捕捉缠满一轴')}
+          />
+        )}
         {/* 累计 — the whole library, in exactly two lines (see Fact() rule 3). Both are about
             this spool: how much is on it, and how much more it takes. */}
         <div className="flex min-w-0 flex-1 flex-col gap-y-0.5 leading-snug">
@@ -136,10 +154,16 @@ export default function SpoolCard() {
           <div className="flex items-center gap-2">
             {spool.full ? (
               <span className="whitespace-nowrap text-[13px] text-accent">
-                {t('这一轴缠满了')}
+                {valentine ? t('这颗心填满了') : t('这一轴缠满了')}
               </span>
             ) : (
-              <Fact text={t('还差 {n} 条缠满', { n: untilFull(spool) })} />
+              <Fact
+                text={
+                  valentine
+                    ? t('还差 {n} 条填满', { n: untilFull(spool) })
+                    : t('还差 {n} 条缠满', { n: untilFull(spool) })
+                }
+              />
             )}
             {/* 总线轴数 as the spools themselves (Ocean 2026-08-10). A number says how many;
                 a shelf of them is the 成就感 he asked for in §2.4 — and it costs one more
@@ -149,9 +173,18 @@ export default function SpoolCard() {
                 ⚠️ It rides on the END of the 还差 line (Ocean 2026-08-11), which is what keeps
                 the block beside the meter at two lines however many spools there are — past
                 what fits, FilledSpools collapses to one mark and a × N. */}
-            {spool.filled > 0 && (
-              <FilledSpools count={spool.filled} label={t('已缠满 {n} 轴', { n: spool.filled })} />
-            )}
+            {spool.filled > 0 &&
+              (valentine ? (
+                <FilledHearts
+                  count={spool.filled}
+                  label={t('已填满 {n} 颗心', { n: spool.filled })}
+                />
+              ) : (
+                <FilledSpools
+                  count={spool.filled}
+                  label={t('已缠满 {n} 轴', { n: spool.filled })}
+                />
+              ))}
           </div>
         </div>
       </div>

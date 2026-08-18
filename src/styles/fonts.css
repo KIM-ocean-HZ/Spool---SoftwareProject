@@ -41,3 +41,43 @@
   font-style: italic;
   font-display: swap;
 }
+
+/* 情人节限定版 (2026-08-19) — Cormorant Garamond, the display face for that theme only.
+   Chosen against EB Garamond by rendering both wordmarks side by side rather than by
+   reputation: Ocean asked for 「偏古典，典雅」 and 「不能太花哨」, and Cormorant is a Garamond
+   revival — high stroke contrast, classical proportions, no ornament. EB Garamond is the
+   sturdier of the two and read as more bookish than elegant at wordmark size.
+   ⚠️ It only ever replaces --font-serif. --font-ui stays Geist in both themes
+   (Ocean: 「正常文字不变」), so nothing that is actually being READ changes typeface.
+   Bundled locally like every other face here: no network fetch, font-src 'self' under CSP. */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('../assets/fonts/CormorantGaramond[wght].ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Cormorant Garamond';
+  src: url('../assets/fonts/CormorantGaramond-Italic[wght].ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Cormorant Garamond's 400 is a Light by most families' standards — right in the 3xl wordmark,
+   too thin in the 11px workspace labels that also carry `.font-serif`. One theme-scoped rule
+   fixes every call site at once instead of 17 hand-tuned classNames.
+   ⚠️ It lives in THIS file, not in global.css, for the same reason the @font-face blocks do: the
+   capture overlay's stylesheet imports tokens.css (which imports this) but not global.css, and
+   the overlay's project picker carries `.font-serif` as well. A rule in global.css would leave
+   the toast's labels hairline-thin while the main window's were fine.
+   ⚠️ Deliberately NOT a `--font-serif-weight` token applied unconditionally: that would put a
+   weight declaration on the shipped build's Fraunces too, and 经典 has to stay untouched.
+   ⚠️ Specificity: this is [data-theme] + class, so a bare `font-bold` beside `font-serif` at a
+   call site would LOSE to it. No such call site exists today (checked 2026-08-19); if one
+   appears, it needs `!font-bold`, or this rule needs to learn about it. */
+:root[data-theme='valentine'] .font-serif {
+  font-weight: 500;
+}

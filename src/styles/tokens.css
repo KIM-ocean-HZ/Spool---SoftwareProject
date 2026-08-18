@@ -61,3 +61,96 @@
   --shadow-card:  0 4px 12px -6px rgba(120, 80, 20, 0.15);
   --shadow-toast: 0 8px 24px -8px rgba(60, 40, 10, 0.25);
 }
+
+/* =====================================================================================
+   情人节限定版 (2026-08-19, Ocean) — a second palette, switched at runtime.
+   ⚠️⚠️ EVERYTHING about this theme lives BELOW this line and inside the
+   [data-theme='valentine'] selector. `:root` above is the shipped v0.5.0 build and must
+   stay byte-identical: 经典 is not a "theme that happens to look like the old one", it IS
+   the old one, and that is the whole reason the switch is safe to install over a real
+   library (Ocean 2026-08-19: 「不能影响已经发布的版本」).
+
+   The palette is Ocean's, with the roles he assigned it:
+     blush #f6b7c9 · rose #f29bb6 · deep rose #e66d98 · mint #c9f2e6 · deep berry #3a2a35
+   「petals using blush and rose as the primary paint range … mint for leaves, background
+   haze, or small framing elements to keep the pink tones from feeling too warm … save the
+   deep berry for fine linework, labels, or small text where you need definition.」
+
+   ⚠️ Two tokens are NOT literally from that list, and both are legibility, not taste:
+
+   1. `--accent` is #e66d98's own hue (339°) darkened and desaturated to #ae325e. The deep
+      rose itself measures **2.84 : 1** against this paper — it cannot carry small text, and
+      `--accent` is small text (「这一轴缠满了」), a 2px active bar AND the ::selection fill in
+      one token. #ae325e is 5.83 : 1, where the shipped amber is 4.69 : 1. The undiluted rose
+      is still on screen: it is what the heart is painted with (Sidebar/SpoolMeter).
+   2. `--muted` / `--ink-2` are the deep berry's hue lightened, so the grey tier is berry-grey
+      rather than a foreign warm grey.
+
+   Every text tier here was measured against `--paper`, not eyeballed — Ocean 2026-08-19:
+   「文字需要看得清」. ink 12.75 · ink-2 8.75 (shipped: 8.78) · muted 3.51 (3.42) ·
+   accent 5.83 (4.69) · accent-2 8.16 (6.63) · status-active 5.33.
+
+   ⚠️ `--paper` is #fdf8f5 because that is the **measured** centre colour of
+   assets/valentine-background.png, not a colour someone liked. Panels are painted with it
+   over the image, so a wrong value here draws a visible rectangle around every panel.
+   Re-sample the image if it is ever replaced.
+   ===================================================================================== */
+:root[data-theme='valentine'] {
+  /* paper & ink — paper sampled from the background image, ink is the deep berry as given */
+  --paper:        #fdf8f5;
+  --paper-2:      #f9ecf1;
+  --paper-edge:   #f2dbe4;
+  --ink:          #3a2a35;
+  --ink-2:        #594051;
+  --muted:        #9f7a93;
+
+  /* lines — blush, kept at the shipped build's weight (1.23 / 1.54 vs paper, was 1.24 / 1.48)
+     so a hairline is still a hairline and not a drawn border */
+  --line:         #f4dce5;
+  --line-strong:  #e7c1d1;
+
+  /* accent (deep rose family) — see the ⚠️ above for why this is not #e66d98 itself */
+  --accent:       #ae325e;
+  --accent-2:     #8a2549;
+  --accent-soft:  #fce7ee;
+  --highlight:    #f29bb6;
+  --selection:    #fdeaf1;
+
+  /* The orientation tint is the one place 「background haze」 has a job: a pale MINT wash,
+     which is also what keeps it from being confused with --accent-soft (the capture signal,
+     blush) now that both would otherwise be pink. Fade duration is shared with the JS timer
+     in activeBlockStore — do not retime it here. */
+  --block-active-bg:           #e3f2ed;
+  --block-active-bg-fade-ms:   3000ms;
+
+  /* The date-reminder strip. Ocean's original rule for it was 「做一个暖色，透明一点的」 —
+     a wash laid on the page, not a filled bar. Same idea, rose instead of amber. */
+  --notice-warm:      rgba(242, 155, 182, 0.16);
+  --notice-warm-edge: rgba(174, 50, 94, 0.26);
+
+  /* status colors.
+     ⚠️ Only 在进行 is retinted, and only because mint IS in Ocean's palette and this token was
+     already a green. 搁置 and 紧急 keep the shipped amber/brick ON PURPOSE: they have to stay
+     tellable apart from --accent at a glance, and a rose page with rose statuses is a page
+     where 紧急 says nothing. Both still measure 4.44 / 5.40 against this paper. */
+  --status-active:   #377260;
+  --status-parked:   #a8632c;
+  --status-done:     #9f7a93;
+  --urgent:          #b3402f;
+  --urgent-strong:   #8a2e22;
+
+  /* fonts — Cormorant Garamond replaces Fraunces for the DISPLAY face only.
+     ⚠️ --font-ui and --font-mono are deliberately absent from this block: Ocean 2026-08-19
+     「正常文字不变」. Body text is Geist in both themes; only the wordmark and titles change.
+     ⚠️ 'SimSun' is here and not in the shipped stack because this theme has to look the same
+     on Windows (there is no Songti SC there) — see fonts.css for the weight rule. */
+  --font-serif: 'Cormorant Garamond', 'Songti SC', 'STSong', 'SimSun', serif;
+
+  /* shadows — berry-tinted, same geometry and same weight as the shipped pair */
+  --shadow-card:  0 4px 12px -6px rgba(90, 40, 70, 0.16);
+  --shadow-toast: 0 8px 24px -8px rgba(60, 25, 50, 0.26);
+
+  /* The wash on the two rails — see the `.rail-wash` rule in global.css for what it paints and
+     why it is applied as an override rather than as a swapped-out class. */
+  --rail-wash: rgba(235, 246, 242, 0.66);
+}

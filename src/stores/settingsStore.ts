@@ -4,6 +4,7 @@ import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
 import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
+import { DEFAULT_THEME, themeOrDefault, type Theme } from '@/lib/theme';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts).
@@ -27,7 +28,8 @@ type PersistableKey =
   | 'railCollapsed'
   | 'aiAutoMaintain'
   | 'packInstructions'
-  | 'closeToTrayHintSeen';
+  | 'closeToTrayHintSeen'
+  | 'theme';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -133,6 +135,17 @@ interface SettingsState {
    *  what ✕ does and reads this bit through `set_close_hint_pending`, so this is the whole
    *  memory of it: cleared here, the card comes back. */
   closeToTrayHintSeen: boolean;
+  /** 情人节限定版 (2026-08-19, Ocean) — which palette / display face / background the windows
+   *  paint with. `'classic'` is the shipped v0.5.0 look and is the DEFAULT, so a build
+   *  carrying this key installs over a real library and changes nothing until someone opens
+   *  Settings (Ocean picked that default the same day).
+   *
+   *  ⚠️ Read by the capture overlay too — it is a separate window with its own store instance
+   *  over the same settings.json, and it re-reads on the `settings:changed` broadcast. So
+   *  flipping this repaints both windows at once; do not add a second copy of the value.
+   *  ⚠️ NOT read by the `spool --mcp` subprocess, unlike `resolvedLanguage`: nothing an MCP
+   *  client sees has a colour. */
+  theme: Theme;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // Reflects the OS launch-agent registration; the OS is the source of truth, so
@@ -212,6 +225,7 @@ const KEYS: PersistableKey[] = [
   'aiAutoMaintain',
   'packInstructions',
   'closeToTrayHintSeen',
+  'theme',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -254,6 +268,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // Windows only (2026-08-18, Ocean #1): whether the 「关掉窗口 ≠ 退出」 card has been shown.
   // Written once, by the card's own button — see components/CloseToTrayHint.
   closeToTrayHintSeen: false,
+  theme: DEFAULT_THEME,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,
@@ -266,6 +281,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         const v = await store.get<string | boolean>(k);
         if (v !== null && v !== undefined) (next as Record<string, unknown>)[k] = v;
       }
+      // ⚠️ The loop above trusts the file. `theme` is the one key where that is not safe
+      // enough: settings.json is hand-editable, and an unrecognised name would be written
+      // onto <html> where no stylesheet matches it — a half-painted window rather than either
+      // theme. Everything else here is a boolean, a number or a string the UI re-validates.
+      if (next.theme !== undefined) next.theme = themeOrDefault(next.theme);
       // One-time cleanup for users upgrading across the MCP-first pivot.
       if (!legacyScrubDone) {
         legacyScrubDone = true;

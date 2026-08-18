@@ -22,6 +22,7 @@ import FocusSection from './FocusSection';
 import RailDragGhost from './RailDragGhost';
 import RecentSection from './RecentSection';
 import SpoolCard from './SpoolCard';
+import Wordmark from './Wordmark';
 import WorkspaceGroup from './WorkspaceGroup';
 
 interface Props {
@@ -76,16 +77,29 @@ export default function Sidebar({ onCollapse }: Props) {
   const engineAvailable = engineStatus?.available === true;
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-line bg-paper-2/40">
+    /* ⚠️ `rail-wash` is a bare marker class with NO rule behind it in 经典 — the only rule that
+       matches it lives under `[data-theme='valentine']` (styles/global.css), where the two rails
+       become the mint frame around the blush page. Doing it this way round, rather than replacing
+       `bg-paper-2/40` with a token, is deliberate: the shipped class stays on the element
+       untouched, so there is no way for the released look to shift by a shade.
+       ⚠️⚠️ And that caution turned out to be load-bearing. Measured in the compiled CSS on
+       2026-08-19: **`bg-paper-2/40` emits no rule at all** — Tailwind v3 drops an opacity modifier
+       applied to a colour defined as a bare `var(--…)`, which is how every colour in
+       tailwind.config.js is defined. So this rail has been TRANSPARENT since it shipped, showing
+       `.paper-bg` through, and cream-on-cream is why nobody ever noticed. Had this been "cleaned
+       up" into a token with a 40%-cream value for 经典, it would have ADDED a wash the released
+       build does not have. See DESIGN_VALENTINE_EDITION.md §1 — ~100 such classes exist in src/
+       and fixing them is a separate job with a visible blast radius. */
+    <aside className="rail-wash flex h-full w-full flex-col border-r border-line bg-paper-2/40">
       {/* ⚠️ The title is deliberately larger than the panel below it, and the gap under it is
           deliberately wide. Ocean 2026-08-10, on seeing 首日价值二期 installed: 「logo 太小了,
           被面板抢占了注意力,增大一点,面板和 logo 增加距离」. The panel is a status readout; the
           name of the product is what the top of the sidebar is for. */}
       <header className="flex items-start justify-between gap-2 px-5 pb-6 pt-5">
-        <h1 className="min-w-0 font-serif text-3xl tracking-tight text-ink">
-          Spool
-          <span className="ml-2 font-serif text-lg italic text-muted">思簿</span>
-        </h1>
+        {/* 情人节限定版 (2026-08-19): the same <h1>, moved into its own file so the theme can
+            give it a click. In 经典 it renders exactly the markup that used to be inline here —
+            see Wordmark.tsx for why it is not simply a button that does nothing there. */}
+        <Wordmark />
         <button
           type="button"
           onClick={onCollapse}

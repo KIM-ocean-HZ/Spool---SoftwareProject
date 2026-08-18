@@ -20,6 +20,18 @@ export const SPOOL_CAPACITY = 100;
  *  step, i.e. a state the user cannot see. One step now adds one whole turn of thread. */
 export const SPOOL_STEPS = 20;
 
+/** How many frames the 情人节 heart is drawn in (2026-08-19, Ocean: 「同样绘制多帧（25）」).
+ *
+ *  ⚠️ It is a different number from SPOOL_STEPS on purpose, and it is not interchangeable with
+ *  it: 25 divides SPOOL_CAPACITY exactly (4 captures per frame, against the spool's 5), so
+ *  every frame is the same width. A step count that does not divide 100 would make the last
+ *  frame short, and the FULL frame is the one the app says something about (拍板 4).
+ *
+ *  ⚠️ 25 frames of a heart that GROWS is legible in a way 20 turns of thread was not — see
+ *  SpoolMeter's note on half-pixel steps. The heart's smallest and largest frames differ by a
+ *  factor of about five, so one frame is roughly 4% of the mark's size. */
+export const HEART_STEPS = 25;
+
 export interface SpoolState {
   /** How many spools have been wound full, ever. §2.4: DERIVED, never stored — a stored
    *  counter is a second version of the truth that goes wrong the moment a block is
@@ -27,7 +39,8 @@ export interface SpoolState {
   filled: number;
   /** How many captures are on the spool being wound now (SPOOL_CAPACITY when it is full). */
   onSpool: number;
-  /** 0 (bare axle) … SPOOL_STEPS (wound full) — one turn of thread per step. */
+  /** 0 (bare axle / smallest heart) … `steps` (wound full / whole heart). One turn of thread
+   *  per step for the spool; one frame per step for the 情人节 heart. */
   level: number;
   /** The moment worth saying something about: a spool just came up full and nothing has
    *  been captured since. It is a property of the count, not an event — so it survives a
@@ -35,7 +48,11 @@ export interface SpoolState {
   full: boolean;
 }
 
-export const spoolState = (captures: number): SpoolState => {
+/** @param steps how many frames the mark on screen has. Defaults to the spool's 20, so every
+ *  existing caller is unchanged; the 情人节 heart passes HEART_STEPS. ⚠️ Only `level` depends on
+ *  it — `filled`, `onSpool` and `full` are facts about the library and are identical in both
+ *  themes, which is what stops the same library from reporting two different 满轴数. */
+export const spoolState = (captures: number, steps: number = SPOOL_STEPS): SpoolState => {
   const n = Math.max(0, Math.floor(captures));
   const filled = Math.floor(n / SPOOL_CAPACITY);
   const rest = n % SPOOL_CAPACITY;
@@ -43,7 +60,7 @@ export const spoolState = (captures: number): SpoolState => {
   return {
     filled,
     onSpool: full ? SPOOL_CAPACITY : rest,
-    level: full ? SPOOL_STEPS : Math.floor(rest / (SPOOL_CAPACITY / SPOOL_STEPS)),
+    level: full ? steps : Math.floor(rest / (SPOOL_CAPACITY / steps)),
     full,
   };
 };

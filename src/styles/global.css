@@ -93,3 +93,92 @@ article[data-block-id].block-active {
   background-color: var(--block-active-bg);
   transition-duration: 50ms, 150ms;
 }
+
+/* =====================================================================================
+   情人节限定版 (2026-08-19, Ocean) — everything below is scoped to [data-theme='valentine'].
+   The palette itself lives in tokens.css; this file holds the three things a token cannot
+   express: the background photograph, the display face's weight, and two animations.
+   ===================================================================================== */
+
+/* Ocean's watercolour peonies (assets/valentine-background.png), laid under the whole
+   window. `.paper-bg` is the shipped build's radial-gradient paper; the theme replaces the
+   whole stack rather than adding to it, so the two never composite.
+   ⚠️⚠️ **The wash on top is centre-weighted, and the numbers are measured, not taste.**
+   Ocean's own brief asked to 「soften edges with lighter washes so the illustration stays
+   airy」 and separately that 「文字需要看得清」 — those pull the same direction here. Text lives
+   in the middle of the window; the peonies live in the corners. So the paper veil is 95%
+   opaque where the reading column is and thins to 74% at the edges where the flowers are.
+   Worst-case measured over every pixel of the image at these three stops: `--ink` never
+   drops below **8.96 : 1**, and small `--muted` text falls under 3 : 1 on **0.8%** of the
+   reading area (the darkest linework inside the bottom-right peony, nothing else).
+   ⚠️ Re-measure if the image is ever swapped — a photo with a dark centre would put text on
+   top of it, and the wash is what stands between the two.
+   ⚠️ No `background-attachment: fixed`: this element does not scroll (the columns inside it
+   do), so the image is already still relative to the window, and `fixed` in a WKWebView
+   compositing layer costs a repaint per scroll for no visible difference. */
+:root[data-theme='valentine'] .paper-bg {
+  background:
+    radial-gradient(
+      ellipse 78% 72% at 50% 45%,
+      rgba(253, 248, 245, 0.95) 0%,
+      rgba(253, 248, 245, 0.82) 70%,
+      rgba(253, 248, 245, 0.74) 100%
+    ),
+    url('../assets/valentine-background.png') center / cover no-repeat,
+    var(--paper);
+}
+
+/* The two rails, which are the 「small framing elements」 Ocean's brief hands to MINT — 「to keep
+   the pink tones from feeling too warm」. A pale mint over the background image is what makes the
+   window read as a cool frame around a blush page instead of three pink columns.
+   ⚠️⚠️ **An override, not a replacement.** Both rails keep the `bg-paper-2/40` they shipped with;
+   `rail-wash` is a bare marker class that nothing matches in 经典. The tempting version of this
+   was to swap that class for a `--rail-wash` token in both themes — but exactly how Tailwind v3
+   compiles an opacity modifier on a CSS-variable colour is not something to take on faith when
+   the rule is that the released look must not shift by a shade. This way 经典 is untouched by
+   construction rather than by equivalence.
+   ⚠️ `background-color` and not the `background` shorthand: the shorthand would also reset
+   background-image and friends, which is more than this needs to say.
+   ⚠️ 66% and not more: the image's left-hand peony sits BEHIND the sidebar, and at this opacity
+   it stays a faint ghost there rather than being erased. Measured, not guessed — worst-case ink
+   contrast inside the rail is ≥ 9 : 1 at any opacity from 62% up, so the number is free to be
+   chosen for looks. Small muted text on it lands at ~3.4 : 1, the tier it already has on cream. */
+:root[data-theme='valentine'] .rail-wash {
+  background-color: var(--rail-wash);
+}
+
+/* ⚠️ The theme's `.font-serif` weight rule is NOT here — it lives in fonts.css, because the
+   capture overlay imports tokens.css (and therefore fonts.css) but not this file, and its
+   project picker carries `.font-serif` too. See the note there. */
+
+/* The wordmark's easter egg (Sidebar/Wordmark.tsx): 「logo 会震动一下，然后变成 Gwen」.
+   A short horizontal shiver, not a wobble — it has to read as the mark being tapped, and it
+   has to be OVER before the text swaps, which is why the component's timeout and this
+   duration are the same number and are commented in both places. */
+@keyframes wordmark-shake {
+  0%, 100% { transform: translateX(0); }
+  15%      { transform: translateX(-3px) rotate(-1.2deg); }
+  30%      { transform: translateX(3px) rotate(1.2deg); }
+  45%      { transform: translateX(-2px) rotate(-0.8deg); }
+  60%      { transform: translateX(2px) rotate(0.8deg); }
+  80%      { transform: translateX(-1px); }
+}
+
+.wordmark-shake {
+  animation: wordmark-shake 380ms ease-in-out both;
+}
+
+/* The heart, on the beat it fills (Sidebar/SpoolMeter). The shipped spool marks the same
+   moment with `.flash`, a background wash — wrong verb for a heart, and `.flash` paints
+   amber from the shipped palette. A heart that has just filled should beat once. */
+@keyframes heart-beat {
+  0%, 100% { transform: scale(1); }
+  20%      { transform: scale(1.16); }
+  40%      { transform: scale(0.97); }
+  60%      { transform: scale(1.08); }
+}
+
+.heart-beat {
+  animation: heart-beat 900ms ease-out;
+  transform-origin: center;
+}

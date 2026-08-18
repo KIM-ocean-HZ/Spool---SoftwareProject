@@ -377,6 +377,14 @@ const EN: Record<string, string> = {
   '已缠满 {n} 轴': '{n} spools filled',
   '今天读了 {n} 条': '{n} read today',
   '写了 {n} 字': '{n} chars written',
+  // 情人节限定版 (2026-08-19) — the same four facts the spool states, said about the heart that
+  // replaces it in that theme (Sidebar/HeartMeter). Separate keys rather than one set of
+  // metaphor-free strings: 「线轴」 is the product's own name made visible and 「爱心」 is the point
+  // of the edition, so neither can be flattened into 「进度」 to save four entries.
+  '爱心：每 100 条捕捉填满一颗': 'One heart holds 100 captures',
+  '还差 {n} 条填满': '{n} more to fill it',
+  '这颗心填满了': 'This heart is full',
+  '已填满 {n} 颗心': '{n} hearts filled',
   '现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。':
     'Enough to pack now — press ⌘⇧P and paste it to any AI.',
   // 旧账 §5-3: dates found inside a block's own text (DateNotices).
@@ -532,6 +540,20 @@ const EN: Record<string, string> = {
   // —— 自己在输入框里写下的一块，跟「捕获」是两回事。
   '写下的一条': 'the line you wrote',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
+  // 情人节限定版 (2026-08-19) — the appearance switch, and the break card the theme brings with
+  // it. Ocean: 「中英文都支持」.
+  '外观': 'Appearance',
+  '配色、标题字体和背景。切换立即生效，不影响你存的东西。':
+    'Colours, title face and background. Takes effect immediately; nothing you saved is touched.',
+  '经典': 'Classic',
+  '情人节': "Valentine's",
+  // ⚠️ 「歇一会儿」 and not 「休息提醒」: the card speaks to the person, it does not name a feature.
+  '歇一会儿': 'Take a break',
+  '你已经连着专注一个小时了。站起来走两步，喝口水，看看窗外。':
+    "You've been focused for an hour straight. Stand up, walk a bit, get some water, look out a window.",
+  '存下来的东西不会跑，它们会在这儿等你回来。':
+    'What you saved is not going anywhere. It will be here when you come back.',
+  '好，去休息': 'All right, I will',
 
   // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).
   '本机 AI 引擎': 'On-machine AI engine',

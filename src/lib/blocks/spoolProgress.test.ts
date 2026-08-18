@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPOOL_CAPACITY, SPOOL_STEPS, spoolState, untilFull } from './spoolProgress';
+import { HEART_STEPS, SPOOL_CAPACITY, SPOOL_STEPS, spoolState, untilFull } from './spoolProgress';
 
 // 首日价值二期 §2.3/§2.4 — the two cases worth pinning are the ones a screenshot hides:
 // what "exactly 100" shows, and where the twenty steps actually change.
@@ -35,6 +35,28 @@ describe('spoolState', () => {
     expect(spoolState(250).onSpool).toBe(50);
     expect(spoolState(300).full).toBe(true);
     expect(spoolState(300).filled).toBe(3);
+  });
+
+  // 情人节限定版 (2026-08-19, Ocean: 「同样绘制多帧（25）」) — the heart is drawn in 25 frames where
+  // the spool has 20 turns. `steps` is the only thing that changes.
+  it('lays down one heart frame every 4 captures (25 档)', () => {
+    expect(HEART_STEPS).toBe(25);
+    const levels = [0, 3, 4, 40, 96, 99, 100].map((n) => spoolState(n, HEART_STEPS).level);
+    expect(levels).toEqual([0, 0, 1, 10, 24, 24, HEART_STEPS]);
+  });
+
+  it('reports the SAME library either way — only `level` is per-theme', () => {
+    // ⚠️ The invariant that stops one library from having two different 满轴数. If a future theme
+    // ever needs its own capacity too, this is the test that will fail, and it should.
+    for (const n of [0, 1, 57, 99, 100, 101, 250, 300]) {
+      const spool = spoolState(n, SPOOL_STEPS);
+      const heart = spoolState(n, HEART_STEPS);
+      expect({ ...heart, level: 0 }).toEqual({ ...spool, level: 0 });
+    }
+  });
+
+  it('defaults to the spool\'s 20 steps, so every existing caller is unchanged', () => {
+    expect(spoolState(50)).toEqual(spoolState(50, SPOOL_STEPS));
   });
 
   it('survives a library that lost blocks (the number derived, never stored — §2.4)', () => {
