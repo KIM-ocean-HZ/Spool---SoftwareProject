@@ -35,8 +35,14 @@ fn mcp_exe_path() -> Result<String, String> {
 // refused: this value crosses from JS, and the cost of being strict about it is a settings
 // page that says no engine is available while one sits installed on the machine.
 #[tauri::command]
-fn ai_engine_status(preferred: Option<String>) -> engine::EngineStatus {
-    engine::detect(preferred.as_deref().and_then(engine::EngineKind::parse))
+fn ai_engine_status(
+    preferred: Option<String>,
+    manual_path: Option<String>,
+) -> engine::EngineStatus {
+    engine::detect(
+        preferred.as_deref().and_then(engine::EngineKind::parse),
+        manual_path.as_deref(),
+    )
 }
 
 /// What one finished run hands back to the GUI (DESIGN_WORKBENCH §4.1).
@@ -80,6 +86,9 @@ async fn ai_engine_run(
     engine: Option<String>,
     model: Option<String>,
     effort: Option<String>,
+    // The hand-typed CLI path from settings, if any — passed on the run for the same reason
+    // the probe takes it: the engine the settings page found must be the engine that runs.
+    manual_path: Option<String>,
 ) -> Result<EngineRunResult, String> {
     // An unknown name is refused outright rather than falling through to a default: a
     // typo that silently ran a different action against the user's library would be worse
@@ -133,6 +142,7 @@ async fn ai_engine_run(
         });
         engine::run_action(
             preferred,
+            manual_path.as_deref(),
             &prompt,
             timeout_secs,
             max_turns,
@@ -465,6 +475,9 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(&dir);
             }
 
+            #[cfg(target_os = "windows")]
+            fit_main_window_to_work_area(app.handle());
+
             #[cfg(desktop)]
             {
                 use tauri::tray::TrayIconBuilder;
@@ -492,15 +505,35 @@ pub fn run() {
                 #[cfg(not(target_os = "macos"))]
                 let icon =
                     app.default_window_icon().cloned().map(|i| i.to_owned()).unwrap_or(icon);
-                TrayIconBuilder::with_id("main")
+                let tray = TrayIconBuilder::with_id("main")
                     .icon(icon)
                     .icon_as_template(cfg!(target_os = "macos"))
                     .tooltip("Spool · 思簿")
                     .menu(&initial_menu)
                     .on_menu_event(|app, event| {
                         capture::handle_menu_event(app, event.id.as_ref());
-                    })
-                    .build(app)?;
+                    });
+                // ⚠️ Windows convention, and on Windows it is not decoration: closing the
+                // window only hides it, so the tray is the way back — and a Windows user
+                // reaches for a LEFT click to get a window back (右键 is for the menu).
+                // Tauri's default shows the menu on either button, which on Windows reads
+                // as "the app is gone and the icon does nothing useful".
+                // macOS keeps the default: a menu-bar item there opens its menu on click.
+                #[cfg(not(target_os = "macos"))]
+                let tray = tray.show_menu_on_left_click(false).on_tray_icon_event(
+                    |tray, event| {
+                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            capture::show_main_window(tray.app_handle());
+                        }
+                    },
+                );
+                tray.build(app)?;
 
                 // Live shortcut config (§19.1): search starts at its platform default;
                 // capture has NO default binding since 2026-07-07 (⌘⇧C retired —
@@ -537,6 +570,70 @@ pub fn run() {
 
             Ok(())
         })
-        .run(context())
-        .expect("error while running tauri application");
+        .build(context())
+        .expect("error while building tauri application")
+        // ⚠️ Ocean, Windows 验收 #13: clicking ✕ closed the whole app. On macOS an app with
+        // no visible window keeps running by itself; everywhere else the event loop ends
+        // when the last window goes, and the tray icon goes with it — which takes the only
+        // way back to a hidden window AND the only way to quit, and leaves the shortcut
+        // dead. `CloseRequested` above hides instead of closing, so this should not be
+        // reachable; it is here because the cost of being wrong about that is the app
+        // vanishing on the platform where the tray IS the app.
+        //
+        // `code.is_none()` is what keeps a real quit real: 退出 in the tray menu goes
+        // through `app.exit(0)` and restart_app through `AppHandle::restart()`, and both
+        // arrive here with a code — only an exit nobody asked for is prevented.
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                api.prevent_exit();
+            }
+        });
+}
+
+// Windows: open inside the screen the user actually has.
+//
+// Ocean, 2026-08-17 (2560×1600 laptop): 「打开之后底部一小部分被 windows 的程序坞挡住了」.
+// The configured 1600×1000 is a LOGICAL size, and Windows laptops ship scaled — at 150%
+// that display is 1706×1066 logical, of which the taskbar takes the bottom ~48. So the
+// window is taller than the space it is allowed to occupy and the last rows land under the
+// taskbar. Nothing on macOS reports this, and the port's rule is that Mac behaviour does not
+// move, so this is gated rather than shared.
+//
+// The work area is the taskbar-excluded rectangle of the monitor the window opened on —
+// asking the OS for it is the only way to be right on every DPI, taskbar edge and monitor.
+// Chrome (title bar + borders) is measured rather than assumed: `set_size` sets the INNER
+// size, and the difference is what would otherwise still hang off the bottom.
+#[cfg(target_os = "windows")]
+fn fit_main_window_to_work_area(app: &tauri::AppHandle) {
+    use tauri::{LogicalSize, PhysicalPosition, PhysicalSize};
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let (Ok(Some(monitor)), Ok(outer), Ok(inner)) =
+        (win.current_monitor(), win.outer_size(), win.inner_size())
+    else {
+        return;
+    };
+    let work = *monitor.work_area();
+    let chrome_w = outer.width.saturating_sub(inner.width);
+    let chrome_h = outer.height.saturating_sub(inner.height);
+    let max_w = work.size.width.saturating_sub(chrome_w);
+    let max_h = work.size.height.saturating_sub(chrome_h);
+    if inner.width <= max_w && inner.height <= max_h {
+        return; // it already fits — leave the user's window exactly where it is
+    }
+    // The floor is the configured minimum (860×560 logical): a work area smaller than that
+    // has no answer, and shrinking past it would just move the clipping inside the app.
+    let scale = monitor.scale_factor();
+    let min = LogicalSize::new(860.0, 560.0).to_physical::<u32>(scale);
+    let w = inner.width.min(max_w).max(min.width);
+    let h = inner.height.min(max_h).max(min.height);
+    if win.set_size(PhysicalSize::new(w, h)).is_err() {
+        return;
+    }
+    // Re-read: the resize is what decides how much room is left to centre in.
+    let Ok(outer) = win.outer_size() else { return };
+    let x = work.position.x + ((work.size.width as i32 - outer.width as i32) / 2).max(0);
+    let y = work.position.y + ((work.size.height as i32 - outer.height as i32) / 2).max(0);
+    let _ = win.set_position(PhysicalPosition::new(x, y));
 }

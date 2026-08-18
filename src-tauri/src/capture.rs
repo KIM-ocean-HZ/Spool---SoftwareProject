@@ -754,6 +754,10 @@ fn send_overlay_show<R: Runtime>(
     app: &AppHandle<R>,
     kind: &str,
     payload: serde_json::Value,
+    // Windows only, and only ever true for the capture toast: the helper spends the
+    // foreground right this process just handed it (win32.rs). A notice and an undo card
+    // have nothing to type into, so they must not disturb the user's app.
+    focus: bool,
 ) -> Result<(f64, f64), String> {
     let (x, y) = overlay_origin(app)?;
     let sent = crate::overlay::send(&serde_json::json!({
@@ -762,6 +766,7 @@ fn send_overlay_show<R: Runtime>(
         "y": y,
         "w": OVERLAY_WIDTH,
         "h": OVERLAY_HEIGHT_COLLAPSED,
+        "focus": focus,
         "payload": payload,
     }));
     if sent {
@@ -787,6 +792,14 @@ fn send_overlay_show<R: Runtime>(
 static RESTORE_FOCUS_APP: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(target_os = "macos")]
 static RESTORE_FOCUS_PID: Mutex<Option<i32>> = Mutex::new(None);
+
+// The Windows half of the same idea: the window the keyboard goes back to, as a raw HWND.
+// An atomic rather than a Mutex because `Mutex` is imported under the macOS gate above, and
+// because there is exactly one value with no invariant to hold across it. 0 means "nowhere
+// to go back to" — a capture from a screen with no foreground window at all.
+#[cfg(target_os = "windows")]
+static RESTORE_FOCUS_HWND: std::sync::atomic::AtomicIsize =
+    std::sync::atomic::AtomicIsize::new(0);
 
 // Cache-only read of the frontmost app — never spawns osascript, so it is free on the
 // capture hot path. useCapture starts get_foreground_app() at the top of every capture
@@ -1047,10 +1060,33 @@ pub fn show_capture_overlay<R: Runtime>(
         ACTIVATE_ON_SHOWN.store(source_pid.is_some(), Ordering::SeqCst);
         source_pid.is_some()
     };
-    #[cfg(not(target_os = "macos"))]
+    // Windows note-first (2026-08-17, Ocean 验收 #24 「esc 不能关闭」 → 「要，做成和 Mac
+    // 一样」). Same shape as the macOS branch above, by a different mechanism: there the
+    // main process activates the helper by pid, here it hands the helper the right to
+    // activate ITSELF (win32.rs has the why). Both are only ever reachable from a keypress
+    // the user just made, which is exactly when either OS allows it.
+    #[cfg(target_os = "windows")]
+    let will_activate = {
+        use std::sync::atomic::Ordering::SeqCst;
+        // ⚠️ The helper is the only window excluded — NOT the main window. Activation is
+        // per process on Windows too, so a capture made from inside Spool still has to hand
+        // the keyboard to the helper, and still has to give it back to the main window
+        // afterwards. (The macOS branch above carries the long version of this warning; it
+        // was a real bug there for two weeks.) The helper is excluded because a re-capture
+        // while a toast is still up would otherwise "restore" focus to the toast itself.
+        let helper = crate::overlay::helper_pid();
+        let source = crate::win32::foreground_window()
+            .filter(|(_, pid)| helper.map(|h| h as u32) != Some(*pid));
+        RESTORE_FOCUS_HWND.store(source.map_or(0, |(hwnd, _)| hwnd), SeqCst);
+        match helper {
+            Some(pid) => crate::win32::allow_foreground(pid as u32),
+            None => false,
+        }
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let will_activate = false;
     let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
-    let (origin_x, origin_y) = send_overlay_show(&app, "show", payload)?;
+    let (origin_x, origin_y) = send_overlay_show(&app, "show", payload, will_activate)?;
     // §9.13: arm the click-outside dismiss watch over the toast's frame, and grab the
     // global undo shortcut for the toast's lifetime. The ResizeObserver in the overlay
     // refines the height moments later via resize_capture_overlay.
@@ -1084,7 +1120,20 @@ pub fn show_capture_overlay<R: Runtime>(
 // The overlay process reports its window is on screen. Hand it the foreground if this
 // was a capture toast raised from another app — see the "Note-first activation" section.
 // Activating the OVERLAY's pid (not ours) is what leaves the main window untouched.
-pub fn on_overlay_shown<R: Runtime>(app: &AppHandle<R>) {
+pub fn on_overlay_shown<R: Runtime>(app: &AppHandle<R>, focused: bool) {
+    // Windows: the helper answers whether it actually got the keyboard, rather than us
+    // assuming it from a call that returned TRUE. Same fallback as the macOS branch below —
+    // no focus means nobody can type into the note box, so the undo key has to be claimed
+    // globally or an undo from the source app has no route at all.
+    #[cfg(target_os = "windows")]
+    {
+        if !focused {
+            eprintln!("[capture] the toast did not get the foreground — note box needs a click");
+            register_undo_shortcut(app);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = focused;
     #[cfg(target_os = "macos")]
     {
         if !ACTIVATE_ON_SHOWN.swap(false, Ordering::SeqCst) {
@@ -1161,9 +1210,20 @@ pub fn on_overlay_hide<R: Runtime>(app: &AppHandle<R>) {
 // `release_foreground` asks the overlay process to stop being the active app, not just
 // to order its window out — see the last branch of on_overlay_hide.
 fn hide_overlay_now(release_foreground: bool) {
+    // Windows: the handle travels to the helper because the helper is the process holding
+    // the foreground at this moment, and Windows only honours SetForegroundWindow from the
+    // process that has it. Taken (not read) — one dismissal, one restore.
+    #[cfg(target_os = "windows")]
+    let restore = match RESTORE_FOCUS_HWND.swap(0, std::sync::atomic::Ordering::SeqCst) {
+        0 => serde_json::Value::Null,
+        hwnd => serde_json::json!(hwnd as i64),
+    };
+    #[cfg(not(target_os = "windows"))]
+    let restore = serde_json::Value::Null;
     crate::overlay::send(&serde_json::json!({
         "t": "hide-now",
         "release": release_foreground,
+        "restore": restore,
     }));
 }
 
@@ -1177,7 +1237,7 @@ pub fn show_undo_overlay<R: Runtime>(
     app: AppHandle<R>,
     payload: serde_json::Value,
 ) -> Result<(), String> {
-    let (origin_x, origin_y) = send_overlay_show(&app, "undo", payload)?;
+    let (origin_x, origin_y) = send_overlay_show(&app, "undo", payload, false)?;
     #[cfg(target_os = "macos")]
     crate::double_tap::arm_overlay_dismiss(
         origin_x,
@@ -1238,6 +1298,6 @@ pub fn show_capture_notice<R: Runtime>(
     payload: OverlayNoticePayload,
 ) -> Result<(), String> {
     let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
-    send_overlay_show(&app, "notice", payload)?;
+    send_overlay_show(&app, "notice", payload, false)?;
     Ok(())
 }

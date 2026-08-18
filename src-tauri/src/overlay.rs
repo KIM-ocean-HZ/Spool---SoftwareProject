@@ -162,8 +162,12 @@ fn run_once<R: Runtime>(app: &AppHandle<R>) -> std::io::Result<()> {
 
 fn on_message<R: Runtime>(app: &AppHandle<R>, msg: &serde_json::Value) {
     match msg.get("t").and_then(serde_json::Value::as_str).unwrap_or("") {
-        // The toast is on screen — safe to hand it the foreground now.
-        "shown" => crate::capture::on_overlay_shown(app),
+        // The toast is on screen — safe to hand it the foreground now (macOS), or to hear
+        // whether it managed to take it itself (Windows; a missing field reads as "no").
+        "shown" => crate::capture::on_overlay_shown(
+            app,
+            msg.get("focused").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        ),
         // Every dismiss path (Enter / Esc / ✕ / click-outside / the 8s dwell) funnels
         // here so focus restoration happens BEFORE the window is ordered out.
         "hide" => crate::capture::on_overlay_hide(app),
@@ -332,11 +336,37 @@ fn on_main_message(app: &AppHandle, msg: &serde_json::Value) {
             if kind == "show" {
                 // Only the capture toast takes the foreground; a notice and an undo card
                 // have nothing to type into, so they must not disturb the user's app.
-                out(&serde_json::json!({ "t": "shown" }));
+                //
+                // Windows: the main process has already spent its hotkey-earned right on
+                // this process (win32.rs), so `set_focus` is allowed here and nowhere else.
+                // What goes back is what the OS says afterwards, not what the call returned:
+                // if the grant had already lapsed the window comes up unfocused, and the
+                // main process needs to know that to claim the undo key globally instead.
+                #[cfg(target_os = "windows")]
+                let focused = if msg.get("focus").and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                {
+                    let _ = win.set_focus();
+                    crate::win32::holds_foreground()
+                } else {
+                    false
+                };
+                #[cfg(not(target_os = "windows"))]
+                let focused = false;
+                out(&serde_json::json!({ "t": "shown", "focused": focused }));
             }
         }
         // The main process has already handed the foreground back — safe to order out.
         "hide-now" => {
+            // …except on Windows, where handing it back is THIS process's job: Windows only
+            // honours SetForegroundWindow from the process that currently holds it, and
+            // that is this one whenever the toast took the keyboard. Before the hide, so the
+            // user's app is already in front when the toast disappears rather than the OS
+            // picking the next window itself.
+            #[cfg(target_os = "windows")]
+            if let Some(hwnd) = msg.get("restore").and_then(serde_json::Value::as_i64) {
+                crate::win32::focus_window(hwnd as isize);
+            }
             if let Some(win) = app.get_webview_window(WINDOW_LABEL) {
                 let _ = win.hide();
             }

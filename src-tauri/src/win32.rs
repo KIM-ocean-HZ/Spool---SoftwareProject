@@ -116,3 +116,75 @@ fn window_title(hwnd: windows_sys::Win32::Foundation::HWND) -> Option<String> {
     let title = String::from_utf16_lossy(&buf[..n as usize]).trim().to_string();
     (!title.is_empty()).then_some(title)
 }
+
+// ---------------------------------------------------------------------------------------
+// Note-first on Windows (Ocean, 2026-08-17 验收 #24: 「esc 不能关闭」)
+// ---------------------------------------------------------------------------------------
+//
+// The capture toast never took the keyboard here, so Esc — and every other key — went to
+// whatever the user was working in, and the only way into the note box was a mouse click.
+// The install guide predicted that ("Windows 不让后台程序抢键盘"), and the prediction was
+// half right: Windows refuses a foreground grab from a process that is not part of the
+// user's current interaction, but the process that is HANDLING A HOTKEY the user just
+// pressed is exactly the documented exception (SetForegroundWindow's caller may be the
+// process that "received the last input event"). Capture is only ever entered by that
+// hotkey, so the right is ours at the only moment we want it.
+//
+// It has to be handed on: the toast lives in the overlay HELPER process (overlay.rs), and
+// the right belongs to the process that got the keypress — this one. `AllowSetForegroundWindow`
+// is the transfer, and the helper spends it with its own `set_focus()`.
+//
+// ⚠️ Handles cross a process boundary here as plain `isize`, because they travel as JSON
+// on the helper pipe. A stale handle is not dangerous — `IsWindow` rejects it and focus
+// simply stays where it is — but it is also never reused for anything except focus.
+
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    AllowSetForegroundWindow, IsWindow, SetForegroundWindow,
+};
+
+/// The foreground window and the pid that owns it, as raw numbers.
+///
+/// None when there is no foreground window at all (a lock screen, a desktop switch) — the
+/// caller reads that as "nowhere to give the keyboard back to", never as an error.
+pub fn foreground_window() -> Option<(isize, u32)> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    if pid == 0 {
+        return None;
+    }
+    Some((hwnd as isize, pid))
+}
+
+/// Let `pid` take the foreground once, on our behalf.
+///
+/// Only meaningful while this process holds the right — i.e. inside the hotkey handler.
+/// A false return is a normal outcome (the user alt-tabbed between keypress and here), and
+/// it means the toast will come up without focus: still clickable, just not type-into-able.
+pub fn allow_foreground(pid: u32) -> bool {
+    unsafe { AllowSetForegroundWindow(pid) != 0 }
+}
+
+/// Put a window back in front — used to hand the keyboard back to where the user was.
+///
+/// Called from whichever process currently HAS the foreground (the helper, after the toast
+/// is dismissed), because that is the only process Windows will honour it from.
+pub fn focus_window(hwnd: isize) -> bool {
+    let hwnd = hwnd as windows_sys::Win32::Foundation::HWND;
+    if hwnd.is_null() || unsafe { IsWindow(hwnd) } == 0 {
+        return false;
+    }
+    unsafe { SetForegroundWindow(hwnd) != 0 }
+}
+
+/// Does this process own the foreground window right now?
+///
+/// The honest answer to "did the toast actually get the keyboard", asked after the fact
+/// rather than assumed from a call that returned TRUE: it is what decides whether the undo
+/// shortcut has to be claimed globally instead (capture.rs `on_overlay_shown`).
+pub fn holds_foreground() -> bool {
+    foreground_window().is_some_and(|(_, pid)| pid == std::process::id())
+}
