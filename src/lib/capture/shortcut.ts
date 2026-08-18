@@ -20,12 +20,17 @@ export const DEFAULT_SEARCH_ACCEL = IS_MAC ? 'meta+shift+KeyF' : 'control+shift+
 // backup somebody adds themselves. Off macOS there is no gesture at all (Ocean 2026-08-15,
 // 首版不做), so an unbound capture key means the app ships with no way to capture from
 // another program — the whole feature behind a settings row nobody has been sent to.
-// Ctrl+Space is his own pick after a week on the Windows build (2026-08-18: 「用着感觉
-// ctrl+space 比较方便,默认做这个快捷键」).
 //
-// ⚠️ Windows 中文输入法 uses Ctrl+Space to toggle IME on and off, and a global hotkey wins
-// that fight — see WINDOWS-CHECK 第三轮 for the one thing this trades away.
-export const DEFAULT_CAPTURE_ACCEL = IS_MAC ? null : 'control+Space';
+// ⚠️ Was `control+Space` for one build (2026-08-18 morning, his own pick). He withdrew it
+// the same day after using it: 「Ctrl+Space 不用，输入法切换更重要」. That was the exact trade
+// flagged when it shipped — 中文输入法 on Windows toggles with Ctrl+Space, and a global
+// hotkey takes the chord out of the IME's hands, not the other way round. A capture key
+// that costs a Chinese user their IME toggle is not a default, whatever it costs to press.
+//
+// Ctrl+Alt+Space keeps the Space he liked and steps out of the IME's way: neither the
+// 中英切换 (Ctrl+Space) nor the 输入法切换 (Ctrl+Shift) hotkey has Alt in it, which is also
+// why Ctrl+Shift+Space is NOT the answer here.
+export const DEFAULT_CAPTURE_ACCEL = IS_MAC ? null : 'control+alt+Space';
 
 // Build an accelerator from a keydown. Returns null for an unusable chord: the key
 // itself is a bare modifier, or there is no "real" modifier (a shift-only global

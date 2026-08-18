@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CAPTURE_ACCEL,
   DEFAULT_SEARCH_ACCEL,
+  eventToAccelerator,
   formatAccelerator,
   reservedChordMeaning,
 } from './shortcut';
@@ -53,7 +54,22 @@ describe('DEFAULT_CAPTURE_ACCEL', () => {
 
   // The settings row and the seeded first-run tutorial both name this key; they are written
   // in different files and only agree because both come out as these five characters.
-  it('reads as Ctrl+Space', () => {
-    expect(formatAccelerator(DEFAULT_CAPTURE_ACCEL!)).toBe('Ctrl+Space');
+  it('reads as Ctrl+Alt+Space', () => {
+    expect(formatAccelerator(DEFAULT_CAPTURE_ACCEL!)).toBe('Ctrl+Alt+Space');
+  });
+
+  // The modifier ORDER is not cosmetic: the recorder builds its string meta→control→alt→
+  // shift (eventToAccelerator), and 「两个快捷键不能相同」 plus Rust's own comparisons are
+  // string equality. A default spelled in any other order would read as a different chord
+  // from the identical one the user just pressed.
+  it('is spelled in the order the recorder would produce', () => {
+    const asRecorded = eventToAccelerator({
+      code: 'Space',
+      ctrlKey: true,
+      altKey: true,
+      metaKey: false,
+      shiftKey: false,
+    } as KeyboardEvent);
+    expect(asRecorded).toBe(DEFAULT_CAPTURE_ACCEL);
   });
 });
