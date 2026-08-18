@@ -413,13 +413,26 @@ const EN: Record<string, string> = {
   'MCP 服务（实验）': 'MCP server (experimental)',
   '让支持 MCP 的 AI 工具（Claude、Cursor 等）直接读取项目打包——从「粘贴」到「零粘贴」。只在本机,不出网。':
     'Lets MCP-capable AI tools (Claude, Cursor, …) pull project packs directly — from paste to zero-paste. Stays on this machine, nothing goes online.',
-  '你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页':
-    'Your AI tool not listed? (Cherry Studio, DeepChat, …) Copy this config and paste it into its MCP settings',
   '去下载': 'Get it',
   '装好后这里就能一键接入': 'Once installed, one-click connect works here',
   '这一块的编号 — AI 说「#12」指的就是它。点一下定位':
     'This block\u2019s number — when an AI says \u201c#12\u201d, this is what it means. Click to locate it',
-  '示例用法：接好后在哪儿说、说什么': 'Examples: where to ask once connected, and what to say',
+  // 2026-08-18 (Ocean, Windows 验收 #4): the MCP page's prose collapsed into one ▸.
+  '详细说明：接好后在哪儿说、会改哪些文件':
+    'Details: where to ask once connected, and which files hooking up touches',
+  '在哪儿说，说什么': 'Where to ask, and what to say',
+  '接入会动到哪些文件': 'Which files hooking up touches',
+  '每个客户端各自的配置文件（写之前自动备份成 .bak）。另外，接 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里补一段：告诉 AI 你说的项目名先来 Spool 查一次，别去改同名的本地文档。删掉 spool:begin 和 spool:end 之间那段就能移除。':
+    "Each client's own config file (backed up to .bak first). Hooking up Codex or Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md) telling the AI to look a project name up in Spool before editing a local document of the same name. Delete everything between spool:begin and spool:end to remove it.",
+  'Codex 那份配置是三个东西共用的：ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件。ChatGPT 的普通对话走的是云端，够不着这台电脑。':
+    "That one Codex config serves three things: the Codex conversation in the ChatGPT desktop app, the Codex CLI, and the editor extensions. An ordinary ChatGPT conversation runs in the cloud and cannot reach this machine.",
+  'ChatGPT 的普通对话连不上本机——用不了 Spool':
+    'An ordinary ChatGPT conversation cannot reach this machine — no Spool there',
+  'Visual Studio Code 接完还要点两下': 'Visual Studio Code needs two more clicks',
+  '你的 AI 工具不在上面？': 'Your AI tool is not on the list?',
+  '复制配置': 'Copy config',
+  '复制这段，粘进它自己的 MCP 设置页。': "Copy this and paste it into that tool's own MCP settings page.",
+  '还有别的东西连过': 'Something else has connected',
   '在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。':
     'Where to ask: in the chat box for Claude Desktop and for a Codex conversation in ChatGPT; in the terminal for Claude Code; in the editor’s AI panel for Cursor / Visual Studio Code / Windsurf.',
   '不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。':
@@ -448,12 +461,9 @@ const EN: Record<string, string> = {
   '跟进用的': 'Follow-up uses',
   'MCP 没开': 'MCP is off',
   '还没有 AI 连过': 'No AI has connected yet',
-  '还有 {name} 连过 · {when}': '{name} also connected · {when}',
   // 2026-08-12 — the one client row whose product name covers two different capabilities.
   // "Codex" alone is accurate and unfindable; this is what keeps the word ChatGPT on the row
   // while saying which half of it works.
-  'ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool':
-    'Codex in the ChatGPT desktop app, the Codex CLI and the editor extensions share this config. An ordinary ChatGPT chat cannot reach your machine, so it cannot use Spool.',
   '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',
   // 2026-08-17 (Ocean, Windows 验收): the badge said 已接入 and the AI panel still could not
   // see Spool — every client reads its config at launch, and VS Code additionally refuses to
@@ -464,8 +474,6 @@ const EN: Record<string, string> = {
     '{name}: quit it completely and reopen (quit the app, not just the window).',
   '{name}：完全退出再打开。要是 AI 面板里还看不到 Spool——按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。':
     '{name}: quit it completely and reopen. If the AI panel still cannot see Spool — press ⌘⇧P, type MCP: List Servers, pick spool, click Start Server.',
-  'Visual Studio Code 接完还要点两下 — 一步一步':
-    'Visual Studio Code needs two more clicks — step by step',
   '把 Visual Studio Code 整个退出，再打开。': 'Quit Visual Studio Code completely, then reopen it.',
   '打开右边的 AI 面板（Copilot Chat），把模式切成 Agent。':
     'Open the AI panel (Copilot Chat) and switch it to Agent mode.',
@@ -477,8 +485,6 @@ const EN: Record<string, string> = {
     'Still nothing: press ⌘⇧P again and run Developer: Reload Window.',
   '为什么要这两下：VS Code 不会自己去跑一个刚冒出来的 MCP 服务，得你点头一次。这一步 Spool 替不了你。':
     'Why the extra clicks: VS Code will not start an MCP server that appeared while it was not looking until you say so once. Spool cannot do that part for you.',
-  '接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
-    'Hooking up Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',
   '写入中…': 'Writing…',
   '更新配置': 'Update config',
@@ -520,16 +526,22 @@ const EN: Record<string, string> = {
 
   // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).
   '本机 AI 引擎': 'On-machine AI engine',
+  // 2026-08-18 (Ocean): the resting line names the product, not the executable — see
+  // Settings/EngineConfig's ① note. Versions and paths moved behind 详细说明.
+  '装了 Claude Code、Codex 或 Gemini CLI，就能让它替你整理项目。用你自己已经登录的那个，Spool 不存 API key。':
+    'With Claude Code, Codex or the Gemini CLI installed, one of them can tidy your projects for you. It runs through the tool you are already signed into — Spool stores no API key.',
+  '✓ 已连接 {name}': '✓ Connected to {name}',
+  '✓ 已连接 {name}（还装了另外 {n} 个）': '✓ Connected to {name} ({n} more installed)',
+  '详细说明：要装什么、装在哪、各家的限制':
+    'Details: what to install, where it lives, what each one limits',
   '检测到你装了 Claude Code 或 Codex 时，项目菜单里会多出「让 AI 维护」——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
     'When Claude Code or Codex is detected on this machine, a "Let AI maintain" group appears in the project menu. It runs through the CLI you are already logged into — Spool stores no API key and still never goes online.',
   '检测中…': 'Checking…',
-  '✓ 已检测到': '✓ Found',
   '没检测到 Claude Code、Codex 或 Gemini CLI': 'No Claude Code, Codex or Gemini CLI found',
   '装 Claude Code': 'Get Claude Code',
   '装 Codex': 'Get Codex',
   '装 Gemini CLI': 'Get Gemini CLI',
   // 2026-08-17 (Ocean): 「AI 引擎是被动搜索形式的……根本不知道需要什么,或者 api key 要放在哪里」.
-  '这到底要装什么、key 放在哪儿': 'What exactly do I install, and where does the key go?',
   '引擎不是 Spool 的一部分，是你自己装在电脑上的命令行工具（Claude Code / Codex / Gemini CLI）。装好之后在终端里登录一次它自己的账号，Spool 就能借它干活。':
     'An engine is not part of Spool. It is a command-line tool you install yourself (Claude Code / Codex / Gemini CLI) and sign into once in a terminal; Spool then borrows it.',
   '所以 Spool 里没有填 API key 的地方，以后也不会有：key 和登录状态都在那个工具自己的目录里（比如 Gemini 是 ~/.gemini/.env），Spool 不存、也读不到。你的账单也走那边。':
@@ -545,8 +557,6 @@ const EN: Record<string, string> = {
   '选文件': 'Choose a file',
   '这个路径没认出来：要么文件不在，要么名字不是 claude / codex / gemini，要么它跑 --version 跑不通。':
     'That path did not resolve: the file is missing, its name is not claude / codex / gemini, or it does not answer --version.',
-  '装了 Claude Code、Codex 或 Gemini CLI 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
-    'Once Claude Code, Codex or the Gemini CLI is installed, the right-hand rail can put it to work tidying your projects. It runs through the CLI you are already signed into — Spool stores no API key and still never goes online itself.',
   // DESIGN_AI_ENGINE §7.8 — measured, not hedged: 20 requests per model per day, and one
   // follow-up run spends all of them. Per §7.4 the word 免费 never stands alone.
   'Gemini CLI 走的是 Gemini API 的免费额度：每个模型每天大约 20 次请求。压缩和体检够用，联网跟进不够——所以那一项在这个引擎上不出现。API key 配在 gemini 自己那里（~/.gemini/.env），Spool 不存、也读不到。':
@@ -555,7 +565,6 @@ const EN: Record<string, string> = {
     "Gemini's free allowance is counted per model — about 20 runs a day each. When one is used up, switching model gets you going again.",
   '联网搜索这一项 Gemini CLI 跑不了——它的免费额度一次跟进就用完了。换成 Claude Code 或 Codex 才有。':
     'The Gemini CLI cannot carry a web follow-up — one run uses up its whole free allowance. Switch to Claude Code or Codex for this one.',
-  '、': ', ',
   '用哪个引擎': 'Engine to use',
   '两个都装了。跑的是哪个，用的就是那个账号的额度。':
     'Both are installed. Whichever runs is the account whose allowance gets spent.',
@@ -603,6 +612,10 @@ const EN: Record<string, string> = {
   '让 AI 看看还缺什么': 'Let the AI see what is missing',
   'AI 在读这个项目…': 'The AI is reading this project…',
   '这一步只读你库里的东西，不联网。': 'This step only reads your library. It does not go online.',
+  // 2026-08-18 (Ocean, Windows 验收 #5): what replaces the drafting button when there is no
+  // local CLI — the list is not an engine feature, so its absence needs naming, not hiding.
+  '这台电脑上没有本机 AI 引擎，所以 Spool 自己不会去查这几行。接了 MCP 的 AI（Claude、ChatGPT 里的 Codex 等）读得到它们，也能替你加一条、结束一条。':
+    'No AI engine on this machine, so Spool will not go and check these lines itself. The AI you connected over MCP (Claude, Codex inside ChatGPT, …) can read them, add one, and close one for you.',
   '存不下来：{msg}': 'Could not save: {msg}',
   '跟进：提了 {n} 条待你过目': 'Follow up: {n} item(s) waiting for you',
   '跟进：这次没有新东西': 'Follow up: nothing new this time',

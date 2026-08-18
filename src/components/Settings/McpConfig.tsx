@@ -30,6 +30,20 @@ import { formatRelative } from '@/lib/utils/time';
 // ⚠️ DESIGN_WORKBENCH §9.2 R5: this page is ONE job — 接出去, handing the library to an AI
 // client you use elsewhere. The local-CLI engine (请进来) moved to its own tab; Ocean could
 // not tell the two apart while they shared a page, and 「加了 gemini cli 会更乱」.
+//
+// ⚠️⚠️ 2026-08-18 (Ocean, Windows 验收 #4): 「这一大段话很乱，做的整齐一点，不必要的东西都放
+// 二级窗口，设置需要简单干净，有直觉性」. Every sentence on the page was true and each had been
+// added for a real reason on a real day; the page had simply never been read as a whole
+// since. What was between the client rows and the bottom of the page: a two-clause caveat
+// under one row, a paragraph about writing into ~/.codex/AGENTS.md, an unrecognised client
+// reported by its wire name (「还有 probe 连过」 — that is a test fixture, not a product), two
+// separate ▸ disclosures, and a JSON block for people whose client is not listed.
+//
+// The shape now: two switches, the list, and ONE ▸. The rule for which side a line goes —
+// does the user need it to finish HOOKING UP (stays), or is it about what happens after
+// (goes)? The per-client restart line is the one thing on the "after" side that stays,
+// because it is only rendered in the seconds after a hookup, which is exactly when it is
+// the next thing to do.
 export default function McpConfig() {
   const t = useT();
   const mcpEnabled = useSettingsStore((s) => s.mcpEnabled);
@@ -39,11 +53,9 @@ export default function McpConfig() {
   // the installed .app both show a path that works. Resolved once, on demand.
   const [exePath, setExePath] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
-  // 任务二 B1 (2026-07-12): the user-facing scenario list, collapsed by default (§2.5).
-  const [examplesOpen, setExamplesOpen] = useState(false);
-  // §9.4 (2026-08-17): VS Code's own last step, kept out of the resting page — see the block
-  // it renders for why it is the only client that has one.
-  const [vscodeHelpOpen, setVscodeHelpOpen] = useState(false);
+  // The one disclosure (see the note above). 任务二 B1's scenario list, §9.4's VS Code steps
+  // and the paste-it-yourself snippet all live behind it.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
     claude: null,
     'claude-code': null,
@@ -102,6 +114,21 @@ export default function McpConfig() {
     }
   };
 
+  // ⚠️ Was `!exePath.startsWith('/Applications/')`, which is a macOS install path — so on
+  // Windows, where the installer puts Spool under the user's AppData, EVERY install called
+  // itself a dev build. The thing actually being tested is "this binary is sitting in a
+  // cargo output directory", and that reads the same on both platforms.
+  const devBuild = exePath !== null && /[/\\]target[/\\](debug|release)[/\\]/.test(exePath);
+
+  // Clients that connected but match no row — the config file the user hooked up is not the
+  // one doing the talking, and the name is the evidence mcp.rs needs to learn the mapping.
+  // ⚠️ Ocean saw 「还有 probe 连过 · 11 小时前」 on the resting page: `probe` is this repo's own
+  // smoke test. Kept (it is the only trace an unknown client leaves) and moved behind the
+  // disclosure, where an unexplained wire name is information rather than clutter.
+  const unknownSeen = Object.entries(seen).filter(
+    ([key]) => !MCP_CLIENTS.some((c) => c.key === key),
+  );
+
   // ⚠️ 2026-08-15 — 「复制使用提示」 lived here (Ocean #3, 2026-07-09): a paste-ready briefing
   // telling the AI what Spool is and how to ask it things. Removed with the rest of the
   // 「帮用户去别的 AI 里点名 Spool」 route (RightRail/McpBar's header has the reasoning). What it
@@ -138,7 +165,7 @@ export default function McpConfig() {
       )}
       {/* One-click hookup rows (2026-07-07). Visible even while the toggle is off —
           the button flips it on as part of the same click. */}
-      <ul className="mt-2 space-y-1">
+      <ul className="mt-2.5 space-y-1">
         {MCP_CLIENTS.map(({ key, label }) => {
           const s = clientStatus[key];
           const busy = connecting === key;
@@ -176,10 +203,13 @@ export default function McpConfig() {
                     the one conversation that cannot reach Spool. Naming only Codex is honest
                     but loses the word somebody is searching for, so the boundary is spelled
                     out here instead — and this is the only row that needs it, because it is
-                    the only client whose product name covers two different capabilities. */}
+                    the only client whose product name covers two different capabilities.
+                    ⚠️ 2026-08-18: down to the half that stops a wrong click. Which three
+                    products share the file is the answer to a question nobody asks at a
+                    settings row; it is in the disclosure with everything else of that kind. */}
                 {key === 'codex' && (
                   <span className="block text-[11px] leading-tight text-muted">
-                    {t('ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool')}
+                    {t('ChatGPT 的普通对话连不上本机——用不了 Spool')}
                   </span>
                 )}
               </div>
@@ -240,133 +270,140 @@ export default function McpConfig() {
               : t('{name}：完全退出再打开（不是关窗口，是退出整个程序）。', { name: label })}
         </p>
       ))}
-      {/* §9.4 丙: a client the server could not match to a row above still connected, and
-          hiding it would lose the one piece of evidence that identifies it — its own name
-          is exactly what the mapping in mcp.rs needs to learn next. */}
-      {Object.entries(seen)
-        .filter(([key]) => !MCP_CLIENTS.some((c) => c.key === key))
-        .map(([key, v]) => (
-          <p key={key} className="mt-1 text-[11px] text-muted">
-            {t('还有 {name} 连过 · {when}', { name: v.label || key, when: formatRelative(v.last_seen) })}
-          </p>
-        ))}
-      {/* §9.4 甲: hookup also appends a marked section to Codex's and Claude Code's
-          instruction files, so the model checks list_threads before it edits a same-named
-          local document. That is a write into the user's home directory, so it is stated
-          here rather than discovered — and naming the marker is what makes it removable. */}
-      <p className="mt-1 text-[11px] text-muted">
-        {t('接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。')}
-      </p>
-      {/* 二级页面 (Ocean 2026-08-17: 「实在不行就给出详细教程放在二级页面里」). Collapsed, and
-          only for the one client whose last step is not a restart: VS Code will not run a
-          server that appeared in its config while it was not looking until somebody says so —
-          that is its security model, not a bug, and no amount of writing the file changes it.
-          Everything else here is one restart, which the line above already says. */}
-      {clientStatus.vscode !== null && clientStatus.vscode !== 'not-installed' && (
-        <div className="mt-2">
-          <button
-            type="button"
-            onClick={() => setVscodeHelpOpen((v) => !v)}
-            className="text-xs text-muted transition-colors hover:text-accent"
-          >
-            {vscodeHelpOpen ? '▾ ' : '▸ '}
-            {t('Visual Studio Code 接完还要点两下 — 一步一步')}
-          </button>
-          {vscodeHelpOpen && (
-            <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-ink-2">
-              <li>{t('把 Visual Studio Code 整个退出，再打开。')}</li>
-              <li>{t('打开右边的 AI 面板（Copilot Chat），把模式切成 Agent。')}</li>
-              <li>{t('问一句「我在 spool 里有哪些项目？」——列得出来就成了，下面几步不用做。')}</li>
-              <li>{t('它要是不知道 Spool：按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。')}</li>
-              <li>{t('还是不行：再按 ⌘⇧P，输入 Developer: Reload Window。')}</li>
-              <li className="list-none text-muted">
-                {t('为什么要这两下：VS Code 不会自己去跑一个刚冒出来的 MCP 服务，得你点头一次。这一步 Spool 替不了你。')}
-              </li>
-            </ol>
-          )}
-        </div>
-      )}
       {connectError && (
         <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
           {connectError}
         </p>
       )}
-      {exePath !== null && !exePath.startsWith('/Applications/') && (
-        <p className="mt-1 text-[11px] text-muted">
-          {t('当前是开发构建 — 安装正式版后需重新接入')}
-        </p>
-      )}
-      {/* 任务二 B1 (2026-07-12): scenario phrases for the USER (the seeded MCP
-          tutorial thread can never reach an existing library — 5/29 red line — so
-          veterans get the same copy-paste lines here). Collapsed by default (§2.5). */}
-      {mcpEnabled && (
-        <div className="mt-2">
-          <button
-            type="button"
-            onClick={() => setExamplesOpen((v) => !v)}
-            className="text-xs text-muted transition-colors hover:text-accent"
-          >
-            {examplesOpen ? '▾ ' : '▸ '}
-            {t('示例用法：接好后在哪儿说、说什么')}
-          </button>
-          {examplesOpen && (
-            <ul className="mt-1.5 space-y-1.5 pl-4 text-xs leading-relaxed text-ink-2">
-              {/* 2026-08-02 (Ocean): the confusion this answers is "I connected VS Code,
-                  now what do I do inside Spool?" — nothing; you go back to the editor.
-                  The seeded MCP tutorial can never reach an existing library (5/29 red
-                  line), so this line is the only place veterans meet it. */}
-              <li className="-ml-4 list-none pb-0.5 text-muted">
-                {t('在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。')}
-                <span className="text-ink-2">{t('不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。')}</span>
-              </li>
-              <li>
-                {t('「帮我复习〈某个项目〉，再考我两个问题」')}
-                <span className="text-muted">{t('——读整个项目（get_pack）')}</span>
-              </li>
-              <li>
-                {t('「我最近一周在忙什么？」')}
-                <span className="text-muted">{t('——跨项目简报（get_digest）')}</span>
-              </li>
-              <li>
-                {t('「把刚才这段结论存进〈某个项目〉，批注一句为什么重要」')}
-                <span className="text-muted">{t('——归档（add_block，需允许 AI 写入）')}</span>
-              </li>
-              <li>
-                {t('「这个主题我记在哪个项目？」')}
-                <span className="text-muted">{t('——全库检索（search_blocks）')}</span>
-              </li>
-              <li>
-                {t('「帮我看看有没有重复收藏的内容」')}
-                <span className="text-muted">{t('——查重报告（find_similar_blocks）')}</span>
-              </li>
-              <li>
-                {t('「给我的思簿做个体检」')}
-                <span className="text-muted">{t('——数据卫生报告（check_library）')}</span>
-              </li>
-            </ul>
-          )}
-        </div>
-      )}
-      {mcpEnabled && (
-        <div className="mt-2 rounded-md border border-line bg-paper-2/40 p-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted">
-              {t('你的 AI 工具不在上面？（Cherry Studio、DeepChat 等）复制这段配置，粘进它的 MCP 设置页')}
-            </span>
-            <button
-              type="button"
-              onClick={() => void copySnippet()}
-              disabled={!mcpSnippet}
-              className="rounded border border-line bg-paper px-2 py-0.5 text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent disabled:text-muted/50"
-            >
-              {snippetCopied ? t('已复制') : t('复制')}
-            </button>
+
+      {/* ── 二级：接好之后的事 ─────────────────────────────────────────────── */}
+      <div className="mt-3 border-t border-line pt-2">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((v) => !v)}
+          className="text-xs text-muted transition-colors hover:text-accent"
+        >
+          {detailsOpen ? '▾ ' : '▸ '}
+          {t('详细说明：接好后在哪儿说、会改哪些文件')}
+        </button>
+        {detailsOpen && (
+          <div className="mt-2 space-y-3">
+            {/* 任务二 B1 (2026-07-12): scenario phrases for the USER (the seeded MCP
+                tutorial thread can never reach an existing library — 5/29 red line — so
+                veterans get the same copy-paste lines here). */}
+            <div>
+              <div className="text-xs text-ink">{t('在哪儿说，说什么')}</div>
+              <ul className="mt-1 space-y-1.5 pl-4 text-xs leading-relaxed text-ink-2">
+                {/* 2026-08-02 (Ocean): the confusion this answers is "I connected VS Code,
+                    now what do I do inside Spool?" — nothing; you go back to the editor. */}
+                <li className="-ml-4 list-none pb-0.5 text-muted">
+                  {t('在哪儿说：Claude Desktop、ChatGPT 里的 Codex 对话在聊天框里说；Claude Code 在终端里说；Cursor / Visual Studio Code / Windsurf 在编辑器的 AI 面板里说。')}
+                  <span className="text-ink-2">{t('不用回 Spool 操作——接好后 Spool 只负责把笔记递过去。')}</span>
+                </li>
+                <li>
+                  {t('「帮我复习〈某个项目〉，再考我两个问题」')}
+                  <span className="text-muted">{t('——读整个项目（get_pack）')}</span>
+                </li>
+                <li>
+                  {t('「我最近一周在忙什么？」')}
+                  <span className="text-muted">{t('——跨项目简报（get_digest）')}</span>
+                </li>
+                <li>
+                  {t('「把刚才这段结论存进〈某个项目〉，批注一句为什么重要」')}
+                  <span className="text-muted">{t('——归档（add_block，需允许 AI 写入）')}</span>
+                </li>
+                <li>
+                  {t('「这个主题我记在哪个项目？」')}
+                  <span className="text-muted">{t('——全库检索（search_blocks）')}</span>
+                </li>
+                <li>
+                  {t('「帮我看看有没有重复收藏的内容」')}
+                  <span className="text-muted">{t('——查重报告（find_similar_blocks）')}</span>
+                </li>
+                <li>
+                  {t('「给我的思簿做个体检」')}
+                  <span className="text-muted">{t('——数据卫生报告（check_library）')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* §9.4 甲: hookup also appends a marked section to Codex's and Claude Code's
+                instruction files, so the model checks list_threads before it edits a same-named
+                local document. That is a write into the user's home directory, so it is stated
+                rather than discovered — and naming the marker is what makes it removable. */}
+            <div>
+              <div className="text-xs text-ink">{t('接入会动到哪些文件')}</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink-2">
+                {t('每个客户端各自的配置文件（写之前自动备份成 .bak）。另外，接 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里补一段：告诉 AI 你说的项目名先来 Spool 查一次，别去改同名的本地文档。删掉 spool:begin 和 spool:end 之间那段就能移除。')}
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                {t('Codex 那份配置是三个东西共用的：ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件。ChatGPT 的普通对话走的是云端，够不着这台电脑。')}
+              </p>
+            </div>
+
+            {/* Only for the one client whose last step is not a restart: VS Code will not run a
+                server that appeared in its config while it was not looking until somebody says
+                so — that is its security model, not a bug, and no amount of writing the file
+                changes it. Everything else here is one restart, which the row above says. */}
+            {clientStatus.vscode !== null && clientStatus.vscode !== 'not-installed' && (
+              <div>
+                <div className="text-xs text-ink">{t('Visual Studio Code 接完还要点两下')}</div>
+                <ol className="mt-1 list-decimal space-y-1 pl-5 text-[11px] leading-relaxed text-ink-2">
+                  <li>{t('把 Visual Studio Code 整个退出，再打开。')}</li>
+                  <li>{t('打开右边的 AI 面板（Copilot Chat），把模式切成 Agent。')}</li>
+                  <li>{t('问一句「我在 spool 里有哪些项目？」——列得出来就成了，下面几步不用做。')}</li>
+                  <li>{t('它要是不知道 Spool：按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。')}</li>
+                  <li>{t('还是不行：再按 ⌘⇧P，输入 Developer: Reload Window。')}</li>
+                  <li className="list-none text-muted">
+                    {t('为什么要这两下：VS Code 不会自己去跑一个刚冒出来的 MCP 服务，得你点头一次。这一步 Spool 替不了你。')}
+                  </li>
+                </ol>
+              </div>
+            )}
+
+            {/* Clients Spool cannot write for (Cherry Studio, DeepChat, …) — decision ②. */}
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-ink">{t('你的 AI 工具不在上面？')}</span>
+                <button
+                  type="button"
+                  onClick={() => void copySnippet()}
+                  disabled={!mcpSnippet}
+                  className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-[11px] text-ink-2 transition-colors hover:border-accent hover:text-accent disabled:text-muted/50"
+                >
+                  {snippetCopied ? t('已复制') : t('复制配置')}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                {t('复制这段，粘进它自己的 MCP 设置页。')}
+              </p>
+              <pre className="mt-1 overflow-x-auto whitespace-pre rounded bg-paper-2/40 px-2 py-1.5 font-mono text-[10.5px] leading-relaxed text-ink-2">
+                {mcpSnippet || t('解析可执行路径…')}
+              </pre>
+            </div>
+
+            {/* §9.4 丙: a client the server could not match to a row above still connected, and
+                hiding it would lose the one piece of evidence that identifies it — its own name
+                is exactly what the mapping in mcp.rs needs to learn next. */}
+            {unknownSeen.length > 0 && (
+              <div>
+                <div className="text-xs text-ink">{t('还有别的东西连过')}</div>
+                {unknownSeen.map(([key, v]) => (
+                  <p key={key} className="mt-1 font-mono text-[10.5px] text-muted">
+                    {v.label || key} · {formatRelative(v.last_seen)}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {devBuild && (
+              <p className="text-[11px] text-muted">
+                {t('当前是开发构建 — 安装正式版后需重新接入')}
+              </p>
+            )}
           </div>
-          <pre className="mt-1.5 overflow-x-auto whitespace-pre rounded bg-paper px-2 py-1.5 font-mono text-[10.5px] leading-relaxed text-ink-2">
-            {mcpSnippet || t('解析可执行路径…')}
-          </pre>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

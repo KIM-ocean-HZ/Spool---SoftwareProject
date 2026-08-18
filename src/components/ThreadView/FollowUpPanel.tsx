@@ -35,6 +35,14 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
   const [showAnswered, setShowAnswered] = useState(false);
   const enqueue = useEngineStore((s) => s.enqueue);
   const timeoutSecs = useSettingsStore((s) => s.aiEngineTimeoutSecs);
+  // ⚠️ Ocean, Windows 验收 2026-08-18 #5: 「ai 定一个问题的按键不应该存在，点击会报错没有 CLI,
+  // 应该跟随 AI 引擎的判断」. Drafting runs a local CLI, and on a machine without one the
+  // button was a control whose only outcome was an error — the same shape as the 周回顾 entry
+  // he had removed the day before. Withheld, not disabled: a greyed button sends people
+  // hunting for a switch that turns it on, and there is none.
+  const engineStatus = useEngineStore((s) => s.status);
+  const probeEngine = useEngineStore((s) => s.probe);
+  const engineAvailable = engineStatus?.available === true;
 
   const load = useFollowUpStore((s) => s.load);
   const items = useFollowUpStore((s) => s.items);
@@ -47,6 +55,13 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
   useEffect(() => {
     void load(thread.id);
   }, [load, thread.id]);
+
+  // The rail is where detection usually runs, and the rail is collapsed by default — so this
+  // panel can be the first thing to ask. Without it 「没有引擎」 would be indistinguishable
+  // from 「还没查过」, and the drafting button would be missing on a machine that has one.
+  useEffect(() => {
+    if (engineStatus === null) void probeEngine();
+  }, [engineStatus, probeEngine]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent): void => {
@@ -163,18 +178,28 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
             {t('回车＝加一条；⇧回车在同一条里换行。')}
           </p>
 
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={askAi}
-              disabled={drafting}
-              className="flex items-center gap-1.5 rounded border border-line bg-paper px-2.5 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted"
-            >
-              {drafting && <Loader2 size={11} className="animate-spin" />}
-              {drafting ? t('AI 在读这个项目…') : t('让 AI 看看还缺什么')}
-            </button>
-            <span className="text-[10px] text-muted">{t('这一步只读你库里的东西，不联网。')}</span>
-          </div>
+          {/* The drafting step is a LOCAL-CLI action. With no engine on the machine there is
+              nothing to withhold it from doing — the lines still work, they are just carried
+              out by whatever AI the user talks to through MCP, which is what the sentence
+              below says instead of leaving the absence unexplained. */}
+          {engineAvailable ? (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={askAi}
+                disabled={drafting}
+                className="flex items-center gap-1.5 rounded border border-line bg-paper px-2.5 py-1 text-[11px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted"
+              >
+                {drafting && <Loader2 size={11} className="animate-spin" />}
+                {drafting ? t('AI 在读这个项目…') : t('让 AI 看看还缺什么')}
+              </button>
+              <span className="text-[10px] text-muted">{t('这一步只读你库里的东西，不联网。')}</span>
+            </div>
+          ) : (
+            <p className="mt-2 text-[10px] leading-relaxed text-muted">
+              {t('这台电脑上没有本机 AI 引擎，所以 Spool 自己不会去查这几行。接了 MCP 的 AI（Claude、ChatGPT 里的 Codex 等）读得到它们，也能替你加一条、结束一条。')}
+            </p>
+          )}
 
           {/* §8.6 — an answered line is retired, not deleted: it stays here with one click to
               put it back. That is what makes it safe to let an AI close one without asking
@@ -206,9 +231,13 @@ export default function FollowUpPanel({ thread, onClose }: Props) {
               this panel is where the follow-up rules are settled, and which engine carries them
               out is part of the same decision, taken about as often. It stays folded shut
               (RightRail/EngineBar) so the panel opens on the list, not on a form. */}
-          <div className="mt-3 border-t border-line pt-3">
-            <EngineBar />
-          </div>
+          {/* Same rule one level up: with no engine detected this row could only say
+              「没检测到引擎」 — a picker for a choice that does not exist. */}
+          {engineAvailable && (
+            <div className="mt-3 border-t border-line pt-3">
+              <EngineBar />
+            </div>
+          )}
         </div>
       </div>
     </div>
