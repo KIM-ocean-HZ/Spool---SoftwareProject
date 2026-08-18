@@ -627,7 +627,12 @@ pub fn consume_close_hint<R: Runtime>(window: &tauri::Window<R>) -> bool {
 // browser triggers the standard permission prompt, subsequent calls reflect the
 // current grant state. The browser name is matched against a hard-coded allowlist
 // before reaching `tell application`, so there is no command-injection surface.
-#[tauri::command]
+//
+// ⚠️ `(async)` for the same reason as lib.rs's `ai_engine_status` (Ocean 2026-08-18 #3): a
+// plain command runs on the main thread, and this one waits on osascript for up to two
+// seconds. On the main thread that is two seconds of frozen window — including the 「测试中」
+// spinner this button sets, which would never get a frame to render in.
+#[tauri::command(async)]
 pub fn probe_browser_automation(name: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -1438,8 +1443,8 @@ mod tests {
     fn the_default_capture_accelerator_parses() {
         use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
         assert_eq!(
-            parse_shortcut("control+Space").unwrap(),
-            Shortcut::new(Some(Modifiers::CONTROL), Code::Space)
+            parse_shortcut("control+alt+Space").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space)
         );
     }
 

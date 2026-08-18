@@ -34,7 +34,20 @@ fn mcp_exe_path() -> Result<String, String> {
 // CLIs are installed. An unrecognised name is treated as "no preference" rather than
 // refused: this value crosses from JS, and the cost of being strict about it is a settings
 // page that says no engine is available while one sits installed on the machine.
-#[tauri::command]
+// ⚠️ `(async)` on a SYNCHRONOUS function, and it is the whole fix for Ocean's 2026-08-18 #3
+// (「点设置的按钮和点 AI 引擎、第一次点右边栏展开时卡顿明显」).
+//
+// A plain `#[tauri::command]` runs on the MAIN thread, which on macOS is the UI thread —
+// so every caller of this froze the window for as long as detection took. Detection is up
+// to six subprocess spawns (`which` + `--version`, three engines), and the CLIs here are
+// Node programs: measured 0.67s on this machine with all three installed, with a 5s
+// per-probe ceiling behind it. The right rail probes when it first mounts and the engine
+// settings page probes on every open, which is exactly the three places he named.
+//
+// `(async)` on a sync body puts it on the runtime's thread pool instead (tauri-macros:
+// `sync_threadpool`). Nothing about the function changes — it touches no window and no
+// menu, so it has no business on the main thread in the first place.
+#[tauri::command(async)]
 fn ai_engine_status(
     preferred: Option<String>,
     manual_path: Option<String>,
@@ -172,12 +185,15 @@ fn ai_engine_cancel() -> bool {
 
 // §20.12 one-click MCP client hookup (2026-07-07) — see mcp.rs for the fs/JSON logic.
 // Status probe for the Settings badge; write happens only on the user's button press.
-#[tauri::command]
+// Same reason as `ai_engine_status` above: reads (and for `configure`, rewrites + backs up)
+// several config files under the user's home. File IO is short but it is not free, and the
+// MCP settings page fires two of these the moment it opens.
+#[tauri::command(async)]
 fn mcp_client_status(client: String) -> Result<String, String> {
     mcp::client_status(&client)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn configure_mcp_client(client: String) -> Result<String, String> {
     mcp::configure_client(&client)
 }
@@ -185,7 +201,7 @@ fn configure_mcp_client(client: String) -> Result<String, String> {
 // §9.4 丙 (2026-08-11): when each client last actually connected. The badge beside it reads
 // the client's config file, which only says an entry exists — this is the half that says
 // somebody used it. Never fails: no file means nothing has ever connected.
-#[tauri::command]
+#[tauri::command(async)]
 fn mcp_clients_seen() -> serde_json::Value {
     mcp::clients_seen()
 }
