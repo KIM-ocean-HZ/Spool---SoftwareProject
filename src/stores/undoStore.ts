@@ -14,6 +14,7 @@ import { restoreWorkspace, softDeleteWorkspace } from '@/lib/db/workspaces';
 import * as undoLog from '@/lib/undo/undoLog';
 import type {
   CapturePayload,
+  CreatePayload,
   DeletePayload,
   ForwardPayload,
   HighlightPayload,
@@ -52,6 +53,17 @@ interface UndoStoreState {
 export const buildCaptureUndo = (payload: CapturePayload): UndoEntry => ({
   id: nanoid(),
   kind: 'capture',
+  timestamp: Date.now(),
+  payload,
+  affectedBlockIds: [payload.blockId],
+  invalidated: false,
+});
+
+/** A block the user typed themselves (Composer → blocksStore.append). See undoLog's
+ *  CreatePayload for why this is not just a capture. */
+export const buildCreateUndo = (payload: CreatePayload): UndoEntry => ({
+  id: nanoid(),
+  kind: 'create',
   timestamp: Date.now(),
   payload,
   affectedBlockIds: [payload.blockId],
@@ -139,6 +151,8 @@ export const threadIdForEntry = (entry: UndoEntry): string => {
     case 'highlight':
     case 'forward':
       return entry.payload.threadId;
+    case 'create':
+      return entry.payload.threadId;
     case 'delete':
       return entry.payload.block.threadId;
     case 'thread_delete':
@@ -160,6 +174,8 @@ const previewText = (raw: string): string => {
 export const previewForEntry = (entry: UndoEntry): string => {
   switch (entry.kind) {
     case 'capture':
+      return previewText(entry.payload.content);
+    case 'create':
       return previewText(entry.payload.content);
     case 'delete':
       return previewText(entry.payload.block.content);
@@ -207,6 +223,16 @@ const reverseAndBuildRedo = async (
     case 'capture': {
       // Snapshot the live block (source may have been back-filled since capture) so
       // redo restores it faithfully, then delete it.
+      const block = await getBlockById(entry.payload.blockId);
+      await deleteBlock(entry.payload.blockId);
+      return async () => {
+        if (!block) return;
+        await restoreBlock(block);
+      };
+    }
+    case 'create': {
+      // Identical to a capture's reversal: snapshot the live row first (it may have been
+      // pinned, annotated or edited since), delete it, and let redo restore that snapshot.
       const block = await getBlockById(entry.payload.blockId);
       await deleteBlock(entry.payload.blockId);
       return async () => {

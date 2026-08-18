@@ -533,6 +533,9 @@ const EN: Record<string, string> = {
   '要它回来：单击那个图标。要真的退出：右键那个图标 → 退出。':
     'To bring it back: click that icon. To really quit: right-click it → Quit.',
   '知道了': 'Got it',
+  // 撤销确认卡片上的动作名（overlay/CaptureOverlay UNDO_OP_LABEL）。2026-08-18 新增 'create'
+  // —— 自己在输入框里写下的一块，跟「捕获」是两回事。
+  '写下的一条': 'the line you wrote',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
   // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).

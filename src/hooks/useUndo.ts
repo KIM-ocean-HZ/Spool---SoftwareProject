@@ -78,14 +78,29 @@ export function useUndo(): void {
         !e.altKey &&
         (e.key === 'z' || e.key === 'Z');
       if (!isUndo) return;
-      // Let the browser's native text undo win inside editable fields (block edit, the
-      // composer, search box, …). App-level undo only applies to feed-level operations.
+      // Let the browser's native text undo win inside an editable field — but only while
+      // there is text in it to undo.
+      //
+      // ⚠️ Ocean, Windows 验收 2026-08-18 #1: 「自己写入的 block 无法撤销（写入撤销和删除撤销
+      // 都不行）」. The gap that recorded nothing is fixed in blocksStore.append; this is the
+      // other half, and it is why even the DELETE was unreachable. The composer is the
+      // most-focused element in the app and it keeps focus after Enter, so ⌘Z landed in an
+      // EMPTY textarea — where the native undo has nothing to undo and this guard bailed
+      // out anyway. Between them the key did nothing at all, twice, which is exactly what
+      // he reported.
+      //
+      // The rule is the one Ocean already picked for the capture toast on 2026-08-15
+      // (丙, CaptureOverlay): with text in the box ⌘Z is 「undo my typing」; with the box
+      // empty it can only mean the operation. Same sentence, same product, now in the main
+      // window too.
       const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-      ) {
-        return;
+      const editable =
+        t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (editable) {
+        const typed = t.isContentEditable
+          ? (t.textContent ?? '')
+          : (t as HTMLInputElement | HTMLTextAreaElement).value;
+        if (typed.length > 0) return;
       }
       e.preventDefault();
       void runUndo();

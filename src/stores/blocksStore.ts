@@ -10,7 +10,13 @@ import type {
 import * as db from '@/lib/db/blocks';
 import type { Block, CreateBlockArgs } from '@/lib/db/blocks';
 import { computeMergedFields } from '@/lib/db/blocks';
-import { buildDeleteUndo, buildForwardUndo, buildMergeUndo, useUndoStore } from './undoStore';
+import {
+  buildCreateUndo,
+  buildDeleteUndo,
+  buildForwardUndo,
+  buildMergeUndo,
+  useUndoStore,
+} from './undoStore';
 import { useSettingsStore } from './settingsStore';
 import { toast } from './toastStore';
 import { t } from '@/lib/i18n';
@@ -180,6 +186,15 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
 
     append: async (args) => {
       const b = await db.createBlock(args);
+      // ⚠️ Ocean, Windows 验收 2026-08-18 #1: 「自己写入的 block 无法撤销」. This is the
+      // composer's path — the most common way a block comes into existence — and it was the
+      // only creating action that recorded nothing. Capture, merge and forward all did.
+      // ⚠️ `append` is the COMPOSER's entry point and nothing else calls it; blocks written
+      // by MCP or the overlay go through db.createBlock directly and stay out of the undo
+      // ring on purpose (an undo the user cannot see the cause of is worse than none).
+      useUndoStore
+        .getState()
+        .pushUndo(buildCreateUndo({ blockId: b.id, threadId: b.threadId, content: b.content }));
       set((s) => ({
         byThread: {
           ...s.byThread,

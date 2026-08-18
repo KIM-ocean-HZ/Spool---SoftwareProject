@@ -50,6 +50,7 @@ const UNDO_AUTO_DISMISS_MS = 2500;
 
 const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
   capture: '捕获',
+  create: '写下的一条',
   merge: '合并',
   delete: '删除',
   highlight: '高亮',

@@ -19,6 +19,7 @@ import schemaSql from '@/lib/db/schema.sql?raw';
 import { clear as clearUndoLog } from '@/lib/undo/undoLog';
 import {
   buildCaptureUndo,
+  buildCreateUndo,
   buildDeleteUndo,
   buildForwardUndo,
   buildHighlightUndo,
@@ -62,6 +63,32 @@ describe('undoStore reversal against a real SQLite engine (§9.13)', () => {
   afterEach(() => {
     __setTestDb(null);
     sqlite.close();
+  });
+
+  // Ocean, Windows 验收 2026-08-18 #1: 「自己写入的 block 无法撤销」. Composer writes recorded
+  // nothing at all, so there was no entry for ⌘Z to find. These pin both directions —
+  // reversing a write removes the block, and redo puts back the row as it stood when it was
+  // reversed (pin and edits included), not the bare text that was first typed.
+  it('undo(create) removes a block the user typed, and redo restores it as it stood', async () => {
+    const ws = await createWorkspace('W');
+    const thread = await createThread(ws.id, 'T');
+    const block = await createBlock({ threadId: thread.id, content: 'typed by hand' });
+
+    useUndoStore.getState().pushUndo(
+      buildCreateUndo({ blockId: block.id, threadId: thread.id, content: block.content }),
+    );
+    // What happens to a real block between being written and being undone.
+    await togglePin(block.id);
+
+    const entry = await useUndoStore.getState().undo();
+    expect(entry?.kind).toBe('create');
+    expect(await listBlocksByThread(thread.id)).toHaveLength(0);
+
+    await useUndoStore.getState().redo();
+    const back = await listBlocksByThread(thread.id);
+    expect(back).toHaveLength(1);
+    expect(back[0]?.content).toBe('typed by hand');
+    expect(back[0]?.pinned).toBe(true);
   });
 
   it('undo(capture) deletes the captured block', async () => {

@@ -7,6 +7,7 @@ import type { Block } from '@/lib/db/blocks';
 
 export type UndoOpKind =
   | 'capture'
+  | 'create'
   | 'merge'
   | 'delete'
   | 'highlight'
@@ -22,6 +23,19 @@ export interface CapturePayload {
   blockId: string;
   threadId: string;
   content: string; // snapshot for the toast preview (block is deleted on undo)
+}
+
+// ⚠️ Ocean, Windows 验收 2026-08-18 #1: 「自己写入的 block 无法撤销」. Every OTHER way a block
+// can appear was undoable — captured, merged, forwarded — and the one a user performs most
+// often, typing into the composer and pressing Enter, was not recorded at all. There was no
+// 'create' kind to record it with; this is that kind. Same shape as a capture (the reversal
+// is the same: delete the block, and redo puts the snapshot back) but a separate kind because
+// the confirmation card names the op, and 「已撤销:捕获」 for a line the user typed themselves
+// is the wrong sentence.
+export interface CreatePayload {
+  blockId: string;
+  threadId: string;
+  content: string;
 }
 
 // ⚠️ v15 (DESIGN_PROJECT_FILES): the block, and nothing else. Deleting a block used to
@@ -91,6 +105,10 @@ export interface CaptureUndoEntry extends BaseEntry {
   kind: 'capture';
   payload: CapturePayload;
 }
+export interface CreateUndoEntry extends BaseEntry {
+  kind: 'create';
+  payload: CreatePayload;
+}
 export interface DeleteUndoEntry extends BaseEntry {
   kind: 'delete';
   payload: DeletePayload;
@@ -122,6 +140,7 @@ export interface ForwardUndoEntry extends BaseEntry {
 
 export type UndoEntry =
   | CaptureUndoEntry
+  | CreateUndoEntry
   | DeleteUndoEntry
   | MergeUndoEntry
   | HighlightUndoEntry
