@@ -35,16 +35,16 @@ import { useSettingsStore } from '@/stores/settingsStore';
 //
 // Windows has no TCC, so `input_monitoring_granted` answers true there and all three
 // phases above resolve to `hidden` — correct, and it left the first screen with nothing on
-// it. Windows also has no double-tap ⌥ (Ocean 2026-08-15 decision 4: a low-level keyboard
-// hook is not worth what antivirus software makes of it), so with nothing bound a fresh
-// install had no way to capture from another app and no hint that one had to be chosen.
+// it. Windows now DOES have a double-tap gesture (double-tap Ctrl — double_tap_win.rs), built
+// on Raw Input rather than a low-level keyboard hook precisely so antivirus has nothing to
+// make of it; the earlier "no gesture on Windows" state is what this phase was written for.
 //
-// ⚠️ 2026-08-18: capture off macOS now SHIPS bound (Ctrl+Space — shortcut.ts
-// DEFAULT_CAPTURE_ACCEL, Ocean's own pick), so this phase no longer fires on a normal first
-// launch. It is kept for the state it names — a machine with no capture key at all — rather
-// than deleted, and the language switch below is no longer this bar's alone: Settings → 通用
-// carries the same pair under a heading written in both languages, which is what a user who
-// cannot read the guessed one needs.
+// ⚠️ 2026-08-18: capture off macOS also SHIPS bound (Ctrl+Alt+Space — shortcut.ts
+// DEFAULT_CAPTURE_ACCEL), so this phase no longer fires on a normal first launch: between the
+// built-in double-tap and the bound chord there is always a way in. It is kept for the state
+// it names — a machine with no capture key at all — rather than deleted, and the language
+// switch below is no longer this bar's alone: Settings → 通用 carries the same pair under a
+// heading written in both languages, which is what a user who cannot read the guessed one needs.
 //
 // Nothing here is a permission prompt: the button opens Settings, and the banner goes away
 // the moment a shortcut exists.

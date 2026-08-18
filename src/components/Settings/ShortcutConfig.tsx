@@ -163,24 +163,23 @@ export default function ShortcutConfig() {
 
   return (
     <div>
-      {/* The two built-in ⌥ gestures are not configurable, so they have no recorder row —
-          this note is their only mention in the UI (copy-gate: double_tap.rs).
+      {/* The built-in double-tap gesture is not configurable, so it has no recorder row —
+          this note is its only mention in the UI.
 
-          ⚠️ Off macOS there is no built-in gesture to describe: double_tap.rs is a
-          macOS-only module and Ocean's 2026-08-15 decision 4 keeps it that way for the
-          first Windows release. The row below is therefore not a backup for anything —
-          it is the ONLY way to capture from another app, which is why the two strings
-          here are chosen rather than key-cap-substituted. Calling it "optional" on
-          Windows would be an instruction to skip the only door in the room. */}
+          Both platforms now HAVE that gesture: double-tap ⌥ on macOS (double_tap.rs, with
+          the copy-gate), double-tap Ctrl on Windows (double_tap_win.rs, no gate — no Claude
+          Desktop collision to disambiguate). So the row below is a real backup on both, not
+          the only door: the strings mirror each other rather than being key-cap-substituted,
+          because the macOS one names the copy-gate and the Windows one does not. */}
       <p className="pt-1.5 text-xs leading-relaxed text-muted">
         {IS_MAC
           ? t('内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。')
-          : t('复制之后按下面这个快捷键，就能把剪贴板存进来，弹窗里可直接打字留一句想法。')}
+          : t('内置手势：复制后双击 Ctrl 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。')}
       </p>
       {row(
         'capture',
         t('捕捉快捷键'),
-        IS_MAC ? t('可选 — 双击 ⌥ 之外的备用捕捉键') : t('从别的软件里捕捉，全靠这个键'),
+        IS_MAC ? t('可选 — 双击 ⌥ 之外的备用捕捉键') : t('备用 — 双击 Ctrl 之外的捕捉键'),
         captureShortcut,
       )}
       <div className="border-t border-line" />

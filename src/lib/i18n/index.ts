@@ -815,9 +815,9 @@ const EN: Record<string, string> = {
   '内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。':
     'Built-in gesture: within 10 s of copying (⌘C), double-tap ⌥ to capture the clipboard — then just type in the popup to leave a note. The shortcuts below are customizable.',
   '可选 — 双击 ⌥ 之外的备用捕捉键': 'Optional — a fallback capture key besides double-tap ⌥',
-  '复制之后按下面这个快捷键，就能把剪贴板存进来，弹窗里可直接打字留一句想法。':
-    'Copy something, then press the shortcut below to save the clipboard. You can type a thought straight into the popup.',
-  '从别的软件里捕捉，全靠这个键': 'The only way to capture from another app',
+  '内置手势：复制后双击 Ctrl 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。':
+    'Built-in gesture: copy something, then double-tap Ctrl to capture the clipboard — then just type in the popup to leave a note. The shortcuts below are customizable.',
+  '备用 — 双击 Ctrl 之外的捕捉键': 'A fallback capture key besides double-tap Ctrl',
   '未设置': 'Not set',
   '清除捕捉快捷键': 'Clear the capture shortcut',
   '搜索快捷键': 'Search shortcut',

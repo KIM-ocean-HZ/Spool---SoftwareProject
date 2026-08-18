@@ -1,6 +1,10 @@
 mod capture;
 #[cfg(target_os = "macos")]
 mod double_tap;
+// Windows peer of double_tap: the same double-tap-modifier gesture (Ctrl there, ⌥ on
+// macOS), built on Raw Input instead of a CGEventTap. Cfg'd out everywhere else.
+#[cfg(target_os = "windows")]
+mod double_tap_win;
 pub mod engine;
 pub mod mcp;
 pub mod overlay;
@@ -599,6 +603,13 @@ pub fn run() {
             // shows an onboarding banner until the grant lands.
             #[cfg(target_os = "macos")]
             double_tap::install(app.handle().clone());
+
+            // Windows: the same gesture, double-tap Ctrl, on its own Raw Input message
+            // pump (double_tap_win.rs). No permission to preflight — Raw Input needs no
+            // grant — so it either arms and logs it, or logs the OS error and leaves the
+            // Settings capture chord as the way in.
+            #[cfg(target_os = "windows")]
+            double_tap_win::install(app.handle().clone());
 
             // The capture toast's own process (overlay.rs). Started here, not on the
             // first capture: a webview cold start on the hot path would blow the
