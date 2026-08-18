@@ -105,6 +105,30 @@ here with `spctl -a -vv -t install` on each, and with `codesign -dvv` confirming
 authority resolved to the Developer ID certificate rather than the local development certificate
 the build configuration names by default.
 
+| Field | v0.5.0 |
+|---|---|
+| Published | **2026-08-18** |
+| Tagged commit | `55aa065` |
+| Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
+| **Notarisation — macOS** | submission `e02a0bd1-2501-4ed9-8d77-581ddaa3fb6d` · **Accepted** |
+| Artefact — macOS | `Spool_0.5.0_aarch64.dmg`, 8,073,700 bytes |
+| sha256 — macOS | `f2cfb2a565aafad7c7e3fa9a2481dd342562dd9550e51e6071080a101ed88239` |
+| Gatekeeper verdict — macOS | `accepted` · `source=Notarized Developer ID`, re-verified on the copy downloaded back from the published Release |
+| Signing identity — Windows | **none — this build is unsigned** (decided 2026-08-15 for the first Windows release) |
+| Artefact — Windows | `Spool_0.5.0_x64-setup.exe`, 5,571,347 bytes, built by CI run `32149620645` |
+| sha256 — Windows | `832408a44c3d3b8f38f52f1a07bce46a6f2e56ef71977496f06b8b6348fec571` |
+| Fixed-name assets | `Spool-macOS-arm64.dmg` · `Spool-windows-x64-setup.exe` — both resolve **HTTP 200** through `releases/latest/download/`, byte-identical to the versioned assets |
+
+**Two things this row records that the v0.4.0 row does not have to.** First, only **one**
+notarisation submission id survives for v0.5.0 even though both the `.app` and the `.dmg` were
+submitted — the second was not written down while `notarytool` still had it on screen, and by the
+definition at the top of this section it is now unrecoverable. The verdict itself is not in doubt
+(Gatekeeper accepts the shipped `.dmg` as `Notarized Developer ID`, and the staple validates); what
+is lost is the audit trail for one of the two submissions. Second, the release ships **two
+platforms with different trust stories** — the macOS artefact is notarised, the Windows artefact is
+not signed at all, so Windows users meet a SmartScreen warning. Recording them in one row keeps the
+asymmetry visible rather than letting "signed and notarised" quietly cover both.
+
 ---
 
 ## 2. Measured findings
