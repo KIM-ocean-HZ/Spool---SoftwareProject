@@ -522,6 +522,17 @@ const EN: Record<string, string> = {
   '清除中…': 'Clearing…',
   '清除': 'Clear',
   '语言 / Language': 'Language / 语言',
+
+  // 2026-08-18 (Ocean, Windows 验收 #1) — the one-time card on the first ✕. Windows only;
+  // components/CloseToTrayHint has the reasoning, including why the drag is the user's step.
+  'Spool 没有退出': 'Spool is still running',
+  '它还在后台跑着——捕捉快捷键要它活着才能用。':
+    'It keeps running in the background — the capture shortcut needs it alive.',
+  '图标在屏幕右下角的 ∧ 里面。把它拖到任务栏上，以后就一直看得见了。':
+    'Its icon is under the ∧ at the bottom-right of your screen. Drag it onto the taskbar and it will stay in sight.',
+  '要它回来：单击那个图标。要真的退出：右键那个图标 → 退出。':
+    'To bring it back: click that icon. To really quit: right-click it → Quit.',
+  '知道了': 'Got it',
   '界面语言。切换立即生效。': 'UI language. Takes effect immediately.',
 
   // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).

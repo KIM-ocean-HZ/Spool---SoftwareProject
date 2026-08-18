@@ -332,6 +332,8 @@ pub fn run() {
             capture::show_capture_notice,
             capture::set_shortcuts,
             capture::set_shortcut_recording,
+            capture::set_close_hint_pending,
+            capture::hide_main_window,
             capture::probe_browser_automation,
             overlay::overlay_db_reply,
             pack::write_pack_folder,
@@ -418,8 +420,19 @@ pub fn run() {
             if window.label() == "main" {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
-                        let _ = window.hide();
                         api.prevent_close();
+                        // Windows only, and only the first time: ✕ is when 「Spool 去哪儿了」
+                        // gets asked, so the first one is spent answering it and the window
+                        // stays up until the card's button finishes the close. See
+                        // capture.rs's CLOSE_HINT section for why the icon cannot simply be
+                        // made visible instead.
+                        #[cfg(target_os = "windows")]
+                        let hinted = capture::consume_close_hint(window);
+                        #[cfg(not(target_os = "windows"))]
+                        let hinted = false;
+                        if !hinted {
+                            let _ = window.hide();
+                        }
                     }
                     // macOS sometimes silently invalidates registered global shortcuts after
                     // sleep/wake or Spaces switches — the OS keeps the registration record

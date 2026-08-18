@@ -26,7 +26,8 @@ type PersistableKey =
   | 'sidebarCollapsed'
   | 'railCollapsed'
   | 'aiAutoMaintain'
-  | 'packInstructions';
+  | 'packInstructions'
+  | 'closeToTrayHintSeen';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -128,6 +129,10 @@ interface SettingsState {
   // a user who wants the short pack unticks it once and it is remembered. MCP packs are
   // NOT affected; there the header is a contract with a model, not an explainer.
   packInstructions: boolean;
+  /** Windows only — whether the one-time 「关掉窗口 ≠ 退出」 card has been shown. Rust decides
+   *  what ✕ does and reads this bit through `set_close_hint_pending`, so this is the whole
+   *  memory of it: cleared here, the card comes back. */
+  closeToTrayHintSeen: boolean;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // Reflects the OS launch-agent registration; the OS is the source of truth, so
@@ -206,6 +211,7 @@ const KEYS: PersistableKey[] = [
   'railCollapsed',
   'aiAutoMaintain',
   'packInstructions',
+  'closeToTrayHintSeen',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -245,6 +251,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   railCollapsed: true,
   aiAutoMaintain: false,
   packInstructions: true,
+  // Windows only (2026-08-18, Ocean #1): whether the 「关掉窗口 ≠ 退出」 card has been shown.
+  // Written once, by the card's own button — see components/CloseToTrayHint.
+  closeToTrayHintSeen: false,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

@@ -557,6 +557,71 @@ pub fn set_shortcut_recording<R: Runtime>(app: AppHandle<R>, active: bool) -> Re
     }
 }
 
+// =============================================================================
+// 「关掉窗口不等于退出」—— 说一次 (2026-08-18, Ocean, Windows 验收 #1)
+// =============================================================================
+//
+// He clicked ✕ and reported 「托盘图标不在」. It was there — inside the `∧` overflow — and
+// the app was running the whole time (the capture hotkey still fired, and left-clicking the
+// icon brought the window back). So nothing was broken; what was missing is that **Windows
+// hides a new tray icon by default and nothing tells the user where the app went**.
+//
+// ⚠️ We cannot fix that directly. Since Windows 7 an application may not promote its own
+// notification-area icon out of the overflow — that is the user's choice, made by dragging
+// it onto the taskbar or from 设置 → 个性化 → 任务栏. So the thing to fix is the not-knowing,
+// and the moment to fix it is the first ✕, because that is when the question is asked.
+//
+// The first ✕ is spent on the sentence: the window stays, the frontend shows one card, and
+// its 「知道了」 hides the window for real. Every ✕ after that is the plain hide it has always
+// been — the flag is disarmed the moment it is read, so a wedged webview costs at most one
+// extra click on ✕ rather than an unclosable window.
+//
+// macOS is deliberately out of it: the menu-bar item is always visible there, and an app
+// that keeps running with its window closed is what every Mac app does.
+#[cfg(target_os = "windows")]
+pub const CLOSE_HINT_EVENT: &str = "close-to-tray-hint";
+
+#[cfg(target_os = "windows")]
+static CLOSE_HINT_PENDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Arm or disarm the one-time hint. The frontend owns the "已经说过了" bit (it is a
+/// settings.json key) and pushes it here once settings load.
+///
+/// ⚠️ Starts DISARMED, so the couple of seconds before the frontend has read settings.json
+/// behave exactly like every ✕ since the port began. The safe direction for a default here
+/// is "just hide": the other one would let a first launch that never finished loading turn
+/// ✕ into a button that does nothing.
+#[tauri::command]
+pub fn set_close_hint_pending(pending: bool) {
+    #[cfg(target_os = "windows")]
+    CLOSE_HINT_PENDING.store(pending, std::sync::atomic::Ordering::SeqCst);
+    #[cfg(not(target_os = "windows"))]
+    let _ = pending;
+}
+
+/// Hide the main window. The button on the hint card calls this — Rust let the ✕ through so
+/// the card could be seen, so somebody has to finish the close.
+#[tauri::command]
+pub fn hide_main_window<R: Runtime>(app: AppHandle<R>) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
+/// True when this ✕ was spent showing the hint — the caller must NOT hide.
+///
+/// The swap is what makes it once-only, and it happens before the emit: an emit that fails
+/// then falls through to the ordinary hide, which is the behaviour to degrade into.
+#[cfg(target_os = "windows")]
+pub fn consume_close_hint<R: Runtime>(window: &tauri::Window<R>) -> bool {
+    use std::sync::atomic::Ordering;
+    if !CLOSE_HINT_PENDING.swap(false, Ordering::SeqCst) {
+        return false;
+    }
+    window.emit(CLOSE_HINT_EVENT, ()).is_ok()
+}
+
 // Test that macOS Automation permission is granted for a given browser (§19.7).
 // Runs a benign read against the app via System Events — first call from a given
 // browser triggers the standard permission prompt, subsequent calls reflect the

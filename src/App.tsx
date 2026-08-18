@@ -3,6 +3,7 @@ import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import PackHost from '@/components/Pack/PackHost';
 import WorkspacePackHost from '@/components/Pack/WorkspacePackHost';
+import CloseToTrayHint from '@/components/CloseToTrayHint';
 import PermissionBanner from '@/components/PermissionBanner';
 import ReviewPanel from '@/components/Review/ReviewPanel';
 import RightRail from '@/components/RightRail';
@@ -391,6 +392,7 @@ export default function App() {
         <CompleteThreadPanel thread={completingThread} onClose={() => setCompleting(null)} />
       )}
       <Settings />
+      <CloseToTrayHint />
       <ToastRack />
     </>
   );
