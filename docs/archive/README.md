@@ -21,6 +21,9 @@
 | `DESIGN_SITE_PITCH.md` | 官网三档改造(Ocean「三档全做」) |
 | `DESIGN_EN_TYPOGRAPHY.md` | EN 排版审计与整改 |
 | `DESIGN_NEXT_STAGE.md` | 发布收尾 / 官网 / portfolio / 产品下一程的总路线 |
+| `DESIGN_SITE_REBUILD.md` | 官网整页重做(A0)—— 2026-08-11 上线 |
+| `SITE_POSITIONING.md` | 官网卖什么、怎么排的判断稿(2026-08-12) |
+| `SITE_REVISION_LIST.md` | 官网逐屏修改清单(2026-08-12)—— 逐条做完 |
 
 **`DESIGN_NEXT_STAGE.md` 特别说明**:它是一份**路线图**,不是单点方案。2026-08-05 逐条对过代码:
 
@@ -30,3 +33,18 @@
 
 后三条**已经搬进 HANDOFF §4 的长期计划清单**,别只在这里找 —— 这份稿子是归档件,
 不会再更新。
+
+## 调查与自评(2026-08-18 归档)
+
+这三份**不是设计稿,是调查**:它们回答的问题当时都拿到了答案,而答案已经变成决定了。
+留着是为了「当初为什么这么定」,**别照它们开工**。
+
+| 文件 | 当时问的 | 后来定的 |
+|---|---|---|
+| `INVESTIGATION_FREE_AI_ENGINES_2026-08-13.md` | 有没有稳定免费、能跑全部四个动作的引擎 | ⛔ 2026-08-15 放弃这条路 |
+| `INVESTIGATION_M4_SCHEDULED_FOLLOW_UP_2026-08-13.md` | 跟进要不要做定时调度器 | ⛔ 2026-08-15 不做,换成会话内跟进(`DESIGN_FOLLOW_UP` §8) |
+| `INVESTIGATION_WINDOWS_PORT_2026-08-13.md` | Windows 移植要付什么代价 | ✅ 做了,v0.5.0 已发布(`DESIGN_WINDOWS_PORT.md` 是落地稿) |
+
+| 文件 | 干什么用 |
+|---|---|
+| `EVAL_M1_M2_M3.md` | 引擎位 + MCP 写入的自评与实机探针结果(2026-08-05) |

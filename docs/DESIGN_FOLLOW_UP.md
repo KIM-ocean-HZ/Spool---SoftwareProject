@@ -1,7 +1,7 @@
 # 设计稿 — Follow up(联网跟进)
 
 > ⭐⭐ **2026-08-15 Ocean 换方向:M4「定时调度」不做了。** 下面关于 M4 的设想整段作废,
-> `INVESTIGATION_M4_SCHEDULED_FOLLOW_UP_2026-08-13.md` 转为「为什么不做定时」的论证留档。
+> `archive/INVESTIGATION_M4_SCHEDULED_FOLLOW_UP_2026-08-13.md` 转为「为什么不做定时」的论证留档。
 >
 > **他的判断:跟进「内容是什么」才是最重要的,不是定时。** 新形状是
 > **MCP 会话内的主动提议 + 待审写入**,不是后台定时任务:

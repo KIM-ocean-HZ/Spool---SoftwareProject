@@ -114,7 +114,7 @@ SAVE 那两张、Story 全景图的 `alt`(六条记录)**完全准确**;Story �
 
 ### 0-ship.1 手上是什么
 
-✅ **工作区干净,全部已推,spoolapp.org 已经是新版。** 官网逐屏清单 `SITE_REVISION_LIST.md` **做完了,只剩一条**。
+✅ **工作区干净,全部已推,spoolapp.org 已经是新版。** 官网逐屏清单 `archive/SITE_REVISION_LIST.md` **做完了,只剩一条**。
 
 | 做了什么 | 在哪 |
 |---|---|
@@ -137,7 +137,7 @@ ChatGPT 写成 Codex 对话、六个 chip 和 `MCP_CLIENTS` 逐个对得上、`t
    打包弹窗统计 `'3 notes · ' + n + ' characters'`、`packText` 是一份**固定的三条笔记文档**、
    AI 回答开口 "Three notes, three sources."、扔掉那句 "your three notes are untouched"。
    ⚠️ **只存一条就打包 → 打出来的文档里有两条访客根本没存过的笔记。**
-   这是 `DESIGN_SITE_REBUILD` §1.1 第 4 条那类「图文不符」,**比它要治的门槛更伤**。
+   这是 `archive/DESIGN_SITE_REBUILD` §1.1 第 4 条那类「图文不符」,**比它要治的门槛更伤**。
 2. **「90 秒改成一分钟」是往页面写一个没量过的数**,而且活儿一点没少。
    §5-bis 刚因为同样理由把「3,000 字」改成量出来的「4,192」。
 
@@ -162,7 +162,7 @@ ChatGPT 写成 Codex 对话、六个 chip 和 `MCP_CLIENTS` 逐个对得上、`t
 
 `.shot-slot` / `.ss-*` 那套「给摄影师的话」的样式**删干净了** —— 不该再有回来的机会。
 但 **`growth-pair` / `growth-shot` / `shot-tabs` / `shot-panel` / `shot-group` / `shot-arrow` 的布局 CSS
-和 `main.js` 里那段 tab 机制留着没删** ——`SITE_REVISION_LIST` 的计划是 S4/S5/S6a-c 拍回来还要用。
+和 `main.js` 里那段 tab 机制留着没删** ——`archive/SITE_REVISION_LIST` 的计划是 S4/S5/S6a-c 拍回来还要用。
 ⭐ `main.js` 那段已经**改成 `aria-pressed`** 并写了注释钉住:**回来的时候别再写 `role="tab"`**
 (声明了 ARIA tab 模式却不实现 ←/→,比不声明更糟 —— 清单 §3.2)。
 
@@ -234,7 +234,7 @@ Ocean 明示的顺序是:**先把 S1、S2 拍了再一起推** —— ✅ **两�
 | 中文串:删 `slot-s1/s2/s3`,加 `pack-h/pack-p/pack-cap`;`site/zh/index.html` 已重新生成 | `scripts/site-zh-strings.mjs` |
 | ⭐ 演示库补三个洞(见 §0-site.4) | `scripts/seed-demo-library.sh` |
 | 图片流水线加两个新槽位 | `scripts/build-site-shots.sh` |
-| 新文档两份 | `docs/SITE_POSITIONING.md`(定位与商业判断)、`docs/SITE_REVISION_LIST.md`(逐屏清单+落地记录) |
+| 新文档两份 | `docs/archive/SITE_POSITIONING.md`(定位与商业判断)、`docs/archive/SITE_REVISION_LIST.md`(逐屏清单+落地记录) |
 | ⭐ **Claude Code 剪贴板那句去掉引号** —— 与官网无关的一摊,见 **§0-cc** | `src/lib/mcp/clients.ts` + 测试 + 台账 |
 
 **四条基线**:`tsc` 干净 / **vitest 355** / **cargo 72** / i18n `(none missing)`。
@@ -246,13 +246,13 @@ Ocean 明示的顺序是:**先把 S1、S2 拍了再一起推** —— ✅ **两�
 |---|---|---|
 | **1** | ⚠️ **先问他 §0-site.3-bis 那两条**(新 S1 里有段 IBM 播客视频:四张真人脸 + 「Anthropic sandbox breach」几个字,而且它把这张图的体积顶到了 3–4 倍)——**要么就这么发,要么他重拍一张滚过去的** | 要 |
 | **2** | 推(app 那一摊 + 官网) | ⚠️ **推 = 上线,要他明示** |
-| **3** | 之后才是 `SITE_REVISION_LIST.md` 里其余各屏(Hero 收一段 / 屏 2+4 合并 / 屏 8-10 合并 / `--muted` 对比度…) | 清单已写好 |
+| **3** | 之后才是 `archive/SITE_REVISION_LIST.md` 里其余各屏(Hero 收一段 / 屏 2+4 合并 / 屏 8-10 合并 / `--muted` 对比度…) | 清单已写好 |
 
 ### 0-site.3 ✅ **已补拍并接进页面** —— 下面这段病因留着,别再犯
 
 **原症状**:浮窗上写着 `Study / Machine learning course`,**后面什么都没有**;
 而 `01 · SAVE` 那段正文写着「along with where it came from — **down to the browser tab**」。
-**图文当场对不上**,正是 `DESIGN_SITE_REBUILD` §1.1 第 4 条说的「最伤的一种」。
+**图文当场对不上**,正是 `archive/DESIGN_SITE_REBUILD` §1.1 第 4 条说的「最伤的一种」。
 
 **病因(不是产品坏了)**:memory `isolated-verify-workflow` **§17** ——
 **隔离 identifier 拿不到自动化(Automation)授权 → `get_foreground_app()` 恒 None → `source` 写进库是 NULL**。
@@ -369,13 +369,13 @@ SPOOL_DATA_DIR=~/Library/Application\ Support/com.oceanjin.spool.verify \
 
 Ocean 的要求:**先独立构思官网该卖什么,再读 `site/` 出逐屏清单,然后动手**。
 
-1. **`docs/SITE_POSITIONING.md`** —— 独立定位稿(**故意没读 `site/` 和 `DESIGN_SITE_REBUILD`**)。
+1. **`docs/archive/SITE_POSITIONING.md`** —— 独立定位稿(**故意没读 `site/` 和 `DESIGN_SITE_REBUILD`**)。
    结论:该占的位置是「**跨 AI 的项目记忆:由你挑选、存在你机器上、交出去的每个字你都看得见**」。
    ⭐ 里面最值钱的是 **§9 事实红线表**(9 条,基于仓库取证)和 **§12 三条容易被漏掉的**。
    ⚠️ **§10 自我更正**:原本提议量「点下载时在第几屏」,**读完 `site/` 后撤回** ——
-   页面零外链是 `DESIGN_SITE_REBUILD` §4 的验收标准,任何分屏归因都要引第三方分析域名,
+   页面零外链是 `archive/DESIGN_SITE_REBUILD` §4 的验收标准,任何分屏归因都要引第三方分析域名,
    **会当场打破那条验收和首页「不做任何追踪」那句话**。能量的只有 GitHub release 下载数。
-2. **`docs/SITE_REVISION_LIST.md`** —— 逐屏清单(14 段 → 建议 10 段),含 P0/P1/P2 和落地记录。
+2. **`docs/archive/SITE_REVISION_LIST.md`** —— 逐屏清单(14 段 → 建议 10 段),含 P0/P1/P2 和落地记录。
 3. **动手做了第一批**:§0-site.1 那张表。
 4. ✅ **红线复核过 8 条已经合规**:`@spool` 零命中、「开源」零命中、
    ChatGPT 已写成「in the ChatGPT app that means a Codex conversation」、
@@ -401,7 +401,7 @@ Spool 最稀缺的资产是**那份文本本身**(可读、可核对、能带走
 ✅ 在它之前的全部已推,`origin/main` = `470d577`。
 ✅ **官网 2026-08-12 09:50 上线了**(Ocean 明示「全推,官网跟着上线」)——
 ⚠️ **图位仍是带编号的空框**,他知道并选了这条。**A1/A2 截图现在是对外可见的欠账**,
-工单在 `DESIGN_SITE_REBUILD.md` §2.4(S1–S11)。
+工单在 `archive/DESIGN_SITE_REBUILD.md` §2.4(S1–S11)。
 
 **四条基线**:`tsc` 干净 / **vitest 354** / **cargo 72** / i18n `(none missing)`。
 
@@ -775,7 +775,7 @@ git -c credential.helper='!gh auth git-credential' \
 | **1** | ⚠️ **先问**:① **`@spool` 那个改动装机吗**(`56cd2e9`,纯前端,不迁移);② **推送吗、推哪些**(⚠️ 推任何新的都会带上官网 = 上线) | 要 |
 | **2** | ⭐⭐ **`@spool` 装完他自己验**:在某个项目点「问 AI」→ 选 ChatGPT → 粘进去。⚠️ **要盯的是:粘进去之后 `@spool` 变成真的提及了没有,还是只是一串普通文字。** 这一条本窗**没验过**,只有他能看 | — |
 | **3** | **拿 §7.1 第 6 句真跑一次**(⚠️ **换个目录**,别在 `~/Documents/ChatGPT/申研选校规划/` 里跑)。⭐ 现在有两条通路可以一起验:`~/.codex/AGENTS.md` 那段(甲)和 `@spool` 提及 | — |
-| **4** | 之后才是 **A1/A2 截图**(工单已经有了:`DESIGN_SITE_REBUILD.md` §2.4,S1–S11) | — |
+| **4** | 之后才是 **A1/A2 截图**(工单已经有了:`archive/DESIGN_SITE_REBUILD.md` §2.4,S1–S11) | — |
 
 ⚠️ **已经做完、别再重复问的**:甲乙丙都装了机;甲写 `AGENTS.md` 验过了(两个文件都在);
 丙验过了(codex 重连,心跳记下 `Codex 16:38`);右边栏改版装了机。
@@ -1013,7 +1013,7 @@ t0=$(ps -p <pid> -o time= | tr -d ' '); sleep 60; t1=$(ps -p <pid> -o time= | tr
 
 | 摊 | 文件 | 状态 |
 |---|---|---|
-| ⭐ **官网整页重做(A0)** | `site/index.html`、`site/zh/index.html`(**生成的**)、`site/assets/site.css`、`site/assets/demo.js`、`scripts/site-zh-strings.mjs`、`docs/DESIGN_SITE_REBUILD.md` | ✅ 代码全清、四条基线绿、**未提交**。⚠️ **不能上线**(图位是空框) |
+| ⭐ **官网整页重做(A0)** | `site/index.html`、`site/zh/index.html`(**生成的**)、`site/assets/site.css`、`site/assets/demo.js`、`scripts/site-zh-strings.mjs`、`docs/archive/DESIGN_SITE_REBUILD.md` | ✅ 代码全清、四条基线绿、**未提交**。⚠️ **不能上线**(图位是空框) |
 | ⭐ **MCP 断连取证** | `CASE_STUDY_LEDGER.md` §3.33、`DESIGN_MCP_INTENT_ROUTING.md` §9、memory `spool-must-not-cost-other-tools` | ✅ 只是文档 |
 | ⭐⭐ **丙:客户端心跳** | `src-tauri/src/mcp.rs`(`record_client_seen` / `clients_seen` / `client_key_from_info` + 2 个测试)、`src-tauri/src/lib.rs`(命令 `mcp_clients_seen`)、`src/lib/mcp/clients.ts`、`src/components/Settings/McpConfig.tsx`、`src/lib/i18n/index.ts`(2 个新 key) | ✅ 代码全清,**四条基线绿**,**stdio 真跑过**(§1-new.3),⏳ **没装机、没提交** |
 
@@ -1033,7 +1033,7 @@ t0=$(ps -p <pid> -o time= | tr -d ' '); sleep 60; t1=$(ps -p <pid> -o time= | tr
 | **4** | **甲**:一键接入时写 `AGENTS.md` / `CLAUDE.md`(全稿 `DESIGN_MCP_INTENT_ROUTING` §9.4 甲,⚠️ **用改写后那一版文案,不许约定记号**) | 已批,做就行 |
 | **5** | **乙**:两个新 prompt `file_this` / `catch_up`(提示词面 5 → 7,**golden 要重生**,硬规则 5) | 已批 |
 | **6** | 甲乙做完,**拿 §7.1 第 6 句真跑一次**(⚠️ 换个目录,别在 `~/Documents/ChatGPT/申研选校规划/` 里跑) | — |
-| **7** | 之后才是 **A1/A2 截图**(工单已经有了:`DESIGN_SITE_REBUILD.md` §2.4,S1–S11) | — |
+| **7** | 之后才是 **A1/A2 截图**(工单已经有了:`archive/DESIGN_SITE_REBUILD.md` §2.4,S1–S11) | — |
 
 ### 0-new.3 ⚠️⚠️ 这一窗新长出来的三条禁令
 
@@ -1055,7 +1055,7 @@ memory `next-stage-goals-website-portfolio` 里 08-10 写的
 
 ## 1-new. ⭐⭐ 这一窗(08-11 下午)做了什么
 
-### 1-new.1 官网整页重做(A0)—— 全稿 `docs/DESIGN_SITE_REBUILD.md`
+### 1-new.1 官网整页重做(A0)—— 全稿 `docs/archive/DESIGN_SITE_REBUILD.md`
 
 **起因**:Ocean 08-10「官网内容已经落后软件很多,需要重新设计功能展示和介绍,交互小组件也要重做」。
 
@@ -1212,8 +1212,8 @@ memory `next-stage-goals-website-portfolio` 里 08-10 写的
 |---|---|---|---|
 | ~~**A5**~~ | ✅ **首日价值二期,08-11 全部收工(四件 + 五轮返工),已推已装** | 它是整条链的源头 —— 界面定稿了,后面才能拍 | ⭐ `DESIGN_FIRST_DAY_VALUE.md`(落地 §6,返工 §7–§10) |
 | **A6** | ⭐⭐ **左边栏那三张效果图,他要选一张**(§0.10) | 界面还没定死,而官网要展示的就是这个界面 —— **选完再动官网** | §0.10 |
-| ~~⭐ **A0**~~ | ✅ **官网整页重做,2026-08-11 下午做完了(未提交、未上线)** | 全稿 `docs/DESIGN_SITE_REBUILD.md`,本窗记录 §1-new.1 | — |
-| **A1/A2** | **截图全套重建 + 演示视频** | ⭐ **前提解除了**:官网定了,**拍摄工单也有了 —— `DESIGN_SITE_REBUILD.md` §2.4 的 S1–S11**,而且同一份话就写在页面的空框里 | §5.1 + memory(**多场景铁律**) |
+| ~~⭐ **A0**~~ | ✅ **官网整页重做,2026-08-11 下午做完了(未提交、未上线)** | 全稿 `docs/archive/DESIGN_SITE_REBUILD.md`,本窗记录 §1-new.1 | — |
+| **A1/A2** | **截图全套重建 + 演示视频** | ⭐ **前提解除了**:官网定了,**拍摄工单也有了 —— `archive/DESIGN_SITE_REBUILD.md` §2.4 的 S1–S11**,而且同一份话就写在页面的空框里 | §5.1 + memory(**多场景铁律**) |
 | **A3** | **case-study 四、五、六期(放最后)** | 它要的截图和官网页,前面几条正好产出 | `DESIGN_CASE_STUDY.md` §4 |
 
 **B 类 —— 只欠一次真跑,几分钟的事**
