@@ -2,7 +2,7 @@ import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
-import { DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
+import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
 import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
@@ -220,7 +220,7 @@ const LEGACY_AI_KEYS = [
 ] as const;
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  captureShortcut: null,
+  captureShortcut: DEFAULT_CAPTURE_ACCEL,
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,

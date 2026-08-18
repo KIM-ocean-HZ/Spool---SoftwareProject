@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { reservedChordMeaning } from './shortcut';
+import {
+  DEFAULT_CAPTURE_ACCEL,
+  DEFAULT_SEARCH_ACCEL,
+  formatAccelerator,
+  reservedChordMeaning,
+} from './shortcut';
 
 // Ocean, Windows 验收 #20: binding Ctrl+Z as the capture shortcut was accepted, which takes
 // Undo out of every other program on the machine. These pin the refusal AND its edges — a
@@ -27,5 +32,28 @@ describe('reservedChordMeaning', () => {
   it('reads the platform: ⌘Z is the Mac question, Ctrl+Z the Windows one', () => {
     expect(reservedChordMeaning('control+KeyZ', true)).toBeNull();
     expect(reservedChordMeaning('meta+KeyZ', false)).toBeNull();
+  });
+});
+
+// 2026-08-18 (Ocean: 「ctrl+space 比较方便，默认做这个快捷键」). Capture now ships bound off
+// macOS, and a shipped default is the one accelerator that never passes through the recorder
+// — so the two rules the recorder enforces have to be checked here, or Settings could show a
+// chord the recorder itself would refuse.
+//
+// ⚠️ Under Vitest `navigator.userAgent` is Node's, so IS_MAC is false and these constants
+// hold their off-macOS values — which is the platform that has a capture default at all.
+describe('DEFAULT_CAPTURE_ACCEL', () => {
+  it('is not a chord the recorder would refuse', () => {
+    expect(reservedChordMeaning(DEFAULT_CAPTURE_ACCEL!, false)).toBeNull();
+  });
+
+  it('does not collide with the search default', () => {
+    expect(DEFAULT_CAPTURE_ACCEL).not.toBe(DEFAULT_SEARCH_ACCEL);
+  });
+
+  // The settings row and the seeded first-run tutorial both name this key; they are written
+  // in different files and only agree because both come out as these five characters.
+  it('reads as Ctrl+Space', () => {
+    expect(formatAccelerator(DEFAULT_CAPTURE_ACCEL!)).toBe('Ctrl+Space');
   });
 });

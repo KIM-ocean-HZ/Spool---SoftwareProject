@@ -946,10 +946,10 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
           content:
             '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」项目。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
           // 没有双击 ⌥ 的平台：手势不存在，「输入监听」权限也不存在，所以这一句是重写的
-          // 而不是替词。先设快捷键这一步必须排在最前面 —— 没设之前，这条教程里没有任何
-          // 一个动作是做得成的。
+          // 而不是替词。2026-08-18 起捕捉键出厂就绑好了（⌃Space），所以这句不再是「先去
+          // 设一个」，而是直接把键说出来——第一条教程里的动作，读完就能做。
           offMac:
-            '捕捉：先去顶部横幅点「设一个快捷键」（或设置 → 快捷键），给捕捉定一个组合键。之后在任何应用选中文字按 ⌘C，再按那个快捷键——内容自动落进「捕捉目标」项目。',
+            '捕捉：在任何应用选中文字按 ⌘C，再按 ⌃Space——内容自动落进「捕捉目标」项目。想换成别的键：设置 → 快捷键。',
         },
         {
           content:
@@ -1023,7 +1023,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
           content:
             'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target project. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
           offMac:
-            'Capture: first press "Pick a shortcut" in the banner at the top (or Settings → Shortcuts) and choose a key combination for capture. Then select text in any app, press ⌘C, and press your shortcut — it lands in your capture-target project.',
+            'Capture: select text in any app, press ⌘C, then press ⌃Space — it lands in your capture-target project. Want a different key? Settings → Shortcuts.',
         },
         {
           content:

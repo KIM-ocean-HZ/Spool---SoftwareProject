@@ -1,7 +1,7 @@
 // Shortcut accelerators (PLAN_EN.md §9.12 / §19.1). The two global shortcuts —
-// capture and search (⌘⇧F) — are user-configurable from the Settings panel. Capture
-// has NO default since 2026-07-07: double-tap ⌥ is the trigger, and a capture
-// shortcut exists only when the user binds one.
+// capture and search (⌘⇧F) — are user-configurable from the Settings panel. Capture has no
+// default ON macOS since 2026-07-07: double-tap ⌥ is the trigger there, and a chord exists
+// only when the user binds one. Everywhere else it ships bound — see DEFAULT_CAPTURE_ACCEL.
 //
 // An accelerator is a string in this module's own grammar: lowercase modifier tokens
 // (`meta` `control` `alt` `shift`) joined with `+`, then the W3C `KeyboardEvent.code`
@@ -13,6 +13,19 @@ import { IS_MAC } from '@/lib/platform';
 
 // Default — must match Rust's search_accelerator().
 export const DEFAULT_SEARCH_ACCEL = IS_MAC ? 'meta+shift+KeyF' : 'control+shift+KeyF';
+
+// Capture's default, and it exists on exactly one platform.
+//
+// macOS keeps `null`: double-tap ⌥ is the trigger there, and a bound chord is the optional
+// backup somebody adds themselves. Off macOS there is no gesture at all (Ocean 2026-08-15,
+// 首版不做), so an unbound capture key means the app ships with no way to capture from
+// another program — the whole feature behind a settings row nobody has been sent to.
+// Ctrl+Space is his own pick after a week on the Windows build (2026-08-18: 「用着感觉
+// ctrl+space 比较方便,默认做这个快捷键」).
+//
+// ⚠️ Windows 中文输入法 uses Ctrl+Space to toggle IME on and off, and a global hotkey wins
+// that fight — see WINDOWS-CHECK 第三轮 for the one thing this trades away.
+export const DEFAULT_CAPTURE_ACCEL = IS_MAC ? null : 'control+Space';
 
 // Build an accelerator from a keydown. Returns null for an unusable chord: the key
 // itself is a bare modifier, or there is no "real" modifier (a shift-only global

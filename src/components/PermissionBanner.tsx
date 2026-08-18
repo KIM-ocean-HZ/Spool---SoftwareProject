@@ -35,13 +35,16 @@ import { useSettingsStore } from '@/stores/settingsStore';
 //
 // Windows has no TCC, so `input_monitoring_granted` answers true there and all three
 // phases above resolve to `hidden` — correct, and it left the first screen with nothing on
-// it. But Windows also has no double-tap ⌥ (Ocean 2026-08-15 decision 4: a low-level
-// keyboard hook is not worth what antivirus software makes of it), and he chose NOT to ship
-// a default chord, so a fresh install starts with no way to capture from another app and no
-// hint that one has to be chosen. That is the same shape of problem the macOS phases solve
-// — capture is inert and the reason is invisible — so it reuses the same slot, the same one
-// line, and the same language switch, which is otherwise unreachable on a Windows first
-// launch (see the escape-hatch note below).
+// it. Windows also has no double-tap ⌥ (Ocean 2026-08-15 decision 4: a low-level keyboard
+// hook is not worth what antivirus software makes of it), so with nothing bound a fresh
+// install had no way to capture from another app and no hint that one had to be chosen.
+//
+// ⚠️ 2026-08-18: capture off macOS now SHIPS bound (Ctrl+Space — shortcut.ts
+// DEFAULT_CAPTURE_ACCEL, Ocean's own pick), so this phase no longer fires on a normal first
+// launch. It is kept for the state it names — a machine with no capture key at all — rather
+// than deleted, and the language switch below is no longer this bar's alone: Settings → 通用
+// carries the same pair under a heading written in both languages, which is what a user who
+// cannot read the guessed one needs.
 //
 // Nothing here is a permission prompt: the button opens Settings, and the banner goes away
 // the moment a shortcut exists.
