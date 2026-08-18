@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Spool — local context capture for macOS, one paste into any AI</title>
-<meta name="description" content="Spool keeps the background of every long-running project on your Mac. Copy anything, double-tap ⌥, and it is filed under the right project with its source. One click hands the whole project to any AI — or your AI reads it itself, and anything it writes back waits for your yes. Free, offline, no account, signed and notarised.">
+<title>Spool — local context capture for Mac and Windows, one paste into any AI</title>
+<meta name="description" content="Spool keeps the background of every long-running project on your own machine, on Mac and on Windows. Copy anything, double-tap a modifier key, and it is filed under the right project with its source. One click hands the whole project to any AI — or your AI reads it itself, and anything it writes back waits for your yes. Free, offline, no account.">
 
 <!-- Each language is its own address, so a search engine can index the Chinese
      page and a shared link opens in the language it was shared in. -->
@@ -18,7 +18,7 @@
 <meta property="og:url" content="https://spoolapp.org/">
 <meta property="og:site_name" content="Spool 思簿">
 <meta property="og:title" content="Spool — never explain your project twice">
-<meta property="og:description" content="A Mac app that holds the background of every long-running project, and hands the whole thing to an AI — pasted, or read straight off your Mac. Free, offline, no account.">
+<meta property="og:description" content="A local app for Mac and Windows that holds the background of every long-running project, and hands the whole thing to an AI — pasted, or read straight off your own machine. Free, offline, no account.">
 <meta property="og:image" content="https://spoolapp.org/assets/og-cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -27,7 +27,7 @@
 <meta property="og:locale:alternate" content="zh_CN">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Spool — never explain your project twice">
-<meta name="twitter:description" content="A Mac app that holds the background of every long-running project, and hands the whole thing to an AI — pasted, or read straight off your Mac. Free, offline, no account.">
+<meta name="twitter:description" content="A local app for Mac and Windows that holds the background of every long-running project, and hands the whole thing to an AI — pasted, or read straight off your own machine. Free, offline, no account.">
 <meta name="twitter:image" content="https://spoolapp.org/assets/og-cover.png">
 
 <link rel="icon" href="assets/spool-logo-full.svg" type="image/svg+xml">
@@ -52,7 +52,7 @@
       <a href="story.html" data-i18n="nav-story">Story</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
       <a class="lang-toggle" href="zh/" hreflang="zh-Hans" lang="zh">中文</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
+      <a class="nav-cta" href="#get" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
 </div>
@@ -65,17 +65,18 @@
     <img class="mark" src="assets/spool-logo-full.svg" data-i18n-alt="alt-logo" alt="Spool logo — a spool of thread seen from above, its thread pulling free">
   </div>
   <h1><span data-i18n="hero-h1">Never explain your<br>project twice.</span><span class="zh">思簿</span></h1>
-  <p class="sub" data-i18n="hero-sub">Copy anything worth keeping and tap <span class="kbd">⌥</span> twice — it lands
-  in the project you are on, along with the thought that made you save it. Weeks later, hand the whole
-  thing to any AI in one paste, and you can read every word it was told.</p>
+  <p class="sub" data-i18n="hero-sub">Copy anything worth keeping and tap <span class="kbd">⌥</span> twice —
+  <span class="kbd">Ctrl</span> on Windows. It lands in the project you are on, along with the thought that made
+  you save it. Weeks later, hand the whole thing to any AI in one paste, and you can read every word it was told.</p>
   <div class="cta-row">
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">Download for Windows</a>
     <a class="btn btn-ghost" href="#demo" data-i18n="try-btn">See it work — no download needed</a>
   </div>
   <ul class="trust-chips">
     <li data-i18n="chip-free">Free</li>
-    <li data-i18n="chip-arch">Apple Silicon Mac</li>
-    <li data-i18n="chip-notarised">Signed &amp; notarised by Apple</li>
+    <li data-i18n="chip-arch">Apple Silicon Mac · Windows x64</li>
+    <li data-i18n="chip-notarised">Notarised by Apple on macOS</li>
     <li data-i18n="chip-offline">Works offline</li>
   </ul>
 </section>
@@ -148,7 +149,8 @@
       <div class="loop-copy">
         <div class="n" data-i18n="l1-n">01 · SAVE</div>
         <h3 data-i18n="l1-h">One key. Nothing to decide.</h3>
-        <p data-i18n="l1-p">Copy anything, then tap <span class="kbd">⌥</span> twice. It goes straight into the
+        <p data-i18n="l1-p">Copy anything, then tap <span class="kbd">⌥</span> twice — <span class="kbd">Ctrl</span> on
+        Windows. It goes straight into the
         project you are working on, along with where it came from — down to the browser tab. The
         confirmation appears with the cursor already in a note box: type the thought that made you
         save this, or click away to skip. Your own words outlast the excerpt, and they are what an
@@ -245,7 +247,7 @@
         <h3 data-i18n="l3-h">One click, ready to paste.</h3>
         <p data-i18n="l3-p">Spool writes the project out as plain text: your own words first, things you read
         kept with their sources, anything an AI wrote marked so you can check it. Paste it into any AI —
-        or just read it yourself to get back into the work. It is assembled on your Mac and put on your
+        or just read it yourself to get back into the work. It is assembled on your own machine and put on your
         clipboard; nothing is sent anywhere, and the same project always comes out the same way.</p>
       </div>
     </div>
@@ -339,7 +341,9 @@ the user's feelings at the cost of correctness.</span>
   <div class="wrap center reveal">
     <p data-i18n="mid-cta-p">That is the whole loop. Install it, choose a project, and start saving.</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
-    <p class="fineprint" data-i18n="mid-cta-fine">Free · Apple Silicon Mac (arm64) · signed &amp; notarised by Apple</p>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">Download for Windows</a>
+    <p class="fineprint" data-i18n="mid-cta-fine">Free · Apple Silicon Mac (arm64), signed &amp; notarised by Apple ·
+    Windows x64, not signed yet</p>
   </div>
 </section>
 
@@ -398,7 +402,7 @@ the user's feelings at the cost of correctness.</span>
           <span class="client-chip">Claude Desktop</span><span class="client-chip">Codex</span>
         </div>
         <p data-i18n="cg1-p">You ask in the chat box, the same as always. In the ChatGPT app that means a Codex
-        conversation — an ordinary ChatGPT chat runs on OpenAI's servers and cannot reach your Mac.</p>
+        conversation — an ordinary ChatGPT chat runs on OpenAI's servers and cannot reach your machine.</p>
       </div>
       <div class="card">
         <h3>
@@ -487,7 +491,7 @@ the user's feelings at the cost of correctness.</span>
     </div>
 
     <div class="reveal perm-note">
-      <h3 data-i18n="perm-h">The macOS permissions, and what they are for</h3>
+      <h3 data-i18n="perm-h">The permissions macOS asks for, and what they are for</h3>
       <p data-i18n="perm-p1">This is the step that surprises people, so here it is up front. Spool uses
       <strong>Input Monitoring</strong> to hear the system-wide double-tap of <span class="kbd">⌥</span>.
       <strong>Accessibility</strong> is optional, and does two things. It removes the second key press
@@ -503,6 +507,10 @@ the user's feelings at the cost of correctness.</span>
       you can type. Decline browser Automation and capture still
       works, with the source falling back to the browser name. None of these choices makes Spool send
       anything anywhere on its own.</p>
+      <p data-i18n="perm-win"><strong>On Windows there is nothing to grant.</strong> The double-tap of
+      <span class="kbd">Ctrl</span> is read through Raw Input, which asks for no permission and is not a keyboard
+      hook — the thing antivirus software is right to be suspicious of. Source capture there is the name of the
+      app you copied from; the browser tab title is a macOS-only detail.</p>
     </div>
 
     <!-- Order matters here: a stranger's first worry is "will it take my things",
@@ -511,23 +519,25 @@ the user's feelings at the cost of correctness.</span>
       <div class="card">
         <h3 data-i18n="t3-h">Nothing is tracked, and Spool sends nothing on its own</h3>
         <p data-i18n="t3-p">No analytics, no telemetry, no crash reporting, and Spool itself cannot make a
-        network request — it is built without the ability. Content may leave your Mac only when you hand
+        network request — it is built without the ability. Content may leave your machine only when you hand
         it to another program: paste a Pack into a service, enable an MCP client, or ask a command-line
         AI you installed to draft follow-up goals, run Follow Up, or write a Weekly Review. The receiving program controls what
         happens next. Your clipboard is read at the moment you use the capture shortcut and not otherwise.</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t2-h">One file, on your Mac</h3>
+        <h3 data-i18n="t2-h">One file, on your own machine</h3>
         <p data-i18n="t2-p">Every workspace, project, note and annotation lives in a single <code>spool.db</code>
         file. Copy it, back it up, delete it. No account to create, no server to trust, nothing to
         cancel.</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t1-h">Signed and notarised by Apple</h3>
-        <p data-i18n="t1-p">The download is signed with an Apple Developer ID and notarised by Apple, so macOS
+        <h3 data-i18n="t1-h">Notarised on macOS, not yet signed on Windows</h3>
+        <p data-i18n="t1-p">The Mac download is signed with an Apple Developer ID and notarised by Apple, so macOS
         opens it without the "unidentified developer" warning. Apple Silicon only — an Intel Mac will
-        download it and fail to open it. New versions are downloaded by hand, which also means the app
-        never goes online to check for one.</p>
+        download it and fail to open it. The Windows installer is <strong>not signed yet</strong>, so SmartScreen
+        stops it the first time: "More info", then "Run anyway". That is worth knowing before you download rather
+        than after. New versions are fetched by hand on both, which also means the app never goes online to check
+        for one.</p>
       </div>
       <div class="card">
         <h3 data-i18n="t4-h">Made by one person — including the day I wiped my own database</h3>
@@ -560,12 +570,14 @@ the user's feelings at the cost of correctness.</span>
       <details>
         <summary data-i18n="q11">Do I have to connect an AI at all?</summary>
         <p data-i18n="a11">No, and nothing is held back if you never do. Packing a project and pasting it
-        works with any AI in any browser tab, on a Mac with nothing else installed.</p>
+        works with any AI in any browser tab, on a machine with nothing else installed.</p>
       </details>
       <details>
         <summary data-i18n="q2">Windows? iPhone?</summary>
-        <p data-i18n="a2">No. Spool is a Mac app, and the capture shortcut is built on macOS-specific APIs.
-        I would rather say that plainly than put up a waiting list for something that does not exist.</p>
+        <p data-i18n="a2">Windows, yes — 0.5.0 is the first release for it. It is x64, capture is a double-tap of
+        <span class="kbd">Ctrl</span> instead of <span class="kbd">⌥</span>, and the installer is not signed yet,
+        so SmartScreen warns you once. iPhone, no — there is no version, and I would rather say that plainly than
+        put up a waiting list for something that does not exist.</p>
       </details>
       <details>
         <summary data-i18n="q9">Can an AI change or delete my notes?</summary>
@@ -587,8 +599,8 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q4">What happens to my notes if you stop working on it?</summary>
-        <p data-i18n="a4">They stay exactly where they already are: one <code>spool.db</code> file on your Mac,
-        in SQLite — a format plenty of other software can open. Spool going away does not take your
+        <p data-i18n="a4">They stay exactly where they already are: one <code>spool.db</code> file on your own
+        machine, in SQLite — a format plenty of other software can open. Spool going away does not take your
         notes with it.</p>
       </details>
       <details>
@@ -598,13 +610,14 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q6">How do I update it?</summary>
-        <p data-i18n="a6">By hand for now: download the new dmg and replace the app. There is no automatic
-        update channel yet, which also means the app never phones home to check for one.</p>
+        <p data-i18n="a6">By hand for now: download the new dmg, or the new Windows installer, and replace what
+        you have. There is no automatic update channel yet, which also means the app never phones home to check
+        for one.</p>
       </details>
       <details>
         <summary data-i18n="q7">Does it watch my clipboard all the time?</summary>
-        <p data-i18n="a7">No. Spool reads the clipboard at the instant you double-tap <span class="kbd">⌥</span>,
-        and at no other time. It does not poll, and it keeps no history of what you copied.</p>
+        <p data-i18n="a7">No. Spool reads the clipboard at the instant you double-tap the capture key —
+        <span class="kbd">⌥</span> on macOS, <span class="kbd">Ctrl</span> on Windows — and at no other time. It does not poll, and it keeps no history of what you copied.</p>
       </details>
       <details>
         <summary data-i18n="q8">Do I have to organise anything?</summary>
@@ -623,13 +636,15 @@ the user's feelings at the cost of correctness.</span>
   </div>
 </section>
 
-<section class="cta-band">
+<section class="cta-band" id="get">
   <div class="wrap reveal">
     <h2 data-i18n="cta-h">Stop explaining the same project again.</h2>
     <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">Free, works offline, and needs no account.</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">Download for macOS</a>
-    <p class="fineprint" data-i18n="cta-fine">Apple Silicon Mac (arm64) · signed &amp; notarised by Apple · no account ·
-    nothing is tracked · <a href="https://github.com/KIM-ocean-HZ/spool/releases">all releases on GitHub</a></p>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">Download for Windows</a>
+    <p class="fineprint" data-i18n="cta-fine">Apple Silicon Mac (arm64), signed &amp; notarised · Windows x64,
+    unsigned · no account · nothing is tracked ·
+    <a href="https://github.com/KIM-ocean-HZ/spool/releases">all releases on GitHub</a></p>
   </div>
 </section>
 

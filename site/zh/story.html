@@ -29,7 +29,7 @@
       <a href="privacy.html" data-i18n="nav-privacy">隐私政策</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
       <a class="lang-toggle" href="../story.html" hreflang="en" lang="en">EN</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">下载</a>
+      <a class="nav-cta" href="index.html#get" data-i18n="nav-dl">下载</a>
     </nav>
   </header>
 </div>
@@ -95,7 +95,7 @@
 </figure>
 
 <h2 id="architecture" data-i18n="story-arch-h">三个界面之间的关系</h2>
-<p data-i18n="story-arch-p">桌面界面、MCP 服务器和命令行引擎位，是围着同一份事实来源的三个本地界面。下图把“运行在你的 Mac 上”和“属于 Spool 进程”分开画，这样关于网络的说法可以直接看，而不是靠推断。</p>
+<p data-i18n="story-arch-p">桌面界面、MCP 服务器和命令行引擎位，是围着同一份事实来源的三个本地界面。下图把“运行在你自己的电脑上”和“属于 Spool 进程”分开画，这样关于网络的说法可以直接看，而不是靠推断。</p>
 
 <figure class="story-architecture">
   <div class="arch-scroll" tabindex="0" role="region"
@@ -118,7 +118,7 @@
       </defs>
 
       <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
-      <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">你的 Mac</text>
+      <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">你的电脑</text>
 
       <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
       <text class="arch-kicker" x="66" y="92" data-i18n="story-arch-one-binary">SPOOL · 一个本地程序</text>
@@ -252,7 +252,7 @@
 </figure>
 
 <h2 id="release" data-i18n="story-release-h">分发、签名与公证</h2>
-<p data-i18n="story-release-p">Spool 直接以经 Developer ID 签名、并由 Apple 公证过的磁盘镜像分发。不走 Mac App Store，是因为沙盒和全系统范围的捕捉手势冲突。应用和磁盘镜像是分开检查的：用户下载的是外面那层镜像，所以“公证过的应用装在没公证的镜像里”并不够。</p>
+<p data-i18n="story-release-p">macOS 上，Spool 直接以经 Developer ID 签名、并由 Apple 公证过的磁盘镜像分发。不走 Mac App Store，是因为沙盒和全系统范围的捕捉手势冲突。应用和磁盘镜像是分开检查的：用户下载的是外面那层镜像，所以“公证过的应用装在没公证的镜像里”并不够。Windows 安装包由 CI 产出，首版<strong>未签名</strong>发布——证书是一笔按年续的开销，而这个平台还没被验证过；在下载页上假装它签过，比 SmartScreen 那一次提示更糟。</p>
 
 <div class="release-evidence" role="group" aria-labelledby="release-evidence-title">
   <div class="release-evidence-head">
@@ -329,7 +329,7 @@
 
 <h2 id="boundaries" data-i18n="story-boundaries-h">这些是边界，不是承诺</h2>
 <ul>
-  <li data-i18n="story-b1"><strong>实际上只支持 macOS。</strong>捕捉、焦点处理和进程组取消里都有依赖平台的实现，换一个系统要重新设计。</li>
+  <li data-i18n="story-b1"><strong>两个平台，深度并不一样。</strong>Windows 从 0.5.0 开始支持，跑的是同一个库、同一套捕捉手势——只是用 Raw Input 读键，而不是键盘钩子。没有跟着过去的是 macOS 那部分与焦点处理、浏览器标签页来源相关的实现，所以 Windows 版记录的是来源应用，而不是你当时在读的那个页面。</li>
   <li data-i18n="story-b2"><strong>没有自动更新。</strong>换新版本要自己到发布页手动下载。</li>
   <li data-i18n="story-b3"><strong>源码可见，保留所有权利。</strong>仓库里没有任何授权他人复用的许可证。</li>
   <li data-i18n="story-b4"><strong>有两项检查仍然由人来做。</strong>已授权的捕捉手势位于合成事件的上游，打包后的 webview 也没法靠合成点击来确认；这两项都交给人，而不是宣称已经自动化了。</li>

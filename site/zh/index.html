@@ -5,8 +5,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Spool 思簿 — 在 Mac 上保存项目背景，一次交给任何 AI</title>
-<meta name="description" content="Spool 把长期项目的背景保存在你的 Mac 上。复制内容并连按两下 ⌥，即可连同来源存入当前项目；随后一键生成 Pack，粘贴给任何 AI，或让已连接的 AI 直接读取。AI 提议写回的内容会先等你确认。免费、可离线使用、无需账号。">
+<title>Spool 思簿 — 在 Mac 和 Windows 上保存项目背景，一次交给任何 AI</title>
+<meta name="description" content="Spool 把长期项目的背景保存在你自己的电脑上，Mac 和 Windows 都能用。复制内容并连按两下修饰键，即可连同来源存入当前项目；随后一键生成 Pack，粘贴给任何 AI，或让已连接的 AI 直接读取。AI 提议写回的内容会先等你确认。免费、可离线使用、无需账号。">
 
 <!-- Each language is its own address, so a search engine can index the Chinese
      page and a shared link opens in the language it was shared in. -->
@@ -20,7 +20,7 @@
 <meta property="og:url" content="https://spoolapp.org/zh/">
 <meta property="og:site_name" content="Spool 思簿">
 <meta property="og:title" content="Spool 思簿 — 项目背景，只需解释一次">
-<meta property="og:description" content="在 Mac 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。">
+<meta property="og:description" content="在 Mac 和 Windows 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。">
 <meta property="og:image" content="https://spoolapp.org/assets/og-cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -29,7 +29,7 @@
 <meta property="og:locale:alternate" content="en">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Spool 思簿 — 项目背景，只需解释一次">
-<meta name="twitter:description" content="在 Mac 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。">
+<meta name="twitter:description" content="在 Mac 和 Windows 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。">
 <meta name="twitter:image" content="https://spoolapp.org/assets/og-cover.png">
 
 <link rel="icon" href="../assets/spool-logo-full.svg" type="image/svg+xml">
@@ -54,7 +54,7 @@
       <a href="story.html" data-i18n="nav-story">开发故事</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
       <a class="lang-toggle" href="../" hreflang="en" lang="en">EN</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">下载</a>
+      <a class="nav-cta" href="#get" data-i18n="nav-dl">下载</a>
     </nav>
   </header>
 </div>
@@ -67,15 +67,16 @@
     <img class="mark" src="../assets/spool-logo-full.svg" data-i18n-alt="alt-logo" alt="Spool 标志：从上方看到的线轴，一根线从中向外延伸">
   </div>
   <h1><span data-i18n="hero-h1">同一个项目，<br>不必解释第二遍。</span><span class="zh">思簿</span></h1>
-  <p class="sub" data-i18n="hero-sub">复制值得保留的内容，再连按两下 <span class="kbd">⌥</span>。内容会存入当前项目，你还可以附上当时的想法。几周后，一次打包就能把完整背景交给任何 AI；交出去的每个字，你都可以先看清楚。</p>
+  <p class="sub" data-i18n="hero-sub">复制值得保留的内容，再连按两下 <span class="kbd">⌥</span>（Windows 上是 <span class="kbd">Ctrl</span>）。内容会存入当前项目，你还可以附上当时的想法。几周后，一次打包就能把完整背景交给任何 AI；交出去的每个字，你都可以先看清楚。</p>
   <div class="cta-row">
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">下载 macOS 版</a>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">下载 Windows 版</a>
     <a class="btn btn-ghost" href="#demo" data-i18n="try-btn">直接试用，无需下载</a>
   </div>
   <ul class="trust-chips">
     <li data-i18n="chip-free">免费</li>
-    <li data-i18n="chip-arch">适用于 Apple 芯片 Mac</li>
-    <li data-i18n="chip-notarised">已由 Apple 签名并公证</li>
+    <li data-i18n="chip-arch">Apple 芯片 Mac · Windows x64</li>
+    <li data-i18n="chip-notarised">macOS 版已由 Apple 签名并公证</li>
     <li data-i18n="chip-offline">可离线使用</li>
   </ul>
 </section>
@@ -135,7 +136,7 @@
       <div class="loop-copy">
         <div class="n" data-i18n="l1-n">01 · 保存</div>
         <h3 data-i18n="l1-h">一次触发，不必分类。</h3>
-        <p data-i18n="l1-p">复制任意内容，再连按两下 <span class="kbd">⌥</span>。内容会直接进入当前项目，来源也会一并保存，浏览器内容还会记录标签页标题。确认浮窗出现时，光标已在批注框中：可以写下保存它的原因并按 Enter，也可以点击别处跳过。你的批注比摘录更能说明当时的判断，AI 也会优先读取。</p>
+        <p data-i18n="l1-p">复制任意内容，再连按两下 <span class="kbd">⌥</span>（Windows 上是 <span class="kbd">Ctrl</span>）。内容会直接进入当前项目，来源也会一并保存，浏览器内容还会记录标签页标题。确认浮窗出现时，光标已在批注框中：可以写下保存它的原因并按 Enter，也可以点击别处跳过。你的批注比摘录更能说明当时的判断，AI 也会优先读取。</p>
       </div>
       <div class="loop-visual">
         <!-- S1 establishes the complete capture scene. The numbered frames and
@@ -306,7 +307,8 @@ the user's feelings at the cost of correctness.</span>
   <div class="wrap center reveal">
     <p data-i18n="mid-cta-p">完整流程就是这样：安装应用，选择一个项目，然后开始保存。</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">下载 macOS 版</a>
-    <p class="fineprint" data-i18n="mid-cta-fine">免费 · Apple 芯片 Mac（arm64）· 已由 Apple 签名并公证</p>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">下载 Windows 版</a>
+    <p class="fineprint" data-i18n="mid-cta-fine">免费 · Apple 芯片 Mac（arm64），已由 Apple 签名并公证 · Windows x64，暂未签名</p>
   </div>
 </section>
 
@@ -353,7 +355,7 @@ the user's feelings at the cost of correctness.</span>
         <div class="chips">
           <span class="client-chip">Claude Desktop</span><span class="client-chip">Codex</span>
         </div>
-        <p data-i18n="cg1-p">仍然在熟悉的聊天框中提问。若使用 ChatGPT 桌面端，需要进入 Codex 对话；普通 ChatGPT 对话运行在远端，无法访问这台 Mac 上的本地 MCP 服务。</p>
+        <p data-i18n="cg1-p">仍然在熟悉的聊天框中提问。若使用 ChatGPT 桌面端，需要进入 Codex 对话；普通 ChatGPT 对话运行在远端，无法访问这台电脑上的本地 MCP 服务。</p>
       </div>
       <div class="card">
         <h3>
@@ -417,10 +419,11 @@ the user's feelings at the cost of correctness.</span>
     </div>
 
     <div class="reveal perm-note">
-      <h3 data-i18n="perm-h">macOS 权限分别用于什么</h3>
+      <h3 data-i18n="perm-h">macOS 会请求哪些权限，分别用于什么</h3>
       <p data-i18n="perm-p1">Spool 使用<strong>输入监控</strong>来识别系统范围内的“连按两下 <span class="kbd">⌥</span>”。<strong>辅助功能</strong>是可选权限，管两件事：在 Spool 完成捕捉后移除第二次按键事件，避免其他使用相同手势的应用同时打开；以及让确认浮窗拿到键盘，你不用先点一下就能直接写批注。</p>
       <p data-i18n="perm-p2">首次从浏览器捕捉时，macOS 还会请求浏览器自动化权限。获准后，Spool 可以把当前标签页标题记录为来源；否则只记录浏览器名称。</p>
       <p data-i18n="perm-p3">拒绝输入监控后，连按两下 <span class="kbd">⌥</span> 不可用，但自定义捕捉快捷键仍可使用。拒绝辅助功能后，捕捉照常工作，只是相同手势可能同时触发其他应用，而且要先点一下批注框才能打字。拒绝浏览器自动化后，捕捉仍然有效，来源会退回浏览器名称。无论如何选择，Spool 都不会自行向外发送内容。</p>
+      <p data-i18n="perm-win"><strong>Windows 上没有需要授权的项目。</strong>连按两下 <span class="kbd">Ctrl</span> 是通过 Raw Input 读取的，不需要任何权限，也不是键盘钩子——杀毒软件警惕的正是钩子那一类。Windows 上的来源记录到「你从哪个应用复制的」为止，浏览器标签页标题是 macOS 独有的。</p>
     </div>
 
     <!-- Order matters here: a stranger's first worry is "will it take my things",
@@ -428,15 +431,15 @@ the user's feelings at the cost of correctness.</span>
     <div class="grid-3 reveal-stagger">
       <div class="card">
         <h3 data-i18n="t3-h">不追踪使用情况，也不自行上传</h3>
-        <p data-i18n="t3-p">Spool 没有分析统计、遥测或崩溃上报，而且自身不能发起网络请求。内容只有在你主动交给其他程序时才可能离开这台 Mac：把 Pack 粘贴到某个服务、允许 MCP 客户端读取，或运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”。后续如何处理由接收内容的程序决定。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。</p>
+        <p data-i18n="t3-p">Spool 没有分析统计、遥测或崩溃上报，而且自身不能发起网络请求。内容只有在你主动交给其他程序时才可能离开这台电脑：把 Pack 粘贴到某个服务、允许 MCP 客户端读取，或运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”。后续如何处理由接收内容的程序决定。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t2-h">数据保存在这台 Mac 的一个文件中</h3>
+        <h3 data-i18n="t2-h">数据保存在你自己电脑上的一个文件中</h3>
         <p data-i18n="t2-p">所有工作区、项目、笔记和批注都保存在本机的 <code>spool.db</code> 文件中。你可以复制、备份或删除它。无需注册账号，也无需把数据托管在开发者的服务器上。</p>
       </div>
       <div class="card">
-        <h3 data-i18n="t1-h">已由 Apple 签名并公证</h3>
-        <p data-i18n="t1-p">安装包使用 Apple Developer ID 签名并通过 Apple 公证，因此 macOS 可以验证开发者。当前只提供 Apple 芯片版本；Intel Mac 虽可下载安装包，但无法运行。Spool 尚无自动更新功能，也不会联网检查新版。</p>
+        <h3 data-i18n="t1-h">macOS 版已公证，Windows 版尚未签名</h3>
+        <p data-i18n="t1-p">macOS 安装包使用 Apple Developer ID 签名并通过 Apple 公证，因此 macOS 可以验证开发者。当前只提供 Apple 芯片版本；Intel Mac 虽可下载安装包，但无法运行。Windows 安装包<strong>暂未签名</strong>，首次运行时 SmartScreen 会拦一次：点「更多信息」，再点「仍要运行」。这件事值得在下载之前就说清楚，而不是下载之后才发现。两个平台都需要手动下载新版，这也意味着 Spool 不会联网检查更新。</p>
       </div>
       <div class="card">
         <h3 data-i18n="t4-h">由一个人独立开发，也包括那次误删自己数据库的事故</h3>
@@ -465,11 +468,11 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q11">必须连接 AI 才能使用吗？</summary>
-        <p data-i18n="a11">不必。即使从不连接 AI，Spool 的功能也不会被限制。你仍可把项目打包成纯文本，再粘贴给浏览器中的任意 AI。</p>
+        <p data-i18n="a11">不必。即使从不连接 AI，Spool 的功能也不会被限制。你仍可把项目打包成纯文本，再粘贴给浏览器中的任意 AI——一台什么都没另外装的电脑也够用。</p>
       </details>
       <details>
         <summary data-i18n="q2">支持 Windows 或 iPhone 吗？</summary>
-        <p data-i18n="a2">目前不支持。Spool 是 Mac 应用，捕捉快捷键依赖 macOS 特有的系统接口。</p>
+        <p data-i18n="a2">Windows 支持了，0.5.0 就是第一个 Windows 版本：x64，捕捉手势是连按两下 <span class="kbd">Ctrl</span>（不是 <span class="kbd">⌥</span>），安装包暂未签名，首次运行时 SmartScreen 会提示一次。iPhone 没有版本，也不打算先挂一个等待名单。</p>
       </details>
       <details>
         <summary data-i18n="q9">AI 可以修改或删除我的笔记吗？</summary>
@@ -485,7 +488,7 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q4">如果停止维护，我的笔记怎么办？</summary>
-        <p data-i18n="a4">笔记仍保存在 Mac 上的 <code>spool.db</code> 文件中。这是标准 SQLite 文件，可由多种工具打开；即使 Spool 不再更新，数据也不会随之消失。</p>
+        <p data-i18n="a4">笔记仍保存在你自己电脑上的 <code>spool.db</code> 文件中。这是标准 SQLite 文件，可由多种工具打开；即使 Spool 不再更新，数据也不会随之消失。</p>
       </details>
       <details>
         <summary data-i18n="q5">不常使用 AI，还有必要安装吗？</summary>
@@ -493,11 +496,11 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q6">如何更新？</summary>
-        <p data-i18n="a6">目前需要手动下载新的 dmg 并替换应用，尚无自动更新渠道。Spool 也不会在后台联网检查新版。</p>
+        <p data-i18n="a6">目前需要手动下载新的 dmg 或新的 Windows 安装包并替换已装的版本，尚无自动更新渠道。Spool 也不会在后台联网检查新版。</p>
       </details>
       <details>
         <summary data-i18n="q7">它会一直监控剪贴板吗？</summary>
-        <p data-i18n="a7">不会。Spool 只在你触发捕捉快捷键的那一刻读取一次剪贴板，不会轮询，也不会保存你复制过哪些内容的历史。</p>
+        <p data-i18n="a7">不会。Spool 只在你连按捕捉键（macOS 上是 <span class="kbd">⌥</span>，Windows 上是 <span class="kbd">Ctrl</span>）的那一刻读取一次剪贴板，不会轮询，也不会保存你复制过哪些内容的历史。</p>
       </details>
       <details>
         <summary data-i18n="q8">使用前需要先整理资料吗？</summary>
@@ -514,12 +517,13 @@ the user's feelings at the cost of correctness.</span>
   </div>
 </section>
 
-<section class="cta-band">
+<section class="cta-band" id="get">
   <div class="wrap reveal">
     <h2 data-i18n="cta-h">项目背景，不必再解释第二次。</h2>
     <p class="muted" style="margin-bottom:1.6rem" data-i18n="cta-p">免费、可离线使用、无需账号。</p>
     <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="dl-btn">下载 macOS 版</a>
-    <p class="fineprint" data-i18n="cta-fine">Apple 芯片 Mac（arm64）· 已由 Apple 签名并公证 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a></p>
+    <a class="btn btn-primary" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-windows-x64-setup.exe" data-i18n="dl-btn-win">下载 Windows 版</a>
+    <p class="fineprint" data-i18n="cta-fine">Apple 芯片 Mac（arm64），已签名并公证 · Windows x64，未签名 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a></p>
   </div>
 </section>
 

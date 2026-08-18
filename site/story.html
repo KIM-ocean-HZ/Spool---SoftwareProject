@@ -27,7 +27,7 @@
       <a href="privacy.html" data-i18n="nav-privacy">Privacy</a>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a>
       <a class="lang-toggle" href="zh/story.html" hreflang="zh-Hans" lang="zh">中文</a>
-      <a class="nav-cta" href="https://github.com/KIM-ocean-HZ/spool/releases/latest/download/Spool-macOS-arm64.dmg" data-i18n="nav-dl">Download</a>
+      <a class="nav-cta" href="index.html#get" data-i18n="nav-dl">Download</a>
     </nav>
   </header>
 </div>
@@ -109,7 +109,7 @@ the source application stays visible while Spool confirms the saved fragment in 
 
 <h2 id="architecture" data-i18n="story-arch-h">How the three surfaces relate</h2>
 <p data-i18n="story-arch-p">The desktop interface, MCP server, and CLI engine slot are three local surfaces around one
-source of truth. The diagram separates “runs on your Mac” from “belongs to the Spool process” so
+source of truth. The diagram separates “runs on your machine” from “belongs to the Spool process” so
 the network claim can be inspected rather than inferred.</p>
 
 <figure class="story-architecture">
@@ -137,7 +137,7 @@ the network claim can be inspected rather than inferred.</p>
       </defs>
 
       <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
-      <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">YOUR MAC</text>
+      <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">YOUR MACHINE</text>
 
       <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
       <text class="arch-kicker" x="66" y="92" data-i18n="story-arch-one-binary">SPOOL · ONE LOCAL BINARY</text>
@@ -286,10 +286,13 @@ path.</p>
 </figure>
 
 <h2 id="release" data-i18n="story-release-h">Distribution, signing, and notarisation</h2>
-<p data-i18n="story-release-p">Spool ships directly as a Developer ID–signed, Apple-notarised disk image. The Mac App Store
-is not the distribution path because sandboxing conflicts with the system-wide capture gesture.
+<p data-i18n="story-release-p">On macOS, Spool ships directly as a Developer ID–signed, Apple-notarised disk image. The Mac App
+Store is not the distribution path because sandboxing conflicts with the system-wide capture gesture.
 The application and the disk image are checked separately: users download the wrapper, so a
-notarised application inside an unnotarised disk image is not enough.</p>
+notarised application inside an unnotarised disk image is not enough. The Windows installer is
+produced by CI and ships <strong>unsigned</strong> in this first release — a certificate is a recurring cost
+against an unproven platform, and pretending otherwise on the download page would be worse than
+SmartScreen's warning.</p>
 
 <div class="release-evidence" role="group" aria-labelledby="release-evidence-title">
   <div class="release-evidence-head">
@@ -385,8 +388,10 @@ that mocks and prompt inspection had not revealed.</p>
 
 <h2 id="boundaries" data-i18n="story-boundaries-h">Boundaries, not promises</h2>
 <ul>
-  <li data-i18n="story-b1"><strong>macOS only in practice.</strong> Capture, focus handling, and process-group
-  cancellation contain platform-specific work that would need redesign on another system.</li>
+  <li data-i18n="story-b1"><strong>Two platforms, not equally deep.</strong> Windows arrived in 0.5.0 and runs the
+  same library and the same capture gesture, read through Raw Input rather than a keyboard hook. What did not
+  cross over is the macOS-specific work around focus handling and browser-tab source capture, so the Windows
+  build records the source app rather than the page you were reading.</li>
   <li data-i18n="story-b2"><strong>No auto-update.</strong> A new version is a manual download from the direct release.</li>
   <li data-i18n="story-b3"><strong>Source-visible, all rights reserved.</strong> The repository has no licence granting
   reuse.</li>

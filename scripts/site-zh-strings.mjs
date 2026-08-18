@@ -14,12 +14,12 @@
    data-i18n hook, so it is listed here per page instead. */
 export const HEAD = {
   'index.html': {
-    title: 'Spool 思簿 — 在 Mac 上保存项目背景，一次交给任何 AI',
+    title: 'Spool 思簿 — 在 Mac 和 Windows 上保存项目背景，一次交给任何 AI',
     description:
-      'Spool 把长期项目的背景保存在你的 Mac 上。复制内容并连按两下 ⌥，即可连同来源存入当前项目；随后一键生成 Pack，粘贴给任何 AI，或让已连接的 AI 直接读取。AI 提议写回的内容会先等你确认。免费、可离线使用、无需账号。',
+      'Spool 把长期项目的背景保存在你自己的电脑上，Mac 和 Windows 都能用。复制内容并连按两下修饰键，即可连同来源存入当前项目；随后一键生成 Pack，粘贴给任何 AI，或让已连接的 AI 直接读取。AI 提议写回的内容会先等你确认。免费、可离线使用、无需账号。',
     ogTitle: 'Spool 思簿 — 项目背景，只需解释一次',
     ogDescription:
-      '在 Mac 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。',
+      '在 Mac 和 Windows 上保存长期项目的背景，一键生成 Pack 交给任何 AI，也可让已连接的 AI 直接读取。免费、可离线使用、无需账号。',
     ogImageAlt:
       '完整的 Spool 窗口：左侧是工作区、项目和保存数量，右侧是按时间排列的项目笔记',
   },
@@ -47,12 +47,13 @@ export const ZH = {
 
   /* Hero. */
   'hero-h1': '同一个项目，<br>不必解释第二遍。',
-  'hero-sub': '复制值得保留的内容，再连按两下 <span class="kbd">⌥</span>。内容会存入当前项目，你还可以附上当时的想法。几周后，一次打包就能把完整背景交给任何 AI；交出去的每个字，你都可以先看清楚。',
+  'hero-sub': '复制值得保留的内容，再连按两下 <span class="kbd">⌥</span>（Windows 上是 <span class="kbd">Ctrl</span>）。内容会存入当前项目，你还可以附上当时的想法。几周后，一次打包就能把完整背景交给任何 AI；交出去的每个字，你都可以先看清楚。',
   'dl-btn': '下载 macOS 版',
+  'dl-btn-win': '下载 Windows 版',
   'try-btn': '直接试用，无需下载',
   'chip-free': '免费',
-  'chip-arch': '适用于 Apple 芯片 Mac',
-  'chip-notarised': '已由 Apple 签名并公证',
+  'chip-arch': 'Apple 芯片 Mac · Windows x64',
+  'chip-notarised': 'macOS 版已由 Apple 签名并公证',
   'chip-offline': '可离线使用',
 
   /* Interactive demo introduction. */
@@ -78,7 +79,7 @@ export const ZH = {
   'how-h': '保存、积累、交接',
   'l1-n': '01 · 保存',
   'l1-h': '一次触发，不必分类。',
-  'l1-p': '复制任意内容，再连按两下 <span class="kbd">⌥</span>。内容会直接进入当前项目，来源也会一并保存，浏览器内容还会记录标签页标题。确认浮窗出现时，光标已在批注框中：可以写下保存它的原因并按 Enter，也可以点击别处跳过。你的批注比摘录更能说明当时的判断，AI 也会优先读取。',
+  'l1-p': '复制任意内容，再连按两下 <span class="kbd">⌥</span>（Windows 上是 <span class="kbd">Ctrl</span>）。内容会直接进入当前项目，来源也会一并保存，浏览器内容还会记录标签页标题。确认浮窗出现时，光标已在批注框中：可以写下保存它的原因并按 Enter，也可以点击别处跳过。你的批注比摘录更能说明当时的判断，AI 也会优先读取。',
   'l2-n': '02 · 积累',
   'l2-h': '按时间排列的记录，不是聊天。',
   'l2-p': '保存的内容按时间顺序进入同一个项目。结构只有两层：工作区和项目。无需建立文件夹，也无需选择标签。下次回来时，最新几条笔记就能说明上次停在哪里。',
@@ -109,7 +110,7 @@ export const ZH = {
 
   /* Mid-page download. */
   'mid-cta-p': '完整流程就是这样：安装应用，选择一个项目，然后开始保存。',
-  'mid-cta-fine': '免费 · Apple 芯片 Mac（arm64）· 已由 Apple 签名并公证',
+  'mid-cta-fine': '免费 · Apple 芯片 Mac（arm64），已由 Apple 签名并公证 · Windows x64，暂未签名',
 
   /* Compounding value. */
   'grow-k': '项目越久，价值越大',
@@ -130,7 +131,7 @@ export const ZH = {
   'route-b-p': '获得你的许可后，已经在使用的 AI 应用可以读取 Spool：查看数周的项目记录、跨项目搜索，并把有明确署名的新内容写回项目。你无需再复制，只要直接提问。',
   'route-b-cost': '在 Spool 设置中开启服务，并重启对应的 AI 应用以加载配置。',
   'cg1-h': '对话类应用',
-  'cg1-p': '仍然在熟悉的聊天框中提问。若使用 ChatGPT 桌面端，需要进入 Codex 对话；普通 ChatGPT 对话运行在远端，无法访问这台 Mac 上的本地 MCP 服务。',
+  'cg1-p': '仍然在熟悉的聊天框中提问。若使用 ChatGPT 桌面端，需要进入 Codex 对话；普通 ChatGPT 对话运行在远端，无法访问这台电脑上的本地 MCP 服务。',
   'cg2-h': '编程工具',
   'cg2-p': '在编辑器的 AI 面板或终端中提问。',
   'cg-note': '无论使用哪类客户端，你都留在原来的应用里，由 Spool 提供项目笔记。对于上面六个客户端，Spool 可以通过一个按钮写入 MCP 配置；重启客户端后，它才能加载新配置。Spool 会另行显示客户端是否实际连接。名单之外的客户端，可以复制 Spool 提供的配置并手动粘贴。连接后的使用说明只保留在设置按钮旁：一小段既可自己阅读，也可直接发给 AI 的文字。',
@@ -158,16 +159,17 @@ export const ZH = {
   /* Download and trust. */
   'trust-k': '下载之前',
   'trust-h': '你将安装什么',
-  'perm-h': 'macOS 权限分别用于什么',
+  'perm-h': 'macOS 会请求哪些权限，分别用于什么',
   'perm-p1': 'Spool 使用<strong>输入监控</strong>来识别系统范围内的“连按两下 <span class="kbd">⌥</span>”。<strong>辅助功能</strong>是可选权限，管两件事：在 Spool 完成捕捉后移除第二次按键事件，避免其他使用相同手势的应用同时打开；以及让确认浮窗拿到键盘，你不用先点一下就能直接写批注。',
   'perm-p2': '首次从浏览器捕捉时，macOS 还会请求浏览器自动化权限。获准后，Spool 可以把当前标签页标题记录为来源；否则只记录浏览器名称。',
   'perm-p3': '拒绝输入监控后，连按两下 <span class="kbd">⌥</span> 不可用，但自定义捕捉快捷键仍可使用。拒绝辅助功能后，捕捉照常工作，只是相同手势可能同时触发其他应用，而且要先点一下批注框才能打字。拒绝浏览器自动化后，捕捉仍然有效，来源会退回浏览器名称。无论如何选择，Spool 都不会自行向外发送内容。',
-  't1-h': '已由 Apple 签名并公证',
-  't1-p': '安装包使用 Apple Developer ID 签名并通过 Apple 公证，因此 macOS 可以验证开发者。当前只提供 Apple 芯片版本；Intel Mac 虽可下载安装包，但无法运行。Spool 尚无自动更新功能，也不会联网检查新版。',
-  't2-h': '数据保存在这台 Mac 的一个文件中',
+  'perm-win': '<strong>Windows 上没有需要授权的项目。</strong>连按两下 <span class="kbd">Ctrl</span> 是通过 Raw Input 读取的，不需要任何权限，也不是键盘钩子——杀毒软件警惕的正是钩子那一类。Windows 上的来源记录到「你从哪个应用复制的」为止，浏览器标签页标题是 macOS 独有的。',
+  't1-h': 'macOS 版已公证，Windows 版尚未签名',
+  't1-p': 'macOS 安装包使用 Apple Developer ID 签名并通过 Apple 公证，因此 macOS 可以验证开发者。当前只提供 Apple 芯片版本；Intel Mac 虽可下载安装包，但无法运行。Windows 安装包<strong>暂未签名</strong>，首次运行时 SmartScreen 会拦一次：点「更多信息」，再点「仍要运行」。这件事值得在下载之前就说清楚，而不是下载之后才发现。两个平台都需要手动下载新版，这也意味着 Spool 不会联网检查更新。',
+  't2-h': '数据保存在你自己电脑上的一个文件中',
   't2-p': '所有工作区、项目、笔记和批注都保存在本机的 <code>spool.db</code> 文件中。你可以复制、备份或删除它。无需注册账号，也无需把数据托管在开发者的服务器上。',
   't3-h': '不追踪使用情况，也不自行上传',
-  't3-p': 'Spool 没有分析统计、遥测或崩溃上报，而且自身不能发起网络请求。内容只有在你主动交给其他程序时才可能离开这台 Mac：把 Pack 粘贴到某个服务、允许 MCP 客户端读取，或运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”。后续如何处理由接收内容的程序决定。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。',
+  't3-p': 'Spool 没有分析统计、遥测或崩溃上报，而且自身不能发起网络请求。内容只有在你主动交给其他程序时才可能离开这台电脑：把 Pack 粘贴到某个服务、允许 MCP 客户端读取，或运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”。后续如何处理由接收内容的程序决定。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。',
   't4-h': '由一个人独立开发，也包括那次误删自己数据库的事故',
   't4-p': 'Spool 没有公司或融资支持。开发过程中的关键决定、数据丢失事故，以及为防止再次发生而增加的保护措施，都记录在公开的开发故事中。公开的是开发记录；源代码目前并未开放。',
   'priv-link': '阅读完整隐私政策 →',
@@ -179,23 +181,23 @@ export const ZH = {
   q1: '可以在 Intel Mac 上运行吗？',
   a1: '目前不可以。现有安装包只支持 Apple 芯片（arm64）。Intel Mac 可以下载安装包，但无法运行，也没有单独的 Intel 版本。',
   q2: '支持 Windows 或 iPhone 吗？',
-  a2: '目前不支持。Spool 是 Mac 应用，捕捉快捷键依赖 macOS 特有的系统接口。',
+  a2: 'Windows 支持了，0.5.0 就是第一个 Windows 版本：x64，捕捉手势是连按两下 <span class="kbd">Ctrl</span>（不是 <span class="kbd">⌥</span>），安装包暂未签名，首次运行时 SmartScreen 会提示一次。iPhone 没有版本，也不打算先挂一个等待名单。',
   q9: 'AI 可以修改或删除我的笔记吗？',
   a9: '不可以。AI 可以向项目新增带有明确署名的笔记。如果它提议更正旧笔记中的某句话，该提议必须先进入待审队列。只有你能把笔记标记为作废或删除笔记；AI 写入的内容也不会显示成用户原文。',
   q10: '需要 API key 或付费 AI 套餐吗？',
   a10: 'Spool 不需要 API key，也没有填写 key 的位置。AI 客户端读取项目时，使用的是你在该客户端已有的账号与额度；命令行 AI 执行“跟进”等动作时，也使用对应 CLI 已登录账号的额度。',
   q11: '必须连接 AI 才能使用吗？',
-  a11: '不必。即使从不连接 AI，Spool 的功能也不会被限制。你仍可把项目打包成纯文本，再粘贴给浏览器中的任意 AI。',
+  a11: '不必。即使从不连接 AI，Spool 的功能也不会被限制。你仍可把项目打包成纯文本，再粘贴给浏览器中的任意 AI——一台什么都没另外装的电脑也够用。',
   q3: '为什么免费？',
   a3: 'Spool 背后没有服务器、账号体系或公司，几乎没有需要收费覆盖的成本。它由一名开发者维护，所有主要功能都运行在你的电脑上。',
   q4: '如果停止维护，我的笔记怎么办？',
-  a4: '笔记仍保存在 Mac 上的 <code>spool.db</code> 文件中。这是标准 SQLite 文件，可由多种工具打开；即使 Spool 不再更新，数据也不会随之消失。',
+  a4: '笔记仍保存在你自己电脑上的 <code>spool.db</code> 文件中。这是标准 SQLite 文件，可由多种工具打开；即使 Spool 不再更新，数据也不会随之消失。',
   q5: '不常使用 AI，还有必要安装吗？',
   a5: '有。把整个项目打包成可阅读的纯文本，本身就能帮助你在中断一段时间后恢复上下文；AI 只是另一种读取和使用这些背景的方式。',
   q6: '如何更新？',
-  a6: '目前需要手动下载新的 dmg 并替换应用，尚无自动更新渠道。Spool 也不会在后台联网检查新版。',
+  a6: '目前需要手动下载新的 dmg 或新的 Windows 安装包并替换已装的版本，尚无自动更新渠道。Spool 也不会在后台联网检查新版。',
   q7: '它会一直监控剪贴板吗？',
-  a7: '不会。Spool 只在你触发捕捉快捷键的那一刻读取一次剪贴板，不会轮询，也不会保存你复制过哪些内容的历史。',
+  a7: '不会。Spool 只在你连按捕捉键（macOS 上是 <span class="kbd">⌥</span>，Windows 上是 <span class="kbd">Ctrl</span>）的那一刻读取一次剪贴板，不会轮询，也不会保存你复制过哪些内容的历史。',
   q8: '使用前需要先整理资料吗？',
   a8: '不需要。结构只有工作区和项目两层，也没有文件夹或标签。捕捉的内容会进入你标记为当前工作的项目。',
 
@@ -203,7 +205,7 @@ export const ZH = {
   'brand-cap': 'Spool 标志：从上方看到的线轴，一根线从中向外延伸。',
   'cta-h': '项目背景，不必再解释第二次。',
   'cta-p': '免费、可离线使用、无需账号。',
-  'cta-fine': 'Apple 芯片 Mac（arm64）· 已由 Apple 签名并公证 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a>',
+  'cta-fine': 'Apple 芯片 Mac（arm64），已签名并公证 · Windows x64，未签名 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a>',
   'foot-copy': 'Spool 思簿 · © 2026 · 保留所有权利',
   'foot-home': '首页',
   'foot-story': '开发故事',
@@ -248,12 +250,12 @@ export const ZH = {
   'story-cap-capture': '隔离演示构建里的捕捉：来源应用一直看得见，Spool 在角落里确认那条已保存的片段。',
 
   'story-arch-h': '三个界面之间的关系',
-  'story-arch-p': '桌面界面、MCP 服务器和命令行引擎位，是围着同一份事实来源的三个本地界面。下图把“运行在你的 Mac 上”和“属于 Spool 进程”分开画，这样关于网络的说法可以直接看，而不是靠推断。',
+  'story-arch-p': '桌面界面、MCP 服务器和命令行引擎位，是围着同一份事实来源的三个本地界面。下图把“运行在你自己的电脑上”和“属于 Spool 进程”分开画，这样关于网络的说法可以直接看，而不是靠推断。',
   'story-arch-scroll-aria': '架构图；屏幕窄时可以左右滑动，逐个查看组件和网络路径',
   'story-arch-svg-aria': 'Spool 架构：图形界面和捕捉浮窗在本机连到 Rust 与 Tauri 内核以及一个 SQLite 数据库。spool --mcp 模式通过 stdio 与外部 MCP 客户端通信。内核会把 Claude Code、Codex CLI 或 Gemini CLI 作为子进程启动。只有外部 MCP 客户端和命令行子进程会通过两条各自独立的网络路径联系自己的服务商；Spool 自身不发出任何 HTTP 请求。',
   'story-arch-svg-title': 'Spool 的本地架构，以及两条对外的路径',
   'story-arch-svg-desc': 'Spool 进程里装着桌面图形界面、捕捉浮窗、Rust 与 Tauri 内核、spool --mcp 的 stdio 服务器，以及一个 SQLite 数据库。外部 MCP 客户端通过 stdio 连进来。内核可以把 Claude Code、Codex CLI 或 Gemini CLI 作为独立子进程启动。外部 MCP 客户端和命令行子进程分别通过两条不同的网络路径联系各自的服务商。没有任何一条箭头从 Spool 自身指向网络。',
-  'story-arch-your-mac': '你的 Mac',
+  'story-arch-your-mac': '你的电脑',
   'story-arch-one-binary': 'SPOOL · 一个本地程序',
   'story-arch-gui': '桌面图形界面',
   'story-arch-overlay': '捕捉浮窗',
@@ -312,7 +314,7 @@ export const ZH = {
   'story-cap-writeback': '当前构建里的写入边界：一个署名 <span class="nowrap">Claude · MCP</span> 的块被追加在用户那条来源后面，并引用了它；它没有覆盖它，也没有把自己冒充成用户。',
 
   'story-release-h': '分发、签名与公证',
-  'story-release-p': 'Spool 直接以经 Developer ID 签名、并由 Apple 公证过的磁盘镜像分发。不走 Mac App Store，是因为沙盒和全系统范围的捕捉手势冲突。应用和磁盘镜像是分开检查的：用户下载的是外面那层镜像，所以“公证过的应用装在没公证的镜像里”并不够。',
+  'story-release-p': 'macOS 上，Spool 直接以经 Developer ID 签名、并由 Apple 公证过的磁盘镜像分发。不走 Mac App Store，是因为沙盒和全系统范围的捕捉手势冲突。应用和磁盘镜像是分开检查的：用户下载的是外面那层镜像，所以“公证过的应用装在没公证的镜像里”并不够。Windows 安装包由 CI 产出，首版<strong>未签名</strong>发布——证书是一笔按年续的开销，而这个平台还没被验证过；在下载页上假装它签过，比 SmartScreen 那一次提示更糟。',
   'story-release-kicker': '发布证据',
   'story-release-title': 'v0.4.0 的签名与公证回执',
   'story-dt-app': '应用提交',
@@ -344,7 +346,7 @@ export const ZH = {
   'story-f3-p': '一个状态选择器每次调用都新建一个数组，触发了无限渲染。自动化测试里没有任何一条会打开打包后的窗口。现在发布验证包含亲眼看一眼隔离的签名构建；界面是否正常，不再靠“能编译”来推断。',
 
   'story-boundaries-h': '这些是边界，不是承诺',
-  'story-b1': '<strong>实际上只支持 macOS。</strong>捕捉、焦点处理和进程组取消里都有依赖平台的实现，换一个系统要重新设计。',
+  'story-b1': '<strong>两个平台，深度并不一样。</strong>Windows 从 0.5.0 开始支持，跑的是同一个库、同一套捕捉手势——只是用 Raw Input 读键，而不是键盘钩子。没有跟着过去的是 macOS 那部分与焦点处理、浏览器标签页来源相关的实现，所以 Windows 版记录的是来源应用，而不是你当时在读的那个页面。',
   'story-b2': '<strong>没有自动更新。</strong>换新版本要自己到发布页手动下载。',
   'story-b3': '<strong>源码可见，保留所有权利。</strong>仓库里没有任何授权他人复用的许可证。',
   'story-b4': '<strong>有两项检查仍然由人来做。</strong>已授权的捕捉手势位于合成事件的上游，打包后的 webview 也没法靠合成点击来确认；这两项都交给人，而不是宣称已经自动化了。',
