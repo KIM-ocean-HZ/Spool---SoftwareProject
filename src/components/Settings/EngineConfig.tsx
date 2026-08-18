@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import { useEffect } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
 import { useT } from '@/lib/i18n';
 import { useEngineStore } from '@/stores/engineStore';
@@ -29,6 +30,10 @@ export default function EngineConfig() {
   // the panel opens.
   const engineStatus = useEngineStore((s) => s.status);
   const probeEngine = useEngineStore((s) => s.probe);
+  const aiEnginePath = useSettingsStore((s) => s.aiEnginePath);
+  // 2026-08-17 (Ocean): 「这些都可以放进二级窗口里详细教学」 — the explainer is collapsed, so the
+  // resting page stays a status line and two switches.
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // §2.1: re-probe each time the panel opens — the user may have just installed it.
   useEffect(() => {
@@ -76,6 +81,76 @@ export default function EngineConfig() {
           </>
         )}
       </div>
+
+      {/* 二级教学 (Ocean 2026-08-17: 「用户……根本不知道需要什么,或者 api key 要放在哪里」).
+          Everything here is a fact about the OTHER program, which is exactly what was missing:
+          the page reported a search result and never said what was being searched for. */}
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setHelpOpen((v) => !v)}
+          className="text-xs text-muted transition-colors hover:text-accent"
+        >
+          {helpOpen ? '▾ ' : '▸ '}
+          {t('这到底要装什么、key 放在哪儿')}
+        </button>
+        {helpOpen && (
+          <div className="mt-1.5 space-y-1.5 text-[11px] leading-relaxed text-ink-2">
+            <p>
+              {t('引擎不是 Spool 的一部分，是你自己装在电脑上的命令行工具（Claude Code / Codex / Gemini CLI）。装好之后在终端里登录一次它自己的账号，Spool 就能借它干活。')}
+            </p>
+            <p>
+              {t('所以 Spool 里没有填 API key 的地方，以后也不会有：key 和登录状态都在那个工具自己的目录里（比如 Gemini 是 ~/.gemini/.env），Spool 不存、也读不到。你的账单也走那边。')}
+            </p>
+            <p>
+              {t('装完这里还是写「没检测到」，多半是它装在了 Spool 没找的地方。终端里敲 which claude（或 codex / gemini）看一眼路径，填到下面那一行就行。')}
+            </p>
+            <p className="text-muted">
+              {t('不装也没关系——AI 那半边主要走 MCP（上一页），那条路不需要这些。')}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* §1.4 的对面:一次搜不到就没辙了,是 Ocean 08-17 说的「被动搜索」。这一行是主动的那半边。 */}
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{t('手动指定 CLI 路径')}</div>
+          <div className="mt-0.5 text-xs text-muted">
+            {t('只在没检测到、但你确定装了的时候用。文件名要还是 claude / codex / gemini——Spool 靠它认出是哪个引擎。')}
+          </div>
+        </div>
+        <div className="flex flex-none items-center gap-1">
+          <input
+            value={aiEnginePath ?? ''}
+            onChange={(e) => void update({ aiEnginePath: e.target.value || null })}
+            onBlur={() => void probeEngine()}
+            placeholder={t('留空 = 自动找')}
+            spellCheck={false}
+            className="w-[180px] rounded border border-line bg-paper px-2 py-1 font-mono text-[11px] text-ink outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                const picked = await open({ multiple: false, directory: false });
+                if (typeof picked === 'string') {
+                  await update({ aiEnginePath: picked });
+                  await probeEngine();
+                }
+              })();
+            }}
+            className="rounded-md border border-line-strong bg-paper px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+          >
+            {t('选文件')}
+          </button>
+        </div>
+      </div>
+      {aiEnginePath && engineStatus?.available === false && (
+        <p className="mt-1 text-[11px]" style={{ color: 'var(--urgent)' }}>
+          {t('这个路径没认出来：要么文件不在，要么名字不是 claude / codex / gemini，要么它跑 --version 跑不通。')}
+        </p>
+      )}
 
       {engineStatus?.available && (
         <>

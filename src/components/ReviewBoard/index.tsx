@@ -129,6 +129,10 @@ export default function ReviewBoard() {
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {reviews === null ? null : reviews.length === 0 ? (
           <p className="pt-12 text-center text-sm text-muted">
+            {/* ⚠️ The second line is now reachable only one way: a CLI IS installed and the
+                「允许 AI 写入」 switch is off — because with no CLI at all the left rail no
+                longer shows a door to this screen (Sidebar, 2026-08-17). It is kept for that
+                case, where it names a switch the user can actually flip. */}
             {engineReady
               ? t('还没有回顾。点上面那一下，AI 会读一遍所有项目，说说这一周做了什么、还剩什么。')
               : t('装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。')}

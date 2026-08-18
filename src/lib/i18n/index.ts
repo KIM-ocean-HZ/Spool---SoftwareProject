@@ -455,6 +455,28 @@ const EN: Record<string, string> = {
   'ChatGPT 桌面端里的 Codex 对话、Codex CLI、编辑器插件共用这份配置；ChatGPT 的普通对话连不上本机，用不了 Spool':
     'Codex in the ChatGPT desktop app, the Codex CLI and the editor extensions share this config. An ordinary ChatGPT chat cannot reach your machine, so it cannot use Spool.',
   '把这个项目的问题复制好，并跳到 {app}': 'Copy the question about this project and jump to {app}',
+  // 2026-08-17 (Ocean, Windows 验收): the badge said 已接入 and the AI panel still could not
+  // see Spool — every client reads its config at launch, and VS Code additionally refuses to
+  // start a server that appeared while it was not looking. These say what is left to do.
+  '{name}：开一个新的终端窗口，接上的是新开的那个。':
+    '{name}: open a NEW terminal window — that is the one that will be connected.',
+  '{name}：完全退出再打开（不是关窗口，是退出整个程序）。':
+    '{name}: quit it completely and reopen (quit the app, not just the window).',
+  '{name}：完全退出再打开。要是 AI 面板里还看不到 Spool——按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。':
+    '{name}: quit it completely and reopen. If the AI panel still cannot see Spool — press ⌘⇧P, type MCP: List Servers, pick spool, click Start Server.',
+  'Visual Studio Code 接完还要点两下 — 一步一步':
+    'Visual Studio Code needs two more clicks — step by step',
+  '把 Visual Studio Code 整个退出，再打开。': 'Quit Visual Studio Code completely, then reopen it.',
+  '打开右边的 AI 面板（Copilot Chat），把模式切成 Agent。':
+    'Open the AI panel (Copilot Chat) and switch it to Agent mode.',
+  '问一句「我在 spool 里有哪些项目？」——列得出来就成了，下面几步不用做。':
+    'Ask it “what projects do I have in spool?” — if it lists them you are done; skip the rest.',
+  '它要是不知道 Spool：按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。':
+    'If it does not know Spool: press ⌘⇧P, type MCP: List Servers, pick spool, click Start Server.',
+  '还是不行：再按 ⌘⇧P，输入 Developer: Reload Window。':
+    'Still nothing: press ⌘⇧P again and run Developer: Reload Window.',
+  '为什么要这两下：VS Code 不会自己去跑一个刚冒出来的 MCP 服务，得你点头一次。这一步 Spool 替不了你。':
+    'Why the extra clicks: VS Code will not start an MCP server that appeared while it was not looking until you say so once. Spool cannot do that part for you.',
   '接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。':
     'Hooking up Codex and Claude Code also appends a section to their instruction files (~/.codex/AGENTS.md, ~/.claude/CLAUDE.md), telling the AI to look a named project up in Spool before editing a local document that happens to share its name. The file is backed up first; delete everything between spool:begin and spool:end to remove it.',
   '未检测到': 'Not found',
@@ -506,6 +528,23 @@ const EN: Record<string, string> = {
   '装 Claude Code': 'Get Claude Code',
   '装 Codex': 'Get Codex',
   '装 Gemini CLI': 'Get Gemini CLI',
+  // 2026-08-17 (Ocean): 「AI 引擎是被动搜索形式的……根本不知道需要什么,或者 api key 要放在哪里」.
+  '这到底要装什么、key 放在哪儿': 'What exactly do I install, and where does the key go?',
+  '引擎不是 Spool 的一部分，是你自己装在电脑上的命令行工具（Claude Code / Codex / Gemini CLI）。装好之后在终端里登录一次它自己的账号，Spool 就能借它干活。':
+    'An engine is not part of Spool. It is a command-line tool you install yourself (Claude Code / Codex / Gemini CLI) and sign into once in a terminal; Spool then borrows it.',
+  '所以 Spool 里没有填 API key 的地方，以后也不会有：key 和登录状态都在那个工具自己的目录里（比如 Gemini 是 ~/.gemini/.env），Spool 不存、也读不到。你的账单也走那边。':
+    'So there is no place to put an API key in Spool, and there never will be: the key and the login live in that tool’s own directory (Gemini’s is ~/.gemini/.env). Spool neither stores nor reads them, and the billing is theirs too.',
+  '装完这里还是写「没检测到」，多半是它装在了 Spool 没找的地方。终端里敲 which claude（或 codex / gemini）看一眼路径，填到下面那一行就行。':
+    'If this still says “not detected” after installing, it probably landed somewhere Spool did not look. Run `which claude` (or codex / gemini) in a terminal and paste the path into the field below.',
+  '不装也没关系——AI 那半边主要走 MCP（上一页），那条路不需要这些。':
+    'Installing one is optional — the main AI route is MCP (previous tab), which needs none of this.',
+  '手动指定 CLI 路径': 'Point at the CLI yourself',
+  '只在没检测到、但你确定装了的时候用。文件名要还是 claude / codex / gemini——Spool 靠它认出是哪个引擎。':
+    'For when it is installed but not detected. Keep the file name claude / codex / gemini — that is how Spool tells which engine it is.',
+  '留空 = 自动找': 'Empty = search automatically',
+  '选文件': 'Choose a file',
+  '这个路径没认出来：要么文件不在，要么名字不是 claude / codex / gemini，要么它跑 --version 跑不通。':
+    'That path did not resolve: the file is missing, its name is not claude / codex / gemini, or it does not answer --version.',
   '装了 Claude Code、Codex 或 Gemini CLI 之后，右侧栏里就能让它替你整理项目——用你自己已经登录的那个 CLI 跑，Spool 不存任何 API key，也不联网。':
     'Once Claude Code, Codex or the Gemini CLI is installed, the right-hand rail can put it to work tidying your projects. It runs through the CLI you are already signed into — Spool stores no API key and still never goes online itself.',
   // DESIGN_AI_ENGINE §7.8 — measured, not hedged: 20 requests per model per day, and one
@@ -727,6 +766,23 @@ const EN: Record<string, string> = {
   '请按下 ⌘ / ⌃ / ⌥ 之一，再加一个普通键': 'Press ⌘ / ⌃ / ⌥ plus a regular key',
   '两个快捷键不能相同': 'The two shortcuts must differ',
   '系统拒绝了该快捷键：{msg}': 'The system rejected this shortcut: {msg}',
+  // 2026-08-18 (Ocean, Windows 验收 #20): the recorder used to take Ctrl+Z, which is a
+  // global hotkey — Undo then stops working in every other program on the machine. The
+  // nouns below are what each refused chord would cost; ⌘Z / ⌃Z already sit further down
+  // this file (Undo / Redo / Copy), so only the missing ones are added here.
+  '{chord} 是所有软件通用的「{what}」——绑成全局键，别的软件里就按不了了。再加一个 ⇧ 或 ⌥ 试试。':
+    '{chord} is what every program uses for “{what}” — bound globally it stops working everywhere else. Try adding ⇧ or ⌥.',
+  '剪切': 'Cut',
+  '粘贴': 'Paste',
+  '全选': 'Select all',
+  '保存': 'Save',
+  '查找': 'Find',
+  '打印': 'Print',
+  '新建': 'New',
+  '打开': 'Open',
+  '关闭窗口': 'Close window',
+  '新建标签页': 'New tab',
+  '退出': 'Quit',
   '按键中…': 'Press keys…',
   '捕捉快捷键': 'Capture shortcut',
   '内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。':

@@ -41,6 +41,9 @@ export default function McpConfig() {
   const [snippetCopied, setSnippetCopied] = useState(false);
   // 任务二 B1 (2026-07-12): the user-facing scenario list, collapsed by default (§2.5).
   const [examplesOpen, setExamplesOpen] = useState(false);
+  // §9.4 (2026-08-17): VS Code's own last step, kept out of the resting page — see the block
+  // it renders for why it is the only client that has one.
+  const [vscodeHelpOpen, setVscodeHelpOpen] = useState(false);
   const [clientStatus, setClientStatus] = useState<Record<McpClient, McpClientStatus | null>>({
     claude: null,
     'claude-code': null,
@@ -220,6 +223,23 @@ export default function McpConfig() {
           );
         })}
       </ul>
+      {/* What the badge cannot do: the badge says the entry is in the file, and every client
+          here reads that file at LAUNCH. 「重启后生效」 was already on the badge, but Ocean's
+          2026-08-17 VS Code hookup shows that is not the whole instruction for every client —
+          he was left in front of a green tick with an AI panel that could not see Spool:
+          「mcp.jason 有了,仍然要在命令面板 → MCP: List Server → spool → Start Server →
+          reload window,这些额外步骤用户不知道」.
+          Shown for the row that was just written — that is the moment the user is looking for
+          what to do next, and it costs nothing on any other row. */}
+      {MCP_CLIENTS.filter(({ key }) => clientStatus[key] === 'written').map(({ key, label }) => (
+        <p key={key} className="mt-1.5 text-[11px] leading-relaxed text-ink-2">
+          {key === 'claude-code' || key === 'codex'
+            ? t('{name}：开一个新的终端窗口，接上的是新开的那个。', { name: label })
+            : key === 'vscode'
+              ? t('{name}：完全退出再打开。要是 AI 面板里还看不到 Spool——按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。', { name: label })
+              : t('{name}：完全退出再打开（不是关窗口，是退出整个程序）。', { name: label })}
+        </p>
+      ))}
       {/* §9.4 丙: a client the server could not match to a row above still connected, and
           hiding it would lose the one piece of evidence that identifies it — its own name
           is exactly what the mapping in mcp.rs needs to learn next. */}
@@ -237,6 +257,35 @@ export default function McpConfig() {
       <p className="mt-1 text-[11px] text-muted">
         {t('接入 Codex 和 Claude Code 时，还会往它们的说明文件（~/.codex/AGENTS.md、~/.claude/CLAUDE.md）里写一段,告诉 AI 你说的项目名先来 Spool 查一次、别去改同名的本地文档。写之前会自动备份;删掉 spool:begin 和 spool:end 之间那段就能移除。')}
       </p>
+      {/* 二级页面 (Ocean 2026-08-17: 「实在不行就给出详细教程放在二级页面里」). Collapsed, and
+          only for the one client whose last step is not a restart: VS Code will not run a
+          server that appeared in its config while it was not looking until somebody says so —
+          that is its security model, not a bug, and no amount of writing the file changes it.
+          Everything else here is one restart, which the line above already says. */}
+      {clientStatus.vscode !== null && clientStatus.vscode !== 'not-installed' && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setVscodeHelpOpen((v) => !v)}
+            className="text-xs text-muted transition-colors hover:text-accent"
+          >
+            {vscodeHelpOpen ? '▾ ' : '▸ '}
+            {t('Visual Studio Code 接完还要点两下 — 一步一步')}
+          </button>
+          {vscodeHelpOpen && (
+            <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-ink-2">
+              <li>{t('把 Visual Studio Code 整个退出，再打开。')}</li>
+              <li>{t('打开右边的 AI 面板（Copilot Chat），把模式切成 Agent。')}</li>
+              <li>{t('问一句「我在 spool 里有哪些项目？」——列得出来就成了，下面几步不用做。')}</li>
+              <li>{t('它要是不知道 Spool：按 ⌘⇧P，输入 MCP: List Servers，选 spool，点 Start Server。')}</li>
+              <li>{t('还是不行：再按 ⌘⇧P，输入 Developer: Reload Window。')}</li>
+              <li className="list-none text-muted">
+                {t('为什么要这两下：VS Code 不会自己去跑一个刚冒出来的 MCP 服务，得你点头一次。这一步 Spool 替不了你。')}
+              </li>
+            </ol>
+          )}
+        </div>
+      )}
       {connectError && (
         <p className="mt-1 text-xs" style={{ color: 'var(--urgent)' }}>
           {connectError}

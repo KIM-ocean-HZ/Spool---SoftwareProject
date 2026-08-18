@@ -496,7 +496,41 @@ pub fn select(engines: &[DetectedEngine], preferred: Option<EngineKind>) -> Opti
         .or_else(|| EngineKind::ALL.iter().find_map(|k| engines.iter().find(|e| e.kind == *k)))
 }
 
-pub fn detect(preferred: Option<EngineKind>) -> EngineStatus {
+/// A CLI the user pointed at by hand (Settings → AI 引擎 → 手动指定路径).
+///
+/// Ocean, 2026-08-17: 「AI 引擎是被动搜索形式的,这导致用户没法在 spool 里面去主动添加 AI 引擎」.
+/// Detection is a search over `which` plus a list of install directories, and a search can
+/// miss — a version manager, a portable install, a path nobody thought of. Until now a miss
+/// was final: the page said "没检测到" over a machine that had the CLI on it, with nothing
+/// the user could do about it from inside Spool.
+///
+/// ⚠️ The engine is identified by the FILE'S OWN NAME, not by what it prints: `--version`
+/// output is a marketing string that changes between releases, and guessing wrong would run
+/// the wrong CLI's flags. `.exe` / `.cmd` are stripped by `file_stem`, so a Windows path works
+/// the day the engine is turned on there. `--version` still has to succeed — pointing at a
+/// text file called `claude` is a miss, not an engine.
+fn detect_manual(path: &str) -> Option<DetectedEngine> {
+    let p = std::path::Path::new(path);
+    if !p.is_file() {
+        return None;
+    }
+    let stem = p.file_stem()?.to_string_lossy().to_ascii_lowercase();
+    let kind = EngineKind::ALL.iter().copied().find(|k| k.binary() == stem)?;
+    let mut cmd = std::process::Command::new(p);
+    cmd.arg("--version");
+    let out = output_with_timeout(cmd, PROBE_TIMEOUT).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    Some(DetectedEngine { kind, version: parse_version(&text), path: path.to_string() })
+}
+
+/// `manual` is the user's hand-typed CLI path from settings. It travels as a parameter rather
+/// than being read from settings.json here, so the two callers that must agree — the settings
+/// probe and the run itself — cannot drift apart: an engine the page reports as found and a
+/// run that then says "no AI engine CLI found" is the worst version of this feature.
+pub fn detect(preferred: Option<EngineKind>, manual: Option<&str>) -> EngineStatus {
     // ⚠️ Windows: the engine is switched off at its own front door, and this is the whole
     // gate — `EngineStatus::missing()` is already the state the entire UI renders nothing
     // for (§1.4 / §2.1), so nothing downstream needs a second platform branch.
@@ -516,7 +550,14 @@ pub fn detect(preferred: Option<EngineKind>) -> EngineStatus {
     if cfg!(windows) {
         return EngineStatus::missing();
     }
-    let engines: Vec<DetectedEngine> = EngineKind::ALL.iter().filter_map(|k| detect_one(*k)).collect();
+    let mut engines: Vec<DetectedEngine> =
+        EngineKind::ALL.iter().filter_map(|k| detect_one(*k)).collect();
+    // The hand-typed one wins over a found copy of the same engine: the user typed it BECAUSE
+    // the search was wrong, and two entries for one engine would make the picker meaningless.
+    if let Some(m) = manual.filter(|p| !p.trim().is_empty()).and_then(detect_manual) {
+        engines.retain(|e| e.kind != m.kind);
+        engines.insert(0, m);
+    }
     let Some(sel) = select(&engines, preferred) else {
         return EngineStatus::missing();
     };
@@ -1290,6 +1331,7 @@ pub fn parse_codex_error(stdout: &str) -> Option<String> {
 /// a real run.
 pub fn run_action(
     preferred: Option<EngineKind>,
+    manual: Option<&str>,
     prompt: &str,
     timeout_secs: u64,
     max_turns: u32,
@@ -1306,7 +1348,7 @@ pub fn run_action(
     if RUNNING_PGID.load(Ordering::SeqCst) != 0 {
         return Err("a maintenance run is already in flight".into());
     }
-    let status = detect(preferred);
+    let status = detect(preferred, manual);
     let (Some(bin), Some(kind)) = (status.path.as_deref(), status.selected) else {
         return Err("no AI engine CLI found".into());
     };
@@ -1565,6 +1607,42 @@ mod tests {
         for bad in ["", "xhigh", "max", "HIGH", "unset", "99"] {
             assert_eq!(claude_effort_env(Some(bad)), None, "{bad:?} must not be passed on");
         }
+    }
+
+    // 2026-08-17 (Ocean): 「用户没法在 spool 里面去主动添加 AI 引擎」. The hand-typed path is the
+    // answer, and the thing worth pinning is what it does NOT accept — the name decides which
+    // CLI's flags will be used, so a wrong guess would run the wrong program's command line.
+    #[cfg(unix)]
+    #[test]
+    fn a_hand_typed_path_is_taken_only_when_the_file_names_an_engine() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!("spool-engine-manual-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let good = tmp.join("codex");
+        std::fs::write(&good, "#!/bin/sh\necho 'codex-cli 9.9.9'\n").unwrap();
+        std::fs::set_permissions(&good, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let found = detect_manual(good.to_str().unwrap()).expect("names an engine, answers --version");
+        assert_eq!(found.kind, EngineKind::Codex);
+        assert_eq!(found.path, good.to_string_lossy());
+
+        // Same working binary under a name that is not an engine: refused on the name alone.
+        let wrong = tmp.join("notanengine");
+        std::fs::copy(&good, &wrong).unwrap();
+        assert!(detect_manual(wrong.to_str().unwrap()).is_none());
+
+        // Right name, not a program: --version has to succeed too, or "engine found" would be
+        // a claim made by a text file.
+        let fake = tmp.join("claude");
+        std::fs::write(&fake, "just some text").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(detect_manual(fake.to_str().unwrap()).is_none());
+
+        // Nothing there at all, and a directory: both are misses, neither is an error.
+        assert!(detect_manual(tmp.join("gemini").to_str().unwrap()).is_none());
+        assert!(detect_manual(tmp.to_str().unwrap()).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

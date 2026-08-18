@@ -127,8 +127,9 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
   const busyOnThisThread =
     current?.threadId === thread?.id ||
     queue.some((q) => q.threadId === thread?.id);
+  const cliAvailable = status?.available === true;
   const gate = {
-    cliAvailable: status?.available === true,
+    cliAvailable,
     mcpEnabled,
     mcpWriteEnabled,
     actionsEnabled,
@@ -246,7 +247,13 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
             The other branch stays. It is not an empty state, it is the only place that says
             what to install to make this column exist at all. */}
         {shown.length === 0 && !current ? (
-          showActions ? null : (
+          // ⚠️ 2026-08-17 (Ocean, Windows 验收): this used to be the one line that told a user
+          // with no CLI what to install. It is gone for the case that made it a nag — no CLI on
+          // the machine at all — because that is not an empty state, it is an advert for
+          // software the user may never want (his words: 「不如直接选择不显示这些功能」). It
+          // stays for the case it can still fix: a CLI IS installed and only a switch in
+          // settings is holding the column back.
+          !cliAvailable || showActions ? null : (
             <p className="px-1 text-[12px] leading-relaxed text-muted">
               {t("装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。")}
             </p>
@@ -273,7 +280,15 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
             "the first section" rather than "the first thing in the column" — the run cards
             above are transient and keep their own card shape. */}
         <div className="space-y-3">
-          {showActions && (
+          {/* ⚠️ 2026-08-17 (Ocean, Windows 验收): this section used to be gated on the local CLI
+              — 「跟进是特例,MCP 也可以跟进,所以需要单独考虑」. He is right, and the old gate was
+              simply wrong: a follow-up list is not an engine feature. It is a list of what a
+              project is watching, written and read through MCP (suggest_follow_up_item,
+              get_follow_up_brief) by whatever AI the user talks to, and edited by hand in the
+              panel behind 编辑. On Windows the engine is off at its front door, which under the
+              old gate meant the list existed, took MCP writes, and could not be SEEN.
+              Only the button below needs an engine: 「联网搜索」 is the thing a local CLI runs. */}
+          {thread && (
             <RailSection
               title={t("跟进内容")}
               action={
@@ -316,7 +331,8 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
                   — and drops the rule, because 2026-08-17 put a rule BETWEEN sections: a divider
                   inside a section and a divider around it, in the same column, is the noise that
                   pass exists to remove. It stays inline-width, not a full-width bar (§9.13 #2). */}
-              {followUpLines.length > 0 &&
+              {showActions &&
+                followUpLines.length > 0 &&
                 (engineSupportsWeb(status?.selected ?? null) ? (
                   <div className="mt-2 px-3">
                     <button

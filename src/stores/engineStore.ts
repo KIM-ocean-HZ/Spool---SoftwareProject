@@ -289,6 +289,9 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // §9.13. Same shape, different door: effort has no CLI flag, so Rust turns this
         // into `CLAUDE_CODE_EFFORT_LEVEL` on the child's env (engine.rs claude_effort_env).
         effort: useSettingsStore.getState().aiEffortClaude,
+        // See probe(): the run resolves the engine again, so it needs the same extra place
+        // to look.
+        manualPath: useSettingsStore.getState().aiEnginePath,
       });
       resultText = answer.result;
       ranOn = answer.engine;
@@ -464,7 +467,11 @@ export const useEngineStore = create<EngineState>((set, get) => {
         // The preference only decides anything when both CLIs are installed; Rust falls
         // back on its own when it names one that is not there (§7.4).
         const preferred = useSettingsStore.getState().aiEngine;
-        set({ status: await invoke<EngineStatus>('ai_engine_status', { preferred }) });
+        // The hand-typed path (Settings → AI 引擎). Sent on the probe AND on the run below,
+        // because Rust re-detects at run time — a page that found an engine the run cannot
+        // find would be worse than not offering the field at all.
+        const manualPath = useSettingsStore.getState().aiEnginePath;
+        set({ status: await invoke<EngineStatus>('ai_engine_status', { preferred, manualPath }) });
       } catch (e) {
         // A failed probe is "no CLI", not an error to surface: §0 says absence is the
         // default state, and the menu group simply stays hidden.

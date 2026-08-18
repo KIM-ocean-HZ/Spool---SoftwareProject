@@ -7,11 +7,12 @@ import {
   Search,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { RAIL_SCROLLER_ATTR } from '@/lib/sidebar/railDrag';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { useT } from '@/lib/i18n';
 import { buildWorkspaceTree, compareWorkspaceTitles } from '@/lib/workspaces/tree';
+import { useEngineStore } from '@/stores/engineStore';
 import { useProposalsStore } from '@/stores/proposalsStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -63,6 +64,16 @@ export default function Sidebar({ onCollapse }: Props) {
   // queued this while the user was in another app, or asleep).
   const pendingProposals = useProposalsStore((s) => s.pendingCount);
   const openReview = useProposalsStore((s) => s.open);
+  // Is there a local CLI to write a weekly review at all — the one fact that decides whether
+  // 周回顾's row is a door or a dead end (see the row itself). The probe is also run by the
+  // right rail, but that rail can be collapsed, and a row that stays hidden because nobody
+  // asked the question would be the same bug in the other direction.
+  const engineStatus = useEngineStore((s) => s.status);
+  const probeEngine = useEngineStore((s) => s.probe);
+  useEffect(() => {
+    if (engineStatus === null) void probeEngine();
+  }, [engineStatus, probeEngine]);
+  const engineAvailable = engineStatus?.available === true;
 
   return (
     <aside className="flex h-full w-full flex-col border-r border-line bg-paper-2/40">
@@ -129,20 +140,31 @@ export default function Sidebar({ onCollapse }: Props) {
               )}
             </div>
           </li>
-          <li
-            onClick={() => openPinned('review')}
-            className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
-              pinnedView === 'review' ? 'bg-paper-2' : 'hover:bg-paper-2/60'
-            }`}
-          >
-            {pinnedView === 'review' && (
-              <span className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-accent" />
-            )}
-            <div className="flex items-center gap-2">
-              <CalendarRange size={12} className="flex-none text-muted" />
-              <span className="min-w-0 flex-1 truncate text-sm text-ink">{t('周回顾')}</span>
-            </div>
-          </li>
+          {/* ⚠️ 2026-08-17 (Ocean, after the Windows install): 「没有 Claude code 和 codex,周回顾
+              和跟进都会提示无法使用……对于长期不打算使用这些功能的用户来说影响很大,不如直接选择
+              不显示这些功能」 — 拍板:所有平台一样。A weekly review is written BY a local CLI; with
+              no CLI on the machine this row leads to a screen whose only content is an
+              instruction to install one, which is the nagging gate.ts's 安静原则 already
+              rejected everywhere else. On Windows the engine is off at its front door
+              (engine.rs), so the row simply never appears there.
+              ⚠️ The reviews themselves are never deleted — they sit in `engine_runs`, and the
+              row comes back with the CLI. What is hidden is the door, not the history. */}
+          {engineAvailable && (
+            <li
+              onClick={() => openPinned('review')}
+              className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors ${
+                pinnedView === 'review' ? 'bg-paper-2' : 'hover:bg-paper-2/60'
+              }`}
+            >
+              {pinnedView === 'review' && (
+                <span className="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-accent" />
+              )}
+              <div className="flex items-center gap-2">
+                <CalendarRange size={12} className="flex-none text-muted" />
+                <span className="min-w-0 flex-1 truncate text-sm text-ink">{t('周回顾')}</span>
+              </div>
+            </li>
+          )}
         </ul>
         {/* 首日价值 — 「我攒了多少」. Ocean 2026-08-10 put it on this side rather than over the
             block feed so it is visible whichever project is open, and 二期 (拍板 3) made it

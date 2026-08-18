@@ -16,6 +16,7 @@ type PersistableKey =
   | 'aiEngineActionsEnabled'
   | 'aiEngineTimeoutSecs'
   | 'aiEngine'
+  | 'aiEnginePath'
   | 'aiModelClaude'
   | 'aiModelGemini'
   | 'aiEffortClaude'
@@ -55,6 +56,11 @@ interface SettingsState {
   // means anything when BOTH claude and codex are installed, and Rust falls back to
   // whatever it finds if this names one that is gone.
   aiEngine: 'claude' | 'codex' | 'gemini' | null;
+  // 2026-08-17 (Ocean): 「AI 引擎是被动搜索形式的,这导致用户没法在 spool 里面去主动添加 AI 引擎」.
+  // A full path to a CLI Spool's own search missed. Null = nothing typed, which is the normal
+  // state — detection finds a standard install by itself. Rust identifies the engine from the
+  // file's NAME and still runs `--version` on it, so a wrong path is a miss, not a crash.
+  aiEnginePath: string | null;
   // DESIGN_WORKBENCH §9.3 #3 (W3-c) — which model the claude engine runs on. Null = the
   // account's own default, and that is not the same as picking one: with no value the
   // `--model` flag is not passed at all, so Spool never overrides a choice the user made
@@ -189,6 +195,7 @@ const KEYS: PersistableKey[] = [
   'aiEngineActionsEnabled',
   'aiEngineTimeoutSecs',
   'aiEngine',
+  'aiEnginePath',
   'aiModelClaude',
   'aiModelGemini',
   'aiEffortClaude',
@@ -227,6 +234,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEngineActionsEnabled: true,
   aiEngineTimeoutSecs: 300,
   aiEngine: null,
+  aiEnginePath: null,
   aiModelClaude: null,
   aiModelGemini: null,
   aiEffortClaude: null,
