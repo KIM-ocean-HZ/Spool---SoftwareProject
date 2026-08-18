@@ -3796,9 +3796,21 @@ fn suspect_raw_id(text: &str) -> Option<String> {
             i += 1;
         }
         let run = &chars[start..i];
+        // ⚠️ The third condition is not decoration (Ocean, 2026-08-17, first Windows write):
+        // 「SpaceTimeAStarPlanner 恰好是 21 位大小写混排,撞上了内部 id 的形状检测」 — a real
+        // note about a real class name was refused, and the way out he found was to hyphenate
+        // his own material to get past Spool. Two conditions alone describe every 21-letter
+        // CamelCase identifier in every codebase.
+        //
+        // A nanoid is drawn from a 64-character alphabet of which 12 are digits or -/_, so a
+        // real id contains none of them about 1.3% of the time ((52/64)^21). That is the whole
+        // cost, and it is paid against the SHAPE detector only: an id that actually exists in
+        // this library is caught by exact lookup (`real_id_hit`) whatever it looks like, and
+        // that is the leak this pair of guards exists for.
         if run.len() == 21
             && run.iter().any(|c| c.is_ascii_uppercase())
             && run.iter().any(|c| c.is_ascii_lowercase())
+            && run.iter().any(|c| c.is_ascii_digit() || *c == '_' || *c == '-')
         {
             return Some(run.iter().collect());
         }
@@ -9971,6 +9983,19 @@ mod tests {
         assert_eq!(suspect_raw_id("internationalisations"), None); // 21 lowercase letters
         assert_eq!(suspect_raw_id("sbC2zgTo9dWyq_x1XPLN"), None); // 20 chars
         assert_eq!(suspect_raw_id("sbC2zgTo9dWyq_x1XPLNM9"), None); // 22-char run
+        // Ocean's first Windows write, 2026-08-17: a 21-char CamelCase CLASS NAME was refused
+        // and he worked around Spool by hyphenating his own note. Letters only is not an id.
+        assert_eq!(suspect_raw_id("SpaceTimeAStarPlanner"), None);
+        assert_eq!(suspect_raw_id("看 SpaceTimeAStarPlanner 那个类"), None);
+        // …but one digit or one -/_ anywhere in the run puts it back in id territory.
+        assert_eq!(
+            suspect_raw_id("SpaceTimeAStarPlanne1"),
+            Some("SpaceTimeAStarPlanne1".to_string())
+        );
+        assert_eq!(
+            suspect_raw_id("SpaceTime_AStarPlaner"),
+            Some("SpaceTime_AStarPlaner".to_string())
+        );
         assert_eq!(suspect_raw_id("词sbC2zgTo9dWyq_x1XPLNM词"), Some("sbC2zgTo9dWyq_x1XPLNM".into()));
         assert_eq!(suspect_raw_id(""), None);
         // D-2's window list is what lets an id glued to a prefix still be found.
@@ -11609,12 +11634,16 @@ mod tests {
                -- 类 1: pre-v2.4 MCP source tail with a resolvable spool:// URI
                ('b1', 't1', 'text', '结论甲', NULL,
                 'Claude · MCP · 依据 spool://thread/sbC2zgTo9dWyq_x1XPLNM', 0, 1),
+               -- ⚠️ The fixture id below carries a digit on purpose: since 2026-08-17 a run of
+               -- 21 LETTERS is no longer id-shaped (suspect_raw_id's header — Ocean's class
+               -- name was refused), and a letters-only fixture would quietly stop testing
+               -- anything here while still passing as a clean 0-findings run.
                -- 类 2, AI-authored: raw id in the annotation
-               ('b2', 't1', 'text', '结论乙', '对应 sbAAAAAAAAAAAAAAAAAAB', 'Claude · MCP', 0, 2),
+               ('b2', 't1', 'text', '结论乙', '对应 sbAAAAAAAAA9AAAAAAAAB', 'Claude · MCP', 0, 2),
                -- 类 2, user-typed (no source): report FYI-only, never suggest edits
-               ('b3', 't1', 'text', '我自己记的 sbAAAAAAAAAAAAAAAAAAB', NULL, NULL, 0, 3),
+               ('b3', 't1', 'text', '我自己记的 sbAAAAAAAAA9AAAAAAAAB', NULL, NULL, 0, 3),
                -- 类 2, captured source: likely an id-shaped string from the original page
-               ('b4', 't1', 'text', '网页原文带 sbAAAAAAAAAAAAAAAAAAB 形状串', NULL, 'Safari', 0, 4),
+               ('b4', 't1', 'text', '网页原文带 sbAAAAAAAAA9AAAAAAAAB 形状串', NULL, 'Safari', 0, 4),
                -- clean block: contributes to counts only
                ('b5', 't1', 'text', '干净的一条', NULL, NULL, 0, 5),
                -- dirty block inside a soft-deleted thread: excluded from the scan

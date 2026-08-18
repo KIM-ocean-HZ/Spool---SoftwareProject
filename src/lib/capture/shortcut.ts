@@ -73,3 +73,46 @@ export function formatAccelerator(accel: string): string {
   const mods = parts.slice(0, -1).map((m) => MOD_SYMBOL[m] ?? m);
   return mods.join('') + formatKey(key);
 }
+
+// Chords the rest of the operating system has already spoken for (2026-08-18).
+//
+// Ocean, Windows 验收 #20: 「并不会拒绝快捷键,我用 ctrl z 撤回操作都不会拒绝」. The recorder
+// took anything with a modifier in it, and a GLOBAL hotkey is not a Spool shortcut — it is
+// taken out of every other program on the machine for as long as it is bound. Ctrl+Z is the
+// sharpest case: `RegisterHotKey` accepts it happily, and from that moment Undo is dead in
+// Word, in the browser, everywhere — with no clue pointing back at Spool, because the app
+// whose Undo stopped working is not the app that took it.
+//
+// The rule is narrow on purpose: only the primary modifier ALONE plus a key every program
+// means the same thing by. Ctrl+Shift+Z or Ctrl+Alt+Z are still yours — adding a second
+// modifier is exactly what the refusal suggests, and it is a chord no editor claims.
+//
+// ⚠️ Values are the Chinese noun for what the key does, which is also the i18n key (see
+// lib/i18n) — the caller passes it through t() to name the loss in the user's language.
+const RESERVED_BY_THE_OS: Record<string, string> = {
+  KeyZ: '撤销',
+  KeyY: '重做',
+  KeyX: '剪切',
+  KeyC: '复制',
+  KeyV: '粘贴',
+  KeyA: '全选',
+  KeyS: '保存',
+  KeyF: '查找',
+  KeyP: '打印',
+  KeyN: '新建',
+  KeyO: '打开',
+  KeyW: '关闭窗口',
+  KeyT: '新建标签页',
+  KeyQ: '退出',
+};
+
+/** What this chord would take away from every other app, or null when it takes nothing.
+ *  `mac` is a parameter rather than a read of IS_MAC so the rule is testable on either
+ *  platform from one test run — the primary modifier is ⌘ there and Ctrl everywhere else. */
+export function reservedChordMeaning(accel: string, mac: boolean = IS_MAC): string | null {
+  const parts = accel.split('+');
+  const key = parts.pop() ?? '';
+  if (parts.length !== 1) return null; // two modifiers is already out of everyone's way
+  if (parts[0] !== (mac ? 'meta' : 'control')) return null;
+  return RESERVED_BY_THE_OS[key] ?? null;
+}

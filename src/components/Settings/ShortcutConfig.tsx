@@ -1,7 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { eventToAccelerator, formatAccelerator } from '@/lib/capture/shortcut';
+import {
+  eventToAccelerator,
+  formatAccelerator,
+  reservedChordMeaning,
+} from '@/lib/capture/shortcut';
 import { IS_MAC } from '@/lib/platform';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
@@ -42,6 +46,20 @@ export default function ShortcutConfig() {
       const other = field === 'capture' ? searchShortcut : captureShortcut;
       if (accel === other) {
         setError(t('两个快捷键不能相同'));
+        return;
+      }
+      // Ocean, Windows 验收 #20. A global hotkey is taken out of every OTHER program too,
+      // so a chord the whole system means something by cannot be accepted: binding Ctrl+Z
+      // kills Undo in Word and the browser, and nothing on screen would ever point back
+      // here. The refusal names the loss and the way out (add a second modifier).
+      const reserved = reservedChordMeaning(accel);
+      if (reserved) {
+        setError(
+          t('{chord} 是所有软件通用的「{what}」——绑成全局键，别的软件里就按不了了。再加一个 ⇧ 或 ⌥ 试试。', {
+            chord: formatAccelerator(accel),
+            what: t(reserved),
+          }),
+        );
         return;
       }
       const capture = field === 'capture' ? accel : captureShortcut;
