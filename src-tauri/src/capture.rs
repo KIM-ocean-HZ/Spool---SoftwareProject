@@ -361,6 +361,10 @@ pub struct ShortcutConfig {
     // visible), or None when no toast is up. Time-boxed registration keeps ⌘Z usable in
     // every other app outside the toast window.
     pub undo: std::sync::Mutex<Option<tauri_plugin_global_shortcut::Shortcut>>,
+    // True while the Settings recorder is waiting for a chord (`set_shortcut_recording`).
+    // Everything that registers a global shortcut on its own schedule has to consult this,
+    // or it would hand the OS back the very keys the recorder is trying to read.
+    pub recording: std::sync::atomic::AtomicBool,
 }
 
 // Register the global undo shortcut while the capture toast is visible. Tries ⌘Z first
@@ -372,6 +376,11 @@ pub fn register_undo_shortcut<R: Runtime>(app: &AppHandle<R>) {
     let Some(cfg) = app.try_state::<ShortcutConfig>() else {
         return;
     };
+    // Not while the user is recording a chord: ⌘Z/Ctrl+Z is exactly the key the recorder
+    // has to be able to refuse out loud, and a global claim takes it before the webview.
+    if cfg.recording.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     let mut slot = cfg.undo.lock().unwrap();
     if slot.is_some() {
         return;
@@ -496,6 +505,54 @@ pub fn set_shortcuts<R: Runtime>(
     #[cfg(not(desktop))]
     {
         let _ = (app, capture, search);
+        Err("global shortcuts are desktop-only".into())
+    }
+}
+
+// Hand the keyboard back to the webview while the Settings recorder is armed.
+//
+// ⚠️ Ocean, Windows 验收 2026-08-18 #3: 「我在录制快捷键的时候点击原先的快捷键,spool 会调出
+// 捕捉操作,而不是录入快捷键」, and the same for Ctrl+Z. That is not a bug in the recorder —
+// it is what a global hotkey IS. `RegisterHotKey` takes the chord out of every program on
+// the machine, Spool's own window included, so the one key the user is most likely to press
+// at a recorder (the one they already bound, or the one they want to rebind away from) is
+// precisely the one that never arrives as a keydown.
+//
+// So the registrations come down for as long as the recorder is up. Resume unregisters
+// before it registers: the recorder calls `set_shortcuts` on success and then stops
+// recording, so by the time we get here the new pair may already be live, and a second
+// register of a live accelerator is an error we would have to guess our way past.
+#[tauri::command]
+pub fn set_shortcut_recording<R: Runtime>(app: AppHandle<R>, active: bool) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        use std::sync::atomic::Ordering;
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        let cfg = app.state::<ShortcutConfig>();
+        cfg.recording.store(active, Ordering::SeqCst);
+        let capture = *cfg.capture.lock().unwrap();
+        let search = *cfg.search.lock().unwrap();
+        let gs = app.global_shortcut();
+        if active {
+            // The toast-scoped ⌘Z too — it outlives its toast if a card is still on screen.
+            unregister_undo_shortcut(&app);
+            if let Some(acc) = capture {
+                let _ = gs.unregister(acc);
+            }
+            let _ = gs.unregister(search);
+        } else {
+            if let Some(acc) = capture {
+                let _ = gs.unregister(acc);
+                let _ = gs.register(acc);
+            }
+            let _ = gs.unregister(search);
+            let _ = gs.register(search);
+        }
+        Ok(())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, active);
         Err("global shortcuts are desktop-only".into())
     }
 }
@@ -1300,4 +1357,36 @@ pub fn show_capture_notice<R: Runtime>(
     let payload = serde_json::to_value(payload).map_err(|e| e.to_string())?;
     send_overlay_show(&app, "notice", payload, false)?;
     Ok(())
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::*;
+
+    // The shipped Windows/Linux capture default (src/lib/capture/shortcut.ts
+    // DEFAULT_CAPTURE_ACCEL) is the one accelerator no human ever types into the recorder,
+    // so nothing else would catch it being unparseable here — and the failure is silent:
+    // App.tsx only console.warns, so every install would show 「Ctrl+Space」 in Settings and
+    // capture nothing, forever. This is the shared-grammar half of that string; the
+    // TypeScript half is pinned in shortcut.test.ts.
+    #[test]
+    fn the_default_capture_accelerator_parses() {
+        use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+        assert_eq!(
+            parse_shortcut("control+Space").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL), Code::Space)
+        );
+    }
+
+    // Same for the search default, which Rust ALSO builds itself (search_accelerator) —
+    // the two spellings have to agree or a launch registers one and the frontend replaces
+    // it with the other on every settings load.
+    #[test]
+    fn the_search_default_matches_the_frontend_spelling() {
+        #[cfg(target_os = "macos")]
+        let spec = "meta+shift+KeyF";
+        #[cfg(not(target_os = "macos"))]
+        let spec = "control+shift+KeyF";
+        assert_eq!(parse_shortcut(spec).unwrap(), search_accelerator());
+    }
 }

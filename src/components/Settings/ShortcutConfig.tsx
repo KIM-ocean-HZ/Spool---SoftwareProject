@@ -25,9 +25,18 @@ export default function ShortcutConfig() {
   const [recording, setRecording] = useState<Field | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // ⚠️ Ocean, Windows 验收 2026-08-18 #3: while this box is armed, EVERY global registration
+  // has to come down — 「我在录制快捷键的时候点击原先的快捷键，spool 会调出捕捉操作」, and Ctrl+Z
+  // ran the app's own undo instead of being refused. Neither is the recorder misbehaving: a
+  // global hotkey is taken out of every program including this window, so the chord the user
+  // is most likely to press here is the one that can never arrive as a keydown. Rust drops
+  // capture / search / the toast-scoped undo for as long as this effect is mounted.
   useEffect(() => {
     if (!recording) return;
     const field = recording;
+    void invoke('set_shortcut_recording', { active: true }).catch((e) =>
+      console.warn('[shortcuts] suspending global shortcuts failed', e),
+    );
     const handler = (e: KeyboardEvent) => {
       // Capture phase + stopPropagation: the chord is consumed here, never reaching
       // the app's own ⌘N / ⌘, listeners or the Settings-modal Esc handler.
@@ -67,11 +76,14 @@ export default function ShortcutConfig() {
       void (async () => {
         try {
           await invoke('set_shortcuts', { capture, search });
+          // Leave recording BEFORE persisting: the effect's cleanup is what hands the
+          // registrations back, and `captureShortcut` is one of its deps — persisting first
+          // would tear it down and re-arm it around a pair that is already live.
+          setError(null);
+          setRecording(null);
           await update(
             field === 'capture' ? { captureShortcut: accel } : { searchShortcut: accel },
           );
-          setError(null);
-          setRecording(null);
         } catch (err) {
           setError(
             t('系统拒绝了该快捷键：{msg}', { msg: err instanceof Error ? err.message : String(err) }),
@@ -80,7 +92,12 @@ export default function ShortcutConfig() {
       })();
     };
     window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
+    return () => {
+      window.removeEventListener('keydown', handler, true);
+      void invoke('set_shortcut_recording', { active: false }).catch((e) =>
+        console.warn('[shortcuts] restoring global shortcuts failed', e),
+      );
+    };
   }, [recording, captureShortcut, searchShortcut, update]);
 
   // Unbind the capture shortcut (2026-07-08): capture is optional (double-tap ⌥ is
@@ -123,7 +140,13 @@ export default function ShortcutConfig() {
           >
             {isRec ? t('按键中…') : accel ? formatAccelerator(accel) : t('未设置')}
           </button>
-          {field === 'capture' && accel && !isRec && (
+          {/* ⚠️ macOS only since 2026-08-18. Unbinding is safe there — double-tap ⌥ still
+              captures — but off macOS this row is the ONLY way in, and it now ships bound
+              (DEFAULT_CAPTURE_ACCEL). Clearing it would write a null that load() cannot tell
+              from "never set", so the default would come back on the next launch: a button
+              whose effect the user watches undo itself. Rebinding is the real need and the
+              recorder already does that. */}
+          {IS_MAC && field === 'capture' && accel && !isRec && (
             <button
               onClick={clearCapture}
               aria-label={t('清除捕捉快捷键')}

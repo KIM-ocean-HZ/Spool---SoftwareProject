@@ -294,9 +294,18 @@ export default function CaptureOverlay() {
   // timer — Enter / click-outside / Esc finish them). An empty, untouched toast goes
   // away on its own. Notices use a slightly shorter timeout since there's nothing to
   // interact with on them.
+  //
+  // ⚠️ Ocean, Windows 验收 2026-08-18 #2: 「弹窗一直不消失」. The draft is the CAPTURE TOAST's
+  // pause, and only a fresh capture clears it — finishing a note with Enter commits it and
+  // leaves the text in state. So the first undo/notice card after any annotated capture
+  // inherited a non-empty draft it does not even render, and never timed out. That also
+  // stranded the global ⌘Z/Ctrl+Z this process holds while a card is up (capture.rs
+  // unregisters it on hide, and the hide never came) — which is the whole of #3: the
+  // shortcut recorder could not see Ctrl+Z because the OS was still handing it to us.
   useEffect(() => {
     if (!content) return;
-    if (hover || pickerOpen || annotationDraft.length > 0) return;
+    if (hover || pickerOpen) return;
+    if (content.kind === 'toast' && annotationDraft.length > 0) return;
     const ms =
       content.kind === 'notice'
         ? NOTICE_AUTO_DISMISS_MS

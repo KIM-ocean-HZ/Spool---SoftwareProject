@@ -331,6 +331,7 @@ pub fn run() {
             capture::update_overlay_source,
             capture::show_capture_notice,
             capture::set_shortcuts,
+            capture::set_shortcut_recording,
             capture::probe_browser_automation,
             overlay::overlay_db_reply,
             pack::write_pack_folder,
@@ -431,6 +432,13 @@ pub fn run() {
                         let app = window.app_handle();
                         let gs = app.global_shortcut();
                         if let Some(cfg) = app.try_state::<capture::ShortcutConfig>() {
+                            // …unless the user is recording a chord right now, in which case
+                            // the registrations are DOWN on purpose (capture.rs
+                            // set_shortcut_recording) and re-establishing them here would
+                            // take the keys back out of the recorder's hands.
+                            if cfg.recording.load(std::sync::atomic::Ordering::SeqCst) {
+                                return;
+                            }
                             for acc in [
                                 *cfg.capture.lock().unwrap(),
                                 Some(*cfg.search.lock().unwrap()),
@@ -546,6 +554,7 @@ pub fn run() {
                     search: std::sync::Mutex::new(capture::search_accelerator()),
                     // §9.13: registered on demand while the capture toast is visible.
                     undo: std::sync::Mutex::new(None),
+                    recording: std::sync::atomic::AtomicBool::new(false),
                 });
                 if let Err(e) = app
                     .global_shortcut()
