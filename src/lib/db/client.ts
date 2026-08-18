@@ -885,10 +885,11 @@ interface SeedBlock {
   content: string;
   annotation?: string;
   pinned?: boolean;
-  // Replacement copy for platforms without the double-tap ⌥ gesture (2026-08-18, Windows
-  // port). It sits HERE, next to the text it replaces, rather than being picked out by
-  // index at seed time: the two are one sentence written twice, and an index would keep
-  // pointing at whatever ends up in that slot after the next edit.
+  // Replacement copy for platforms whose capture gesture and permissions differ from macOS
+  // (2026-08-18, Windows port: double-tap Ctrl, no Input Monitoring grant). It sits HERE,
+  // next to the text it replaces, rather than being picked out by index at seed time: the two
+  // are one sentence written twice, and an index would keep pointing at whatever ends up in
+  // that slot after the next edit.
   offMac?: string;
 }
 interface SeedThread {
@@ -905,10 +906,11 @@ interface SeedThread {
 // and silently skip the whole thread — the failure this file's own header warns about.)
 //
 // Two things happen: key caps follow the platform like everywhere else, and any block
-// carrying `offMac` is swapped whole. The second is not cosmetic — the capture block
-// tells a macOS user to double-tap ⌥ and to grant Input Monitoring, and on Windows
-// neither exists. It is block 2 of the guide, i.e. the first instruction a new user
-// follows, and following it would do nothing at all.
+// carrying `offMac` is swapped whole. The second is not cosmetic — the capture block tells a
+// macOS user to double-tap ⌥ and to grant Input Monitoring; Windows captures with double-tap
+// Ctrl and needs no such grant, so the sentence is rewritten rather than key-cap-substituted.
+// It is block 2 of the guide, i.e. the first instruction a new user follows, and the macOS
+// wording would send a Windows user after a permission that isn't there.
 const platformTutorial = (
   raw: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp: SeedThread }>,
 ): typeof raw => {
@@ -945,11 +947,11 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
         {
           content:
             '捕捉：在任何应用选中文字按 ⌘C，再快速双击 ⌥（Option）——内容自动落进「捕捉目标」项目。这一步需要「输入监听」权限：点顶部横幅的「打开捕捉」开启，授权后完全退出 Spool 再打开。',
-          // 没有双击 ⌥ 的平台：手势不存在，「输入监听」权限也不存在，所以这一句是重写的
-          // 而不是替词。2026-08-18 起捕捉键出厂就绑好了（⌃⌥Space），所以这句不再是「先去
-          // 设一个」，而是直接把键说出来——第一条教程里的动作，读完就能做。
+          // Windows 有自己的双击手势——双击 Ctrl（double_tap_win.rs），但没有「输入监听」这类
+          // 权限要开，所以这一句是重写的而不是替词：手势和 Mac 一样是双击一个修饰键，只是键不同，
+          // 而且不需要那句授权说明。第一条教程里的动作，读完就能做。
           offMac:
-            '捕捉：在任何应用选中文字按 ⌘C，再按 ⌃⌥Space——内容自动落进「捕捉目标」项目。想换成别的键：设置 → 快捷键。',
+            '捕捉：在任何应用选中文字按 ⌘C，再快速双击 Ctrl——内容自动落进「捕捉目标」项目。也可以在设置 → 快捷键里加一个快捷键。',
         },
         {
           content:
@@ -1023,7 +1025,7 @@ const TUTORIAL: Record<SeedLanguage, { source: string; gesture: SeedThread; mcp:
           content:
             'Capture: select text in any app and press ⌘C, then quickly double-tap ⌥ (Option) — it lands in your capture-target project. This needs the Input Monitoring permission: press "Turn on capture" in the banner at the top, then fully quit Spool and reopen.',
           offMac:
-            'Capture: select text in any app, press ⌘C, then press ⌃⌥Space — it lands in your capture-target project. Want a different key? Settings → Shortcuts.',
+            'Capture: select text in any app and press ⌘C, then quickly double-tap Ctrl — it lands in your capture-target project. You can also add a shortcut in Settings → Shortcuts.',
         },
         {
           content:

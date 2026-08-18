@@ -72,11 +72,6 @@ const EN: Record<string, string> = {
   '想在别的 app 里复制就存，需要开一个权限。在那之前 Spool 照样能用——在下面写笔记，或者在 Spool 里复制后双击 ⌥。':
     'Capturing from other apps needs one permission. Until then Spool still works — write notes below, or copy inside Spool and double-tap ⌥.',
   '打开捕捉': 'Turn on capture',
-  // Windows onboarding (2026-08-18): no TCC grant to ask for, but also no default
-  // capture chord — Ocean chose to have the first launch ask for one instead.
-  '想在别的 app 里复制就存，先给捕捉定一个快捷键。在那之前 Spool 照样能用——在下面直接写笔记。':
-    'To save things you copy in other apps, pick a capture shortcut first. Until then Spool still works — just write notes below.',
-  '设一个快捷键': 'Pick a shortcut',
   '在系统设置里勾选 Spool，然后完全退出 Spool（托盘图标 → 退出）再重新打开。没看到系统弹窗？点右边打开设置。':
     'Tick Spool in System Settings, then fully quit Spool (tray icon → Quit) and reopen. No system dialog? Open Settings on the right.',
   '已授权 — 重启 Spool 后生效': 'Granted — takes effect after Spool restarts',
@@ -751,8 +746,8 @@ const EN: Record<string, string> = {
 
   // Capture overlay / undo card
   '剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥': 'Clipboard is empty — copy something with ⌘C first, then double-tap ⌥',
-  '剪贴板为空 — 先复制要捕捉的内容，再按一次捕捉快捷键':
-    'Clipboard is empty — copy what you want to capture, then press the capture shortcut again',
+  '剪贴板为空 — 先按 Ctrl+C 复制要捕捉的内容，再双击 Ctrl':
+    'Clipboard is empty — copy something with Ctrl+C first, then double-tap Ctrl',
   '没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」': 'No capture target — open Spool and click "Capture here" in a project header',
   '捕捉失败': 'Capture failed',
   '已撤销': 'Undone',

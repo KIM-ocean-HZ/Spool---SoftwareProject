@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CAPTURE_ACCEL,
-  DEFAULT_SEARCH_ACCEL,
   eventToAccelerator,
   formatAccelerator,
   reservedChordMeaning,
@@ -36,33 +35,29 @@ describe('reservedChordMeaning', () => {
   });
 });
 
-// 2026-08-18 (Ocean: 「ctrl+space 比较方便，默认做这个快捷键」). Capture now ships bound off
-// macOS, and a shipped default is the one accelerator that never passes through the recorder
-// — so the two rules the recorder enforces have to be checked here, or Settings could show a
-// chord the recorder itself would refuse.
-//
-// ⚠️ Under Vitest `navigator.userAgent` is Node's, so IS_MAC is false and these constants
-// hold their off-macOS values — which is the platform that has a capture default at all.
+// 2026-08-18: capture ships UNBOUND on both platforms now — the built-in double-tap gesture
+// (double-tap ⌥ on macOS, double-tap Ctrl on Windows — double_tap_win.rs) is the trigger, so
+// there is no default chord to pin. Windows shipped bound (Ctrl+Alt+Space) only while it had
+// no gesture; that reason is gone.
 describe('DEFAULT_CAPTURE_ACCEL', () => {
-  it('is not a chord the recorder would refuse', () => {
-    expect(reservedChordMeaning(DEFAULT_CAPTURE_ACCEL!, false)).toBeNull();
+  it('ships unbound — the double-tap gesture is the trigger', () => {
+    expect(DEFAULT_CAPTURE_ACCEL).toBeNull();
+  });
+});
+
+// The recorder's round-trip, independent of any default: a chord it builds renders to the
+// label the user's keyboard prints, and the modifier ORDER is fixed (meta→control→alt→shift)
+// because 「两个快捷键不能相同」 and Rust's own comparisons are string equality — a chord spelled
+// in any other order would read as different from the identical one the user just pressed.
+//
+// ⚠️ Under Vitest `navigator.userAgent` is Node's, so IS_MAC is false and formatAccelerator
+// spells the modifiers as the words a Windows keyboard prints.
+describe('accelerator round-trip', () => {
+  it('renders an accelerator to a Windows key label', () => {
+    expect(formatAccelerator('control+alt+Space')).toBe('Ctrl+Alt+Space');
   });
 
-  it('does not collide with the search default', () => {
-    expect(DEFAULT_CAPTURE_ACCEL).not.toBe(DEFAULT_SEARCH_ACCEL);
-  });
-
-  // The settings row and the seeded first-run tutorial both name this key; they are written
-  // in different files and only agree because both come out as these five characters.
-  it('reads as Ctrl+Alt+Space', () => {
-    expect(formatAccelerator(DEFAULT_CAPTURE_ACCEL!)).toBe('Ctrl+Alt+Space');
-  });
-
-  // The modifier ORDER is not cosmetic: the recorder builds its string meta→control→alt→
-  // shift (eventToAccelerator), and 「两个快捷键不能相同」 plus Rust's own comparisons are
-  // string equality. A default spelled in any other order would read as a different chord
-  // from the identical one the user just pressed.
-  it('is spelled in the order the recorder would produce', () => {
+  it('builds the string in the order it renders', () => {
     const asRecorded = eventToAccelerator({
       code: 'Space',
       ctrlKey: true,
@@ -70,6 +65,6 @@ describe('DEFAULT_CAPTURE_ACCEL', () => {
       metaKey: false,
       shiftKey: false,
     } as KeyboardEvent);
-    expect(asRecorded).toBe(DEFAULT_CAPTURE_ACCEL);
+    expect(asRecorded).toBe('control+alt+Space');
   });
 });

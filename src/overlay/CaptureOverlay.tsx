@@ -108,13 +108,14 @@ type OverlayContent =
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
-  // The Windows wording names no chord at all: the trigger there is whatever the user
-  // bound in settings, and this helper process does not read settings.json. Telling them
-  // to "press it again" is both true and shorter than being specific would be.
+  // Each platform names its built-in gesture — double-tap ⌥ on macOS, double-tap Ctrl on
+  // Windows — the same one this notice just came from. (A user who rebound capture to a chord
+  // instead sees "double-tap" wording that is one step off, the same as on macOS; the helper
+  // process does not read settings.json, so it cannot know which they used.)
   if (n.kind === 'empty')
     return IS_MAC
       ? t('剪贴板为空 — 先按 ⌘C 复制要捕捉的内容，再双击 ⌥')
-      : t('剪贴板为空 — 先复制要捕捉的内容，再按一次捕捉快捷键');
+      : t('剪贴板为空 — 先按 Ctrl+C 复制要捕捉的内容，再双击 Ctrl');
   if (n.kind === 'no-target') return t('没有捕捉目标 — 打开 Spool 在项目顶栏点「捕捉到此」');
   return n.msg ?? t('捕捉失败');
 };

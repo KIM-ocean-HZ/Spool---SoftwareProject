@@ -21,17 +21,16 @@ export default function Settings() {
   const t = useT();
   const open = useSettingsStore((s) => s.panelOpen);
   const close = useSettingsStore((s) => s.closePanel);
-  const captureShortcut = useSettingsStore((s) => s.captureShortcut);
-  // Off macOS a missing capture shortcut means capture does not work AT ALL — there is no
-  // double-tap ⌥ behind it — and the onboarding banner's button leads straight here. So
-  // that one unfinished state picks the tab; everything else still lands on 通用.
-  const landingTab: Tab = !IS_MAC && !captureShortcut ? 'shortcuts' : 'general';
-  const [tab, setTab] = useState<Tab>(landingTab);
+  // Settings always opens on 通用. An unbound capture key used to send Windows here (to
+  // 快捷键) because there was no gesture behind it — but double-tap Ctrl is that gesture now
+  // (double_tap_win.rs), so a null capture shortcut is a normal resting state, not an
+  // unfinished one to steer the user toward fixing.
+  const [tab, setTab] = useState<Tab>('general');
 
   // Reopening always lands on the same place — the dialog is transient, not a workspace.
   useEffect(() => {
-    if (open) setTab(landingTab);
-  }, [open, landingTab]);
+    if (open) setTab('general');
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

@@ -140,13 +140,12 @@ export default function ShortcutConfig() {
           >
             {isRec ? t('按键中…') : accel ? formatAccelerator(accel) : t('未设置')}
           </button>
-          {/* ⚠️ macOS only since 2026-08-18. Unbinding is safe there — double-tap ⌥ still
-              captures — but off macOS this row is the ONLY way in, and it now ships bound
-              (DEFAULT_CAPTURE_ACCEL). Clearing it would write a null that load() cannot tell
-              from "never set", so the default would come back on the next launch: a button
-              whose effect the user watches undo itself. Rebinding is the real need and the
-              recorder already does that. */}
-          {IS_MAC && field === 'capture' && accel && !isRec && (
+          {/* Clearing is safe on both platforms now: capture ships UNBOUND
+              (DEFAULT_CAPTURE_ACCEL is null) and the built-in double-tap gesture still
+              captures, so writing null just returns the row to its resting state rather than
+              — as it once would off macOS — undoing itself back to a shipped default on the
+              next launch. Only capture shows it; search stays mandatory. */}
+          {field === 'capture' && accel && !isRec && (
             <button
               onClick={clearCapture}
               aria-label={t('清除捕捉快捷键')}

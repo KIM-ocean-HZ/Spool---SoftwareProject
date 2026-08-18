@@ -1,7 +1,8 @@
 // Shortcut accelerators (PLAN_EN.md §9.12 / §19.1). The two global shortcuts —
 // capture and search (⌘⇧F) — are user-configurable from the Settings panel. Capture has no
-// default ON macOS since 2026-07-07: double-tap ⌥ is the trigger there, and a chord exists
-// only when the user binds one. Everywhere else it ships bound — see DEFAULT_CAPTURE_ACCEL.
+// default binding on either platform since 2026-08-18: the built-in double-tap gesture is the
+// trigger (double-tap ⌥ / double-tap Ctrl), and a chord exists only when the user binds one —
+// see DEFAULT_CAPTURE_ACCEL.
 //
 // An accelerator is a string in this module's own grammar: lowercase modifier tokens
 // (`meta` `control` `alt` `shift`) joined with `+`, then the W3C `KeyboardEvent.code`
@@ -14,23 +15,18 @@ import { IS_MAC } from '@/lib/platform';
 // Default — must match Rust's search_accelerator().
 export const DEFAULT_SEARCH_ACCEL = IS_MAC ? 'meta+shift+KeyF' : 'control+shift+KeyF';
 
-// Capture's default, and it exists on exactly one platform.
+// Capture ships UNBOUND on both platforms: the built-in double-tap gesture is the trigger
+// (double-tap ⌥ on macOS, double-tap Ctrl on Windows — double_tap_win.rs), and a bound chord
+// is the optional backup somebody adds themselves in Settings.
 //
-// macOS keeps `null`: double-tap ⌥ is the trigger there, and a bound chord is the optional
-// backup somebody adds themselves. Off macOS there is no gesture at all (Ocean 2026-08-15,
-// 首版不做), so an unbound capture key means the app ships with no way to capture from
-// another program — the whole feature behind a settings row nobody has been sent to.
-//
-// ⚠️ Was `control+Space` for one build (2026-08-18 morning, his own pick). He withdrew it
-// the same day after using it: 「Ctrl+Space 不用，输入法切换更重要」. That was the exact trade
-// flagged when it shipped — 中文输入法 on Windows toggles with Ctrl+Space, and a global
-// hotkey takes the chord out of the IME's hands, not the other way round. A capture key
-// that costs a Chinese user their IME toggle is not a default, whatever it costs to press.
-//
-// Ctrl+Alt+Space keeps the Space he liked and steps out of the IME's way: neither the
-// 中英切换 (Ctrl+Space) nor the 输入法切换 (Ctrl+Shift) hotkey has Alt in it, which is also
-// why Ctrl+Shift+Space is NOT the answer here.
-export const DEFAULT_CAPTURE_ACCEL = IS_MAC ? null : 'control+alt+Space';
+// ⚠️ Windows shipped bound for one stretch — `control+Space`, then `control+alt+Space`
+// (2026-08-18) — but only because it had NO gesture yet (Ocean 2026-08-15, 首版不做). With
+// double-tap Ctrl in place and verified on his machine (2026-08-18), that reason is gone and
+// Windows returns to the macOS model: null. The history stays because it names a real trade —
+// 中文输入法 toggles with Ctrl+Space and a global hotkey takes that chord out of the IME's
+// hands — so if a bound Windows default ever comes back it must still clear Ctrl+Space and the
+// 输入法切换 Ctrl+Shift, which is why Ctrl+Alt+Space (not Ctrl+Shift+Space) was the pick then.
+export const DEFAULT_CAPTURE_ACCEL: string | null = null;
 
 // Build an accelerator from a keydown. Returns null for an unusable chord: the key
 // itself is a bare modifier, or there is no "real" modifier (a shift-only global
