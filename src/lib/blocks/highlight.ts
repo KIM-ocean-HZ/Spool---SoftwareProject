@@ -6,90 +6,109 @@
 // so a §20.8 kill cut is one revert: the regex, the wrap helper, the renderer, and the
 // pack-header line are the only touch-points.
 //
-// Limitation (acknowledged for Track B): `wrapHighlight` finds the first occurrence of the
-// selected substring inside `content`. If the same phrase appears twice in one block and
-// the user selects the second instance, the first one gets wrapped instead. The block has
-// to be quite repetitive for this to bite, and the dogfooding kill criterion (§20.8) will
-// reveal whether it matters before we sink time into a DOM-offset mapping.
+// ⚠️⚠️ 2026-08-19 (Ocean:「标为重点的功能有类似问题，只能划一行，修复」). TWO separate defects
+// made a multi-line highlight impossible, and fixing either alone would have left it broken:
+//
+//   ① **The regex could not match one.** `/==(.+?)==/` — `.` does not match `\n`, so
+//      `==第一行\n第二行==` stored perfectly well and then rendered as literal `==` markers
+//      around unhighlighted text. This is the half that made it look like a one-line feature.
+//   ② **The selection could not be located.** The old wrap took the selected STRING and did
+//      `content.indexOf(...)`. The renderer drops `**`, `==` and `## `, so any selection
+//      crossing one of them is text that appears nowhere in `content` — and across lines the
+//      DOM adds breaks of its own. The wrap silently no-opped.
+//
+// ① is the regex below. ② is why every function here now takes a character RANGE instead of
+// a string: the caller maps its selection to raw offsets once (selectionRange.ts) and the
+// same range drives corrections and highlights alike. One notion of "which words", not two.
 
-export const HIGHLIGHT_RE = /==(.+?)==/g;
+/** ⚠️ `[\s\S]` rather than `.` — see ① above. Non-greedy, so two highlights on one line stay
+ *  two. Code fences are already excluded by the tokenizer (`isRaw`), which is what keeps a
+ *  literal `a == b` inside a fenced block from becoming a highlight. */
+export const HIGHLIGHT_RE = /==([\s\S]+?)==/g;
 
 const MARKER = '==';
 
-const containsMarker = (s: string): boolean => s.includes(MARKER);
-
 // Trim whitespace before deciding whether the selection is wrap-worthy. A selection that
-// is only whitespace, only newlines, or contains nested markers is rejected outright so
-// the floating prompt either no-ops or never appears.
-export const isHighlightable = (selected: string): boolean => {
-  if (selected.trim().length === 0) return false;
-  if (containsMarker(selected)) return false;
-  return true;
-};
+// is only whitespace or only newlines is rejected outright so the floating prompt either
+// no-ops or never appears.
+export const isHighlightable = (selected: string): boolean => selected.trim().length > 0;
 
 export interface WrapResult {
   // Updated content string with `==…==` around the selection, OR the original content
-  // unchanged when the wrap was a no-op (selection not found, already highlighted, etc.).
+  // unchanged when the wrap was a no-op.
   content: string;
   // True when content was actually modified; false signals the caller to skip the DB write.
   changed: boolean;
 }
 
-// Wrap the first occurrence of `selected` inside `content` with == markers, IF the
-// surrounding characters aren't already == (so the wrap doesn't nest). Returns the new
-// content and a `changed` flag. Selection-validation precondition: `isHighlightable`
-// should be true; this helper enforces the rest defensively.
-export const wrapHighlight = (content: string, selected: string): WrapResult => {
-  if (!isHighlightable(selected)) return { content, changed: false };
-  const idx = content.indexOf(selected);
-  if (idx === -1) return { content, changed: false };
-  const before = content.slice(Math.max(0, idx - 2), idx);
-  const afterStart = idx + selected.length;
-  const after = content.slice(afterStart, afterStart + 2);
-  // Already-highlighted (==...selected...==): no-op rather than nesting markers.
-  if (before === MARKER && after === MARKER) return { content, changed: false };
-  const next = content.slice(0, idx) + MARKER + selected + MARKER + content.slice(afterStart);
-  return { content: next, changed: true };
+/** The selection's range with leading/trailing whitespace shaved off, so a sloppy drag does
+ *  not store `==  text ==`. Null when nothing but whitespace was selected. */
+export const trimRange = (
+  content: string,
+  start: number,
+  end: number,
+): { start: number; end: number } | null => {
+  let s = Math.max(0, start);
+  let e = Math.min(content.length, end);
+  while (s < e && /\s/.test(content[s]!)) s += 1;
+  while (e > s && /\s/.test(content[e - 1]!)) e -= 1;
+  return e > s ? { start: s, end: e } : null;
 };
 
-// True iff the first occurrence of `selected` (or its bare form if the user picked up
-// the markers in their selection) sits inside an existing `==…==` highlight. Drives the
-// UI toggle: highlight button reads this to decide whether the next click should wrap
-// or unwrap. When `selected` came from a DOM `Selection` inside a `<mark>`, it's already
-// the bare inner text — the .replace below is the safety net for textarea selections
-// where the user may have included the == markers in the range.
-export const isCurrentlyHighlighted = (content: string, selected: string): boolean => {
-  const bare = selected.replace(/=/g, '').trim();
-  if (!bare) return false;
-  const idx = content.indexOf(bare);
-  if (idx === -1) return false;
-  const before = content.slice(Math.max(0, idx - 2), idx);
-  const after = content.slice(idx + bare.length, idx + bare.length + 2);
-  return before === MARKER && after === MARKER;
-};
-
-// Remove the `==…==` markers around the first occurrence of `selected`. Inverse of
-// wrapHighlight: returns { changed: false } when no surrounding markers exist, so the
-// caller can treat this as a no-op without an extra branch.
-export const unwrapHighlight = (content: string, selected: string): WrapResult => {
-  const bare = selected.replace(/=/g, '').trim();
-  if (!bare) return { content, changed: false };
-  const idx = content.indexOf(bare);
-  if (idx === -1) return { content, changed: false };
-  const before = content.slice(Math.max(0, idx - 2), idx);
-  const after = content.slice(idx + bare.length, idx + bare.length + 2);
-  if (before !== MARKER || after !== MARKER) return { content, changed: false };
-  const next = content.slice(0, idx - 2) + bare + content.slice(idx + bare.length + 2);
-  return { content: next, changed: true };
-};
-
-// Single entry-point used by both the floating prompt and the toolbar button: wrap if
-// the current selection is plain text, unwrap if it sits inside an existing highlight.
-// Keeps the toggle logic in one place rather than scattering wrap/unwrap branches
-// across call sites.
-export const toggleHighlight = (content: string, selected: string): WrapResult => {
-  if (isCurrentlyHighlighted(content, selected)) {
-    return unwrapHighlight(content, selected);
+/** The `==…==` match that already covers this range, or null. Used both to decide whether
+ *  the next click wraps or unwraps, and to know which markers to take off. */
+const enclosingHighlight = (
+  content: string,
+  start: number,
+  end: number,
+): { start: number; end: number } | null => {
+  for (const m of content.matchAll(HIGHLIGHT_RE)) {
+    const s = m.index ?? 0;
+    const e = s + m[0].length;
+    // Inner span, markers excluded — a selection sitting anywhere inside it counts.
+    if (start >= s + 2 && end <= e - 2) return { start: s, end: e };
   }
-  return wrapHighlight(content, selected);
+  return null;
+};
+
+/** True iff this range already sits inside a highlight. Drives the UI toggle: the button
+ *  tells the user whether the next click will add or remove, before they press it. */
+export const rangeIsHighlighted = (content: string, start: number, end: number): boolean => {
+  const t = trimRange(content, start, end);
+  return t ? enclosingHighlight(content, t.start, t.end) !== null : false;
+};
+
+/** Wrap the range in `==` markers.
+ *
+ *  ⚠️ Any `==` already INSIDE the range is dropped first. Selecting a paragraph that
+ *  contains a previous highlight is an ordinary thing to do, and the alternative — refusing,
+ *  or nesting — either does nothing or writes markers the renderer cannot read back. What
+ *  the user means is "all of this is the important part", so that is what gets stored. */
+const wrapRange = (content: string, start: number, end: number): WrapResult => {
+  const inner = content.slice(start, end).split(MARKER).join('');
+  if (inner.trim().length === 0) return { content, changed: false };
+  return {
+    content: content.slice(0, start) + MARKER + inner + MARKER + content.slice(end),
+    changed: true,
+  };
+};
+
+/** Remove the markers of the highlight that covers this range. */
+const unwrapAt = (content: string, span: { start: number; end: number }): WrapResult => ({
+  content:
+    content.slice(0, span.start) + content.slice(span.start + 2, span.end - 2) + content.slice(span.end),
+  changed: true,
+});
+
+/** Single entry point for both the floating prompt and the toolbar button: wrap a plain
+ *  range, unwrap one that already sits inside a highlight. */
+export const toggleHighlightRange = (
+  content: string,
+  start: number,
+  end: number,
+): WrapResult => {
+  const t = trimRange(content, start, end);
+  if (!t) return { content, changed: false };
+  const covering = enclosingHighlight(content, t.start, t.end);
+  return covering ? unwrapAt(content, covering) : wrapRange(content, t.start, t.end);
 };

@@ -10,38 +10,43 @@ import {
 describe('parseSegments', () => {
   it('returns one segment for an un-merged block (no marker anywhere)', () => {
     const out = parseSegments('just a normal block, no markers');
-    expect(out).toEqual([{ text: 'just a normal block, no markers', annotation: null }]);
+    expect(out).toEqual([
+      { text: 'just a normal block, no markers', annotation: null, start: 0 },
+    ]);
   });
 
   it('returns one segment even when the content contains a paragraph break, as long as no marker exists', () => {
     const out = parseSegments('first paragraph\n\nsecond paragraph');
     expect(out).toEqual([
-      { text: 'first paragraph\n\nsecond paragraph', annotation: null },
+      { text: 'first paragraph\n\nsecond paragraph', annotation: null, start: 0 },
     ]);
   });
 
   it('parses two segments each with their own annotation', () => {
     const content = 'alpha\n↪ note: first note\n\nbeta\n↪ note: second note';
+    // 2026-08-19: `start` is where the segment's text begins in the WHOLE content — the
+    // renderer stamps it into the DOM so a selection inside a merged block maps back to the
+    // same coordinates every other block reports.
     expect(parseSegments(content)).toEqual([
-      { text: 'alpha', annotation: 'first note' },
-      { text: 'beta', annotation: 'second note' },
+      { text: 'alpha', annotation: 'first note', start: 0 },
+      { text: 'beta', annotation: 'second note', start: content.indexOf('beta') },
     ]);
   });
 
   it('handles a mixed-annotation block (some segments annotated, some not)', () => {
     const content = 'alpha\n↪ note: only first\n\nbeta\n\n[from Notion] gamma';
     expect(parseSegments(content)).toEqual([
-      { text: 'alpha', annotation: 'only first' },
-      { text: 'beta', annotation: null },
-      { text: '[from Notion] gamma', annotation: null },
+      { text: 'alpha', annotation: 'only first', start: 0 },
+      { text: 'beta', annotation: null, start: content.indexOf('beta') },
+      { text: '[from Notion] gamma', annotation: null, start: content.indexOf('[from') },
     ]);
   });
 
   it('preserves multi-line segment text (annotation marker is only the LAST line)', () => {
     const content = 'line one\nline two\n↪ note: my note\n\nbeta';
     expect(parseSegments(content)).toEqual([
-      { text: 'line one\nline two', annotation: 'my note' },
-      { text: 'beta', annotation: null },
+      { text: 'line one\nline two', annotation: 'my note', start: 0 },
+      { text: 'beta', annotation: null, start: content.indexOf('beta') },
     ]);
   });
 });
@@ -64,7 +69,15 @@ describe('joinSegments', () => {
       { text: 'gamma\nmulti-line content', annotation: 'third' },
     ];
     const joined = joinSegments(segments);
-    expect(parseSegments(joined)).toEqual(segments);
+    // joinSegments takes no `start` (a segment being assembled has no place yet); parsing
+    // the result back hands one out, so compare on the two fields that round-trip.
+    expect(parseSegments(joined).map(({ text, annotation }) => ({ text, annotation }))).toEqual(
+      segments,
+    );
+    // …and the offsets it hands out must actually point at that segment's text.
+    for (const seg of parseSegments(joined)) {
+      expect(joined.slice(seg.start, seg.start + seg.text.length)).toBe(seg.text);
+    }
   });
 
   it('flattens a multi-line annotation onto a single ↪ note: line', () => {

@@ -3,9 +3,9 @@ import {
   Highlighter,
   MessageSquarePlus,
   Pencil,
+  PencilLine,
   Pin,
   PinOff,
-  Replace,
   Trash2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -26,17 +26,20 @@ interface Props {
   // CLAUDE.md §1 "no silent mode change" — the user sees from the button that the
   // click will REMOVE rather than ADD.
   selectionAlreadyHighlighted: boolean;
-  // DESIGN_CONTEXT_HYGIENE §3.1 — the two supersession entry points. `stale` reflects
-  // whether the user has already retired this block, so the button is its own undo.
-  // `hasSupersession` flips 「它更正了哪一条」 into the way to take that back.
+  // 2026-08-19 (Ocean) — the manual half of 「入口两种」, next to highlight because it is
+  // the same gesture on the same selection: 「划词除了高亮选择，现在多了一个修正信息选择」.
+  // Enabled on the same condition as highlight, minus edit mode: a correction names a
+  // sentence in the SAVED text, and a draft has not got one yet.
+  canCorrect: boolean;
+  onCorrect: () => void;
+  // DESIGN_CONTEXT_HYGIENE §3.1 — `stale` reflects whether the user has already retired
+  // this block, so the button is its own undo.
   stale: boolean;
-  hasSupersession: boolean;
   onTogglePin: () => void;
   onEdit: () => void;
   onHighlight: () => void;
   onAnnotate: () => void;
   onToggleStale: () => void;
-  onSupersede: () => void;
   onDelete: () => void;
 }
 
@@ -79,14 +82,14 @@ export default function BlockActions({
   pinned,
   canHighlight,
   selectionAlreadyHighlighted,
+  canCorrect,
+  onCorrect,
   stale,
-  hasSupersession,
   onTogglePin,
   onEdit,
   onHighlight,
   onAnnotate,
   onToggleStale,
-  onSupersede,
   onDelete,
 }: Props) {
   const t = useT();
@@ -123,13 +126,26 @@ export default function BlockActions({
           }
         />
       </ActionBtn>
+      {/* Sits beside highlight, not beside 「它更正了哪一条」 below: that one is declared FROM
+          the newer block and picks a target; this one is declared ON the block being
+          corrected, about the sentence the user just selected. Same gesture, same place. */}
+      <ActionBtn
+        title={canCorrect ? t('更正选中的这一句') : t('先选中写错了的那一句')}
+        onClick={onCorrect}
+        emphasis="accent"
+        disabled={!canCorrect}
+      >
+        <PencilLine size={11} />
+      </ActionBtn>
       <ActionBtn title={t('添加批注')} onClick={onAnnotate}>
         <MessageSquarePlus size={11} />
       </ActionBtn>
-      {/* DESIGN_CONTEXT_HYGIENE §3.1, the two entry points. The first is on the OLD block
-          («这条不作数了»), the second on the NEW one («它更正了哪一条») — the design puts it
-          there because the moment the user has just written the new conclusion is the
-          moment they know what it replaces. Neither deletes anything. */}
+      {/* DESIGN_CONTEXT_HYGIENE §3.1. 「它更正了哪一条？」 used to sit beside this one —
+          declared FROM the newer block, picking its target out of a list. Ocean retired it
+          2026-08-19:「这个功能不要了，删掉，留下批注式更正就行」. Correcting now starts where
+          the mistake is, on the sentence itself (the ✎ above), which is the same statement
+          without the picking. Retiring a block whole is still here, and still deletes
+          nothing. */}
       <ActionBtn
         title={
           stale
@@ -140,12 +156,6 @@ export default function BlockActions({
         emphasis="accent"
       >
         <CircleSlash size={11} className={stale ? 'text-accent' : ''} />
-      </ActionBtn>
-      <ActionBtn
-        title={hasSupersession ? t('取消这条更正关系') : t('它更正了哪一条？')}
-        onClick={onSupersede}
-      >
-        <Replace size={11} className={hasSupersession ? 'text-accent' : ''} />
       </ActionBtn>
       <ActionBtn title={t('删除')} onClick={onDelete} emphasis="accent">
         <Trash2 size={11} />

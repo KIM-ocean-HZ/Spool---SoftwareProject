@@ -203,9 +203,13 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- at none. A quote that no longer matches simply stops being drawn, and the block-level
   -- 「one point in this block was corrected later」 warning stands on its own.
   --
-  -- NULL on every pre-v21 row, every hand-written correction (SupersedePicker has no input
-  -- for it and does not get one — same reasoning as v20's三列), and every model that does
-  -- not fill it in. All three degrade to exactly the v13 behaviour.
+  -- NULL on every pre-v21 row and on every model that does not fill it in; both degrade to
+  -- exactly the v13 behaviour.
+  -- ⚠️ 2026-08-19: hand-written corrections now DO carry it. They are made by selecting the
+  -- wrong sentence in the block itself, and the quote is cut out of `content` by the raw
+  -- offsets of that selection (selectionRange.ts) — never by searching for the words on
+  -- screen, which the renderer has already stripped `**` and `## ` out of. So the invariant
+  -- holds for every writer alike: whatever is stored here occurs verbatim in the block.
   corrected_quote TEXT
 );
 

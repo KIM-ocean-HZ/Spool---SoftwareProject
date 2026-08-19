@@ -414,3 +414,58 @@ node scripts/i18n-check.mjs                       # (none missing)
 4. `request_file_access` 排队成功,`ai_access` **仍然是 0**;传路径当场被拒;
 5. 按用户点头那一步改库(`ai_access=1` + 删掉请求行)之后,同一个 `get_blocks` **拿到了正文**;
 6. 把写入开关关掉:`request_file_access` 明确报错,`get_follow_up_brief` 照常能读。
+
+---
+
+## 9. ⭐⭐ 2026-08-19:门是两把锁，界面只承认一把 —— Ocean 拍板甲
+
+**病是他自己从外面撞见的。** 他在界面上把〈申请规划〉那份 PDF 的「AI 可以读这个文件」勾**关掉**，
+再问 AI 能不能读，AI 说能 —— 而且**答对了**：文件确实还可读。
+
+**为什么。** §8（v18）把「可读」定义成**两把锁任一把开着**：
+
+```rust
+readable = include_in_pack == 1 || ai_access == 1
+```
+
+当时的理由是站得住的：**用户勾了「打包时带上这个文件的文字」，就等于已经把它交给读 pack 的那个
+AI 了**，这时候还报「锁着」是撒谎。⚠️ **但后来界面把这两件事拆成了两个独立的勾**，而第二个勾关掉
+时，屏幕上写的是 **「AI 不能读这个文件」**（`ProjectFiles.tsx`）。于是同一份文件：界面说不能读，
+`get_project_overview` 报 `ai_readable: true`，`search_blocks` 吐正文片段，`get_pack` 把
+16,945 字整篇内联。**不是代码写错了，是这两个勾长成了两个意思，而界面只承诺了其中一个。**
+
+### 9.1 改法（三选一里的甲）
+
+**`ai_access` 一把锁说了算。** `include_in_pack` 退回它字面的意思：内联进**用户自己复制的那份
+pack**（`assemble.ts`，一个字没动）。**MCP 这一侧全部改成只认 `ai_access`**：
+
+| 位置 | 改成 |
+|---|---|
+| `search_blocks` 附件命中 | `readable = ai_access == 1` |
+| `get_blocks` 的 `files` | 同上（`inlined_in_pack` 仍如实报告用户那个勾） |
+| `get_project_overview` 的 `files` | 同上 |
+| `pack_locked_files` | `WHERE ai_access = 0` |
+| `list_threads` 的 `files_locked` | 同上 |
+| `list_threads` 的 `approx_pack_chars` | 只算 `include_in_pack = 1 AND ai_access = 1` |
+| **`get_pack` 的附件查询** | ⭐ **多取一列 `ai_access`，没授权就不内联** |
+
+⚠️ **最后一条是让这句话变成真的那一条。** 只改前面五处，`get_pack` 还是会把整篇正文端出去 ——
+门锁上了，墙上还开着一个洞。现在没授权的文件在 MCP 的 pack 里渲染成
+`[extracted: yes, not inlined]`，并出现在 `SECTION_LOCKED_FILES` 里带着 `attachment_id`，
+**AI 看得见它在、看不见它写了什么、知道怎么申请**。
+
+⚠️ **两个 pack 渲染器从此在这一点上故意不一致**，golden 对照的是渲染函数本身（没动），
+分歧在**喂给它的那一行数据**：`assemble.ts` 面向的是用户自己的剪贴板，`mcp.rs` 面向的是 AI。
+**受众不同，答案就该不同。**
+
+### 9.2 回归护栏（`a_locked_file_says_how_to_ask_without_being_asked_twice`）
+
+那条测试里原本写着「**a file the user opened up is not a locked file, whichever way they
+opened it**」，并把 `include_in_pack=1 / ai_access=0` 的 `清单.txt` 算作可读 ——
+**这一句正是这次要废掉的**。现在它反过来断言：`ai_readable` 为 false、`inlined_in_pack` 仍为
+true（用户那个勾没被吞掉）、能拿到申请话术、**并且 `build_pack` 的输出里找不到那份正文**。
+
+### 9.3 装机才生效
+
+改的是 `spool --mcp` 那个二进制。**`/Applications/Spool.app` 里还是 0.6.0 的旧逻辑**，
+Ocean 那份 PDF 在重新构建装机之前仍然读得到。

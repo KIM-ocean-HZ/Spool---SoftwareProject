@@ -1,4 +1,5 @@
 import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
+import { hasSegmentAnnotations } from '@/lib/blocks/segments';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
@@ -346,6 +347,30 @@ export const correctionsBySource = (blocks: Block[]): Map<string, Correction[]> 
     const list = out.get(b.refBlockId);
     if (list) list.push(entry);
     else out.set(b.refBlockId, [entry]);
+  }
+  return out;
+};
+
+// 2026-08-19 (Ocean) — corrections the FEED folds into the block they correct instead of
+// giving them a card of their own. The rule is one condition, and it is a safety condition:
+// fold only what the reader can still get to. A correction is reachable when its quote is
+// still locatable in its target (the same test correctionsBySource already applies), because
+// the marked sentence is the only thing that opens it. A correction whose quote never matched,
+// or whose target lives in another project, keeps its place in the timeline — the alternative
+// is a block that exists, sits in the pack, and cannot be seen anywhere on screen.
+//
+// ⚠️ Feed presentation only. The pack, the digest, seq numbering and the row itself are
+// untouched: this hides no content from any reader, it moves where one is drawn.
+export const foldedCorrectionIds = (blocks: Block[]): Set<string> => {
+  const out = new Set<string>();
+  for (const [targetId, list] of correctionsBySource(blocks).entries()) {
+    // ⚠️ A merged block renders through SegmentedContent, which takes no `corrected` spans
+    // — so its sentences carry no mark and there is nothing to click. Folding a correction
+    // under one would put it behind a door with no handle, the same defect
+    // DESIGN_MCP_INTENT_ROUTING §2.1 named on the file side.
+    const target = blocks.find((b) => b.id === targetId);
+    if (!target || hasSegmentAnnotations(target.content)) continue;
+    for (const c of list) if (c.quote) out.add(c.id);
   }
   return out;
 };

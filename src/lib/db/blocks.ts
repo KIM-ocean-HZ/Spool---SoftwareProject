@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { AnnotationAuthor } from '@/lib/blocks/annotationAuthor';
-import { joinSegments, type Segment } from '@/lib/blocks/segments';
+import { joinSegments } from '@/lib/blocks/segments';
 import { getDb, tutorialSourceLabels } from './client';
 
 export type BlockKind = 'text' | 'ref';
@@ -611,17 +611,30 @@ export const setBlockSupersession = async (
   now: number,
 ): Promise<void> => {
   const db = await getDb();
-  await db.execute('UPDATE blocks SET ref_block_id = $1, ref_kind = $2 WHERE id = $3', [
-    kind === null ? null : targetBlockId,
-    kind,
-    id,
-  ]);
+  // ⚠️ 2026-08-19: `corrected_quote` goes with the relation. Found on 2026-08-19 in the real
+  // library: a block sat there with a quote and no ref_kind — a combination add_block
+  // itself refuses to create, produced here by clearing the relation and leaving the
+  // quote behind. A quote with nothing to point at marks a sentence in a block nobody
+  // is correcting any more.
+  await db.execute(
+    `UPDATE blocks SET ref_block_id = $1, ref_kind = $2${kind === null ? ', corrected_quote = NULL' : ''} WHERE id = $3`,
+    [kind === null ? null : targetBlockId, kind, id],
+  );
   if (kind === 'supersedes' && targetBlockId) {
     await db.execute('UPDATE blocks SET stale_at = $1 WHERE id = $2 AND stale_at IS NULL', [
       now,
       targetBlockId,
     ]);
   }
+};
+
+/** 2026-08-19 — the sentence this correction is aimed at, as it reads in the block being
+ *  corrected. Set only alongside a 'corrects' relation (setBlockSupersession clears it
+ *  when that relation goes); located by exact substring at render time, never by offset,
+ *  so editing the target cannot silently move the mark onto different words. */
+export const setCorrectedQuote = async (id: string, quote: string | null): Promise<void> => {
+  const db = await getDb();
+  await db.execute('UPDATE blocks SET corrected_quote = $1 WHERE id = $2', [quote, id]);
 };
 
 // §9.13 Undo (merge): revert the merge survivor's mutable fields to their pre-merge
@@ -676,7 +689,7 @@ export const computeMergedFields = (blocks: Block[]): MergedFields => {
   const firstSource = ordered[0]!.source ?? null;
   const sourcesDiffer = ordered.some((b) => (b.source ?? null) !== firstSource);
 
-  const segments: Segment[] = ordered.map((b, idx) => {
+  const segments = ordered.map((b, idx) => {
     const isSurvivor = idx === 0;
     const prefix = sourcesDiffer && !isSurvivor
       ? `[from ${b.source ?? MERGE_NO_SOURCE_LABEL}] `

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { assemble, filterBlocksForRange } from './assemble';
+import { assemble, filterBlocksForRange, foldedCorrectionIds } from './assemble';
 import goldenFixture from './fixtures/golden-pack.json';
 
 const NOW = new Date('2026-05-15T10:00:00').getTime();
@@ -579,6 +579,65 @@ describe('assemble', () => {
       const out = assemble({ thread, blocks, now: NOW });
       expect(out).toContain('⚠️ one point in this block was corrected later — see #2');
       expect(out).not.toContain('占总分 40%\u201d');
+    });
+
+    // 2026-08-19 — which corrections the FEED folds under their target. The rule is reachability:
+    // the marked sentence is the only way to open a folded note, so a correction without a
+    // locatable quote must keep its own card or it disappears from the screen entirely.
+    it('folds only the corrections a reader could open from the marked sentence', () => {
+      const long = '课程要求:复现一篇论文,占总分 40%';
+      const blocks = [
+        textBlock('b1', long, { seq: 1 }),
+        // Quote occurs in b1 → the sentence is markable → folds.
+        textBlock('b2', '占分是 30%', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '占总分 40%',
+        }),
+        // Quote does NOT occur (the user edited the sentence away) → nothing to click.
+        textBlock('b3', '另一处也不对', {
+          seq: 3,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '早就删掉的句子',
+        }),
+        // A correction with no quote at all — the pre-v21 shape, still in real libraries.
+        textBlock('b4', '第三处', { seq: 4, refBlockId: 'b1', refKind: 'corrects' }),
+        // Plain citation: not a correction, never folded.
+        textBlock('b5', '接着说', { seq: 5, refBlockId: 'b1' }),
+      ];
+      const folded = foldedCorrectionIds(blocks);
+      expect([...folded]).toEqual(['b2']);
+    });
+
+    it('does not fold under a merged block, which has no marks to click', () => {
+      // SegmentedContent renders these and takes no `corrected` spans, so the sentence
+      // carries no mark — a folded note there would be unreachable.
+      const blocks = [
+        textBlock('b1', '第一段\n↪ note: 我的批注\n\n占总分 40%', { seq: 1 }),
+        textBlock('b2', '占分是 30%', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '占总分 40%',
+        }),
+      ];
+      expect(foldedCorrectionIds(blocks).size).toBe(0);
+    });
+
+    it('does not fold a correction whose target is not in the list', () => {
+      // Cross-project corrections resolve to nothing here; folding one would hide a block
+      // whose target is not even on screen.
+      const blocks = [
+        textBlock('b2', '占分是 30%', {
+          seq: 2,
+          refBlockId: 'somewhere-else',
+          refKind: 'corrects',
+          correctedQuote: '占总分 40%',
+        }),
+      ];
+      expect(foldedCorrectionIds(blocks).size).toBe(0);
     });
 
     it('does not warn about a correction the user has since retired', () => {

@@ -17,6 +17,7 @@ import {
   restoreBlock,
   setBlockStale,
   setBlockSupersession,
+  setCorrectedQuote,
   togglePin,
 } from './blocks';
 import { isMcpSource } from '@/lib/blocks/sourceIcon';
@@ -549,6 +550,26 @@ describe('supersession (v13)', () => {
     // Deliberate: "this no longer holds" was its own statement the moment it was made, and
     // guessing that it should be undone is exactly what §3.1 keeps out of this feature.
     expect(rows.find((b) => b.id === older.id)!.staleAt).toBe(1_754_000_000_000);
+  });
+
+  // 2026-08-19 — found in the real library on 2026-08-19: a block sat there carrying a
+  // corrected_quote with no ref_kind and no ref_block_id. add_block refuses to write that
+  // combination outright, so it can only have been produced here, by unlinking and leaving
+  // the quote behind. A quote with nothing to point at marks a sentence in a block that
+  // nobody is correcting any more.
+  it('takes the corrected quote with the relation when it is cleared', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'corrects', 1_754_000_000_000);
+    await setCorrectedQuote(newer.id, '截止 4 月 30 日');
+    expect(
+      (await listBlocksByThread(thread.id)).find((b) => b.id === newer.id)!.correctedQuote,
+    ).toBe('截止 4 月 30 日');
+    await setBlockSupersession(newer.id, null, null, 2_000_000_000_000);
+    expect((await listBlocksByThread(thread.id)).find((b) => b.id === newer.id)).toMatchObject({
+      refBlockId: null,
+      refKind: null,
+      correctedQuote: null,
+    });
   });
 
   it('brings both fields back when an undone delete restores the block', async () => {

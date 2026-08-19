@@ -27,6 +27,11 @@ export type InlineMark = 'strong' | 'em' | 'code';
 
 export interface ContentRun {
   text: string;
+  /** Where this run's text starts and ends in the ORIGINAL content string. Marker chars
+   *  (`**`, `==`, `## `) never reach a run, so `text.length === end - start` always holds —
+   *  which is what lets a DOM selection be mapped back to raw offsets (selectionRange.ts). */
+  start: number;
+  end: number;
   // Heavier-weight first line / first paragraph (§13.4). Display-only.
   spine: boolean;
   // Inside a persistent ==…== highlight (§20.5). The == markers themselves are stripped.
@@ -42,6 +47,10 @@ export interface ContentRun {
   // Optional like `mark`, and for the same reason: it is absent on virtually every run, and
   // an always-present `false` would have rewritten every existing expectation for nothing.
   corrected?: boolean;
+  // 2026-08-19: WHICH correction marked this run. Two sentences in one block may be corrected by
+  // two different blocks, and 「点击它会出现修正后的信息」 means the one belonging to the
+  // sentence clicked — not every correction the block happens to carry.
+  correctionId?: string;
 }
 
 // Inline markers, in precedence order — first claim wins, and a later pattern overlapping
@@ -86,8 +95,8 @@ interface TokenizeOptions {
   raw?: readonly MdSpan[];
   // v21: character ranges of sentences a later block corrected, in this same coordinate
   // space. Resolved by the caller (BlockItem), because only it knows which blocks correct
-  // this one.
-  corrected?: readonly MdSpan[];
+  // this one. 2026-08-19: each range may name the correcting block it came from.
+  corrected?: readonly (MdSpan & { id?: string })[];
   // Marker ranges the parser identified as structure (`## `, `- `, the fences).
   hidden?: readonly MdSpan[];
 }
@@ -108,7 +117,7 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
     | { kind: 'hit'; start: number; end: number; idx: number }
     | { kind: 'highlight'; start: number; end: number }
     | { kind: 'mark'; start: number; end: number; mark: InlineMark }
-    | { kind: 'corrected'; start: number; end: number }
+    | { kind: 'corrected'; start: number; end: number; id?: string }
     | { kind: 'cap'; start: number; end: number };
 
   const intervals: Interval[] = [];
@@ -144,7 +153,7 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
   for (const h of opts.hidden ?? []) intervals.push({ kind: 'cap', start: h.start, end: h.end });
   for (const h of hits) intervals.push({ kind: 'hit', start: h.start, end: h.end, idx: h.idx });
   for (const c of opts.corrected ?? []) {
-    intervals.push({ kind: 'corrected', start: c.start, end: c.end });
+    intervals.push({ kind: 'corrected', start: c.start, end: c.end, id: c.id });
   }
 
   const breakpoints = new Set<number>([from, to]);
@@ -175,16 +184,19 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
       (it): it is Extract<Interval, { kind: 'mark' }> =>
         it.kind === 'mark' && segStart >= it.start && segEnd <= it.end,
     )?.mark;
-    const corrected = intervals.some(
+    const correction = intervals.find(
       (it) => it.kind === 'corrected' && segStart >= it.start && segEnd <= it.end,
     );
     runs.push({
       text: content.slice(segStart, segEnd),
+      start: segStart,
+      end: segEnd,
       spine: sEnd > 0 && segStart < sEnd,
       highlight,
       hit: hit ? { idx: hit.idx, active: hit.idx === activeHitIndex } : null,
       mark,
-      corrected: corrected || undefined,
+      corrected: !!correction || undefined,
+      correctionId: correction?.kind === 'corrected' ? correction.id : undefined,
     });
   }
   return runs;
@@ -211,6 +223,16 @@ export function plainText(content: string): string {
 
 interface ContentRunsProps extends TokenizeOptions {
   content: string;
+  /** Stamp every run with its raw content offset (`data-o`), so a DOM selection can be
+   *  mapped back to a character range in `content`. Opt-in: the surfaces that never take a
+   *  selection (digest, 周回顾) keep rendering bare text nodes, and the 「plain prose renders
+   *  as nothing but the prose」 invariant with them. */
+  withOffsets?: boolean;
+  /** 2026-08-19: what a click on a corrected span does. Ocean 2026-08-19:「点击它会出现修正后的信息」—
+   *  the marked sentence IS the affordance, so the handler lives on the run, not on a
+   *  separate line underneath. Absent (digest, weekly review, read-only surfaces) leaves
+   *  the wash exactly as it was: visible, inert. */
+  onCorrectedClick?: (correctionId: string | undefined) => void;
 }
 
 // Display-only renderer (§2.6 — no rich text). Maps each run to a styled node: the
@@ -218,8 +240,49 @@ interface ContentRunsProps extends TokenizeOptions {
 // (var(--selection)), and search hits (active one brighter, with an inset accent ring so
 // orientation holds after landing). Active hit marks keep `data-hit-index` so BlockItem's
 // nav scroll-into-view can target them.
-export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
+export function ContentRuns({
+  content,
+  onCorrectedClick,
+  withOffsets,
+  ...opts
+}: ContentRunsProps): ReactNode {
   const runs = tokenizeContent(content, opts);
+  // One wrapper, one attribute, no styling — it must not change a single pixel.
+  const located = (node: ReactNode, key: number, run: ContentRun): ReactNode =>
+    withOffsets ? (
+      <span key={key} data-o={run.start}>
+        {node}
+      </span>
+    ) : (
+      node
+    );
+  // 2026-08-19: one wrapper for every path below (mark / code / span / bare text), so a corrected
+  // sentence is clickable whether or not a search hit or a ==highlight== also covers it.
+  // A <span role="button"> rather than a <button>: this sits mid-sentence, and a real button
+  // would break the line box it lives in.
+  const clickable = (node: ReactNode, key: number, id: string | undefined): ReactNode =>
+    onCorrectedClick ? (
+      <span
+        key={key}
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCorrectedClick(id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          e.stopPropagation();
+          onCorrectedClick(id);
+        }}
+        className="cursor-pointer"
+      >
+        {node}
+      </span>
+    ) : (
+      node
+    );
   return (
     <Fragment>
       {runs.map((run, i) => {
@@ -257,8 +320,12 @@ export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
             }`
           : '';
         const spineCls = `${spineWeight} ${markCls} ${correctedCls}`.trim();
+        // 2026-08-19: a corrected run answers to the click handler; everything else is unchanged
+        // and keeps its own key, so non-corrected blocks render node-for-node as before.
+        const wrap = (n: ReactNode, key: number): ReactNode =>
+          located(run.corrected ? clickable(n, key, run.correctionId) : n, key, run);
         if (run.hit) {
-          return (
+          return wrap(
             <mark
               key={i}
               data-hit-index={run.hit.idx}
@@ -269,34 +336,38 @@ export function ContentRuns({ content, ...opts }: ContentRunsProps): ReactNode {
               } ${spineCls}`}
             >
               {run.text}
-            </mark>
+            </mark>,
+            i,
           );
         }
         if (run.highlight) {
-          return (
+          return wrap(
             <mark
               key={i}
               className={`rounded-sm bg-[var(--selection)] px-0.5 text-ink ${spineCls}`}
             >
               {run.text}
-            </mark>
+            </mark>,
+            i,
           );
         }
         if (run.mark === 'code') {
-          return (
+          return wrap(
             <code key={i} className={`${markCls} ${correctedCls}`.trim()}>
               {run.text}
-            </code>
+            </code>,
+            i,
           );
         }
         if (spineCls) {
-          return (
+          return wrap(
             <span key={i} className={spineCls}>
               {run.text}
-            </span>
+            </span>,
+            i,
           );
         }
-        return <Fragment key={i}>{run.text}</Fragment>;
+        return wrap(<Fragment key={i}>{run.text}</Fragment>, i);
       })}
     </Fragment>
   );

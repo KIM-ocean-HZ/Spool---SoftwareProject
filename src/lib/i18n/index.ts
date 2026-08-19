@@ -188,6 +188,23 @@ const EN: Record<string, string> = {
   '更正了其中一处：': 'corrects one point in:',
   '其中一处已被更正：': 'one point in this was corrected:',
   '点一下跳到那一块': 'Click to jump to that block',
+  // 2026-08-19 — the correction, shown under the sentence it is about rather than as a pointer
+  // somewhere else. 「你写的」 is the whole author distinction on screen: an AI's correction
+  // carries its client label instead.
+  '更正': 'Correction',
+  '你写的': 'yours',
+  '解除': 'Unlink',
+  '解除这条更正关系（那一块本身留着）': 'Unlink this correction (the block itself stays)',
+  '更正选中的这一句': 'Correct the selected sentence',
+  // The floating prompt, beside 「标为重点?」 — Ocean 2026-08-19:「点击工具栏摩擦太大了」.
+  '更正这里?': 'Correct this?',
+  '先选中写错了的那一句': 'Select the sentence that is wrong first',
+  '更正这一句：': 'Correcting:',
+  '写下正确的说法': 'Write what is right',
+  '保存更正': 'Save correction',
+  '更正没能保存。': 'The correction could not be saved.',
+  '这段选区跨了格式标记，Spool 定位不到原句。请只选一句完整的原文。':
+    'That selection crosses a formatting marker, so Spool cannot find the sentence again. Select one whole sentence of the text as written.',
   '这一条更正了项目里的哪一条？': 'Which block in this project does this one correct?',
   '输入几个字找那一条': 'Type a few words to find it',
   '没有匹配的块': 'No block matches',

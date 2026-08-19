@@ -17,8 +17,13 @@ interface Props {
   hits?: readonly HitRange[];
   activeHitIndex?: number;
   withSpine?: boolean;
-  /** v21: sentences a later block corrected, as ranges in `content`. */
-  corrected?: readonly MdSpan[];
+  /** v21: sentences a later block corrected, as ranges in `content`. 2026-08-19: each may name
+   *  the correcting block, so a click opens the one belonging to the sentence clicked. */
+  corrected?: readonly (MdSpan & { id?: string })[];
+  /** 2026-08-19: what clicking one of those sentences does. See ContentRuns. */
+  onCorrectedClick?: (correctionId: string | undefined) => void;
+  /** Stamp raw offsets into the DOM so a selection can be mapped back. See ContentRuns. */
+  withOffsets?: boolean;
 }
 
 // Ocean 2026-08-12, after reading real blocks in the first version of this renderer:
@@ -57,6 +62,8 @@ export function MarkdownContent({
   activeHitIndex = -1,
   withSpine = false,
   corrected,
+  onCorrectedClick,
+  withOffsets,
 }: Props): ReactNode {
   const doc: MdDoc = parseMarkdown(content);
   // Nothing structural in this block: render exactly what the old path rendered, down to
@@ -69,6 +76,8 @@ export function MarkdownContent({
         activeHitIndex={activeHitIndex}
         withSpine={withSpine}
         corrected={corrected}
+        onCorrectedClick={onCorrectedClick}
+        withOffsets={withOffsets}
       />
     );
   }
@@ -83,6 +92,8 @@ export function MarkdownContent({
       activeHitIndex={activeHitIndex}
       withSpine={spine}
       corrected={corrected}
+      onCorrectedClick={onCorrectedClick}
+      withOffsets={withOffsets}
       from={b.text.start}
       to={b.text.end}
       raw={doc.raw}

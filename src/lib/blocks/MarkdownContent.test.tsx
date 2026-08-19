@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { MarkdownContent } from './MarkdownContent';
+import { SegmentedContent } from './SegmentedContent';
 
 // DESIGN_WORKBENCH §10.1. The parser and the tokenizer are unit-tested next door; this is
 // the one thing they cannot answer — what actually comes out the other end. No DOM needed
@@ -60,5 +61,82 @@ describe('MarkdownContent', () => {
     // h1 above body size. Ocean 2026-08-13 pulled the scale back to the original 17px-on-15px,
     // so the bar is "bigger than the body", not the 1.2em the taller scale cleared.
     expect(sizes[0]).toBeGreaterThan(1);
+  });
+});
+
+// 2026-08-19 — the marked sentence is the affordance (Ocean 2026-08-19:「点击它会出现修正后的信息」).
+// Two things have to be true of the rendered output for that to work, and neither is
+// visible from the tokenizer alone: the corrected words become a control, and a block
+// without corrections gains no wrapper at all.
+describe('MarkdownContent, corrected sentences', () => {
+  const content = '截止 4 月 30 日,占总分 40%,可以两人一组';
+  const span = {
+    start: content.indexOf('占总分 40%'),
+    end: content.indexOf('占总分 40%') + '占总分 40%'.length,
+    id: 'corr-b',
+  };
+
+  it('makes the corrected sentence clickable and leaves the rest alone', () => {
+    const out = renderToStaticMarkup(
+      <MarkdownContent content={content} corrected={[span]} onCorrectedClick={() => {}} />,
+    );
+    expect(out).toContain('role="button"');
+    expect(out).toContain('占总分 40%');
+    // The words themselves are untouched — a correction marks, it does not rewrite.
+    expect(out).toContain('可以两人一组');
+  });
+
+  it('adds no control when nothing corrects this block', () => {
+    const out = renderToStaticMarkup(
+      <MarkdownContent content={content} onCorrectedClick={() => {}} />,
+    );
+    expect(out).not.toContain('role="button"');
+  });
+
+  // Read-only surfaces (digest, 周回顾) pass no handler: the wash still shows that a
+  // sentence was corrected, and clicking it does nothing rather than half-working.
+  it('keeps the mark but no control where there is no handler', () => {
+    const out = renderToStaticMarkup(<MarkdownContent content={content} corrected={[span]} />);
+    expect(out).not.toContain('role="button"');
+    expect(out).toContain('decoration-dotted');
+  });
+});
+
+// 2026-08-19 — the offsets have to reach the DOM, or a selection cannot be mapped back and
+// 「选整段」 fails again. renderToStaticMarkup is enough to see them.
+describe('MarkdownContent, withOffsets', () => {
+  it('stamps each run with where it starts in the raw content', () => {
+    const content = 'a **b** c';
+    const out = renderToStaticMarkup(<MarkdownContent content={content} withOffsets />);
+    // 'a ' at 0, 'b' at 4 (past the opening **), ' c' at 7.
+    expect(out).toContain('data-o="0"');
+    expect(out).toContain('data-o="4"');
+    expect(out).toContain('data-o="7"');
+  });
+
+  it('adds nothing at all when offsets were not asked for', () => {
+    expect(renderToStaticMarkup(<MarkdownContent content={'just a sentence'} />)).toBe(
+      'just a sentence',
+    );
+  });
+});
+
+// 2026-08-19 — merged blocks render through SegmentedContent/HighlightedContent, NOT through
+// the Markdown renderer. They need the same offsets or selecting inside one maps to nothing,
+// which would have turned 「只能划一行」 into 「一行也划不了」 on exactly those blocks.
+describe('SegmentedContent, withOffsets', () => {
+  it('offsets each segment against the whole merged content', () => {
+    const content = 'alpha\n↪ note: first\n\nbeta';
+    const out = renderToStaticMarkup(<SegmentedContent content={content} withOffsets />);
+    expect(out).toContain('data-o="0"');
+    // 'beta' sits after 'alpha\n↪ note: first\n\n'.
+    expect(out).toContain(`data-o="${content.indexOf('beta')}"`);
+  });
+
+  it('offsets the text inside a highlight past its markers', () => {
+    const out = renderToStaticMarkup(
+      <SegmentedContent content={'a ==b== c'} withOffsets />,
+    );
+    expect(out).toContain('data-o="4"');
   });
 });

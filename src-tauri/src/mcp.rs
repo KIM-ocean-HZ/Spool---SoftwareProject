@@ -1216,7 +1216,7 @@ const PACK_CHARS_BLOCKS: &str = "SUM(LENGTH(content) + COALESCE(LENGTH(annotatio
 // ⚠️ Qualified with `a.` — the caller supplies `FROM attachments a`. The 8000 mirrors the
 // per-file inline cap in the renderer.
 const PACK_CHARS_ATTACHMENTS: &str =
-    "SUM(CASE WHEN a.include_in_pack = 1 AND a.extracted_text IS NOT NULL
+    "SUM(CASE WHEN a.include_in_pack = 1 AND a.ai_access = 1 AND a.extracted_text IS NOT NULL
               THEN MIN(LENGTH(a.extracted_text), 8000) ELSE 0 END
          + 2 * COALESCE(LENGTH(a.label), LENGTH(a.target))
          + LENGTH(a.target) + 100)";
@@ -1270,7 +1270,7 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
                                -- §4.3 C: two more counters on an aggregate that was already
                                -- being walked — no extra pass over attachments.
                                COUNT(*) AS files,
-                               SUM(CASE WHEN a.include_in_pack = 0 AND a.ai_access = 0
+                               SUM(CASE WHEN a.ai_access = 0
                                              AND a.extracted_text IS NOT NULL
                                         THEN 1 ELSE 0 END) AS files_locked
                           FROM attachments a GROUP BY a.thread_id) ac ON ac.thread_id = t.id
@@ -1653,7 +1653,8 @@ fn search_attachments(
             label: r.get(5)?,
             target: r.get(6)?,
             extraction_kind: r.get(7)?,
-            readable: r.get::<_, i64>(8)? == 1 || r.get::<_, i64>(9)? == 1,
+            // 2026-08-19: ai_access alone. See the note above the get_blocks file gate.
+            readable: r.get::<_, i64>(9)? == 1,
             extracted_text: r.get(10)?,
         })
     };
@@ -2795,10 +2796,18 @@ fn get_blocks_json(
     // ⚠️ v18 (DESIGN_PROJECT_FILES §3.4): this is where the file gate actually lives. Until
     // phase three there was none — `include_extracted_text=true` handed over every file's
     // full text, which made 「MCP 可以申请访问文件,默认不看」 (Ocean 2026-08-08) true of the
-    // pack and false of the tool right beside it. A file is readable when the USER said so,
-    // in either of the two ways they can say it:
-    //   * `include_in_pack` — they ticked "put this file's text in the pack", i.e. they were
-    //     already handing it to whichever AI reads the pack;
+    // pack and false of the tool right beside it.
+    //
+    // ⚠️⚠️ 2026-08-19 (Ocean 拍板甲): a file is readable **iff `ai_access = 1`** — one
+    // key, the one the user turns. It used to be either that OR `include_in_pack`, on the
+    // reasoning that ticking "put this file's text in the pack" already hands it to whoever
+    // reads the pack. That reasoning was sound and the result was still a lie, because the
+    // two ticks are separate in the UI and the second one says, in the user's own language,
+    // 「AI 不能读这个文件」 (ProjectFiles.tsx). Ocean found it from the outside: he untick[ed]
+    // it, asked, and was told the file was still readable — because it was.
+    //   * `include_in_pack` now means only what it says: inline this file in the pack the
+    //     USER copies (assemble.ts, unchanged). The MCP pack obeys ai_access too — see the
+    //     get_pack attachment query.
     //   * `ai_access` — they answered a request_file_access card, or ticked the ✓ themselves.
     // Everything else comes back with its name, its size and `ai_readable: false`, which is
     // exactly what an AI needs to decide whether to ask — and none of its content.
@@ -2813,7 +2822,7 @@ fn get_blocks_json(
         .query_map([thread_id], |r| {
             let extracted: Option<String> = r.get(7)?;
             let inlined = r.get::<_, i64>(5)? == 1;
-            let readable = inlined || r.get::<_, i64>(6)? == 1;
+            let readable = r.get::<_, i64>(6)? == 1;
             let mut a = json!({
                 // The parameter request_file_access takes. Nothing else in the payload can
                 // name a file, so without this an AI could see a file and never ask for it.
@@ -2975,7 +2984,7 @@ fn pack_locked_files(conn: &Connection, thread_id: &str) -> Result<Option<String
             // granted through a request — either one means the user opened it up.
             "SELECT id, label, target, extracted_text
              FROM attachments
-             WHERE thread_id = ?1 AND include_in_pack = 0 AND ai_access = 0
+             WHERE thread_id = ?1 AND ai_access = 0
                    AND extracted_text IS NOT NULL
              ORDER BY created_at ASC",
         )
@@ -3258,8 +3267,11 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
     // them would hide the user's own material rather than match the slice.
     let mut stmt = conn
         .prepare(
+            // ⚠️ 2026-08-19: `ai_access` rides along and gates the inlining below. `include_in_pack`
+            // is the user ticking "put this file's text in the pack THEY copy"; it is not,
+            // and after 2026-08-19 never was, permission for an AI to read the file here.
             "SELECT thread_id, kind, target, label, extracted_text,
-                    extraction_kind, include_in_pack
+                    extraction_kind, include_in_pack, ai_access
              FROM attachments WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -3272,7 +3284,10 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                 label: r.get(3)?,
                 extracted_text: r.get(4)?,
                 extraction_kind: r.get(5)?,
-                include_in_pack: r.get::<_, i64>(6)? == 1,
+                // Inline only what this reader is allowed to see. A ticked-but-not-granted
+                // file renders as "[extracted: yes, not inlined]" and is listed under
+                // SECTION_LOCKED_FILES with its attachment_id, so the way in is to ask.
+                include_in_pack: r.get::<_, i64>(6)? == 1 && r.get::<_, i64>(7)? == 1,
             })
         })
         .map_err(|e| e.to_string())?
@@ -5096,7 +5111,8 @@ fn get_project_overview_json(conn: &Connection, thread_id: &str, now: i64) -> Re
             let label: String = r.get(1)?;
             let target: String = r.get(2)?;
             let extracted: Option<String> = r.get(3)?;
-            let readable = r.get::<_, i64>(4)? == 1 || r.get::<_, i64>(5)? == 1;
+            // 2026-08-19: ai_access alone (see the get_blocks file gate).
+            let readable = r.get::<_, i64>(5)? == 1;
             Ok(json!({
                 "attachment_id": r.get::<_, String>(0)?,
                 "label": if label.trim().is_empty() { base_name(&target).to_string() } else { label.trim().to_string() },
@@ -9520,11 +9536,14 @@ mod tests {
                ('b1', 't1', 'text', '12345', '批注九个字符啊啊啊', 1, 1),
                ('b2', 't1', 'text', '1234567890', NULL, 0, 2),
                ('b3', 't3', 'text', '不应计入', NULL, 0, 1);
+             -- ⚠️ 2026-08-19: ticking a file into the pack is no longer permission to read it,
+             -- so a1 carries ai_access = 1 as well. Without it nothing inlines and this
+             -- test stops measuring the 8k cap it exists to measure.
              INSERT INTO attachments (id, thread_id, kind, target, label, extracted_text,
-                                      include_in_pack, created_at) VALUES
-               ('a1', 't1', 'file', '/x/a.pdf', 'a.pdf', '{long}', 1, 1),
-               ('a2', 't1', 'file', '/x/b.pdf', 'b.pdf', '弃权不内联', 0, 2),
-               ('a3', 't1', 'file', '/x/c.pdf', 'c.pdf', NULL, 1, 3);"
+                                      include_in_pack, ai_access, created_at) VALUES
+               ('a1', 't1', 'file', '/x/a.pdf', 'a.pdf', '{long}', 1, 1, 1),
+               ('a2', 't1', 'file', '/x/b.pdf', 'b.pdf', '弃权不内联', 0, 0, 2),
+               ('a3', 't1', 'file', '/x/c.pdf', 'c.pdf', NULL, 1, 1, 3);"
         ))
         .unwrap();
 
@@ -10658,12 +10677,18 @@ mod tests {
         // model then cannot find the text it was granted.
         assert!(locked["locked"].as_str().unwrap().contains("include_extracted_text"));
         assert!(locked["extracted_text"].is_null(), "no text without the switch");
-        // A file the user opened up is not a locked file, whichever way they opened it.
-        for label in ["陈述.docx", "清单.txt"] {
-            let open = files.iter().find(|f| f["label"] == label).unwrap();
-            assert_eq!(open["ai_readable"], true, "{label}");
-            assert!(open["locked"].is_null(), "{label} was called locked");
-        }
+        // A file the user opened up is not a locked file.
+        let open = files.iter().find(|f| f["label"] == "陈述.docx").unwrap();
+        assert_eq!(open["ai_readable"], true);
+        assert!(open["locked"].is_null(), "a granted file was called locked");
+        // ⚠️ 2026-08-19 (Ocean 拍板甲) — this used to read 「whichever way they opened
+        // it」 and count 清单.txt, ticked into the pack but never granted, as open. It is the
+        // sentence the fix retires: the tick that says 「AI 不能读这个文件」 in the UI now means
+        // it. A ticked-but-not-granted file is locked like any other, and says how to ask.
+        let ticked = files.iter().find(|f| f["label"] == "清单.txt").unwrap();
+        assert_eq!(ticked["ai_readable"], false, "include_in_pack still grants read");
+        assert_eq!(ticked["inlined_in_pack"], true, "the user's own tick was lost");
+        assert!(ticked["locked"].as_str().unwrap().contains("request_file_access"));
         // Nothing to unlock: a folder holds no extracted text, so telling the model to ask
         // for it would send it to the user with a request that cannot be granted.
         let empty = files.iter().find(|f| f["label"] == "材料夹").unwrap();
@@ -10678,11 +10703,20 @@ mod tests {
         assert!(tail.contains("方案.pdf"));
         assert!(tail.contains("request_file_access"));
         assert!(!tail.contains("陈述.docx"), "a readable file was listed as unreachable");
-        assert!(!tail.contains("清单.txt"), "an inlined file was listed as unreachable");
         assert!(!tail.contains("材料夹"), "a folder was listed as unreachable");
+        // 2026-08-19: and the ticked-but-not-granted one is now on that list, with the id to ask with.
+        assert!(tail.contains("清单.txt"), "a ticked-but-locked file had no way in: {tail}");
+        assert!(tail.contains("att_inlined"));
+        // ⚠️ The assertion that makes the promise true rather than merely worded: the pack an
+        // AI pulls must not carry the text either. The clipboard pack (assemble.ts) still
+        // inlines it — that one is the user handing it over themselves.
+        let mcp_pack = build_pack(&conn, "th1", "all").unwrap().text;
+        assert!(!mcp_pack.contains("材料清单正文"), "get_pack inlined a file that is locked");
+        assert!(mcp_pack.contains("[extracted: yes, not inlined]"));
         // Nothing locked, nothing said. An empty section is noise on every project that has
         // no files at all.
-        conn.execute("UPDATE attachments SET ai_access = 1 WHERE id = 'att_locked'", []).unwrap();
+        conn.execute("UPDATE attachments SET ai_access = 1 WHERE id IN ('att_locked', 'att_inlined')", [])
+            .unwrap();
         assert!(pack_locked_files(&conn, "th1").unwrap().is_none());
     }
 

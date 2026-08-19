@@ -22,6 +22,11 @@ export interface Segment {
   text: string;
   // Per-segment annotation parsed off the trailing `↪ note: ` line, if any.
   annotation: string | null;
+  /** Where `text` begins in the whole merged content. 2026-08-19: the renderer stamps it
+   *  into the DOM so a selection inside a merged block maps back to the same character
+   *  range every other block reports — without it, highlighting a merged block would have
+   *  gone from "one line only" straight to "not at all". */
+  start: number;
 }
 
 const stripMarker = (line: string): string => line.slice(SEGMENT_NOTE_PREFIX.length);
@@ -30,18 +35,24 @@ const stripMarker = (line: string): string => line.slice(SEGMENT_NOTE_PREFIX.len
 // anywhere), returns a single segment with the content verbatim.
 export const parseSegments = (content: string): Segment[] => {
   if (!content.includes(SEGMENT_NOTE_PREFIX)) {
-    return [{ text: content, annotation: null }];
+    return [{ text: content, annotation: null, start: 0 }];
   }
+  // `start` is tracked by walking the split rather than searching for each segment: two
+  // identical segments would otherwise both resolve to the first one's offset.
+  let cursor = 0;
   return content.split(SEGMENT_SEPARATOR).map((seg) => {
+    const start = cursor;
+    cursor += seg.length + SEGMENT_SEPARATOR.length;
     const lines = seg.split('\n');
     const last = lines[lines.length - 1] ?? '';
     if (last.startsWith(SEGMENT_NOTE_PREFIX)) {
       return {
         text: lines.slice(0, -1).join('\n'),
         annotation: stripMarker(last),
+        start,
       };
     }
-    return { text: seg, annotation: null };
+    return { text: seg, annotation: null, start };
   });
 };
 
@@ -52,7 +63,10 @@ export const hasSegmentAnnotations = (content: string): boolean =>
 
 // Join an array of segments back into a merged-content string. Inverse of
 // parseSegments. Used by computeMergedFields.
-export const joinSegments = (segments: Segment[]): string =>
+/** ⚠️ Takes only the two fields it writes. `start` is an output of PARSING (where each
+ *  segment sits in the string it came out of); a segment being assembled for a merge has no
+ *  such place yet, so requiring it here would be asking the caller to invent a number. */
+export const joinSegments = (segments: readonly Pick<Segment, 'text' | 'annotation'>[]): string =>
   segments
     .map((s) => {
       const trimmed = s.annotation?.trim();

@@ -476,7 +476,7 @@ ALTER TABLE blocks ADD COLUMN recheck_after  INTEGER;   -- 什么时候该复查
 | 4 | **C**(`list_threads` 两字段 + `applyBriefSuggestion` 开始动 `updated_at`) | `client.test.ts` 字段断言;`list_threads` 真跑 |
 | 5 | **E**(`get_project_overview`,工具面 → 18) | ⚠️ 先跑一次 `every_tool_declares_its_read_write_annotation` 看它怎么红;交接 §6.3-2 改成 18;**两个客户端各真跑一次** |
 | 6 | ✅ **F**(schema v20 三列 + 两侧渲染器 + golden 重生)—— **2026-08-10 落地,见 §8.3** | ⚠️ `TZ=Europe/London GOLDEN_WRITE=1`;schema 三处一起动(`client.ts` / `mcp.rs` / `client.test.ts`,含链式 `downgradeToV19`) |
-| 7 | ⏳ ⭐ **真跑 §7.1 的五句话**,不看模型说什么,看 `mcp_tool_call` 事件 | **仍未跑** —— 六件里唯一没兑现的一格 |
+| 7 | ✅ ⭐ **真跑 §7.1 的五句话**,不看模型说什么,看 `mcp_tool_call` 事件 | **2026-08-19 跑完(Codex),逐句结果见 §10** |
 
 ### 7.1 验收用的五句话(照 §2.3 那张表,每句钉一个工具)
 
@@ -803,3 +803,48 @@ initialize / notifications/initialized / tools/list
    解法是 §9.4 甲,让模型自己去核。
 3. ~~关掉几个用不上的插件~~ —— ❌ **Ocean 否掉了(§9.2-2)**:
    「使用 spool 首先不能影响其他功能的使用。」**这条别再提。**
+
+---
+
+## 10. ⭐⭐⭐ 2026-08-19:§7.1 五句真跑了 —— 3 句干净过,1 句过得难看,1 句测不出来
+
+**这一场归 Ocean,在 Codex 里跑的,13:21–13:27。**
+取证文件:`~/.codex/sessions/2026/08/19/rollout-2026-08-19T13-21-52-*.jsonl`,
+判据是里面 `payload.type == "custom_tool_call"` 的 `tools.mcp__spool__*` 调用,
+**不是模型的总结**(§7.1 的 ⚠️)。写入侧对照的是真库 `spool.db`(v23)。
+
+| 句 | 判据 | 结果 | 事件里到底调了什么 |
+|---|---|---|---|
+| 1 有哪些文件/里面写了什么 | 出现 `request_file_access` | ⚠️ **这台机器上测不出来** | 见 §10.1 |
+| 2 跟进一下 | **先** `get_follow_up_brief`,并把 brief 念回来 | ✅ **过** | 13:23:26 第一个调用就是它;念回四行,然后才 web 检索 |
+| 3 分别存进 Flux 和申请规划 | `propose_blocks`,不是两次 `add_block` | ✅ **过** | 13:24:26 一次 `propose_blocks`,3 条 items 跨两个项目,排进待审面 |
+| 4 现在什么情况 | `get_project_overview` 一次 | ✅ **过,但难看** | 13:25:10 单调一次。⚠️ 13:22 那次它先猜 `{project:"申请规划"}` 挨了报错,翻 `ALL_TOOLS` 看 schema 才改成 `thread_id` |
+| 5 记一下正确的 | `ref_kind:"corrects"` + `ref_block_id` | ✅ **过** | 13:26:41 四次 `add_block`,**四次全带** `corrects` + `ref_block_id` + `corrected_quote`;第四次因引文不在被更正块里**被正确拒绝** |
+
+### 10.1 第 1 句:两件事同时发生,所以这一格不算数
+
+**(a) 这台机器上没有可申请的东西。** `Fall_2027_…pdf` 早在 08-09 就被批过,
+而且 `include_in_pack = 1` —— 按 `mcp.rs` 的 `readable = include_in_pack || ai_access`,
+它一直是可读的。**没有 `ai_readable:false` 的文件,就没有 `request_file_access` 的理由。**
+⚠️ **要再验这一格,必须先造一个从没批过、`include_in_pack` 也没勾的新附件。**
+
+**(b) 更要紧的:§9.4 甲那段 `AGENTS.md` 这一次没拦住。**
+`~/.codex/AGENTS.md` 里的 `spool:begin` 段落**在**(08-11 装的),里面白纸黑字写着
+「本地有个同名的文件夹或文档,那不是这个项目」。
+**而 13:22:01 模型的第一个动作是 `exec_command`,在 `~/Documents/ChatGPT/申研选校规划/`
+里 `rg --files -g '*申请规划*'`** —— 正是 §9.6-2 预言的那个目录、那个同名文档。
+Ocean 打断,补了「**spool 的**」三个字,它才在 13:22:12 调 `list_threads`。
+
+⭐ **结论:提示装了、装对了地方、内容也是对的,照样输给了本地同名文件。**
+这和 `mcp-tool-routing-required` 是同一个病的下一层:**不是「提示写在模型不会走的路上」,
+是「提示写在了模型会走的路上,但那条路上还站着一个更近的答案」。**
+§9.4 甲那条**不能算已解决**,§9.6-2 那条「别在那个目录里跑」目前仍是唯一有效的绕路。
+
+### 10.2 顺带验出来的两条,都不在路由上
+
+1. **文件权限的门是两把锁,界面只承认一把。** 见 `HANDOFF-2026-08-19.md` §2.3-bis。
+   现场:PDF 现在 `ai_access=0`(用户关的)、`include_in_pack=1`,
+   `get_project_overview` 仍报 `ai_readable:true`,`search_blocks` 仍吐正文片段。
+2. **「你能读取吗」那一轮,模型一个工具都没调**(13:23:00 → 13:23:22 之间零 `custom_tool_call`)。
+   它是照上一轮的记忆答的。⚠️ 这次答案**碰巧是对的**(文件确实还可读),
+   所以它看起来没问题 —— **一格没查证却蒙对的答案,比查错更难发现。**

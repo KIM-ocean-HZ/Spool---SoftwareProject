@@ -3,12 +3,9 @@ import { flushSync } from 'react-dom';
 import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
-import {
-  isCurrentlyHighlighted,
-  isHighlightable,
-  toggleHighlight,
-} from '@/lib/blocks/highlight';
+import { isHighlightable, rangeIsHighlighted, toggleHighlightRange } from '@/lib/blocks/highlight';
 import { hasSegmentAnnotations } from '@/lib/blocks/segments';
+import { rawRangeFromSelection } from '@/lib/blocks/selectionRange';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
 import type { Block } from '@/lib/db/blocks';
 import { correctionsBySource, type Correction } from '@/lib/pack/assemble';
@@ -19,14 +16,15 @@ import { formatBlockTime } from '@/lib/utils/time';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useSearchStore } from '@/stores/searchStore';
+import { toast } from '@/stores/toastStore';
 import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
 import BlockActions from './BlockActions';
 import CitationLine from './CitationLine';
 import CorrectedByLine from './CorrectedByLine';
+import CorrectionNote from './CorrectionNote';
 import RefBlockItem from './RefBlockItem';
 import SeqBadge from './SeqBadge';
 import SourceBadge from './SourceBadge';
-import SupersedePicker from './SupersedePicker';
 
 interface Props {
   block: Block;
@@ -124,8 +122,8 @@ function TextBlockItem({
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
   const setStale = useBlocksStore((s) => s.setStale);
-  const setSupersession = useBlocksStore((s) => s.setSupersession);
   const clearSupersession = useBlocksStore((s) => s.clearSupersession);
+  const addCorrection = useBlocksStore((s) => s.addCorrection);
   const siblings = useBlocksStore((s) => s.byThread[block.threadId]);
   // v13's warning, seen from the corrected block — the half the feed never had. Derived
   // from the project's own blocks through the SAME function the pack uses, so 「哪些块算更正
@@ -139,13 +137,38 @@ function TextBlockItem({
   // this block, and correctionsBySource has already dropped any quote that no longer occurs
   // here. Every occurrence is marked; an identical sentence twice in one block says the
   // same wrong thing twice, and picking one of them would be arbitrary.
+  // 2026-08-19: the two halves get two presentations, and never both for one correction.
+  // A correction whose quote still occurs here is drawn UNDER this block as a note the
+  // marked sentence opens (and BlockFeed keeps it out of the timeline). One whose quote
+  // never matched has nothing to click, so it keeps its card and this block keeps the old
+  // pointer line — the reader can still get to it.
+  // ⚠️ Same condition as foldedCorrectionIds, and it has to stay the same: a correction the
+  // feed folded away must be drawn here, and one it kept must NOT be drawn twice.
+  const foldable = !hasSegmentAnnotations(block.content);
+  const attachedCorrections = useMemo(
+    () => (foldable ? corrections.filter((c) => c.quote) : []),
+    [corrections, foldable],
+  );
+  const pointerCorrections = useMemo(
+    () => (foldable ? corrections.filter((c) => !c.quote) : corrections),
+    [corrections, foldable],
+  );
+  const correctionBlocks = useMemo(
+    () =>
+      attachedCorrections
+        .map((c) => (siblings ?? []).find((b) => b.id === c.id))
+        .filter((b): b is Block => !!b),
+    [attachedCorrections, siblings],
+  );
   const correctedSpans = useMemo(() => {
-    const spans: { start: number; end: number }[] = [];
+    const spans: { start: number; end: number; id: string }[] = [];
     for (const c of corrections) {
       if (!c.quote) continue;
       let from = block.content.indexOf(c.quote);
       while (from !== -1) {
-        spans.push({ start: from, end: from + c.quote.length });
+        // 2026-08-19: the span carries WHICH correction marked it, so clicking one sentence opens
+        // that sentence's correction and not every correction on the block.
+        spans.push({ start: from, end: from + c.quote.length, id: c.id });
         from = block.content.indexOf(c.quote, from + c.quote.length);
       }
     }
@@ -190,7 +213,6 @@ function TextBlockItem({
   // DESIGN_CONTEXT_HYGIENE §3.1: whether the "which one does this correct" picker is open
   // on this block. Local, because only one block can be answering that question at a time
   // and the answer is over in one click.
-  const [pickingTarget, setPickingTarget] = useState(false);
 
   // Annotation editor. Visually separate (paper-2 background) so a reader can tell
   // "the user wrote this" apart from "the user captured this".
@@ -204,6 +226,17 @@ function TextBlockItem({
   const articleRef = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(true);
   const [needsTruncation, setNeedsTruncation] = useState(false);
+
+  // 2026-08-19: which correction is open, by the correcting block's id. Closed until the reader
+  // asks for it by clicking the marked sentence — the mark itself is always visible, so
+  // nothing is hidden; what is deferred is the correction's text, which is a second voice
+  // in the middle of the user's own block. One id rather than a set, because opening a
+  // second sentence's correction while the first is open reads as the panel following the
+  // click.
+  const [openCorrectionId, setOpenCorrectionId] = useState<string | null>(null);
+  // The manual entry point: the sentence the user selected, waiting for what is right.
+  const [correcting, setCorrecting] = useState<string | null>(null);
+  const [correctionDraft, setCorrectionDraft] = useState('');
 
   // v2.8 §20.5 (Track B): select-to-highlight.
   //
@@ -219,16 +252,15 @@ function TextBlockItem({
   // chip enables/disables correctly. The whole feature stays isolated behind
   // highlight.ts + HighlightedContent.tsx for a clean §20.8 revert.
   const [highlightPrompt, setHighlightPrompt] = useState<
-    { x: number; y: number; text: string } | null
+    { x: number; y: number; raw: { start: number; end: number } | null } | null
   >(null);
-  // Last-known selected text *within this block*, refreshed on selectionchange.
-  // Drives `canHighlight` for the toolbar button in both display and edit mode.
-  const [highlightableSelection, setHighlightableSelection] = useState<string | null>(null);
   // True iff the current selection already sits inside a `==…==` highlight — flips
   // the toolbar button into "un-highlight" mode (different icon + title) so the user
   // can undo a highlight without retyping. Updated on the same selectionchange tick
   // as highlightableSelection.
   const [selectionAlreadyHighlighted, setSelectionAlreadyHighlighted] = useState(false);
+  // Same range, for the toolbar button — which fires without a live selection.
+  const [selectionRaw, setSelectionRaw] = useState<{ start: number; end: number } | null>(null);
 
   useEffect(() => {
     if (!editingContent) setContentDraft(block.content);
@@ -378,54 +410,51 @@ function TextBlockItem({
   useEffect(() => {
     if (readOnly) return;
     const onSelectionChange = (): void => {
-      // Edit mode: read directly from the textarea.
+      const clear = (): void => {
+        setSelectionRaw(null);
+        setSelectionAlreadyHighlighted(false);
+      };
+      // Edit mode: the textarea's own selection is ALREADY a raw range into the draft, so
+      // it needs no mapping — it is the same shape display mode arrives at the long way.
       if (editingContent) {
         const ta = contentRef.current;
         if (ta && document.activeElement === ta && ta.selectionStart !== ta.selectionEnd) {
-          const text = ta.value.slice(ta.selectionStart, ta.selectionEnd);
-          if (isHighlightable(text)) {
-            setHighlightableSelection(text);
-            // Edit-mode highlight check: read the textarea's own buffer (the draft),
-            // not the persisted block.content — the user may have just typed ==.
-            const start = ta.selectionStart;
-            const end = ta.selectionEnd;
-            const before = ta.value.slice(Math.max(0, start - 2), start);
-            const after = ta.value.slice(end, end + 2);
-            setSelectionAlreadyHighlighted(before === '==' && after === '==');
+          const range = { start: ta.selectionStart, end: ta.selectionEnd };
+          if (isHighlightable(ta.value.slice(range.start, range.end))) {
+            setSelectionRaw(range);
+            // Read the textarea's own buffer (the draft), not the persisted block.content —
+            // the user may have just typed the markers themselves.
+            setSelectionAlreadyHighlighted(rangeIsHighlighted(ta.value, range.start, range.end));
           } else {
-            setHighlightableSelection(null);
-            setSelectionAlreadyHighlighted(false);
+            clear();
           }
         } else {
-          setHighlightableSelection(null);
-          setSelectionAlreadyHighlighted(false);
+          clear();
         }
         return;
       }
       // Display mode: window selection must be inside this block's content.
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-        setHighlightableSelection(null);
-        setSelectionAlreadyHighlighted(false);
+        clear();
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
-      const range = sel.getRangeAt(0);
       const container = measureRef.current;
-      if (!container || !container.contains(range.commonAncestorContainer)) {
-        setHighlightableSelection(null);
-        setSelectionAlreadyHighlighted(false);
+      if (!container) {
+        clear();
         return;
       }
-      const text = sel.toString();
-      if (!isHighlightable(text)) {
-        setHighlightableSelection(null);
-        setSelectionAlreadyHighlighted(false);
+      // ⚠️ The range, not sel.toString(). The rendered text is missing every marker it
+      // spans, so it is the wrong thing to reason about and the wrong thing to search for.
+      const raw = rawRangeFromSelection(container, sel);
+      if (!raw || !isHighlightable(block.content.slice(raw.start, raw.end))) {
+        clear();
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
-      setHighlightableSelection(text);
-      setSelectionAlreadyHighlighted(isCurrentlyHighlighted(block.content, text));
+      setSelectionRaw(raw);
+      setSelectionAlreadyHighlighted(rangeIsHighlighted(block.content, raw.start, raw.end));
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setHighlightPrompt(null);
@@ -524,8 +553,12 @@ function TextBlockItem({
       setHighlightPrompt(null);
       return;
     }
-    const text = sel.toString();
-    if (!isHighlightable(text)) {
+    // Ocean 2026-08-19:「用鼠标划词的时候也需要出现『更正这里？』的提示，点击可以直接更正，
+    // 点击工具栏摩擦太大了」. The range is captured HERE, with the selection still live —
+    // clicking either button collapses it, so reading it back later is too late. Both
+    // actions in the chip run off this one range.
+    const raw = rawRangeFromSelection(container, sel);
+    if (!raw || !isHighlightable(block.content.slice(raw.start, raw.end))) {
       setHighlightPrompt(null);
       return;
     }
@@ -534,65 +567,46 @@ function TextBlockItem({
     setHighlightPrompt({
       x: rect.left + rect.width / 2 - blockRect.left,
       y: rect.top - blockRect.top - 4,
-      text,
+      raw,
     });
   };
 
-  // Unified toggle action used by BOTH the floating prompt and the toolbar button.
-  // Wraps a plain selection in `==…==`; UN-wraps it when the selection already sits
-  // inside an existing highlight. The wrap/unwrap routing lives in
-  // toggleHighlight (highlight.ts) so the UI doesn't branch twice.
+  // Unified toggle used by BOTH the floating prompt and the toolbar button. Wraps a range
+  // in `==…==`; UN-wraps it when the range already sits inside a highlight.
+  //
+  // ⚠️ 2026-08-19 (Ocean:「标为重点的功能有类似问题，只能划一行」): this takes a character RANGE,
+  // not the selected string. The old version searched `content` for the words on screen,
+  // which the renderer has already stripped `**` and `## ` out of — so any selection
+  // crossing a marker, or spanning two lines, silently did nothing. It is the same defect
+  // corrections had, so it is now the same fix: one range, mapped once, for both actions.
   //
   // `editingContent` controls where the change lands:
   //  - display → persist via setContent immediately.
-  //  - edit    → mutate the textarea draft, so the change rides the normal
-  //              blur-commit and the user keeps editing without losing context.
-  const runHighlight = async (selected: string): Promise<void> => {
-    const trimmed = selected.trim();
-    if (!trimmed) return;
+  //  - edit    → mutate the textarea draft, so the change rides the normal blur-commit and
+  //              the user keeps editing without losing context. The textarea's own
+  //              selectionStart/End ARE raw offsets into the draft, so no mapping is needed.
+  const runHighlight = async (range: { start: number; end: number } | null): Promise<void> => {
+    if (!range) return;
     if (editingContent) {
       const ta = contentRef.current;
       const draft = contentDraft;
-      // Prefer the textarea's actual selection range — lets us toggle the exact
-      // span the user grabbed instead of the first-match heuristic.
-      if (ta && ta.selectionStart !== ta.selectionEnd) {
-        const start = ta.selectionStart;
-        const end = ta.selectionEnd;
-        const inSel = draft.slice(start, end);
-        const before = draft.slice(Math.max(0, start - 2), start);
-        const after = draft.slice(end, end + 2);
-        if (before === '==' && after === '==') {
-          // Un-highlight: strip the surrounding markers.
-          const next = draft.slice(0, start - 2) + inSel + draft.slice(end + 2);
-          setContentDraft(next);
-          setTimeout(() => {
-            if (!ta) return;
-            ta.focus();
-            ta.setSelectionRange(start - 2, end - 2);
-          }, 0);
-          return;
-        }
-        // Wrap, but only for plain selections (no embedded markers).
-        if (!isHighlightable(inSel)) return;
-        const next = draft.slice(0, start) + '==' + inSel + '==' + draft.slice(end);
-        setContentDraft(next);
-        setTimeout(() => {
-          if (!ta) return;
-          ta.focus();
-          ta.setSelectionRange(end + 4, end + 4);
-        }, 0);
-        return;
-      }
-      const { content: next, changed } = toggleHighlight(draft, trimmed);
+      const { content: next, changed } = toggleHighlightRange(draft, range.start, range.end);
       if (!changed) return;
       setContentDraft(next);
+      // Put the caret after what was just wrapped, so typing continues where they were.
+      const caret = next.length - (draft.length - range.end);
+      setTimeout(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.setSelectionRange(caret, caret);
+      }, 0);
       return;
     }
     // Display-mode path: persist immediately via the store, then record an undo entry
     // (§9.13 / Step 6). setContent invalidates the block's prior undo entries first, so
     // pushing afterward leaves this highlight entry valid until the block is next edited.
     const before = block.content;
-    const { content: next, changed } = toggleHighlight(block.content, trimmed);
+    const { content: next, changed } = toggleHighlightRange(before, range.start, range.end);
     if (!changed) return;
     try {
       await setContent(block.id, next);
@@ -606,25 +620,59 @@ function TextBlockItem({
 
   const confirmHighlight = async (): Promise<void> => {
     if (!highlightPrompt) return;
-    const text = highlightPrompt.text;
+    const raw = highlightPrompt.raw;
     setHighlightPrompt(null);
     window.getSelection()?.removeAllRanges();
-    await runHighlight(text);
+    await runHighlight(raw);
   };
 
   // Toolbar-button entry: works in both modes. Falls back to the floating prompt's
   // last captured selection if there isn't a live window selection (e.g. the user
   // moved focus to the toolbar via keyboard after selecting).
   const runHighlightFromToolbar = async (): Promise<void> => {
-    const live = highlightableSelection;
+    const live = selectionRaw;
     if (!live) return;
     setHighlightPrompt(null);
     await runHighlight(live);
     // Clear the cached selection so the button disables until the user re-selects.
-    setHighlightableSelection(null);
+    setSelectionRaw(null);
     window.getSelection()?.removeAllRanges();
   };
 
+
+  // 2026-08-19 — manual correction, from the block being corrected. Ocean:「划词除了高亮选择，
+  // 现在多了一个修正信息选择」, and then:「为什么不能选整段进行修改？所有更正的逻辑应该一样」.
+  //
+  // ⚠️ The quote is cut out of `content` by OFFSET, never found by searching for the words
+  // on screen. The renderer drops `**`, `==` and `## `, so any selection crossing one of
+  // them is text that appears nowhere in the stored string — the first cut refused those,
+  // which made selecting a whole paragraph (the normal thing to do) the case that failed.
+  // Slicing the raw range instead means the stored quote always occurs in the block, for a
+  // one-word selection and a five-paragraph one alike. See selectionRange.ts.
+  const startCorrection = (raw: { start: number; end: number } | null): void => {
+    const quote = raw ? block.content.slice(raw.start, raw.end).trim() : '';
+    if (!quote) return;
+    setActive(block.id);
+    setCorrecting(quote);
+    setCorrectionDraft('');
+    setHighlightPrompt(null);
+    setSelectionRaw(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const saveCorrection = async (): Promise<void> => {
+    const quote = correcting;
+    const text = correctionDraft.trim();
+    if (!quote || !text) return;
+    setCorrecting(null);
+    setCorrectionDraft('');
+    try {
+      await addCorrection(block, quote, text);
+    } catch (e) {
+      console.error('[correction] save failed', e);
+      toast.error(t('更正没能保存。'));
+    }
+  };
 
   // W7 (DESIGN_WORKBENCH §7 / DESIGN_CONTEXT_HYGIENE §3.2): a block that carries the
   // user's own note is titled by that note. Only while it is not being edited — the editor
@@ -789,8 +837,12 @@ function TextBlockItem({
             // to leave edit mode first.
             visible={hovered || editingContent}
             pinned={block.pinned}
-            canHighlight={highlightableSelection !== null}
+            canHighlight={selectionRaw !== null}
             selectionAlreadyHighlighted={selectionAlreadyHighlighted}
+            // 2026-08-19: corrections apply to the SAVED text, so the entry point is closed while
+            // the content is a draft in a textarea.
+            canCorrect={!editingContent && selectionRaw !== null}
+            onCorrect={() => startCorrection(selectionRaw)}
             onTogglePin={() => onTogglePin?.()}
             onEdit={() => enterEditMode(() => setEditingContent(true))}
             onHighlight={() => void runHighlightFromToolbar()}
@@ -799,18 +851,9 @@ function TextBlockItem({
               enterEditMode(() => setEditingAnnotation(true));
             }}
             stale={block.staleAt != null}
-            hasSupersession={block.refKind === 'supersedes' || block.refKind === 'corrects'}
             onToggleStale={() => {
               setActive(block.id);
               void setStale(block.id, block.staleAt == null);
-            }}
-            onSupersede={() => {
-              setActive(block.id);
-              if (block.refKind === 'supersedes' || block.refKind === 'corrects') {
-                void clearSupersession(block.id);
-              } else {
-                setPickingTarget((v) => !v);
-              }
             }}
             onDelete={() => onDelete?.()}
           />
@@ -896,7 +939,7 @@ function TextBlockItem({
                 expanded, never as literal markers. EDIT mode (the textarea below) keeps
                 the raw == source on purpose: editing returns to source. */}
             {hasSegmentAnnotations(block.content) && !isNavTarget ? (
-              <SegmentedContent content={block.content} />
+              <SegmentedContent content={block.content} withOffsets />
             ) : (
               // §10.1: content goes through the Markdown renderer; annotations above stay
               // on the plain tokenizer (they are one line of prose, never a document).
@@ -906,27 +949,53 @@ function TextBlockItem({
                 activeHitIndex={navHitIndex}
                 withSpine
                 corrected={correctedSpans}
+                withOffsets
+                onCorrectedClick={
+                  correctionBlocks.length > 0
+                    ? (id) =>
+                        setOpenCorrectionId((cur) => (cur === id ? null : (id ?? null)))
+                    : undefined
+                }
               />
             )}
           </div>
           {highlightPrompt && (
-            <button
-              type="button"
+            // Ocean 2026-08-19:「点击工具栏摩擦太大了」— so the second action sits in the same
+            // chip the first one already appears in, on the same gesture. Two buttons rather
+            // than one wider one: they do different things to the same words.
+            <div
               onMouseDown={(e) => {
                 // Prevent the click from collapsing the selection before our handler reads it.
                 e.preventDefault();
               }}
-              onClick={() => void confirmHighlight()}
               style={{
                 position: 'absolute',
                 left: highlightPrompt.x,
                 top: highlightPrompt.y,
                 transform: 'translate(-50%, -100%)',
               }}
-              className="z-20 whitespace-nowrap rounded-md border border-line-strong bg-paper px-2 py-1 font-ui text-[11px] text-ink shadow-[var(--shadow-toast)] hover:border-accent hover:text-accent"
+              className="z-20 flex items-stretch overflow-hidden whitespace-nowrap rounded-md border border-line-strong bg-paper font-ui text-[11px] text-ink shadow-[var(--shadow-toast)]"
             >
-              {selectionAlreadyHighlighted ? t('取消重点?') : t('标为重点?')}
-            </button>
+              <button
+                type="button"
+                onClick={() => void confirmHighlight()}
+                className="px-2 py-1 transition-colors hover:text-accent"
+              >
+                {selectionAlreadyHighlighted ? t('取消重点?') : t('标为重点?')}
+              </button>
+              {!readOnly && !editingContent && highlightPrompt.raw && (
+                <>
+                  <span aria-hidden="true" className="w-px shrink-0 bg-line" />
+                  <button
+                    type="button"
+                    onClick={() => startCorrection(highlightPrompt.raw)}
+                    className="px-2 py-1 transition-colors hover:text-accent"
+                  >
+                    {t('更正这里?')}
+                  </button>
+                </>
+              )}
+            </div>
           )}
           {needsTruncation && !isNavTarget && (
             <button
@@ -998,23 +1067,82 @@ function TextBlockItem({
         <CitationLine refBlockId={block.refBlockId} refKind={block.refKind} />
       )}
 
-      {/* v13/v21, the other direction: this block has a point some later block corrected.
-          ⚠️ The SegmentedContent branch above does not take `corrected` spans, so on those
-          few blocks this line is the whole marking — which is still strictly more than the
-          feed showed before. */}
-      <CorrectedByLine corrections={corrections} />
+      {/* 2026-08-19 — the corrections attached to this block, under the sentence they are about,
+          joined to it by the dashed rule in CorrectionNote. Opened by clicking the marked
+          sentence; BlockFeed keeps these same blocks out of the timeline, so this is the
+          one place each of them is drawn. */}
+      {correctionBlocks
+        .filter((c) => c.id === openCorrectionId)
+        .map((c) => (
+          <CorrectionNote
+            key={c.id}
+            correction={c}
+            onRemove={
+              readOnly
+                ? undefined
+                : () => {
+                    setOpenCorrectionId(null);
+                    void clearSupersession(c.id);
+                  }
+            }
+          />
+        ))}
 
-      {pickingTarget && !readOnly && (
-        <SupersedePicker
-          block={block}
-          blocks={siblings ?? []}
-          onPick={(targetId, kind) => {
-            setPickingTarget(false);
-            void setSupersession(block.id, targetId, kind);
-          }}
-          onCancel={() => setPickingTarget(false)}
-        />
+      {/* The manual entry point's second half: the user has picked the wrong sentence and
+          now says what is right. Shown under the block for the same reason the note is —
+          this is a statement about the text above it. */}
+      {correcting !== null && !readOnly && (
+        <div className="mt-1.5 border-l border-dashed border-accent/45 pl-2.5">
+          <div className="mb-1 font-ui text-[11px] text-muted">
+            {t('更正这一句：')}
+            <span className="rounded-sm bg-[var(--notice-warm)] px-1 text-ink-2">{correcting}</span>
+          </div>
+          <textarea
+            autoFocus
+            value={correctionDraft}
+            onChange={(e) => setCorrectionDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setCorrecting(null);
+                return;
+              }
+              // ⌘/Ctrl+Enter saves; plain Enter stays a newline, because a correction is
+              // prose and often more than one line. IME guard for the same reason every
+              // other composer here has one.
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isImeComposing(e.nativeEvent)) {
+                e.preventDefault();
+                void saveCorrection();
+              }
+            }}
+            rows={2}
+            placeholder={t('写下正确的说法')}
+            className="w-full resize-none rounded border border-line bg-paper px-2 py-1 font-ui text-[13px] leading-[1.55] text-ink outline-none focus:border-accent"
+          />
+          <div className="mt-1 flex items-center gap-2 font-ui text-[11px]">
+            <button
+              type="button"
+              onClick={() => void saveCorrection()}
+              disabled={correctionDraft.trim().length === 0}
+              className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-accent hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t('保存更正')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCorrecting(null)}
+              className="text-muted transition-colors hover:text-ink"
+            >
+              {t('取消')}
+            </button>
+          </div>
+        </div>
       )}
+
+      {/* v13/v21, the other direction: a correction whose quote no longer occurs here has no
+          sentence to hang under, so it keeps its own card in the feed and this line is how
+          the reader gets to it. The SegmentedContent branch above takes no `corrected` spans
+          either, so on those few blocks this line is again the whole marking. */}
+      <CorrectedByLine corrections={pointerCorrections} />
 
     </article>
   );

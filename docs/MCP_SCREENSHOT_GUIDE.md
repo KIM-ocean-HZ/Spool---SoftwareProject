@@ -15,6 +15,14 @@
   日期按**运行当天**动态生成,所以随时重跑都新鲜:`scripts/seed-demo-library.sh`。
 - **Claude Desktop 配置**:已注入独立的 `spool-demo` 条目(带 `SPOOL_DATA_DIR`
   指向演示库);你原有的 `spool` 条目未动,原配置备份在同目录 `.bak-demo`。
+  ⚠️ **2026-08-19 更新**:这条曾被移除,当天按 Ocean 拍板**又加回去了**
+  (`HANDOFF-2026-08-19.md` §2.3 #3),命令指向 `~/Desktop/Spool/Spool-Demo/Spool.app`
+  里的 0.6.0 二进制;加回前的配置备份在 `.bak-pre-demo-20260819`。
+  握手实测:19 个工具、演示库 3 工作区 / 8 项目。
+  ⚠️ **开拍前还要动两处**:演示库现在的 `settings.json` 是 `"language": "zh"` +
+  `"theme": "valentine"`(0.6.0 那轮改的),而这份指南要的是**英文界面**——
+  拍之前把这两行改回 `"en"` / `"classic"`,否则拍出来和官网其余截图不是一套。
+  ⚠️ 路径更正:演示 App 在 **`~/Desktop/Spool/Spool-Demo/`**,不是 `~/Desktop/Spool-Demo/`。
 
 ## 1. 开拍前(5 分钟)
 

@@ -316,9 +316,90 @@ Ocean 拍板时看到过这个描述。**这不是 bug,是丙这条路的定义�
 ⚠️ **`site/index.html:153`**(`01 · SAVE` 那句 "cursor already in a note box")没改,
 也不需要改 —— **现在三条路都成立了。**
 
-### 9.6 ⏳ 还没做的
+### 9.6 ⏳ 还没做的 —— ⭐ **2026-08-19 Ocean 指定为下一窗的开工面**
 
 - **`AXFrontmost` 被拒那条路没被实测走到过**(本机两个授权都在)。
   `on_overlay_shown` 里补注册全局 ⌘Z 那一支是照推理写的,**没有实测证据**。
+  ⚠️⚠️ **这条路在这台机器上永远走不到** —— 两个授权都在,被拒的分支根本不执行。
+  要验就必须造一个**从没授过权的新 identifier**:**`.fr4` 起步**
+  (`.fr1`–`.fr3` 都用掉了)。隔离构建规程见记忆 `isolated-verify-workflow` §21;
+  ⚠️ 别顺手把它装进 `/Applications`,那会把真身的 TCC 授权弄没(同 §21 ②)。
 - **多显示器 / 全屏 Space 下的 `frontmost_window_owner_pid()` 没验过。**
   按 layer 0 取最前窗口在这些情形下应当仍然成立,但没量过。
+
+⚠️ 两件都要**真手指**,合成事件驱动不了(记忆 `isolated-verify-workflow` §14)。
+
+---
+
+## 9.7 ✅ 实测(2026-08-19,§9.6 前两件)—— **不用真手指也量到了**
+
+⚠️ **§9.6 最后那句「两件都要真手指」说得太重了。** 要真手指的是**捕捉手势**;
+上面两件问的其实是**三个系统调用在特定环境下返回什么**,而那个可以用探针量。
+两条都不用装 Spool、不动 `/Applications`、不碰真身的 TCC。
+
+**探针一:自己带 TCC 身份的 mini app**(解决「本机两个授权都在,被拒的分支走不到」)
+
+关键是 **TCC 认的是「负责进程」**。从终端直接跑一个 CLI **继承宿主的授权** ——
+本窗实测 `AXIsProcessTrusted()` 回 **TRUE**(继承了 VS Code 的辅助功能授权),
+所以**命令行探针量不到被拒**。把同一个二进制包成一个 **60 行的 `.app`**、
+给个 TCC 从没见过的 identifier、`codesign --sign -` 自签、用 `open -a` 起 ——
+LaunchServices 成了负责进程,它就有了**自己的、从未授权的身份**,
+`AXIsProcessTrusted()` 回 **false**。
+⚠️ **故意没用 `.fr4`** —— 那个留给将来真要装 Spool 的隔离验证;
+这次烧掉的是 `com.oceanjin.spool.axprobe1`。全套配方见记忆
+`isolated-verify-workflow` §35。
+
+| 量的是 | 未授权进程里的实测值 | 对应代码 |
+|---|---|---|
+| `AXIsProcessTrusted()` | `false`(确认身份是干净的) | —— |
+| `ax_focused_app_pid()` | **None**(`AXFocusedApplication` → AXError **-25204** `kAXErrorCannotComplete`) | §9.2 Rust 1 |
+| `frontmost_window_owner_pid()` | **答得出**,`73423`(前台那个 Code 窗口) | §9.2 Rust 3 |
+| ⇒ `ax_source_app_pid()` | **Some(73423)** ⇒ `will_activate` = **true** | `show_capture_overlay` |
+| `ax_set_frontmost(73423)` | **AXError -25211 `kAXErrorAPIDisabled`** ⇒ Rust 回 **false** | `on_overlay_shown` |
+
+⭐⭐ **这一串量出来的最要紧的一条,和「照推理写」时的想象不一样:
+没有授权时 `ax_source_app_pid()` 并不是 None。**
+窗口服务器那一路**不需要任何授权**,照样答得出(§9.2 Rust 3 那段注释是对的,现在有数了)。
+于是 `will_activate` 仍然是 **true** ⇒ `show_capture_overlay` **跳过**全局 ⌘Z 的抢注
+⇒ 紧接着 `ax_set_frontmost` 被拒 ⇒ **`on_overlay_shown` 里补注册那一支是唯一的补救路径。**
+
+**⇒ 结论:那一支不是防御性代码,是 08-15 加了窗口服务器兜底之后才变成必经之路的。**
+在只有 AX 一路的旧版里,未授权 = `source_pid` 为 None = 一开始就注册了全局 ⌘Z,
+根本不需要它。**谁要删它,先看这一段。**
+
+⏳ **仍未实测的那一小截**:`register_undo_shortcut()` 在这个上下文里注册**成功**,
+以及之后按 ⌘Z 真能撤掉捕捉。那一步纯是 Tauri 全局快捷键,**和 TCC 无关**;
+失败它自己会打日志(`[undo] failed to register any global undo shortcut` /
+`⌥Z fallback`),所以真出问题不会是静默的。
+
+**探针二:自己把窗口全屏,量全屏 Space**(解决「全屏 Space 下没量过」)
+
+⚠️ **app 给自己的窗口开全屏是不需要授权的** —— 一个 `NSWindow` +
+`toggleFullScreen:` 就造出**真的**全屏 Space,不用真手指,也不用第二块屏。
+
+| 时机 | `frontmost_window_owner_pid()` | 判定 |
+|---|---|---|
+| 全屏之前(普通窗口) | 答 `73423`(Code) | —— |
+| **全屏 Space 里** | **答探针自己的 pid** | ✅ **成立** |
+| 退出全屏之后 | 答探针自己的 pid | ✅ 成立 |
+
+⭐ **全屏 Space 里的窗口表,三条容易踩的细节**(都是这次才看见的):
+
+1. **全屏 app 在表里有三个窗口**:`layer=26` 那个 1800x39 是自动隐藏的菜单栏条,
+   两个 `layer=0` 分别是 1800x44 的**标题栏**和 1800x1130 的**内容**。
+   ⚠️ **函数命中的是「标题栏」那个,不是内容窗口** —— owner pid 相同所以答案对。
+   **别为了「拿到内容窗口」加尺寸或标题判断**,那会把这条唯一正确的路弄坏。
+2. **Dock 在全屏 Space 里的窗口跑到了巨大的负 layer**(`-2147483622` / `-2147483624`),
+   `Window Server` 自己还有个 `layer=24`。⚠️ 现在这个 `layer != 0` 就跳过的写法**恰好**对;
+   改成「只跳过正数 layer」会当场吃到 Dock 那两个。**`== 0` 这个等号是承重的。**
+3. ⚠️ **窗口服务器的表会滞后于「刚刚创建/刚刚激活」的窗口。**
+   探针在 `activateIgnoringOtherApps:` + `makeKeyAndOrderFront:` **之后立刻**去问,
+   表里**根本还没有它自己的窗口**,答的还是上一个 app。
+   实际用不着担心(真实调用发生在用户双击 ⌥ 的稳态),但**别拿这个函数去验「我刚开的窗口」**。
+
+⏳ **还差的半件:多显示器。** 本窗实测 `CGGetActiveDisplayList` = **1 块屏**
+(1800x1169),**没有第二块可插,量不了**。这半件**确实**只能等 Ocean 插一块屏 ——
+它缺的是硬件,不是手指。
+📎 判据:插上第二块屏,在**副屏**的 app 里跑探针一,看 `frontmost_window_owner_pid()`
+答的是不是副屏那个 app(bounds 的 origin 落在副屏的坐标区间里)。
+

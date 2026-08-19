@@ -46,6 +46,11 @@ interface BlocksState {
   ) => Promise<void>;
   /** §3.1 — undo either declaration: the relation goes and the target comes back. */
   clearSupersession: (id: string) => Promise<void>;
+  /** 2026-08-19 — the user's own correction, written from the block being corrected: select the
+   *  wrong sentence, type what is right. Creates the same shape MCP writes (a block with
+   *  ref_kind 'corrects', the target's id and the quote), so there is ONE kind of
+   *  correction in the library and the pack needs no new case. */
+  addCorrection: (target: Block, quote: string, text: string) => Promise<void>;
   setContent: (id: string, content: string) => Promise<void>;
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
@@ -284,7 +289,24 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
     // exactly what §3.1 keeps AI out of. 「这条不作数了」 on the target is the way back.
     clearSupersession: async (id) => {
       await db.setBlockSupersession(id, null, null, Date.now());
-      patchBlock(set, get, id, { refBlockId: null, refKind: null });
+      patchBlock(set, get, id, { refBlockId: null, refKind: null, correctedQuote: null });
+    },
+
+    // 2026-08-19 (Ocean): the manual half of 「入口两种」. The AI's half already existed
+    // — add_block with ref_kind 'corrects' — and this deliberately lands the same row rather
+    // than a lighter side-table: two kinds of correction would mean two renderers, two pack
+    // cases and two ways for them to drift.
+    //
+    // ⚠️ No `source`. That is the whole author distinction downstream (CorrectionNote reads
+    // it): MCP stamps its client label, and a block written here has none because the user
+    // wrote it. Nothing marks it as AI, and nothing may.
+    addCorrection: async (target, quote, text) => {
+      const b = await get().append({ threadId: target.threadId, content: text.trim() });
+      await get().setSupersession(b.id, target.id, 'corrects');
+      // The quote is what anchors the mark to a sentence; without it the note still exists
+      // but has nowhere to attach, so it is written in the same breath as the relation.
+      await db.setCorrectedQuote(b.id, quote);
+      patchBlock(set, get, b.id, { correctedQuote: quote });
     },
 
     setContent: async (id, content) => {

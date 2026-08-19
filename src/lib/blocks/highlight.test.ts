@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
   HIGHLIGHT_RE,
-  isCurrentlyHighlighted,
   isHighlightable,
-  toggleHighlight,
-  unwrapHighlight,
-  wrapHighlight,
+  rangeIsHighlighted,
+  toggleHighlightRange,
+  trimRange,
 } from './highlight';
+
+// ⚠️ 2026-08-19: these used to test a string-based API (`wrapHighlight(content, selected)`),
+// which located the selection with `content.indexOf`. Ocean:「标为重点的功能有类似问题，只能划
+// 一行，修复」— that search is exactly why. The renderer strips `**`, `==` and `## ` before
+// the user ever sees the text, so a selection crossing one of them is a string that occurs
+// nowhere in `content`, and the wrap silently did nothing. Ranges replace it, and the cases
+// that used to document the limitation ("wraps the FIRST occurrence") now document the fix.
+
+// `at` is how a caller expresses "these words" once it has a range — it is what
+// selectionRange.ts produces from a DOM selection and what a textarea reports directly.
+const at = (content: string, needle: string, from = 0): [number, number] => {
+  const start = content.indexOf(needle, from);
+  if (start === -1) throw new Error(`test bug: ${needle} not in ${content}`);
+  return [start, start + needle.length];
+};
 
 describe('isHighlightable', () => {
   it('accepts a normal substring', () => {
@@ -19,142 +33,114 @@ describe('isHighlightable', () => {
     expect(isHighlightable('\n\t')).toBe(false);
   });
 
-  it('rejects selections containing == markers', () => {
-    expect(isHighlightable('foo ==bar== baz')).toBe(false);
-    expect(isHighlightable('==already==')).toBe(false);
+  // It used to reject anything containing `==`, which ruled out selecting a paragraph that
+  // already held a highlight. That is now a supported case — see toggleHighlightRange.
+  it('accepts a selection that spans an existing highlight', () => {
+    expect(isHighlightable('foo ==bar== baz')).toBe(true);
   });
 });
 
-describe('wrapHighlight', () => {
-  it('wraps the selected substring in == markers', () => {
-    const r = wrapHighlight('the quick brown fox', 'quick brown');
+describe('trimRange', () => {
+  it('shaves whitespace off both ends so a sloppy drag does not store ==  x ==', () => {
+    const c = 'the   quick brown   fox';
+    expect(trimRange(c, 3, 20)).toEqual({ start: 6, end: 17 });
+  });
+
+  it('is null when nothing but whitespace was selected', () => {
+    expect(trimRange('a    b', 1, 5)).toBeNull();
+  });
+});
+
+describe('toggleHighlightRange', () => {
+  it('wraps the range in == markers', () => {
+    const c = 'the quick brown fox';
+    const r = toggleHighlightRange(c, ...at(c, 'quick brown'));
     expect(r.changed).toBe(true);
     expect(r.content).toBe('the ==quick brown== fox');
   });
 
-  it('is a no-op when the selection is not found in content', () => {
-    const r = wrapHighlight('hello world', 'absent');
-    expect(r.changed).toBe(false);
-    expect(r.content).toBe('hello world');
-  });
-
-  it('is a no-op when the selection is already highlighted (no nesting)', () => {
-    const r = wrapHighlight('the ==quick== fox', 'quick');
-    expect(r.changed).toBe(false);
-    expect(r.content).toBe('the ==quick== fox');
-  });
-
-  it('is a no-op for whitespace-only selections', () => {
-    const r = wrapHighlight('hello world', '   ');
-    expect(r.changed).toBe(false);
-  });
-
-  it('is a no-op when the selection itself contains == (selection spans an existing highlight)', () => {
-    const r = wrapHighlight('the ==key== insight here', 'the ==key== insight');
-    expect(r.changed).toBe(false);
-    expect(r.content).toBe('the ==key== insight here');
-  });
-
-  it('wraps the first occurrence when the substring appears more than once', () => {
-    // Documented Track B limitation: substring-based mapping picks first match.
-    const r = wrapHighlight('alpha beta alpha', 'alpha');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('==alpha== beta alpha');
-  });
-
-  it('supports CJK content', () => {
-    const r = wrapHighlight('这是一个关键想法的例子', '关键想法');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('这是一个==关键想法==的例子');
-  });
-});
-
-describe('isCurrentlyHighlighted', () => {
-  it('detects a span that is surrounded by ==', () => {
-    expect(isCurrentlyHighlighted('alpha ==key== beta', 'key')).toBe(true);
-  });
-
-  it('is false for plain text not inside markers', () => {
-    expect(isCurrentlyHighlighted('alpha key beta', 'key')).toBe(false);
-  });
-
-  it('is false when only one side has the marker', () => {
-    expect(isCurrentlyHighlighted('alpha ==key beta', 'key')).toBe(false);
-    expect(isCurrentlyHighlighted('alpha key== beta', 'key')).toBe(false);
-  });
-
-  it('tolerates a selection that included its own == markers (textarea path)', () => {
-    // User selected "==key==" verbatim in the textarea — we strip the markers before
-    // looking up; the bare text is still inside ==…== in content.
-    expect(isCurrentlyHighlighted('alpha ==key== beta', '==key==')).toBe(true);
-  });
-
-  it('is false at the start of the string (no chars before to be ==)', () => {
-    expect(isCurrentlyHighlighted('key something', 'key')).toBe(false);
-  });
-
-  it('returns true at the very start when the content opens with ==', () => {
-    expect(isCurrentlyHighlighted('==key== rest', 'key')).toBe(true);
-  });
-});
-
-describe('unwrapHighlight', () => {
-  it('removes the surrounding == markers from the first occurrence', () => {
-    const r = unwrapHighlight('alpha ==key== beta', 'key');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('alpha key beta');
-  });
-
-  it('handles selections that brought their == markers along', () => {
-    const r = unwrapHighlight('alpha ==key== beta', '==key==');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('alpha key beta');
-  });
-
-  it('is a no-op when the bare text is not in content', () => {
-    const r = unwrapHighlight('alpha beta', 'gone');
-    expect(r.changed).toBe(false);
-    expect(r.content).toBe('alpha beta');
-  });
-
-  it('is a no-op when the bare text exists but is not currently highlighted', () => {
-    const r = unwrapHighlight('alpha key beta', 'key');
-    expect(r.changed).toBe(false);
-    expect(r.content).toBe('alpha key beta');
-  });
-
-  it('only unwraps the first occurrence (documented Track B limitation)', () => {
-    const r = unwrapHighlight('==a== mid ==a==', 'a');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('a mid ==a==');
-  });
-});
-
-describe('toggleHighlight', () => {
-  it('wraps a plain selection', () => {
-    const r = toggleHighlight('foo bar baz', 'bar');
-    expect(r.changed).toBe(true);
-    expect(r.content).toBe('foo ==bar== baz');
-  });
-
-  it('unwraps a selection currently inside ==…==', () => {
-    const r = toggleHighlight('foo ==bar== baz', 'bar');
+  it('unwraps a range already inside a highlight', () => {
+    const c = 'foo ==bar== baz';
+    const r = toggleHighlightRange(c, ...at(c, 'bar'));
     expect(r.changed).toBe(true);
     expect(r.content).toBe('foo bar baz');
   });
 
-  it('round-trips wrap then unwrap to the original content', () => {
+  it('round-trips wrap then unwrap back to the original', () => {
     const original = 'the quick brown fox';
-    const wrapped = toggleHighlight(original, 'quick brown');
-    expect(wrapped.changed).toBe(true);
-    const back = toggleHighlight(wrapped.content, 'quick brown');
-    expect(back.changed).toBe(true);
+    const wrapped = toggleHighlightRange(original, ...at(original, 'quick brown'));
+    const back = toggleHighlightRange(
+      wrapped.content,
+      ...at(wrapped.content, 'quick brown'),
+    );
     expect(back.content).toBe(original);
   });
 
-  it('is a no-op for selections not present in the content', () => {
-    const r = toggleHighlight('hello world', 'absent');
-    expect(r.changed).toBe(false);
+  // ⭐ The bug Ocean reported. A range spanning a line break is ordinary — it is what
+  // selecting a paragraph looks like — and both halves of the old feature refused it.
+  it('highlights across a line break', () => {
+    const c = '第一行的结论\n第二行的理由';
+    const r = toggleHighlightRange(c, 0, c.length);
+    expect(r.changed).toBe(true);
+    expect(r.content).toBe('==第一行的结论\n第二行的理由==');
+    // …and the renderer can read it back, which is the other half (HIGHLIGHT_RE below).
+    expect(rangeIsHighlighted(r.content, 2, r.content.length - 2)).toBe(true);
+  });
+
+  it('highlights across a blank line, i.e. two whole paragraphs', () => {
+    const c = '第一段\n\n第二段';
+    const r = toggleHighlightRange(c, 0, c.length);
+    expect(r.content).toBe('==第一段\n\n第二段==');
+    expect([...r.content.matchAll(HIGHLIGHT_RE)]).toHaveLength(1);
+  });
+
+  // The old API refused this outright ("no nesting"), which meant a user could never
+  // promote a phrase-level highlight to the whole paragraph.
+  it('swallows an inner highlight when the range spans it', () => {
+    const c = 'the ==key== insight here';
+    const r = toggleHighlightRange(c, ...at(c, 'the ==key== insight'));
+    expect(r.changed).toBe(true);
+    expect(r.content).toBe('==the key insight== here');
+    expect([...r.content.matchAll(HIGHLIGHT_RE)]).toHaveLength(1);
+  });
+
+  // ⭐ The other documented Track B limitation, gone: the range says WHICH occurrence.
+  it('acts on the occurrence the user picked, not the first one', () => {
+    const c = 'alpha beta alpha';
+    const r = toggleHighlightRange(c, ...at(c, 'alpha', 1));
+    expect(r.content).toBe('alpha beta ==alpha==');
+  });
+
+  it('is a no-op for a whitespace-only or empty range', () => {
+    expect(toggleHighlightRange('hello world', 5, 6).changed).toBe(false);
+    expect(toggleHighlightRange('hello world', 4, 4).changed).toBe(false);
+  });
+
+  it('supports CJK content', () => {
+    const c = '这是一个关键想法的例子';
+    const r = toggleHighlightRange(c, ...at(c, '关键想法'));
+    expect(r.content).toBe('这是一个==关键想法==的例子');
+  });
+});
+
+describe('rangeIsHighlighted', () => {
+  it('is true for a range inside ==…==', () => {
+    const c = 'alpha ==key== beta';
+    expect(rangeIsHighlighted(c, ...at(c, 'key'))).toBe(true);
+  });
+
+  it('is true for a sub-range of a highlight, so the toggle still reads as "remove"', () => {
+    const c = 'alpha ==key idea== beta';
+    expect(rangeIsHighlighted(c, ...at(c, 'idea'))).toBe(true);
+  });
+
+  it('is false for plain text and for a half-open marker', () => {
+    expect(rangeIsHighlighted('alpha key beta', 6, 9)).toBe(false);
+    expect(rangeIsHighlighted('alpha ==key beta', 8, 11)).toBe(false);
+  });
+
+  it('is true at the very start when the content opens with ==', () => {
+    expect(rangeIsHighlighted('==key== rest', 2, 5)).toBe(true);
   });
 });
 
@@ -176,8 +162,15 @@ describe('HIGHLIGHT_RE', () => {
   });
 
   it('does not match empty == ==', () => {
-    // The regex requires at least one char between the markers.
-    const matches = Array.from('==='.matchAll(HIGHLIGHT_RE));
-    expect(matches).toHaveLength(0);
+    expect(Array.from('==='.matchAll(HIGHLIGHT_RE))).toHaveLength(0);
+  });
+
+  // ⭐ Defect ① of the two. `.` does not match `\n`, so a highlight spanning a line break
+  // stored fine and then rendered as literal `==` around unhighlighted text — which is what
+  // made this look like a one-line-only feature even after the wrap was fixed.
+  it('matches a span that crosses newlines', () => {
+    const matches = Array.from('==第一行\n第二行=='.matchAll(HIGHLIGHT_RE));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]![1]).toBe('第一行\n第二行');
   });
 });

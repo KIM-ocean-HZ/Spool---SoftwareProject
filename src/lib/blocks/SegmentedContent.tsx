@@ -11,11 +11,18 @@ import { hasSegmentAnnotations, parseSegments } from './segments';
 // per-segment note that mirrors the styling of the top-level annotation row in
 // BlockItem.tsx. A thin left rule + extra space between segments makes the boundary
 // readable without becoming a heavy list.
-export function SegmentedContent({ content }: { content: string }): ReactNode {
+export function SegmentedContent({
+  content,
+  withOffsets,
+}: {
+  content: string;
+  /** Stamp raw offsets so a selection in a merged block maps back like any other. */
+  withOffsets?: boolean;
+}): ReactNode {
   if (!hasSegmentAnnotations(content)) {
     // Fast path — un-merged block, or merged block with no annotations. Rendering
     // is identical to the pre-segments behavior.
-    return <HighlightedContent content={content} />;
+    return <HighlightedContent content={content} withOffsets={withOffsets} />;
   }
   const segments = parseSegments(content);
   return (
@@ -29,7 +36,7 @@ export function SegmentedContent({ content }: { content: string }): ReactNode {
           className={i > 0 ? 'mt-2 border-t border-dashed border-line/70 pt-2' : ''}
         >
           <div className="whitespace-pre-wrap break-words">
-            <HighlightedContent content={seg.text} />
+            <HighlightedContent content={seg.text} withOffsets={withOffsets} offset={seg.start} />
           </div>
           {seg.annotation && (
             // Styling mirrors BlockItem's top-level annotation row (paper-2 tint,

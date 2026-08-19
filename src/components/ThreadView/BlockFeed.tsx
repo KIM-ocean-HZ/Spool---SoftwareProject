@@ -3,6 +3,7 @@ import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from '
 import { isUserWritten } from '@/lib/blocks/annotationAuthor';
 import { formatAccelerator } from '@/lib/capture/shortcut';
 import type { Block } from '@/lib/db/blocks';
+import { foldedCorrectionIds } from '@/lib/pack/assemble';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useDropStore } from '@/stores/dropStore';
@@ -159,7 +160,16 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   }, [threadId, load]);
 
   const ordered = useMemo(() => {
-    const sorted = sortBlocks(blocks, sortMode);
+    // 2026-08-19: a correction the reader opens from the marked sentence is drawn under that
+    // sentence (CorrectionNote), so it must not ALSO get a card here — that duplicate is
+    // what Ocean read as 「多条重复信息」 the first time MCP corrected three blocks at once.
+    // ⚠️ The search destination is exempt for the same reason mineOnly exempts it below.
+    const folded = foldedCorrectionIds(blocks);
+    const shown =
+      folded.size === 0
+        ? blocks
+        : blocks.filter((b) => !folded.has(b.id) || b.id === highlightBlockId);
+    const sorted = sortBlocks(shown, sortMode);
     if (!mineOnly) return sorted;
     // ⚠️ The search destination survives the filter. 「跳到命中处」 must land somewhere, and a
     // jump into a feed that silently dropped the target is the one failure worth code here.

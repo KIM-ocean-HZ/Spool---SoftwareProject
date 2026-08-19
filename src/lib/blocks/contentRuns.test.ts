@@ -34,11 +34,43 @@ describe('tokenizeContent', () => {
   });
 
   it('strips == markers and flags the inner span as a highlight', () => {
+    // start/end are the run's range in the ORIGINAL string — markers included in the
+    // arithmetic, which is what makes a DOM selection mappable back (selectionRange.ts).
     expect(tokenizeContent('a ==b== c')).toEqual([
-      { text: 'a ', spine: false, highlight: false, hit: null },
-      { text: 'b', spine: false, highlight: true, hit: null },
-      { text: ' c', spine: false, highlight: false, hit: null },
+      { text: 'a ', start: 0, end: 2, spine: false, highlight: false, hit: null },
+      { text: 'b', start: 4, end: 5, spine: false, highlight: true, hit: null },
+      { text: ' c', start: 7, end: 9, spine: false, highlight: false, hit: null },
     ]);
+  });
+
+  // 2026-08-19 — the invariant the whole selection→content mapping rests on. Marker chars
+  // never reach a run, so within one, a character offset in the rendered text is the same
+  // distance from `start` in the RAW string. If this drifts, a correction made by selecting
+  // a paragraph quietly stores the wrong words (selectionRange.ts has no way to notice).
+  it('gives every run a range that slices back to exactly its own text', () => {
+    const cases = [
+      'hello world',
+      'a ==b== c',
+      'a **b** c',
+      '# 标题\n\n正文 **粗** 和 `代码`\n\n- 甲\n- 乙',
+      '截止 4 月 30 日,==占总分 40%==,可以*两人*一组',
+      '```\nlet x = **1**\n```',
+    ];
+    for (const content of cases) {
+      for (const r of tokenizeContent(content, { withSpine: true })) {
+        expect(content.slice(r.start, r.end)).toBe(r.text);
+      }
+    }
+  });
+
+  it('keeps the ranges walking forward and never overlapping', () => {
+    const runs = tokenizeContent('a ==b== c **d** e', { withSpine: true });
+    let prev = -1;
+    for (const r of runs) {
+      expect(r.start).toBeGreaterThanOrEqual(prev);
+      expect(r.end).toBeGreaterThan(r.start);
+      prev = r.end;
+    }
   });
 
   it('composes spine + highlight + active hit on an overlapping run', () => {
@@ -49,6 +81,8 @@ describe('tokenizeContent', () => {
     });
     expect(runs.find((r) => r.text === 'B')).toEqual({
       text: 'B',
+      start: 4,
+      end: 5,
       spine: true,
       highlight: true,
       hit: { idx: 0, active: true },
@@ -57,7 +91,7 @@ describe('tokenizeContent', () => {
 
   it('returns a single plain run for plain content', () => {
     expect(tokenizeContent('hello world')).toEqual([
-      { text: 'hello world', spine: false, highlight: false, hit: null },
+      { text: 'hello world', start: 0, end: 11, spine: false, highlight: false, hit: null },
     ]);
   });
 
@@ -74,9 +108,9 @@ describe('tokenizeContent', () => {
 describe('tokenizeContent · inline markdown', () => {
   it('strips ** and flags the inner span as strong', () => {
     expect(tokenizeContent('a **b** c')).toEqual([
-      { text: 'a ', spine: false, highlight: false, hit: null },
-      { text: 'b', spine: false, highlight: false, hit: null, mark: 'strong' },
-      { text: ' c', spine: false, highlight: false, hit: null },
+      { text: 'a ', start: 0, end: 2, spine: false, highlight: false, hit: null },
+      { text: 'b', start: 4, end: 5, spine: false, highlight: false, hit: null, mark: 'strong' },
+      { text: ' c', start: 7, end: 9, spine: false, highlight: false, hit: null },
     ]);
   });
 
@@ -118,7 +152,9 @@ describe('tokenizeContent · inline markdown', () => {
   it('leaves markers literal inside a raw (code-block) range', () => {
     const content = 'let x = **1**';
     const runs = tokenizeContent(content, { raw: [{ start: 0, end: content.length }] });
-    expect(runs).toEqual([{ text: content, spine: false, highlight: false, hit: null }]);
+    expect(runs).toEqual([
+      { text: content, start: 0, end: content.length, spine: false, highlight: false, hit: null },
+    ]);
   });
 
   it('hides the structural marker ranges the parser reports', () => {
@@ -139,6 +175,23 @@ describe('tokenizeContent · inline markdown', () => {
     expect(runs.map((r) => r.text).join('')).toBe(content);
     expect(runs.find((r) => r.corrected)?.text).toBe('占总分 40%');
     expect(runs.filter((r) => r.corrected)).toHaveLength(1);
+  });
+
+  // 2026-08-19 — two sentences corrected by two different blocks. Clicking one has to open THAT
+  // one, so the id has to survive tokenization onto the run.
+  it('tells two corrections apart on the runs they marked', () => {
+    const content = '截止 4 月 30 日,占总分 40%,可以两人一组';
+    const a = content.indexOf('截止 4 月 30 日');
+    const b = content.indexOf('占总分 40%');
+    const runs = tokenizeContent(content, {
+      corrected: [
+        { start: a, end: a + '截止 4 月 30 日'.length, id: 'corr-a' },
+        { start: b, end: b + '占总分 40%'.length, id: 'corr-b' },
+      ],
+    });
+    expect(runs.map((r) => r.text).join('')).toBe(content);
+    expect(runs.find((r) => r.text === '截止 4 月 30 日')?.correctionId).toBe('corr-a');
+    expect(runs.find((r) => r.text === '占总分 40%')?.correctionId).toBe('corr-b');
   });
 
   it('composes a correction with a highlight over the same words', () => {

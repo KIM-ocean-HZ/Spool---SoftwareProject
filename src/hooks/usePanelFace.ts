@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 //
 // The goal in his parenthesis is the whole design, and it is what makes this a rule rather than
 // a `setInterval`: a panel in the corner of the eye that mutates while you are looking at it is
-// a distraction, and the sidebar is on screen all day. So the swap is **only ever performed
+// a distraction, and the sidebar is on screen all day. So the swap is **normally only performed
 // while the window is not frontmost** — the user comes back to a panel that already shows the
 // other face, and never watches one become the other.
 //
@@ -17,10 +17,11 @@ import { useEffect, useRef, useState } from 'react';
 //     two faces all day.
 // Together they mean: at most one swap per FACE_HOLD_MS, and never one you can see.
 //
-// ⚠️ There is deliberately NO fallback timer for a user who never leaves Spool. It would be the
-// one code path that swaps in plain view, i.e. the exact thing this exists to prevent, and the
-// cost of not having it is small: someone who has not switched windows in an hour simply keeps
-// seeing the capture counts. Ocean should say if he wants that traded the other way.
+// ⚠️ 2026-08-19, Ocean traded the last part the other way: 「面板交替要不要兜底定时器 —— 要，
+// 时间长一点」. So there is now a second, much slower path (FACE_FALLBACK_MS) for the user who
+// never leaves Spool — and it IS the one path that can swap in plain view. That is the price of
+// the trade, and the length is what keeps it cheap: at ten minutes it is a swap you might catch
+// once in a long sitting, not a panel that mutates while you read it.
 
 export type PanelFace = 'stats' | 'clock';
 
@@ -32,9 +33,19 @@ export type PanelFace = 'stats' | 'clock';
  *  makes the two faces trade places more often, not more visibly. */
 export const FACE_HOLD_MS = 30 * 1000;
 
+/** How long a face may stay up when nothing ever blurs the window.
+ *
+ *  ⚠️ This one swaps in plain view — it exists precisely for the user who is still looking. Keep
+ *  it long (Ocean: 「时间长一点」); this is the single number to change if it feels too eager. */
+export const FACE_FALLBACK_MS = 10 * 60 * 1000;
+
+/** How often the fallback wakes up to ask. Well under FACE_FALLBACK_MS so the swap lands near
+ *  the interval it was given rather than up to twice it. */
+const FALLBACK_TICK_MS = 30 * 1000;
+
 /** Has the current face been up long enough to be replaced? Inclusive at exactly the hold. */
-export const shouldRotate = (lastSwapAt: number, now: number): boolean =>
-  now - lastSwapAt >= FACE_HOLD_MS;
+export const shouldRotate = (lastSwapAt: number, now: number, hold = FACE_HOLD_MS): boolean =>
+  now - lastSwapAt >= hold;
 
 /** Which face the capture panel should draw right now.
  *
@@ -51,17 +62,24 @@ export const usePanelFace = (enabled: boolean): PanelFace => {
       setFace('stats');
       return;
     }
-    const onBlur = (): void => {
+    const swapIfHeld = (hold: number): void => {
       const now = Date.now();
-      if (!shouldRotate(lastSwapAt.current, now)) return;
+      if (!shouldRotate(lastSwapAt.current, now, hold)) return;
       lastSwapAt.current = now;
       setFace((f) => (f === 'stats' ? 'clock' : 'stats'));
     };
+    const onBlur = (): void => swapIfHeld(FACE_HOLD_MS);
     // ⚠️ `blur` on window, not `visibilitychange`: the app is not hidden when the user clicks
     // into another app, it is merely no longer frontmost — which is precisely the moment the
     // panel stops being watched.
     window.addEventListener('blur', onBlur);
-    return () => window.removeEventListener('blur', onBlur);
+    // The fallback. Every blur pushes `lastSwapAt` forward, so on a normal working day this
+    // ticks, finds the face young, and does nothing.
+    const tick = window.setInterval(() => swapIfHeld(FACE_FALLBACK_MS), FALLBACK_TICK_MS);
+    return () => {
+      window.removeEventListener('blur', onBlur);
+      window.clearInterval(tick);
+    };
   }, [enabled]);
 
   return enabled ? face : 'stats';
