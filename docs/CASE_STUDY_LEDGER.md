@@ -129,6 +129,36 @@ platforms with different trust stories** — the macOS artefact is notarised, th
 not signed at all, so Windows users meet a SmartScreen warning. Recording them in one row keeps the
 asymmetry visible rather than letting "signed and notarised" quietly cover both.
 
+| Field | v0.6.0 |
+|---|---|
+| Published | **2026-08-19** |
+| Tagged commit | `c8beb04` |
+| Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
+| **Notarisation — `.app`** | submission `d3b2c6b8-630a-47e2-a44e-5a26ae7d479d` · **Accepted** |
+| **Notarisation — `.dmg`** | submission `fa58021b-68d7-4238-b685-d350a82291e3` · **Accepted** |
+| Artefact — macOS | `Spool_0.6.0_aarch64.dmg`, 9,472,267 bytes |
+| sha256 — macOS | `490fe92012bdea9e0db6c8d9f812c339afc98ce42f56c2b39d9648dd5a3302b6` |
+| Gatekeeper verdict — macOS | `accepted` · `source=Notarized Developer ID`; `stapler validate` passes on **both** the `.app` and the `.dmg` |
+| Signing identity — Windows | **none — still unsigned** (the 2026-08-15 decision stands) |
+| Artefact — Windows | `Spool_0.6.0_x64-setup.exe`, 6,980,693 bytes, built by CI run `32213830941` |
+| sha256 — Windows | `0029978b8cc8a6ad2383a8a3963e2ceadd5e40cb767198b07acb13392fdcb130` |
+| Fixed-name assets | `Spool-macOS-arm64.dmg` · `Spool-windows-x64-setup.exe` — both **HTTP 200** through `releases/latest/download/`, byte-identical to the versioned assets |
+| Database schema | **v23, unchanged from v0.5.0** — this release runs no migration |
+
+**Both submission ids are recorded this time**, which is the gap the v0.5.0 row had to admit to.
+They came from two different places and both had to be caught as they went past: the `.app` id is
+printed by the build tool inline (`Notarizing Finished with status Accepted for id …`) and scrolls
+away with the rest of the build log, and the `.dmg` id comes from the separate `notarytool submit`
+that the build tool does not perform. Redirecting the build to a file rather than piping it to
+`tail` is what made the first one recoverable at all.
+
+⚠️ **One credential note for the next release.** `notarytool store-credentials` puts a profile in
+the data-protection keychain, and `xcrun notarytool --keychain-profile` reads it — but the Tauri
+CLI (2.11) does **not**: its binary knows only `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` and
+the App Store Connect API-key trio. So the keychain profile covers step 5 (the `.dmg`) and the
+environment variables are still required for the build's own `.app` submission. Both were used
+here.
+
 ---
 
 ## 2. Measured findings
