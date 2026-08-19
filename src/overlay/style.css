@@ -77,7 +77,9 @@ body {
    tall and their one line of `--muted` text runs edge to edge — straight through the only
    place a flower could go. Measured, the 重做 label lands under 3 : 1 on 7% of its box. A
    flower there would be a flower under words, which is the one thing Ocean ruled out
-   (「文字需要看得清」). They keep the plain rose card.
+   (「文字需要看得清」). They keep the plain rose card. **Asked directly on 2026-08-19, Ocean
+   settled it: 「两个都不加」** — this is the decided shape, not a pending option. Do not add
+   `capture-bloom` to them.
 
    ⚠️ 经典 is untouched **by construction**, the same way `.rail-wash` is: `capture-bloom` is a
    bare marker class and no rule outside this block matches it.
