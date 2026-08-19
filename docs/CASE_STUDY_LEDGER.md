@@ -155,7 +155,7 @@ that the build tool does not perform. Redirecting the build to a file rather tha
 | Field | v0.6.1 |
 |---|---|
 | Published | **2026-08-19** (same day as v0.6.0 — a second release, not a re-cut) |
-| Tagged commit | `b65dc37` |
+| Tagged commit | tag `v0.6.1`, on a `docs/`-only commit that closes the release — **the code tree it points at is identical to `819b5b1`**, which `git diff 819b5b1 v0.6.1 -- . ':!docs'` confirms by returning nothing |
 | Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
 | **Notarisation — `.app`** | submission `ada26185-9d89-49fe-93e4-c95e4797e223` · **Accepted** |
 | **Notarisation — `.dmg`** | submission `72eda901-d597-4ac7-99a4-feaf4b9b5598` · **Accepted** |
@@ -169,10 +169,13 @@ that the build tool does not perform. Redirecting the build to a file rather tha
 | Database schema | **v23, unchanged** — this release runs no migration |
 
 **What this row adds that the earlier ones do not: which tree the Windows installer came from.**
-CI run `32228101203` reports `headSha = 819b5b1`, and the tag is `b65dc37`. Those are different
-objects, and the row says so rather than rounding them together. `b65dc37` adds only this ledger row
-and the release notes on top of `819b5b1` — both under `docs/`, which the Windows workflow excludes
-by its `paths-ignore` filter, so no Windows build exists for the tag itself and none would differ.
+CI run `32228101203` reports `headSha = 819b5b1`, while the tag sits a couple of commits later.
+Those are different objects and the row says so rather than rounding them together: everything
+after `819b5b1` is under `docs/`, which the Windows workflow excludes by its `paths-ignore`
+filter, so no Windows build exists for the tagged commit itself and none would differ.
+⚠️ The row deliberately does **not** name the tagged commit's own sha — a row that has to be
+written before the commit that contains it can only ever be one revision stale, which is exactly
+how the first draft of this row came to name the wrong one.
 The port branch was fast-forwarded to `819b5b1` before the tag was cut, which is what put the
 compiled code and the release on the same source. In the v0.6.0 row this correspondence went
 unrecorded, which leaves it unverifiable after the fact — a run number alone does not say which
