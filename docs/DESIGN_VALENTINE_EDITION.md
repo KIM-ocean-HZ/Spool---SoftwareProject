@@ -156,6 +156,74 @@ Ocean 自己的 brief 里写了「soften edges with lighter washes so the illust
 
 ⚠️ **换图必须重新算**——一张中心是深色的图会把字压在下面，这层罩子是唯一挡在中间的东西。
 
+### 4.1 捕捉浮窗上的那朵花（2026-08-19 第二窗）
+
+Ocean:「**弹窗需要使用 background.png 里面花的图片来当背景**」，并当窗点名
+**「弹窗我指的是捕捉浮窗」** —— 也就是双击 ⌥ 弹出来那张卡（`src/overlay/CaptureOverlay.tsx`，
+独立窗口、独立 bundle、只 import `tokens.css`）。
+
+**⚠️⚠️ 照抄主窗那行 `center / cover` 会用两种不同的方式失败**，而且两种都长得像「背景图没生效」：
+
+1. 画的花全在四个角，中间（x 30%~70%）几乎是纯色纸——`--paper` 就是从那儿取的。
+   一张**又高又窄**的卡片 `cover` 居中，取到的正好是那块空白，**一朵花都没有**。
+2. 这张卡片恰好是**又宽又矮**的（340 × 约 214），于是 `cover` 干的是反面的事：把**整幅四角
+   构图**缩到五分之一塞进卡片，四个角各一小团糊，谁也认不出是花。
+
+所以卡片只拿**一朵**牡丹，按主窗上差不多的尺寸，摆进这张卡**唯一不放字的那块地方**。
+
+**三个数，都是量出来的：**
+
+| 参数 | 值 | 为什么是这个数 |
+|---|---|---|
+| `background-size` | `800px auto` | 图缩到 800 宽时高 450，右下那朵牡丹落在 **≈150px**，正是它在主窗里的观感尺寸 |
+| `background-position` | `right 0 bottom -60px` | 图的下沿压到卡片下沿**再往下 60px**，卡片取到的是图的第 185~390 行：那朵牡丹＋上面的花苞和叶子，同时把花心最深的那几笔**推出下边缘** |
+| 罩子 | `to bottom right`，`0.97 / 0.93 / 0.68` | 和主窗同一个思路（中心加权），只是改成沿对角线：起字的那头 0.97，花所在的右下角 0.68 |
+
+**⚠️ 这次的量是在真 WKWebView 渲染上做的，不是在模型上做的。** 用
+`scripts/wk-snapshot.m` 把**编译产物里的那份 CSS** 和卡片原样渲染出来，再逐像素算
+（同 §4 的算法）。顺带校了一次模型：Python 模拟与 WebKit 渲染 **平均差 0.21/255，最大 4** ——
+所以下面这组数就是 app 里会发生的事。
+
+| 卡片上真正有字的区域 | 色阶 | 最坏对比度 | 低于门槛的面积 |
+|---|---|---|---|
+| 标题（14px） | `--ink` | **12.01 : 1** | 0% |
+| 出处行（10px 等宽） | `--muted` | **3.14 : 1** | 0%（门槛 3:1） |
+| 批注框里的字（12px） | `--ink-2` | **6.70 : 1** | 0% |
+| 批注框的占位符档 | `--muted` | 2.68 : 1 | **0.65%** |
+| 底栏两个图标 | `--muted` | 3.28 : 1 | 0% |
+
+**主窗同一个数是 0.8%**，所以这张卡不比它所属的那页更差。（`完成` 按钮和**聚焦时**的批注框
+各自有不透明底色，不落在图上；卡片 body 是 `pr-14`，所以正文永远越不过 x=284——右边那一竖条
+本来就没有字，花就开在那儿。）
+
+**⚠️ 提示（notice）和撤销（undo）两条**（同一个窗口的另外两种状态）**故意没有加。**
+它们只有 40~56px 高，一行 `--muted` 的字**从左顶到右**，正好铺在唯一能放花的地方。量过：
+`重做` 那个按钮的字会有 **7%** 的面积掉到 3 : 1 以下。那就是「把花开在字底下」，
+是 Ocean 那句「文字需要看得清」明确排除掉的做法。它们保持素净的玫瑰色卡片。
+**要不要给它们也来一层更淡的，是 Ocean 的一句话的事**（加个类名 + 一条更重的罩子）。
+
+**经典版为什么不可能受影响**：`capture-bloom` 和 `rail-wash` 一样是个**空标记类**，
+唯一匹配它的规则住在 `[data-theme='valentine']` 里面。取证不是靠读代码：把这个类挂在一个
+空 div 上、**黑底**渲染两遍，`classic` 那张**整张是纯黑**（这个类一个像素都没画），
+`valentine` 那张是花。
+
+编译产物核对（`dist/assets/overlay-*.css`）：
+
+```
+:root[data-theme=valentine] .capture-bloom{background-color:var(--paper);background-image:
+linear-gradient(to bottom right,#fdf8f5f7,#fdf8f5ed,#fdf8f5ad),url(/assets/valentine-background-LcX1h9T-.png);
+background-position:0 0,right 0 bottom -60px;background-size:auto,800px auto;background-repeat:no-repeat,no-repeat}
+```
+
+- 三个 alpha 原样落地（`f7`=0.97 / `ed`=0.93 / `ad`=0.68）✅
+- 四值 `background-position` **没有被压缩器改坏** ✅（所以写的是 longhand：`background`
+  简写扛不动三值/四值的 position）
+- 背景图**还是同一个文件**（`valentine-background-LcX1h9T-.png`）：主窗那份 CSS 和浮窗这份
+  引用同一个哈希，Vite 没有复制第二份 —— **包大小零增长** ✅
+
+改前改后对照图：`docs/screenshots/valentine-capture-bloom-2026-08-19.png`（左经典 / 右情人节，
+WKWebView 真渲染）。
+
 ---
 
 ## 5. 休息提醒 —— 规则改在哪
@@ -311,6 +379,12 @@ user was in another app」）。**这两个反对理由是被回答了，不是�
 ### 8.5 捕捉浮窗
 
 - ☐ 在情人节版下，复制点东西，双击 ⌥ → **浮窗也是粉色的**（不用重启，它是另一个窗口，会自己跟上）
+- ☐ 浮窗**右下角开着一朵水彩牡丹**，右上角有个花苞（就是背景图里那朵）
+- ☐ **左边那一半是干净的纸**：捕到的那句话、下面那行小小的出处，都不压在花上
+- ☐ 中间那个「留一句想法…」的框，**打字进去看得清**
+- ☐ 对照图（如果你想先看长什么样，不用装）：`docs/screenshots/valentine-capture-bloom-2026-08-19.png`
+- ☐ 「剪贴板为空」那种提示条、和撤销那条，**故意没有花**（一行字从左顶到右，花只会压在字底下）——
+  你要是想要它们也带一点，说一声，是加一个类名的事
 
 ### 8.6 中英文
 
@@ -363,7 +437,9 @@ src/lib/blocks/spoolProgress.ts    spoolState 加 steps 参数；HEART_STEPS = 2
 src/lib/blocks/spoolProgress.test.ts
 src/lib/i18n/index.ts              新字符串的英文
 src/App.tsx                        useAppliedTheme / BreakReminder / 加载画面走 token
-src/overlay/CaptureOverlay.tsx     useAppliedTheme
+src/overlay/CaptureOverlay.tsx     useAppliedTheme；捕捉卡片挂 capture-bloom 标记类
+src/overlay/style.css              捕捉卡片上的那朵花（§4.1）——浮窗不 import global.css，
+                                   所以规则住在这儿
 src/components/Sidebar/index.tsx   用 Wordmark；边栏用 --rail-wash
 src/components/Sidebar/SpoolCard.tsx  按主题选爱心还是线轴
 src/components/RightRail/index.tsx    边栏用 --rail-wash

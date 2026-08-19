@@ -560,11 +560,19 @@ export default function CaptureOverlay() {
   };
 
   return (
+    /* ⚠️ `capture-bloom` is a bare marker class with NO rule behind it in 经典 — the only rule
+       that matches it lives under `[data-theme='valentine']` (overlay/style.css), where it lays
+       one of the background painting's peonies into this card's right-hand column. Same
+       construction as `rail-wash` in the main window, for the same reason: the shipped card keeps
+       every class it shipped with, so 经典 cannot shift by a shade.
+       ⚠️ The notice and undo strips above deliberately do not carry it — their one line of text
+       runs edge to edge, which is where the flower would have to go. The measured reason is in
+       overlay/style.css. */
     <div
       ref={cardRef}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className="overlay-in relative w-full rounded-lg border border-line-strong bg-paper"
+      className="overlay-in capture-bloom relative w-full rounded-lg border border-line-strong bg-paper"
       style={{ boxShadow: 'var(--shadow-toast)' }}
     >
       {/* Top-right cluster: one-click 📌 pin (no longer bundled with the note) + × close. */}

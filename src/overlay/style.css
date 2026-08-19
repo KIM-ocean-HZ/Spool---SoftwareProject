@@ -39,3 +39,63 @@ body {
 .overlay-in {
   animation: overlay-chip-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+
+/* =====================================================================================
+   情人节限定版 (2026-08-19, Ocean) — the bloom on the capture card.
+
+   Ocean 2026-08-19: 「弹窗需要使用 background.png 里面花的图片来当背景」, and 「弹窗」 is this
+   window — the capture toast double-tap ⌥ opens (he named it when asked).
+
+   ⚠️⚠️ **`cover` is the trap here, and it fails in two different ways at once.** The
+   painting's flowers are all in its four corners; its middle (x 30–70%) is near-flat paper —
+   that flat middle is where `--paper` was sampled from. A tall card centred on the image with
+   `cover` therefore shows no flower at all. This card is short and wide (340 × ~205), so
+   `cover` does the opposite and shrinks the WHOLE four-corner arrangement to a fifth of its
+   size: four unreadable smudges, one in each corner of a 340px card. Neither is a background
+   image anyone can see. So the card takes ONE peony at roughly the scale the main window
+   shows it, parked in the corner this card never puts text in.
+
+   The three numbers, measured rather than picked:
+
+   - `800px` wide → the image is 450px tall, and the bottom-right peony lands at ~150px
+     across, the size it reads at in the main window.
+   - `bottom -60px` (the image's bottom edge sits 60px BELOW the card's) → the card shows
+     image rows 185–390, which is that peony plus the bud and leaves above it, and pushes the
+     dark linework at the flower's heart off the bottom edge.
+   - the wash is the same centre-weighted idea as `.paper-bg`, run down the diagonal instead:
+     0.97 where the text starts, 0.68 in the bottom-right corner where the flower is. The
+     numbers come from the same per-pixel sweep as the main window (DESIGN_VALENTINE_EDITION
+     §4), run over each region of this card that actually holds text — and run over a real
+     WKWebView render of this very rule (scripts/wk-snapshot.m), not over a model of it:
+     `--ink` title 12.01 : 1, `--ink-2` in the note box 6.70, `--muted` attribution row 3.14,
+     footer 3.28. The only tier that dips below 3 : 1 is placeholder-weight text, on **0.65%**
+     of the note box — the main window's same figure is 0.8%, so this card is no worse than
+     the page it belongs to.
+     ⚠️ Re-measure if the image is ever swapped, exactly as for `.paper-bg`.
+
+   ⚠️ **The notice and undo strips deliberately do NOT get this class.** They are ~40–56px
+   tall and their one line of `--muted` text runs edge to edge — straight through the only
+   place a flower could go. Measured, the 重做 label lands under 3 : 1 on 7% of its box. A
+   flower there would be a flower under words, which is the one thing Ocean ruled out
+   (「文字需要看得清」). They keep the plain rose card.
+
+   ⚠️ 经典 is untouched **by construction**, the same way `.rail-wash` is: `capture-bloom` is a
+   bare marker class and no rule outside this block matches it.
+
+   ⚠️ Longhands, not the `background` shorthand: the shorthand cannot carry the 4-value
+   `right 0 bottom -60px` position (three- and four-value positions are invalid there).
+   ===================================================================================== */
+:root[data-theme='valentine'] .capture-bloom {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(
+      to bottom right,
+      rgba(253, 248, 245, 0.97) 0%,
+      rgba(253, 248, 245, 0.93) 50%,
+      rgba(253, 248, 245, 0.68) 100%
+    ),
+    url('../assets/valentine-background.png');
+  background-position: 0 0, right 0 bottom -60px;
+  background-size: auto, 800px auto;
+  background-repeat: no-repeat, no-repeat;
+}
