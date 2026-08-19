@@ -43,11 +43,17 @@ cp ../../../docs/screenshots/app-project.png story-project.png
 cp ../../../docs/screenshots/mcp-filed-detail.png story-ai-writeback.png
 
 # SAVE: browser tab/address and capture toast, both from the complete S1 scene.
-# Row 78 is where the screen's top band ends: the browser window and the overlay
-# card both start there, so both crops are offset past it.
+# Row 79 is where the screen's top band ends and the browser window begins.
+#
+# ⚠️ The card no longer starts on that same row. It used to (S1 was shot before
+# the overlay was repositioned), which is why one offset served both crops. The
+# capture card is now placed against the screen's USABLE area rather than its
+# full height, so the menu bar cannot eat its top edge — measured on the 2026-08-19
+# re-shoot, that moved it down exactly 40px, 78 -> 118, at the same 428px height.
+# If S1 is ever re-shot again, re-measure rather than assuming 118.
 sips -c 260 800 --cropOffset 79 1 capture-page.png \
   --out capture-page-source-detail.png >/dev/null
-sips -c 430 680 --cropOffset 78 2880 capture-page.png \
+sips -c 430 680 --cropOffset 118 2880 capture-page.png \
   --out capture-toast.png >/dev/null
 # KEEP: two in-place magnifiers over the complete project window. The narrower
 # S2 wraps the long notes so each crop can keep every sentence to its full stop.
