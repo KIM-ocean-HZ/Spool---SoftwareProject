@@ -155,7 +155,7 @@ that the build tool does not perform. Redirecting the build to a file rather tha
 | Field | v0.6.1 |
 |---|---|
 | Published | **2026-08-19** (same day as v0.6.0 — a second release, not a re-cut) |
-| Tagged commit | `819b5b1` |
+| Tagged commit | `b65dc37` |
 | Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
 | **Notarisation — `.app`** | submission `ada26185-9d89-49fe-93e4-c95e4797e223` · **Accepted** |
 | **Notarisation — `.dmg`** | submission `72eda901-d597-4ac7-99a4-feaf4b9b5598` · **Accepted** |
@@ -163,16 +163,20 @@ that the build tool does not perform. Redirecting the build to a file rather tha
 | sha256 — macOS | `0e41d6c3ae5278efcb6c5924fbf578c0d5e0ab481f1eb3260ecdf1459ab52708` |
 | Gatekeeper verdict — macOS | `accepted` · `source=Notarized Developer ID` on **both** artefacts; `codesign -dvv` Authority resolved to the Developer ID certificate, not the local `Spool Dev` one |
 | Signing identity — Windows | **none — still unsigned** (the 2026-08-15 decision stands) |
-| Artefact — Windows | `Spool_0.6.1_x64-setup.exe`, 6,982,762 bytes, built by CI run `32228101203` from the tagged commit itself |
+| Artefact — Windows | `Spool_0.6.1_x64-setup.exe`, 6,982,762 bytes, built by CI run `32228101203` from `819b5b1` — the tag's parent |
 | sha256 — Windows | `8814690c8894ef8a7f9cded5b5e3ca86923ed5b9646b798c56b71c6077db350a` |
 | Fixed-name assets | `Spool-macOS-arm64.dmg` · `Spool-windows-x64-setup.exe` — both **HTTP 200** through `releases/latest/download/` |
 | Database schema | **v23, unchanged** — this release runs no migration |
 
-**What this row adds that the earlier ones do not.** The Windows artefact was built by CI **from the
-tagged commit**, not from an earlier one that happened to be close: the port branch was
-fast-forwarded to the release commit before the tag was cut, so the run's `headSha` and the tag
-resolve to the same object. In the v0.6.0 row that correspondence was true but unrecorded, which
-makes it unverifiable after the fact — the run number alone does not say which tree it compiled.
+**What this row adds that the earlier ones do not: which tree the Windows installer came from.**
+CI run `32228101203` reports `headSha = 819b5b1`, and the tag is `b65dc37`. Those are different
+objects, and the row says so rather than rounding them together. `b65dc37` adds only this ledger row
+and the release notes on top of `819b5b1` — both under `docs/`, which the Windows workflow excludes
+by its `paths-ignore` filter, so no Windows build exists for the tag itself and none would differ.
+The port branch was fast-forwarded to `819b5b1` before the tag was cut, which is what put the
+compiled code and the release on the same source. In the v0.6.0 row this correspondence went
+unrecorded, which leaves it unverifiable after the fact — a run number alone does not say which
+tree it compiled.
 
 **This release carries a behaviour change, which a patch version number does not advertise.**
 Closing the "AI can read this file" checkbox now actually closes the file; previously the separate
