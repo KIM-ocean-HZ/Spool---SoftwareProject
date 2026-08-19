@@ -86,6 +86,45 @@ Tailwind v3 **没法**给「值是裸 `var(--…)` 的颜色」加透明度修�
 
 ---
 
+### 1.2 ⚠️⚠️ 浮窗的主题是**推**进去的，不是它自己读的（2026-08-19 第二窗修）
+
+Ocean 装完第一版之后当场发现：**「捕捉浮窗仍然是classic的ui啊，没有变化，撤销也是」**。
+属实，而且**和花底无关**——浮窗从第一版起就没拿到过 `theme`，一直坐在 store 的默认值
+（`classic`）上，所以 `useAppliedTheme()` 在那边每次都把 `classic` 写回 `<html>`。
+
+**根源是主题被接到了一条对这个窗口不存在的路上，而且两处同时不成立：**
+
+| # | 当初的假设 | 实际 |
+|---|---|---|
+| 1 | 「主窗 `update()` 里那句 `emit('settings:changed')` 会广播到每个窗口」 | 浮窗从 **2026-08-01 起是独立进程**（`src-tauri/src/overlay.rs`），Tauri 事件**跨不过进程边界** |
+| 2 | 「浮窗自己会读同一个 `settings.json`」 | `capabilities/overlay.json` 只给了 `core:default`，**没有 `store:` 权限**，`Store.load('settings.json')` 必然失败，被 `catch` 吞掉 |
+
+⚠️⚠️ **这两句假设当时是白纸黑字写在注释里的**（`useTheme.ts`、`lib/theme.ts`、
+`CaptureOverlay.tsx` 三处），所以**照着注释读代码的人不会再去问「这个窗口凭什么读得到」**。
+⭐ 和 [[mcp-tool-routing-required]] 是同一类：**把功能接在一条根本不会被走到的路上，本地毫无
+症状**——编译过、tsc 过、448 条测试全绿，唯一的症状是一张奶油色卡片浮在别人的应用上面。
+注释已经按实际改掉了，三处都改。
+
+**修法不发明新机制，走这个窗口已经在用的那条**：语言就是 Rust 每次 show 之前读
+`settings.json` 推进来的（`ui_language` → `overlay:language`）。主题现在同样推
+（`ui_theme` → `overlay:theme`），两者合并成一个 `settings_string(app, key)`。
+
+- ⚠️ **emit 在内容事件之前**，而卡片在内容到达之前渲染的是 `null`——Tauri 对同一个窗口
+  是按序投递的，所以第一帧就已经是对的，**没有 classic→情人节的闪**，不需要额外的握手。
+- ⚠️ `show` / `notice` / `undo` **三种走的是同一个 handler**，所以 Ocean 说的「撤销也是」
+  一并修好。
+- ⚠️ 前端收到之后过一层 `themeOrDefault`：`settings.json` 是能手改的，一个不认识的名字写到
+  `<html>` 上会一条样式都匹配不上——一张半涂色的卡片浮在别人的应用上面。
+
+**守卫**（`src/lib/capture/overlayProtocol.test.ts`，两条）：两侧事件名一致 + 主题和语言
+仍然在同一个 handler 里推。**验过它会红**：把那个 emit 删掉，第二条当场失败。
+（这个 bug 之前对所有检查都是隐形的，所以这条守卫的价值就是把它变成看得见的。）
+
+⚠️ **推论，给以后加东西的人**：**浮窗要跟随的任何设置，都必须由 Rust 在 show 前推进去。**
+它读不到 `settings.json`，也收不到主窗的任何广播。目前推的是两个：语言、主题。
+
+---
+
 ## 2. 配色
 
 Ocean 给的：blush `#f6b7c9` · rose `#f29bb6` · deep rose `#e66d98` · mint `#c9f2e6` ·
@@ -437,7 +476,13 @@ src/lib/blocks/spoolProgress.ts    spoolState 加 steps 参数；HEART_STEPS = 2
 src/lib/blocks/spoolProgress.test.ts
 src/lib/i18n/index.ts              新字符串的英文
 src/App.tsx                        useAppliedTheme / BreakReminder / 加载画面走 token
-src/overlay/CaptureOverlay.tsx     useAppliedTheme；捕捉卡片挂 capture-bloom 标记类
+src/overlay/CaptureOverlay.tsx     useAppliedTheme；捕捉卡片挂 capture-bloom 标记类；
+                                   收 overlay:theme（§1.2 那个 bug 的修法）
+src/lib/capture/overlayProtocol.ts OVERLAY_THEME_EVENT
+src/lib/capture/overlayProtocol.test.ts  守卫：两侧事件名 + 主题仍和语言一起推
+src-tauri/src/overlay.rs           ui_theme() + THEME_EVENT，每次 show 前推给浮窗
+src/hooks/useTheme.ts              注释改成实话（原来那句是 bug 的根源）
+src/lib/theme.ts                   同上
 src/overlay/style.css              捕捉卡片上的那朵花（§4.1）——浮窗不 import global.css，
                                    所以规则住在这儿
 src/components/Sidebar/index.tsx   用 Wordmark；边栏用 --rail-wash
