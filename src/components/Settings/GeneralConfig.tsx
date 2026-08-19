@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
+import { WORK_MINUTE_OPTIONS, type WorkMinutes } from '@/lib/breakReminder';
 import { THEMES, type Theme } from '@/lib/theme';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useT } from '@/lib/i18n';
@@ -23,7 +25,12 @@ export default function GeneralConfig() {
   const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
   const language = useSettingsStore((s) => s.language);
   const theme = useSettingsStore((s) => s.theme);
+  const breakReminderEnabled = useSettingsStore((s) => s.breakReminderEnabled);
+  const breakWorkMinutes = useSettingsStore((s) => s.breakWorkMinutes);
   const update = useSettingsStore((s) => s.update);
+  // 二级 disclosure, same shape EngineConfig uses: the evidence is read once and then never
+  // again, so it must not sit in the resting page beside a switch that is touched often.
+  const [studyOpen, setStudyOpen] = useState(false);
 
   return (
     <div>
@@ -83,6 +90,81 @@ export default function GeneralConfig() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="border-t border-line" />
+
+      {/* 休息提醒 (2026-08-19 second pass, Ocean: 「设置里面可以关闭休息提醒,做成两个 appearance 都有
+          的功能」). ⚠️ This is the ONE control on this page that changes what the app DOES rather
+          than how it looks, which is why it sits below the two appearance rows rather than
+          between them. It is also the only part of 情人节限定版 that reaches 经典 users — the
+          earlier 「只在情人节版」 ruling covered it and he reversed that half by name. */}
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{t('休息提醒')}</div>
+          <div className="mt-0.5 text-xs text-muted">
+            {t('连续工作到点，窗口会锁上 5 分钟，提醒你站起来活动一下。两种外观都有。')}
+          </div>
+        </div>
+        <Toggle
+          checked={breakReminderEnabled}
+          onChange={(v) => void update({ breakReminderEnabled: v })}
+        />
+      </div>
+
+      {breakReminderEnabled && (
+        <div className="flex items-center justify-between gap-4 pb-2.5">
+          <div className="min-w-0">
+            <div className="text-xs text-ink-2">{t('连续工作多久提醒一次')}</div>
+            <div className="mt-0.5 text-xs text-muted">
+              {t('休息固定 5 分钟——研究里三种节奏都是 5 分钟，变的只有工作时长。')}
+            </div>
+          </div>
+          <select
+            value={breakWorkMinutes}
+            onChange={(e) =>
+              void update({ breakWorkMinutes: Number(e.target.value) as WorkMinutes })
+            }
+            className="flex-none rounded border border-line bg-paper px-2 py-0.5 text-xs text-ink outline-none focus:border-accent"
+          >
+            {WORK_MINUTE_OPTIONS.map((m) => (
+              <option key={m} value={m}>
+                {t('{n} 分钟', { n: m })}
+                {m === 60 ? t('（推荐）') : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* The evidence, behind one disclosure. Ocean asked for it by name (「设置里面给出论文证明」)
+          and it is what makes 30 / 60 / 120 the three numbers on offer rather than a guess.
+          ⚠️ The citation itself is NOT run through t() — a bibliographic reference is the same
+          string in every language, and translating a journal's name would make it unfindable. */}
+      <div className="pb-2.5">
+        <button
+          type="button"
+          onClick={() => setStudyOpen((v) => !v)}
+          className="text-xs text-muted transition-colors hover:text-accent"
+        >
+          {studyOpen ? '▾ ' : '▸ '}
+          {t('为什么是 60 分钟：近两万人的研究怎么说')}
+        </button>
+        {studyOpen && (
+          <div className="mt-1.5 rounded-md border border-line bg-paper-2/40 px-3 py-2">
+            <p className="text-xs leading-relaxed text-ink-2">
+              {t('发表于 2026 年最新一期《英国运动医学杂志》上的一项研究，让近两万名成年人在真实的工作环境里试了三种节奏：每 30、60 或 120 分钟起来活动 5 分钟。')}
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-2">
+              {t('结果是：30 分钟一次在减轻疲劳上效果最强，但在实际工作中往往让人觉得太频繁、难以长年坚持。综合「提升心情、缓解疲劳」与「保持工作效率不下降」这两个维度，每 60 分钟活动 5 分钟被证明是最能被大众接受、也最能长期做下去的「黄金频率」。')}
+            </p>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">
+              Diaz, K. M., et al. (2026). Evaluating movement breaks as a public health strategy
+              to mitigate the harms of prolonged sitting: a large-scale pragmatic intervention.{' '}
+              <span className="italic">British Journal of Sports Medicine</span>.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-line" />

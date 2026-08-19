@@ -3,6 +3,11 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
 import { DEFAULT_CAPTURE_ACCEL, DEFAULT_SEARCH_ACCEL } from '@/lib/capture/shortcut';
+import {
+  DEFAULT_WORK_MINUTES,
+  workMinutesOrDefault,
+  type WorkMinutes,
+} from '@/lib/breakReminder';
 import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
 import { DEFAULT_THEME, themeOrDefault, type Theme } from '@/lib/theme';
 
@@ -29,7 +34,9 @@ type PersistableKey =
   | 'aiAutoMaintain'
   | 'packInstructions'
   | 'closeToTrayHintSeen'
-  | 'theme';
+  | 'theme'
+  | 'breakReminderEnabled'
+  | 'breakWorkMinutes';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -146,6 +153,18 @@ interface SettingsState {
    *  ⚠️ NOT read by the `spool --mcp` subprocess, unlike `resolvedLanguage`: nothing an MCP
    *  client sees has a colour. */
   theme: Theme;
+  /** 休息提醒 (2026-08-19 second pass, Ocean: 「设置里面可以关闭休息提醒,做成两个 appearance 都
+   *  有的功能」). Default ON in BOTH themes — the earlier 「只在情人节版」 ruling covered the whole
+   *  feature and he reversed that half of it by name. Gwen is untouched and stays 情人节-only.
+   *
+   *  ⚠️ This is the only key in this file that changes what 经典 does rather than how it looks,
+   *  which is why it is a switch the user can find in one place and turn off in one click. */
+  breakReminderEnabled: boolean;
+  /** How long a sitting runs before the break lock comes up — 30 / 60 / 120, the arms of the
+   *  study quoted beside the picker. Validated on read (lib/breakReminder's
+   *  `workMinutesOrDefault`): the file is hand-editable and a stray number would otherwise
+   *  become a schedule nobody chose. */
+  breakWorkMinutes: WorkMinutes;
   loaded: boolean;
   panelOpen: boolean; // Settings modal visibility — runtime only, never persisted
   // Reflects the OS launch-agent registration; the OS is the source of truth, so
@@ -226,6 +245,8 @@ const KEYS: PersistableKey[] = [
   'packInstructions',
   'closeToTrayHintSeen',
   'theme',
+  'breakReminderEnabled',
+  'breakWorkMinutes',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -269,6 +290,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // Written once, by the card's own button — see components/CloseToTrayHint.
   closeToTrayHintSeen: false,
   theme: DEFAULT_THEME,
+  breakReminderEnabled: true,
+  breakWorkMinutes: DEFAULT_WORK_MINUTES,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,
@@ -286,6 +309,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       // onto <html> where no stylesheet matches it — a half-painted window rather than either
       // theme. Everything else here is a boolean, a number or a string the UI re-validates.
       if (next.theme !== undefined) next.theme = themeOrDefault(next.theme);
+      // Same reason, same shape: a number that is not one of the three offered would run a
+      // schedule the picker cannot even display.
+      if (next.breakWorkMinutes !== undefined) {
+        next.breakWorkMinutes = workMinutesOrDefault(next.breakWorkMinutes);
+      }
       // One-time cleanup for users upgrading across the MCP-first pivot.
       if (!legacyScrubDone) {
         legacyScrubDone = true;

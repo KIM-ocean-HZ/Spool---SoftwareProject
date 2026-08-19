@@ -4,7 +4,10 @@ import { countCaptures, countUserWrittenChars, listCapturesSince } from '@/lib/d
 import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
+import { usePanelFace } from '@/hooks/usePanelFace';
 import { useIsValentine } from '@/hooks/useTheme';
+import { useSettingsStore } from '@/stores/settingsStore';
+import BreakClock from './BreakClock';
 import HeartMeter, { FilledHearts } from './HeartMeter';
 import SpoolMeter, { FilledSpools } from './SpoolMeter';
 
@@ -77,6 +80,12 @@ export default function SpoolCard() {
   // ⚠️ Both marks live in the same 40×36 box, so this changes what is drawn and never where the
   // two lines of text beside it begin (Ocean 2026-08-11: 「保证线轴左边只有两行字」).
   const valentine = useIsValentine();
+  // 休息提醒 (2026-08-19 second pass, Ocean) — the panel has a SECOND FACE now: the countdown for
+  // the current sitting, alternating with the counts (BreakClock; usePanelFace owns the when).
+  // ⚠️ With the reminder switched off there is nothing to count down to, and his rule for that
+  // case is 「面板就只显示捕捉数量」 — which is exactly what usePanelFace returns when handed false.
+  const breakReminderEnabled = useSettingsStore((s) => s.breakReminderEnabled);
+  const face = usePanelFace(breakReminderEnabled);
   // Every successful capture sets this, so it doubles as "something just landed, re-read".
   const flashBlockId = useCaptureStore((s) => s.flashBlockId);
   // …and this covers the rest of what moves the numbers: writing a note, editing a body,
@@ -134,59 +143,65 @@ export default function SpoolCard() {
          makes the inner rule an internal division rather than a boundary in the rail. */
     <div className="mt-2.5 rounded-md border border-line px-3 py-2">
       <div className="flex items-center gap-3">
-        {valentine ? (
-          <HeartMeter
-            level={spool.level}
-            full={spool.full}
-            label={t('爱心：每 100 条捕捉填满一颗')}
-          />
+        {face === 'clock' ? (
+          <BreakClock />
         ) : (
-          <SpoolMeter
-            level={spool.level}
-            full={spool.full}
-            label={t('线轴：每 100 条捕捉缠满一轴')}
-          />
-        )}
-        {/* 累计 — the whole library, in exactly two lines (see Fact() rule 3). Both are about
-            this spool: how much is on it, and how much more it takes. */}
-        <div className="flex min-w-0 flex-1 flex-col gap-y-0.5 leading-snug">
-          <Fact text={t('你捕捉了 {n} 条', { n: stats.captures })} />
-          <div className="flex items-center gap-2">
-            {spool.full ? (
-              <span className="whitespace-nowrap text-[13px] text-accent">
-                {valentine ? t('这颗心填满了') : t('这一轴缠满了')}
-              </span>
+          <>
+            {valentine ? (
+              <HeartMeter
+                level={spool.level}
+                full={spool.full}
+                label={t('爱心：每 100 条捕捉填满一颗')}
+              />
             ) : (
-              <Fact
-                text={
-                  valentine
-                    ? t('还差 {n} 条填满', { n: untilFull(spool) })
-                    : t('还差 {n} 条缠满', { n: untilFull(spool) })
-                }
+              <SpoolMeter
+                level={spool.level}
+                full={spool.full}
+                label={t('线轴：每 100 条捕捉缠满一轴')}
               />
             )}
-            {/* 总线轴数 as the spools themselves (Ocean 2026-08-10). A number says how many;
-                a shelf of them is the 成就感 he asked for in §2.4 — and it costs one more
-                drawing of a mark that is already on screen. Absent at zero, like every other
-                count-of-nothing here: an empty shelf is a hole, not a fact.
+            {/* 累计 — the whole library, in exactly two lines (see Fact() rule 3). Both are about
+                this spool: how much is on it, and how much more it takes. */}
+            <div className="flex min-w-0 flex-1 flex-col gap-y-0.5 leading-snug">
+              <Fact text={t('你捕捉了 {n} 条', { n: stats.captures })} />
+              <div className="flex items-center gap-2">
+                {spool.full ? (
+                  <span className="whitespace-nowrap text-[13px] text-accent">
+                    {valentine ? t('这颗心填满了') : t('这一轴缠满了')}
+                  </span>
+                ) : (
+                  <Fact
+                    text={
+                      valentine
+                        ? t('还差 {n} 条填满', { n: untilFull(spool) })
+                        : t('还差 {n} 条缠满', { n: untilFull(spool) })
+                    }
+                  />
+                )}
+                {/* 总线轴数 as the spools themselves (Ocean 2026-08-10). A number says how many;
+                    a shelf of them is the 成就感 he asked for in §2.4 — and it costs one more
+                    drawing of a mark that is already on screen. Absent at zero, like every other
+                    count-of-nothing here: an empty shelf is a hole, not a fact.
 
-                ⚠️ It rides on the END of the 还差 line (Ocean 2026-08-11), which is what keeps
-                the block beside the meter at two lines however many spools there are — past
-                what fits, FilledSpools collapses to one mark and a × N. */}
-            {spool.filled > 0 &&
-              (valentine ? (
-                <FilledHearts
-                  count={spool.filled}
-                  label={t('已填满 {n} 颗心', { n: spool.filled })}
-                />
-              ) : (
-                <FilledSpools
-                  count={spool.filled}
-                  label={t('已缠满 {n} 轴', { n: spool.filled })}
-                />
-              ))}
-          </div>
-        </div>
+                    ⚠️ It rides on the END of the 还差 line (Ocean 2026-08-11), which is what keeps
+                    the block beside the meter at two lines however many spools there are — past
+                    what fits, FilledSpools collapses to one mark and a × N. */}
+                {spool.filled > 0 &&
+                  (valentine ? (
+                    <FilledHearts
+                      count={spool.filled}
+                      label={t('已填满 {n} 颗心', { n: spool.filled })}
+                    />
+                  ) : (
+                    <FilledSpools
+                      count={spool.filled}
+                      label={t('已缠满 {n} 轴', { n: spool.filled })}
+                    />
+                  ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
       {/* 今天 — the one line here that is not about the whole pile, so it is not IN the flow of
           lines that are (Ocean 2026-08-11: 「历史信息…今日信息…需要在排列上做区分」). It is set

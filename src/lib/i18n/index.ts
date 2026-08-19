@@ -547,13 +547,35 @@ const EN: Record<string, string> = {
     'Colours, title face and background. Takes effect immediately; nothing you saved is touched.',
   '经典': 'Classic',
   '情人节': "Valentine's",
-  // ⚠️ 「歇一会儿」 and not 「休息提醒」: the card speaks to the person, it does not name a feature.
+  // 休息提醒 (2026-08-19 second pass) — the lock, the sidebar clock and the Settings section.
+  // ⚠️ 「歇一会儿」 and not 「休息提醒」 on the lock itself: it speaks to the person, it does not
+  // name a feature. The feature is named only in Settings, where a name is what you look for.
   '歇一会儿': 'Take a break',
-  '你已经连着专注一个小时了。站起来走两步，喝口水，看看窗外。':
-    "You've been focused for an hour straight. Stand up, walk a bit, get some water, look out a window.",
-  '存下来的东西不会跑，它们会在这儿等你回来。':
-    'What you saved is not going anywhere. It will be here when you come back.',
-  '好，去休息': 'All right, I will',
+  '你已经连着专注 {n} 分钟了。站起来活动一下——走两步，喝口水，看看窗外。':
+    "You've been focused for {n} minutes straight. Get up and move — walk a bit, get some water, look out a window.",
+  // The one sentence out of the study that answers the objection people actually have.
+  '「活动 5 分钟，心情会变好、疲劳会减轻，而工作效率并不会因此下降。」':
+    '\u201cFive minutes of movement lifts your mood and eases fatigue \u2014 and your output does not drop for it.\u201d',
+  '——《英国运动医学杂志》2026 年，近两万人的真实世界研究':
+    '\u2014 British Journal of Sports Medicine, 2026; a real-world study of nearly 20,000 adults',
+  '结束休息，继续工作': 'End the break, back to work',
+  '倒计时走完，它会自己解开': 'It unlocks itself when the countdown runs out',
+  '已连续专注 {n} 分钟': 'Focused for {n} min',
+  '{n} 分钟后歇一会儿': 'Break in {n} min',
+  '休息提醒': 'Break reminder',
+  '连续工作到点，窗口会锁上 5 分钟，提醒你站起来活动一下。两种外观都有。':
+    'After a stretch of unbroken work the window locks for 5 minutes to get you up and moving. Available in both appearances.',
+  '连续工作多久提醒一次': 'Remind me after',
+  '休息固定 5 分钟——研究里三种节奏都是 5 分钟，变的只有工作时长。':
+    'The break is always 5 minutes — all three schedules in the study used 5; only the work interval changed.',
+  '{n} 分钟': '{n} min',
+  '（推荐）': ' (recommended)',
+  '为什么是 60 分钟：近两万人的研究怎么说':
+    'Why 60 minutes: what a study of nearly 20,000 people found',
+  '发表于 2026 年最新一期《英国运动医学杂志》上的一项研究，让近两万名成年人在真实的工作环境里试了三种节奏：每 30、60 或 120 分钟起来活动 5 分钟。':
+    'A study in the latest 2026 issue of the British Journal of Sports Medicine had nearly 20,000 adults try three rhythms in their real working environments: 5 minutes of movement every 30, 60 or 120 minutes.',
+  '结果是：30 分钟一次在减轻疲劳上效果最强，但在实际工作中往往让人觉得太频繁、难以长年坚持。综合「提升心情、缓解疲劳」与「保持工作效率不下降」这两个维度，每 60 分钟活动 5 分钟被证明是最能被大众接受、也最能长期做下去的「黄金频率」。':
+    'The finding: breaking every 30 minutes relieved fatigue most strongly, but in real work it felt too frequent for people to keep up year after year. Weighing both \u201cbetter mood, less fatigue\u201d and \u201cno drop in productivity\u201d, 5 minutes of movement every 60 minutes proved to be the \u201cgolden frequency\u201d — the one most people accept and can sustain.',
 
   // DESIGN_AI_ENGINE §1.4 / §3 / §7 — the on-machine engine slot (claude or codex).
   '本机 AI 引擎': 'On-machine AI engine',

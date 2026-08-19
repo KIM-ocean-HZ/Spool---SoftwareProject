@@ -36,6 +36,7 @@ import { useSearch } from '@/hooks/useSearch';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useUndo } from '@/hooks/useUndo';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useBreakStore } from '@/stores/breakStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useEngineStore } from '@/stores/engineStore';
 import { useProposalsStore } from '@/stores/proposalsStore';
@@ -110,9 +111,13 @@ export default function App() {
   // 情人节限定版 (2026-08-19) — writes the theme onto <html>; the capture overlay does the same
   // from its own root, off the same settings.json.
   useAppliedTheme();
-  // 情人节 only, and the hook checks that itself: in 经典 it registers no listeners and no
-  // interval. Mounted HERE and not in the overlay on purpose — see the hook's header.
-  const breakReminder = useBreakReminder();
+  // 休息提醒 (2026-08-19 second pass) — both appearances now; the hook's gate is the SETTING, and
+  // it checks that itself: switched off, it registers no listeners and no interval. Mounted HERE
+  // and not in the overlay on purpose — see the hook's header. What it produces goes into
+  // breakStore, because the sidebar's countdown reads the same streak.
+  useBreakReminder();
+  const breakLockUntil = useBreakStore((s) => s.lockUntil);
+  const unlockBreak = useBreakStore((s) => s.unlock);
 
   // Settings load FIRST, and the resolved language is handed to the db module before
   // anything opens the database (2026-07-31, HANDOFF §2.2/§2.3): on a fresh install the
@@ -407,7 +412,9 @@ export default function App() {
       )}
       <Settings />
       <CloseToTrayHint />
-      {breakReminder.open && <BreakReminder onDismiss={breakReminder.dismiss} />}
+      {breakLockUntil !== null && (
+        <BreakReminder until={breakLockUntil} onDismiss={unlockBreak} />
+      )}
       <ToastRack />
     </>
   );

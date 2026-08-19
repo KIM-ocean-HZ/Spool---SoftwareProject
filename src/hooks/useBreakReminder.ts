@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
+  BREAK_MS,
   initialBreakState,
+  msForMinutes,
   tickBreakState,
   TICK_MS,
   type BreakState,
 } from '@/lib/breakReminder';
-import { useIsValentine } from '@/hooks/useTheme';
+import { useBreakStore } from '@/stores/breakStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
-// 情人节限定版 §4 (2026-08-19) — the wiring around lib/breakReminder's reducer. The rule itself,
-// and every reason it is the shape it is, lives in that file; this one only supplies it with
-// events and owns the dialog's open flag.
+// 休息提醒 (2026-08-19) — the wiring around lib/breakReminder's reducer. The rule itself, and
+// every reason it is the shape it is, lives in that file; this one only supplies it with events
+// and owns when the lock goes up.
 //
-// ⚠️ 情人节 only (Ocean 2026-08-19, when asked directly). Nothing is registered in 经典 — the
-// early return below runs before any listener or interval exists, so the shipped build carries
-// this file's code and never executes a line of it.
+// ⚠️ **Both themes now** (Ocean 2026-08-19, second pass: 「做成两个 appearance 都有的功能」).
+// It used to early-return in 经典 — the gate is `breakReminderEnabled` instead, so turning it
+// off is a decision the user makes once in Settings rather than a side effect of preferring the
+// shipped colours. Gwen is untouched and is still 情人节-only.
 //
 // ⚠️ **Main window only, by construction.** This hook is mounted from App, not from the capture
 // overlay, so 「frontmost」 always means the window with the library in it. The overlay is a
@@ -36,27 +40,25 @@ const ACTIVITY_EVENTS: readonly (keyof WindowEventMap)[] = [
   'focus',
 ];
 
-export interface BreakReminder {
-  /** True while the take-a-break dialog should be on screen. */
-  open: boolean;
-  dismiss: () => void;
-}
-
-export const useBreakReminder = (): BreakReminder => {
-  const valentine = useIsValentine();
-  const [open, setOpen] = useState(false);
-  // Refs, not state: a tick that changes neither the dialog nor anything drawn must not
-  // re-render the whole app twice a minute, and there are 120 of them in an hour.
+/** Drives the streak. Returns nothing — what it produces goes into breakStore, because the
+ *  sidebar's clock needs the same numbers the lock does (see that file's header). */
+export const useBreakReminder = (): void => {
+  const enabled = useSettingsStore((s) => s.breakReminderEnabled);
+  const workMinutes = useSettingsStore((s) => s.breakWorkMinutes);
+  // Refs, not state: a tick that changes neither the lock nor anything drawn must not
+  // re-render the whole app twice a minute, and there are 120 of them in an hour. What IS
+  // drawn goes through breakStore, whose subscribers are the sidebar card and App's lock —
+  // not App's whole tree.
   const stateRef = useRef<BreakState>(initialBreakState());
   const lastInputRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!valentine) {
-      // Switching to 经典 mid-sitting: drop the streak and close the dialog if it is up, so
-      // coming back to 情人节 starts a fresh hour rather than resuming a stale one.
+    if (!enabled) {
+      // Switched off mid-sitting: drop the streak and lift the lock if it is up, so switching
+      // back on later starts a fresh interval rather than resuming a stale one.
       stateRef.current = initialBreakState();
       lastInputRef.current = null;
-      setOpen(false);
+      useBreakStore.getState().unlock();
       return;
     }
 
@@ -72,9 +74,24 @@ export const useBreakReminder = (): BreakReminder => {
     // A window that is focused when the hook mounts has just been arrived at.
     if (document.hasFocus()) noteInput();
 
+    const workMs = msForMinutes(workMinutes);
+
     const id = setInterval(() => {
+      const store = useBreakStore.getState();
+
+      // ⚠️ **The break itself must not count as work.** The window is frontmost during the lock
+      // and the user may well move the mouse over it, so a tick left running would bank five
+      // minutes of 「专注」 for sitting through a rest. Held at zero for the whole lock, which also
+      // means the sidebar's clock starts counting from the moment they come back.
+      if (store.lockUntil !== null) {
+        stateRef.current = initialBreakState();
+        lastInputRef.current = null;
+        return;
+      }
+
       const { state, due } = tickBreakState(stateRef.current, {
         now: Date.now(),
+        workMs,
         // ⚠️ `document.hasFocus()` and not a focus/blur flag of our own: the answer has to be
         // right at the moment of the tick, and a flag can be stale after a window was raised
         // by the OS (a tray click, a shortcut) rather than by an event we saw.
@@ -82,23 +99,18 @@ export const useBreakReminder = (): BreakReminder => {
         lastInputAt: lastInputRef.current,
       });
       stateRef.current = state;
-      // ⚠️ Only ever opened here, i.e. only on a tick that found the window frontmost. That is
-      // what reconciles this dialog with the product's standing rule against them (首日价值二期
-      // 拍板 4: 「never a dialog … it would fire while the user was in another app」). This one
-      // cannot: 「frontmost」 is a precondition of the streak, so by the time it is due, the user
-      // is looking at Spool. It is also the only notice in the app that is ABOUT the user
-      // rather than about their library, which is why it does not belong in a line somewhere.
-      if (due) setOpen(true);
+      store.publish(state.activeMs);
+      // ⚠️ The lock is only ever raised here, i.e. only on a tick that found the window
+      // frontmost. That is what reconciles it with the product's standing rule against dialogs
+      // (首日价值二期 拍板 4: 「never a dialog … it would fire while the user was in another
+      // app」). This one cannot: 「frontmost」 is a precondition of the streak, so by the time it
+      // is due, the user is looking at Spool.
+      if (due) store.lock(Date.now() + BREAK_MS);
     }, TICK_MS);
 
     return () => {
       clearInterval(id);
       for (const evt of ACTIVITY_EVENTS) window.removeEventListener(evt, noteInput);
     };
-  }, [valentine]);
-
-  return {
-    open,
-    dismiss: () => setOpen(false),
-  };
+  }, [enabled, workMinutes]);
 };
