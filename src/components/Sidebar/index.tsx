@@ -76,7 +76,11 @@ export default function Sidebar({ onCollapse }: Props) {
   const engineAvailable = engineStatus?.available === true;
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-line bg-paper-2/40">
+    /* ⚠️ 这两条边栏**故意没有底色**，别再给它加回来。`bg-paper-2/40` 在这儿挂了很久，但
+       Tailwind 一直把它整条丢掉（见 styles/tokens.css 那段注释），所以发布版里这条栏一直是
+       透明的、透出 `.paper-bg`。2026-08-19 修好那个 bug 之后它第一次显形，Ocean 当场看了实机：
+       「这个我不要，右栏现在也是这个状态，回退」。于是类名删掉——**保持发布版一直以来的样子**。 */
+    <aside className="flex h-full w-full flex-col border-r border-line">
       {/* ⚠️ The title is deliberately larger than the panel below it, and the gap under it is
           deliberately wide. Ocean 2026-08-10, on seeing 首日价值二期 installed: 「logo 太小了,
           被面板抢占了注意力,增大一点,面板和 logo 增加距离」. The panel is a status readout; the
