@@ -116,21 +116,32 @@
    Re-sample the image if it is ever replaced.
    ===================================================================================== */
 :root[data-theme='valentine'] {
-  /* paper & ink — paper sampled from the background image, ink is the deep berry as given */
-  --paper:        #fdf8f5;
-  --paper-2:      #f9ecf1;
-  --paper-edge:   #f2dbe4;
-  --ink:          #3a2a35;
-  --ink-2:        #594051;
-  --muted:        #9f7a93;
+  /* paper & ink — paper sampled from the background image, ink is the deep berry as given.
+     ⚠️ 通道三元组 + 完整颜色，和 :root 那边同一个形状，理由写在上面那段注释里。**这一套必须跟着
+     经典版一起写**：Tailwind 的带斜杠类编出来是 `rgb(var(--paper-2-rgb) / .4)`，只有 `--paper-2`
+     没有 `--paper-2-rgb` 的话，情人节主题下那些类会拿到**经典版的通道值**——满屏奶油色。 */
+  --paper-rgb:       253 248 245;
+  --paper:           rgb(var(--paper-rgb));
+  --paper-2-rgb:     249 236 241;
+  --paper-2:         rgb(var(--paper-2-rgb));
+  --paper-edge:      #f2dbe4;
+  --ink-rgb:         58 42 53;
+  --ink:             rgb(var(--ink-rgb));
+  --ink-2-rgb:       89 64 81;
+  --ink-2:           rgb(var(--ink-2-rgb));
+  --muted-rgb:       159 122 147;
+  --muted:           rgb(var(--muted-rgb));
 
   /* lines — blush, kept at the shipped build's weight (1.23 / 1.54 vs paper, was 1.24 / 1.48)
      so a hairline is still a hairline and not a drawn border */
-  --line:         #f4dce5;
-  --line-strong:  #e7c1d1;
+  --line-rgb:        244 220 229;
+  --line:            rgb(var(--line-rgb));
+  --line-strong-rgb: 231 193 209;
+  --line-strong:     rgb(var(--line-strong-rgb));
 
   /* accent (deep rose family) — see the ⚠️ above for why this is not #e66d98 itself */
-  --accent:       #ae325e;
+  --accent-rgb:      174 50 94;
+  --accent:          rgb(var(--accent-rgb));
   --accent-2:     #8a2549;
   --accent-soft:  #fce7ee;
   --highlight:    #f29bb6;

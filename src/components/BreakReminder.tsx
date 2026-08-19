@@ -40,17 +40,15 @@ export default function BreakReminder({ onDismiss }: { onDismiss: () => void }) 
   }, [onDismiss]);
 
   return (
-    /* ⚠️⚠️ The scrim is an inline style and NOT `bg-ink/30`, which is what every other overlay in
-       this app writes. Measured in the compiled CSS on 2026-08-19: **Tailwind v3 emits no rule at
-       all for an opacity modifier on a colour defined as a bare `var(--…)`**, which is how every
-       colour in tailwind.config.js is defined. So `bg-ink/30` is an inert class name — the
-       existing modals have no scrim behind them, they just look as though they do because the
-       card is opaque. There are ~100 such classes in src/ and they are NOT this window's business
-       to fix (that would change the released build's appearance in a hundred places), but a new
-       modal must not be built on one. `--ink` at 32%, written out. */
+    /* The scrim is `bg-ink/30`, the same class every other overlay in this app writes.
+       It was an inline `rgba(58,42,53,.32)` when this component was built (2026-08-19),
+       because at that point Tailwind emitted NO rule at all for an opacity modifier on a
+       colour defined as a bare `var(--…)` — `bg-ink/30` was an inert class name here and in
+       ~119 other places. That is fixed at the root now (tokens carry `--x-rgb` channel
+       triplets and tailwind.config.js uses `<alpha-value>`; see src/styles/tokens.css), so
+       this modal no longer needs its own private spelling of the same colour. */
     <div
-      className="fixed inset-0 z-50 flex justify-center px-8 pt-[18vh]"
-      style={{ backgroundColor: 'rgba(58, 42, 53, 0.32)' }}
+      className="fixed inset-0 z-50 flex justify-center bg-ink/30 px-8 pt-[18vh]"
     >
       <div
         className="h-fit w-[380px] rounded-lg border border-line-strong bg-paper px-5 py-4"
