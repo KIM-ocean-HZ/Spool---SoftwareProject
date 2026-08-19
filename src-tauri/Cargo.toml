@@ -1,6 +1,6 @@
 [package]
 name = "spool"
-version = "0.6.0"
+version = "0.6.1"
 description = "Spool — context hub for long-running projects"
 edition = "2021"
 

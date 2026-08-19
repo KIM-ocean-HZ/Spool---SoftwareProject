@@ -4058,7 +4058,7 @@ dependencies = [
 
 [[package]]
 name = "spool"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "core-foundation 0.9.4",
  "core-graphics 0.23.2",
