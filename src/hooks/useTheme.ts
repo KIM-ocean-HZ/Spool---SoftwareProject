@@ -15,10 +15,21 @@ export const useTheme = (): Theme => useSettingsStore((s) => s.theme);
 
 export const useIsValentine = (): boolean => useTheme() === 'valentine';
 
-/** Mounted once per window (App, CaptureOverlay). Every window runs its own settings store
- *  over the same settings.json and re-reads on the `settings:changed` broadcast, so flipping
- *  the theme in the main window repaints the capture overlay too — no restart, and no message
- *  of its own to add.
+/** Mounted once per window (App, CaptureOverlay). It only WRITES the attribute — where the
+ *  theme in the store came from is each window's own business, and the two windows do not get
+ *  it the same way:
+ *
+ *  - main: `settingsStore.load()` reads settings.json directly, and re-reads on the
+ *    `settings:changed` broadcast.
+ *  - capture overlay: **neither of those works there.** It has been a separate PROCESS since
+ *    2026-08-01, so that broadcast never crosses to it, and capabilities/overlay.json grants it
+ *    no `store:` permission, so load() cannot read the file either. Rust pushes the theme in
+ *    with every show instead (OVERLAY_THEME_EVENT — same channel the language already used).
+ *
+ *  ⚠️ This comment used to claim the overlay shared the main window's mechanism. It does not,
+ *  and mounting this hook there was therefore a no-op that pinned the toast to 经典 in a
+ *  情人节 build until 2026-08-19. If a third window ever calls this, work out how ITS store
+ *  gets loaded before assuming this is enough.
  *
  *  ⚠️ Keyed on `theme` alone, not on `loaded`: before settings arrive `theme` already holds the
  *  store's default (经典), so the first paint is the shipped look and 情人节 lands one tick

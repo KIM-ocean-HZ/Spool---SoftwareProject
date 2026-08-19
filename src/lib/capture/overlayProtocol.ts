@@ -29,6 +29,13 @@ export const OVERLAY_UNDO_EVENT = 'overlay:undo';
 // settings.json is the same hazard as a second writer to the database), so Rust reads the
 // user's language out of settings.json and pushes it in with every show.
 export const OVERLAY_LANGUAGE_EVENT = 'overlay:language';
+// 情人节限定版 (2026-08-19) — the theme rides in on the same channel, for the same reason.
+// ⚠️ It CANNOT come from the `settings:changed` broadcast the main window emits: since
+// 2026-08-01 the overlay is a separate PROCESS (src-tauri/src/overlay.rs), and a Tauri event
+// does not cross a process boundary — nor could this window load settings.json if it wanted
+// to, because capabilities/overlay.json grants it no `store:` permission. That is exactly how
+// this shipped broken: the theme was wired to a mechanism that stopped existing.
+export const OVERLAY_THEME_EVENT = 'overlay:theme';
 
 export const SHOW_OVERLAY_COMMAND = 'show_capture_overlay';
 export const HIDE_OVERLAY_COMMAND = 'hide_capture_overlay';

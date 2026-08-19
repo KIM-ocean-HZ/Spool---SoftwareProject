@@ -20,6 +20,7 @@ import {
   OVERLAY_ACTION_EVENT,
   OVERLAY_DISMISS_EVENT,
   OVERLAY_LANGUAGE_EVENT,
+  OVERLAY_THEME_EVENT,
   OVERLAY_NOTICE_EVENT,
   OVERLAY_SHOW_EVENT,
   OVERLAY_SOURCE_UPDATE_EVENT,
@@ -35,6 +36,7 @@ import type { Thread } from '@/lib/db/threads';
 import type { Workspace } from '@/lib/db/workspaces';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useAppliedTheme } from '@/hooks/useTheme';
+import { themeOrDefault } from '@/lib/theme';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { t, useT } from '@/lib/i18n';
 import { IS_MAC } from '@/lib/platform';
@@ -124,9 +126,15 @@ const noticeText = (n: OverlayNotice): string => {
 export default function CaptureOverlay() {
   const tr = useT();
   // 情人节限定版 (2026-08-19) — the toast is a separate window with its own bundle, so it applies
-  // the theme from its own root. It reads the SAME settings.json and re-reads on the
-  // `settings:changed` broadcast the main window already emits, so flipping the theme in
-  // Settings repaints this window too, with no restart and no message of its own.
+  // the theme onto its own root. WHERE the theme comes from is the effect further down, not
+  // this call: it is pushed in from Rust with every show, exactly like the language.
+  // ⚠️⚠️ It was written the other way round first — `useAppliedTheme()` alone, on the belief
+  // that this window "reads the same settings.json and re-reads on the `settings:changed`
+  // broadcast". **Neither half of that is true here**, and the result shipped as a 经典 toast
+  // in a 情人节 build (Ocean 2026-08-19: 「捕捉浮窗仍然是classic的ui啊」). Since 2026-08-01 this
+  // is a separate PROCESS, so that broadcast never arrives; and capabilities/overlay.json grants
+  // no `store:` permission, so the store's load() cannot read the file even when something does
+  // call it. The store therefore sat on its default — 经典 — forever.
   // ⚠️ It needs this to be right for a reason the main window does not have: the toast is drawn
   // over whatever app the user was copying from, so a cream card in a pink build would be the
   // one piece of Spool visible on someone else's screen and the one piece that did not match.
@@ -176,21 +184,32 @@ export default function CaptureOverlay() {
   // The overlay runs in its own process and deliberately keeps no settings store of its
   // own: a second writer to settings.json is the same class of hazard as a second writer
   // to the database (DESIGN_CAPTURE_HELPER_PROCESS §3.3). Rust reads the user's language
-  // out of settings.json and pushes it with every show, so a switch in the main window
-  // reaches the next toast.
+  // and theme out of settings.json and pushes them with every show, so a switch in the main
+  // window reaches the next toast.
+  // ⚠️ Both land BEFORE the content event that makes the card appear (overlay.rs emits in that
+  // order, and Tauri delivers to one window in order), and the card renders nothing until then
+  // — so the first paint is already right and there is no 经典→情人节 flash to chase.
+  // ⚠️ `themeOrDefault`, not the raw string: settings.json is hand-editable, and an unknown
+  // name written onto <html> would match no stylesheet at all — a half-painted card floating
+  // over someone else's app. Same guard the main window's settings load applies.
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
+    let unlisten: Array<() => void> = [];
     let cancelled = false;
     void (async () => {
-      const dispose = await listen<'zh' | 'en'>(OVERLAY_LANGUAGE_EVENT, (e) => {
-        useSettingsStore.setState({ language: e.payload });
-      });
-      if (cancelled) dispose();
-      else unlisten = dispose;
+      const disposers = await Promise.all([
+        listen<'zh' | 'en'>(OVERLAY_LANGUAGE_EVENT, (e) => {
+          useSettingsStore.setState({ language: e.payload });
+        }),
+        listen<string>(OVERLAY_THEME_EVENT, (e) => {
+          useSettingsStore.setState({ theme: themeOrDefault(e.payload) });
+        }),
+      ]);
+      if (cancelled) disposers.forEach((d) => d());
+      else unlisten = disposers;
     })();
     return () => {
       cancelled = true;
-      if (unlisten) unlisten();
+      unlisten.forEach((d) => d());
     };
   }, []);
 

@@ -19,7 +19,11 @@
 //
 // ⚠️ It is applied by writing an attribute on <html>, NOT by swapping a stylesheet: the
 // capture overlay is a separate window with its own bundle (src/overlay), and an attribute is
-// the one mechanism both windows can apply identically off the same settings.json.
+// the one mechanism both windows can apply identically.
+// ⚠️ They do NOT read the value the same way, and this sentence originally said they did —
+// which is how the toast shipped 经典 inside a 情人节 build. The overlay is a separate PROCESS
+// (since 2026-08-01): no `settings:changed` event reaches it and it holds no `store:`
+// permission, so Rust pushes the theme to it with each show. See hooks/useTheme.ts.
 //
 // ⚠️ **This module imports nothing.** settingsStore imports it (for the default and the
 // validator), so anything imported here that reaches back into the store would be a cycle

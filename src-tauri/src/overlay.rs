@@ -51,6 +51,7 @@ pub const WINDOW_LABEL: &str = "overlay";
 const ACTION_EVENT: &str = "overlay:action";
 const DB_REQUEST_EVENT: &str = "overlay:db-request";
 const LANGUAGE_EVENT: &str = "overlay:language";
+const THEME_EVENT: &str = "overlay:theme";
 
 // =============================================================================
 // Main-process side: spawn, supervise, talk to the helper
@@ -325,6 +326,13 @@ fn on_main_message(app: &AppHandle, msg: &serde_json::Value) {
             if let Some(lang) = ui_language(app) {
                 let _ = app.emit_to(WINDOW_LABEL, LANGUAGE_EVENT, lang);
             }
+            // 情人节限定版 (2026-08-19) — and so does the theme, for exactly the same reason.
+            // ⚠️ Both of these are emitted BEFORE the content event below, and Tauri delivers
+            // to one window in order, so the card's first paint is already in the right theme:
+            // the toast renders nothing until its own event arrives.
+            if let Some(theme) = ui_theme(app) {
+                let _ = app.emit_to(WINDOW_LABEL, THEME_EVENT, theme);
+            }
             let event = match kind {
                 "show" => "overlay:show",
                 "notice" => "overlay:notice",
@@ -398,10 +406,23 @@ fn on_main_message(app: &AppHandle, msg: &serde_json::Value) {
 // tauri-plugin-store writes in the main process) — read-only, never written here.
 // None when they never picked one, which leaves the overlay on its system-locale default.
 fn ui_language(app: &AppHandle) -> Option<String> {
+    settings_string(app, "language")
+}
+
+/// 情人节限定版 (2026-08-19). Absent key = 经典, which is also the frontend's default, so
+/// there is nothing to emit — the overlay is already painting it.
+fn ui_theme(app: &AppHandle) -> Option<String> {
+    settings_string(app, "theme")
+}
+
+/// One string key out of settings.json. Read fresh each time rather than cached: the user can
+/// change either of these in the main window while this process keeps running, and the next
+/// toast has to arrive wearing the new one.
+fn settings_string(app: &AppHandle, key: &str) -> Option<String> {
     let dir = app.path().app_config_dir().ok()?;
     let raw = std::fs::read_to_string(dir.join("settings.json")).ok()?;
     let v = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
-    v.get("language")
+    v.get(key)
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
 }
