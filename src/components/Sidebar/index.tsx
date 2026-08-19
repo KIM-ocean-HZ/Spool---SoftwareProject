@@ -77,20 +77,16 @@ export default function Sidebar({ onCollapse }: Props) {
   const engineAvailable = engineStatus?.available === true;
 
   return (
-    /* ⚠️ `rail-wash` is a bare marker class with NO rule behind it in 经典 — the only rule that
-       matches it lives under `[data-theme='valentine']` (styles/global.css), where the two rails
-       become the mint frame around the blush page. Doing it this way round, rather than replacing
-       `bg-paper-2/40` with a token, is deliberate: the shipped class stays on the element
-       untouched, so there is no way for the released look to shift by a shade.
-       ⚠️⚠️ And that caution turned out to be load-bearing. Measured in the compiled CSS on
-       2026-08-19: **`bg-paper-2/40` emits no rule at all** — Tailwind v3 drops an opacity modifier
-       applied to a colour defined as a bare `var(--…)`, which is how every colour in
-       tailwind.config.js is defined. So this rail has been TRANSPARENT since it shipped, showing
-       `.paper-bg` through, and cream-on-cream is why nobody ever noticed. Had this been "cleaned
-       up" into a token with a 40%-cream value for 经典, it would have ADDED a wash the released
-       build does not have. See DESIGN_VALENTINE_EDITION.md §1 — ~100 such classes exist in src/
-       and fixing them is a separate job with a visible blast radius. */
-    <aside className="rail-wash flex h-full w-full flex-col border-r border-line bg-paper-2/40">
+    /* ⚠️ 这一行上有两件事，都是拍过板的：
+       ① `rail-wash` 是个**空标记类**，经典版里没有任何规则匹配它——唯一那条住在
+          `[data-theme='valentine']`（styles/global.css），情人节版靠它把两条栏染成薄荷色，
+          框住中间那张腮红色的纸。这样写（原类不动、只加覆盖）是有意的。
+       ② **经典版这条栏故意没有底色，别再给它加回来。** `bg-paper-2/40` 在这儿挂了很久，但
+          Tailwind 一直把它整条丢掉（理由见 styles/tokens.css 那段注释），所以发布版里它一直
+          是透明的、透出 `.paper-bg`，奶油压奶油，谁也没看出来。2026-08-19 那个 bug 从根上修好
+          之后它第一次显形，Ocean 当场看了实机：「这个我不要，右栏现在也是这个状态，回退」。
+          于是类名删掉——**保持发布版一直以来的样子**。 */
+    <aside className="rail-wash flex h-full w-full flex-col border-r border-line">
       {/* ⚠️ The title is deliberately larger than the panel below it, and the gap under it is
           deliberately wide. Ocean 2026-08-10, on seeing 首日价值二期 installed: 「logo 太小了,
           被面板抢占了注意力,增大一点,面板和 logo 增加距离」. The panel is a status readout; the
