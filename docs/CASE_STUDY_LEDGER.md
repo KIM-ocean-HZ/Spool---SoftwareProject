@@ -152,6 +152,35 @@ away with the rest of the build log, and the `.dmg` id comes from the separate `
 that the build tool does not perform. Redirecting the build to a file rather than piping it to
 `tail` is what made the first one recoverable at all.
 
+| Field | v0.6.1 |
+|---|---|
+| Published | **2026-08-19** (same day as v0.6.0 — a second release, not a re-cut) |
+| Tagged commit | `819b5b1` |
+| Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
+| **Notarisation — `.app`** | submission `ada26185-9d89-49fe-93e4-c95e4797e223` · **Accepted** |
+| **Notarisation — `.dmg`** | submission `72eda901-d597-4ac7-99a4-feaf4b9b5598` · **Accepted** |
+| Artefact — macOS | `Spool_0.6.1_aarch64.dmg`, 9,468,610 bytes |
+| sha256 — macOS | `0e41d6c3ae5278efcb6c5924fbf578c0d5e0ab481f1eb3260ecdf1459ab52708` |
+| Gatekeeper verdict — macOS | `accepted` · `source=Notarized Developer ID` on **both** artefacts; `codesign -dvv` Authority resolved to the Developer ID certificate, not the local `Spool Dev` one |
+| Signing identity — Windows | **none — still unsigned** (the 2026-08-15 decision stands) |
+| Artefact — Windows | `Spool_0.6.1_x64-setup.exe`, 6,982,762 bytes, built by CI run `32228101203` from the tagged commit itself |
+| sha256 — Windows | `8814690c8894ef8a7f9cded5b5e3ca86923ed5b9646b798c56b71c6077db350a` |
+| Fixed-name assets | `Spool-macOS-arm64.dmg` · `Spool-windows-x64-setup.exe` — both **HTTP 200** through `releases/latest/download/` |
+| Database schema | **v23, unchanged** — this release runs no migration |
+
+**What this row adds that the earlier ones do not.** The Windows artefact was built by CI **from the
+tagged commit**, not from an earlier one that happened to be close: the port branch was
+fast-forwarded to the release commit before the tag was cut, so the run's `headSha` and the tag
+resolve to the same object. In the v0.6.0 row that correspondence was true but unrecorded, which
+makes it unverifiable after the fact — the run number alone does not say which tree it compiled.
+
+**This release carries a behaviour change, which a patch version number does not advertise.**
+Closing the "AI can read this file" checkbox now actually closes the file; previously the separate
+"include in the pack I copy" checkbox silently kept it readable. Files a user had opened up only
+through the pack checkbox become locked on upgrade. The version number was Ocean's call
+(0.6.1 over the 0.7.0 that was recommended for exactly this reason), so the release notes carry the
+warning in their own section instead.
+
 ⚠️ **One credential note for the next release.** `notarytool store-credentials` puts a profile in
 the data-protection keychain, and `xcrun notarytool --keychain-profile` reads it — but the Tauri
 CLI (2.11) does **not**: its binary knows only `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` and
