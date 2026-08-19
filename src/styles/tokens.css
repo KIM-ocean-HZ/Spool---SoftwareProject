@@ -3,20 +3,40 @@
 @import './fonts.css';
 
 :root {
-  /* paper & ink */
-  --paper:        #faf7f0;
-  --paper-2:      #f3eee2;
-  --paper-edge:   #ebe4d2;
-  --ink:          #1c1a16;
-  --ink-2:        #4a463d;
-  --muted:        #8c8576;
+  /* paper & ink
+
+     ⚠️ 上 Tailwind 的那八个颜色，每个都是**两个 token**：`*-rgb` 是裸通道值，另一个是包好的
+     完整颜色。两个都必须留着，缺哪个坏哪边——
+
+     - 只留完整颜色（改之前就是这样）：Tailwind v3 没法往 `var(--ink)` 里注入 alpha 通道，
+       于是 `bg-ink/30` 这类带斜杠的类**它不报错，直接把整条规则丢掉**，构建/tsc/测试全绿。
+       曾经有 119 处这样静静地没生效。
+     - 只留通道值：`tokens.css` / `global.css` / `fonts.css` 里有一大堆地方是**直接**写
+       `var(--paper)` 的（不走 Tailwind），拿到 `250 247 240` 会全部失效。
+
+     所以：**要改颜色，改 `*-rgb` 那一行**，下面那行自己跟着走。新增一个要给 Tailwind 用的
+     颜色时，照这个格式加，并在 `tailwind.config.js` 里写成 `rgb(var(--x-rgb) / <alpha-value>)`。 */
+  --paper-rgb:       250 247 240;
+  --paper:           rgb(var(--paper-rgb));
+  --paper-2-rgb:     243 238 226;
+  --paper-2:         rgb(var(--paper-2-rgb));
+  --paper-edge:      #ebe4d2;
+  --ink-rgb:         28 26 22;
+  --ink:             rgb(var(--ink-rgb));
+  --ink-2-rgb:       74 70 61;
+  --ink-2:           rgb(var(--ink-2-rgb));
+  --muted-rgb:       140 133 118;
+  --muted:           rgb(var(--muted-rgb));
 
   /* lines */
-  --line:         #e6dfcc;
-  --line-strong:  #d6cdb3;
+  --line-rgb:        230 223 204;
+  --line:            rgb(var(--line-rgb));
+  --line-strong-rgb: 214 205 179;
+  --line-strong:     rgb(var(--line-strong-rgb));
 
   /* accent (amber family) */
-  --accent:       #b45309;
+  --accent-rgb:      180 83 9;
+  --accent:          rgb(var(--accent-rgb));
   --accent-2:     #92400e;
   --accent-soft:  #fef3c7;
   --highlight:    #fbbf24;
