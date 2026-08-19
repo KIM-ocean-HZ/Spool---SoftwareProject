@@ -16,7 +16,8 @@
 - **Claude Desktop 配置**:已注入独立的 `spool-demo` 条目(带 `SPOOL_DATA_DIR`
   指向演示库);你原有的 `spool` 条目未动,原配置备份在同目录 `.bak-demo`。
   ⚠️ **2026-08-19 更新**:这条曾被移除,当天按 Ocean 拍板**又加回去了**
-  (`HANDOFF-2026-08-19.md` §2.3 #3),命令指向 `~/Desktop/Spool/Spool-Demo/Spool.app`
+  (Ocean 2026-08-19 拍板「把 `spool-demo` 加回 Claude Desktop」;⚠️ 改完必须 ⌘Q 完全退出
+  Claude Desktop 再开,它不会重连),命令指向 `~/Desktop/Spool/Spool-Demo/Spool.app`
   里的 0.6.0 二进制;加回前的配置备份在 `.bak-pre-demo-20260819`。
   握手实测:19 个工具、演示库 3 工作区 / 8 项目。
   ⚠️ **开拍前还要动两处**:演示库现在的 `settings.json` 是 `"language": "zh"` +

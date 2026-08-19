@@ -8,7 +8,7 @@
 > ⛔ **2026-08-15 状态更正：** 本文件原写「没有提交、推送、部署……仍需 Ocean 分别明确授权」，
 > **这几句已作废** —— 成果在 08-13 16:19 就提交推送上线了。
 > 当前 `HEAD = origin/main = **42f2c79**`，两次 Pages 部署均 success，spoolapp.org 已是新版。
-> **当前开工面是 `docs/BACKLOG-2026-08-15.md`。**
+> **当前开工面是 `docs/BACKLOG-2026-08-19.md`。**
 >
 > `src/**`、`src-tauri/**` 未改。最终自动验证为 Vitest 361/361、TypeScript clean、Rust 72/72、
 > 中文专项 9/9、i18n `(none missing)`、全页视觉回归 15/15、三页 Lighthouse accessibility/

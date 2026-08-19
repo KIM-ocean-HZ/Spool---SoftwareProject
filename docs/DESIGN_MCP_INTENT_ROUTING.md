@@ -842,7 +842,8 @@ Ocean 打断,补了「**spool 的**」三个字,它才在 13:22:12 调 `list_thr
 
 ### 10.2 顺带验出来的两条,都不在路由上
 
-1. **文件权限的门是两把锁,界面只承认一把。** 见 `HANDOFF-2026-08-19.md` §2.3-bis。
+1. **文件权限的门是两把锁,界面只承认一把。** ✅ 2026-08-19 已修（Ocean 选甲:关掉 AI 勾
+   就一律不可读），全稿见 `DESIGN_PROJECT_FILES.md` **§9**,装机验证在 §9.3。
    现场:PDF 现在 `ai_access=0`(用户关的)、`include_in_pack=1`,
    `get_project_overview` 仍报 `ai_readable:true`,`search_blocks` 仍吐正文片段。
 2. **「你能读取吗」那一轮,模型一个工具都没调**(13:23:00 → 13:23:22 之间零 `custom_tool_call`)。

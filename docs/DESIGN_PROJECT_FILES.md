@@ -465,7 +465,18 @@ opened it**」，并把 `include_in_pack=1 / ai_access=0` 的 `清单.txt` 算�
 **这一句正是这次要废掉的**。现在它反过来断言：`ai_readable` 为 false、`inlined_in_pack` 仍为
 true（用户那个勾没被吞掉）、能拿到申请话术、**并且 `build_pack` 的输出里找不到那份正文**。
 
-### 9.3 装机才生效
+### 9.3 ✅ 已装机并当场验过（2026-08-19 15:54）
 
-改的是 `spool --mcp` 那个二进制。**`/Applications/Spool.app` 里还是 0.6.0 的旧逻辑**，
-Ocean 那份 PDF 在重新构建装机之前仍然读得到。
+改的是 `spool --mcp` 那个二进制，所以要装机才生效。**v0.6.1 已经装上**
+（`/Applications/Spool.app`，`spctl` = `Notarized Developer ID`），并在**真库**上验过：
+
+| 问什么 | 装机后的回答 |
+|---|---|
+| `get_project_overview` 的 `files` | `ai_readable: **false**`（这一条以前是 `true`，就是那句谎话） |
+| `get_pack` 里那份 PDF | `[extracted: yes, not inlined]`，**16,945 字的正文一个字都不在 pack 里** |
+| 它还看得见吗 | 看得见 —— 仍在 locked files 一节，带 `attachment_id`，AI 知道怎么申请 |
+
+⚠️ **验的时候必须另起一个 `--mcp` 探针进程**：换装不打断已经跑着的 `--mcp` 子进程，
+它们**仍然跑旧二进制**，问自己那条连接会看到旧结果、看起来像「改动没生效」
+（记忆 `isolated-verify-workflow` §34）。
+⚠️ 每个 AI 客户端要吃到新逻辑，都得各自 ⌘Q 完全退出重开。
