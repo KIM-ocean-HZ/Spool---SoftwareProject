@@ -19,6 +19,19 @@
 # Re-run after replacing any screenshot, then paste the srcset lines it prints
 # into the matching <source> in site/index.html or site/story.html.
 #
+# ⚠️ TWO THINGS TO CHECK AFTER REPLACING A SHOT, both learned on 2026-08-19:
+#
+# a. **Anything positioned ON TOP of that shot has to be re-measured.** The
+#    `.zoom-box-*` frames in site.css are percentages of the image, so a shot whose
+#    contents moved leaves them framing the wrong thing — and the page still looks
+#    plausible, which is what makes it easy to ship. Box 2 pointed 40px above the
+#    capture card for exactly this reason.
+# b. **The filename does not change, so a returning visitor sees the OLD image**
+#    until their cache expires (GitHub Pages serves `Cache-Control: max-age=600`).
+#    Verify with a cache-buster — `curl -sI …` for the bytes, or open the URL with
+#    `?v=<anything>` in a browser — before believing a report that the deploy did
+#    not take. A normal reload is not enough; the shot needs ⌘⇧R.
+#
 # Needs cwebp (brew install webp) and sips (built into macOS).
 set -euo pipefail
 
