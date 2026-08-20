@@ -526,6 +526,8 @@ mod tests {
             system: "s".into(),
             user: "u".into(),
             max_output_tokens: Some(16),
+            reasoning_effort: None,
+            thinking_disabled: false,
             timeout_secs: 30,
         }
     }

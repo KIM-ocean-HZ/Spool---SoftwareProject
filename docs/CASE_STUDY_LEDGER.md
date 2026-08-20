@@ -1738,6 +1738,35 @@ is sound; what it measured is that §6.2 had the shape of the call backwards.
   structural, so they are now compared line-to-line against the original's annotation lines.
   Neither version produced a false negative here — the line was genuine — but the weak one would
   have, on the next case that mattered.
+Twelve runs later, the settings that make it worth running at all are `reasoning_effort: low`
+with the middle compression band: **72% remaining, ¥0.038, 64s**, against the untuned default's
+90% / ¥0.183 / 279s. Three more things came out of that sweep, and two of them are about
+measurement rather than about compression:
+
+* **Turning thinking off does not degrade the feature, it silently disables it.** Two runs came
+  back at **101% and 100%** of the original length — longer than the input — and both of them
+  wrote a confident summary of what they had merged and shortened. **The model's account of its
+  own work is not evidence.** Block and character counts are computed by Spool from both texts,
+  which is the only reason those two runs were legible as failures rather than as successes.
+* **The undocumented parameter answered when asked.** DeepSeek's docs show
+  `"thinking": {"type": "enabled"}` and `"reasoning_effort": "high"` and list no other values.
+  Rather than guess, the setting sends whatever the user picks and lets the endpoint rule on it —
+  a rejected value returns 400, and a 400 is not billed. `low`, `medium` and
+  `{"type": "disabled"}` were all accepted on the first try. **A question the documentation does
+  not answer is sometimes a free experiment rather than a research task.**
+* **The measurement tool was quietly recording the wrong thing.** The "copy this run's numbers"
+  button read the current settings, while the way anyone actually sweeps a parameter is run,
+  change a setting, run again. Any record copied after a change would attribute the run to
+  settings it never used. Now frozen at the moment the run starts. Two rows in the sweep have
+  input-token counts that do not match their recorded band and are marked as suspect rather than
+  explained away — the discrepancy is 79 tokens and I could not account for it.
+* **The bands' stated targets are aspirational and nothing enforces them.** The middle band asks
+  for 25–50% of the original and delivered 72–78%; the conservative band asks for 50–75% and
+  delivered 73–98%, meeting its own target once in eight attempts. The bands do change behaviour
+  — the middle one is both tighter and far more reproducible (a 6-point spread against 25) — so
+  they are not decoration. But "give it a target that can be checked" was only half built: the
+  target is stated, never met, and nothing notices.
+
 * **Run 1 deleted a verbatim quotation and said so in its own summary of what it cut.** The
   §1 quote inside block #4 went, and the model reported removing it. Nobody would have noticed:
   the audit protects `note:` lines, sourceless entries, `==spans==` and section headings, and a

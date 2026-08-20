@@ -560,7 +560,9 @@ mod tests {
     #[test]
     fn timeouts_are_clamped_at_both_ends() {
         assert_eq!(clamp_timeout(1), 10);
-        assert_eq!(clamp_timeout(99_999), 900);
+        // ⚠️ 上限 2026-08-20 从 900 提到 1800（实测：26,615 字符那份 180 秒还没写完就被掐，
+        // 而那一次已经计费）。这条断言当时忘了跟着改，直到 08-21 才发现。
+        assert_eq!(clamp_timeout(99_999), 1800);
         assert_eq!(clamp_timeout(120), 120);
     }
 }

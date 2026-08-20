@@ -63,6 +63,12 @@ export default function CompressDialog({
   // 不流式的一次调用可以一分钟不吭声，而一个转圈说不出「连上了没有」。
   // 所以显示两样：子进程报回来的**阶段**，和一个**秒表**（连着说清最长等多久）。
   const [progress, setProgress] = useState<CompressProgress | null>(null);
+  // ⚠️ 这一次**实际用的**设置，在按下「开始压缩」的那一刻定格。
+  //
+  // 2026-08-20 那轮实测差点被这件事污染：记录本来是现读设置里的值，而人是「跑一次 → 改设置
+  // → 再跑」这样试的，中间只要顺手点了一下档位，那份记录就会把**没用过的设置**写进账里。
+  // 一个用来做测量的东西，最不能允许的就是它记的和它做的不是一回事。
+  const [used, setUsed] = useState<{ level: CompressLevel; reasoning: string } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
 
@@ -82,6 +88,7 @@ export default function CompressDialog({
     setRunning(true);
     setOutcome(null);
     setProgress({ stage: 'starting' });
+    setUsed({ level, reasoning });
     startedAt.current = Date.now();
     setElapsed(0);
     try {
@@ -141,7 +148,16 @@ export default function CompressDialog({
   // 正是这个项目最不许写进案例账本的那种东西。
   const copyRecord = async () => {
     if (!outcome?.ok || !audit) return;
-    await writeText(measurementRecord({ project, level, outcome, audit }));
+    await writeText(
+      measurementRecord({
+        project,
+        // 定格的那一份，不是现在设置里的那一份。
+        level: used?.level ?? level,
+        reasoning: used?.reasoning ?? reasoning,
+        outcome,
+        audit,
+      }),
+    );
     setRecorded(true);
     setTimeout(() => setRecorded(false), 1500);
   };

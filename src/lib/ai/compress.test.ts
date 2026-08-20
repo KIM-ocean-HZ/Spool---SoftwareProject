@@ -206,6 +206,7 @@ describe('实测记录', () => {
     const r = measurementRecord({
       project: '宣发',
       level: 'conservative',
+      reasoning: 'low',
       outcome: outcome({ cachedInputTokens: null }),
       audit: base,
       at: new Date(Date.UTC(2026, 7, 20, 2, 0)),
@@ -219,6 +220,7 @@ describe('实测记录', () => {
     const r = measurementRecord({
       project: '宣发',
       level: 'conservative',
+      reasoning: '',
       outcome: outcome({ cachedInputTokens: 0 }),
       audit: base,
     });
@@ -234,10 +236,20 @@ describe('实测记录', () => {
     const r = measurementRecord({
       project: '申请规划',
       level: 'balanced',
+      reasoning: 'medium',
       outcome: outcome({ model: 'deepseek-v4-pro' }),
       audit: base,
     });
     expect(r).toContain('deepseek-v4-pro');
+  });
+
+  // 人是「跑一次 → 改设置 → 再跑」这样试的，记录必须记这一次实际用的那份设置。
+  it('思考力度进记录，而且「默认」和「关掉」分得开', () => {
+    const mk = (reasoning: string) =>
+      measurementRecord({ project: 'p', level: 'balanced', reasoning, outcome: outcome(), audit: base });
+    expect(mk('')).toContain('默认（没发这个参数）');
+    expect(mk('off')).toContain('关掉');
+    expect(mk('low')).toContain('low');
   });
 
   it('一字不改的检查结果也进记录', () => {
@@ -245,6 +257,7 @@ describe('实测记录', () => {
     const r = measurementRecord({
       project: '宣发',
       level: 'aggressive',
+      reasoning: 'off',
       outcome: outcome(),
       audit: auditCompression(ORIGINAL, shrunk),
     });

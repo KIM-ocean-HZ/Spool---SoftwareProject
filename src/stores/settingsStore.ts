@@ -326,6 +326,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // 两档。这个名字是**接口自己回报的**（Ocean 那次实测的响应里 model 字段就是它），
   // 不是照着文档抄的——而且它带着 `flash`，成本估算那边正好认得出是哪一档价目。
   apiModel: 'deepseek-v4-flash',
+  // ⚠️ 2026-08-21：默认从「只删重复」改成「保留结论和数字」，依据是十二次实测（§9.5）——
+  // 它压得更狠（72/78%，对着 73–98%）**而且稳得多**（差 6 个点，对着摊开 25 个点）。
   apiCompressLevel: DEFAULT_LEVEL,
   // ⚠️ 2026-08-20 从 180 提到 600。180 是照着「一次几十秒的调用」定的，而那个前提是错的：
   // 26,615 字符那份 pack 跑到 180 秒还没写完就被掐了，**而那一次已经计了 ¥0.08**。
@@ -334,7 +336,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // ⚠️ 默认空 = **什么都不发**，行为和 2026-08-20 那四次实测完全一致。
   // 这是一个旋钮，不是一个默认值的改动：实测说约九成账单花在思考上，但合法取值
   // DeepSeek 文档里没列，所以由用户去问端点，而不是由我们猜一个填进去。
-  apiReasoning: '',
+  // ⚠️ 2026-08-21：默认改成 low，依据同上——比默认力度**钱少一半多、时间少一半多，
+  // 压得还更狠**。⛔ 别改成 'off'：实测关掉思考之后压完剩 101%，等于什么都没做。
+  apiReasoning: 'low',
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

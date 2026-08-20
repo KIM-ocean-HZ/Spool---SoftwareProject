@@ -11,8 +11,13 @@ import { invoke } from '@tauri-apps/api/core';
 /** §6.4.1：压缩比例是**显式档位**，不是在提示词里求模型「少删一点」。 */
 export type CompressLevel = 'conservative' | 'balanced' | 'aggressive';
 
-/** ⚠️ 默认最保守那档 —— §6.4.1 原话。 */
-export const DEFAULT_LEVEL: CompressLevel = 'conservative';
+/** ⚠️ §6.4.1 原话是「默认最保守那档」，**2026-08-21 被实测改掉了**（WORKPLAN §9.5）。
+ *
+ *  十二次实测：最保守那档压完剩 73–98%（摊开 25 个点，八次里只有一次打中它自己写的目标），
+ *  而「保留结论和数字」剩 72–78%（差 6 个点）。**它压得更狠，而且稳得多。**
+ *  「默认给最保守的」本意是安全，但一个一半时候几乎不压的档位并不安全——
+ *  它只是让人花了钱、等了两分钟，然后拿到一份和原文差不多长的东西。 */
+export const DEFAULT_LEVEL: CompressLevel = 'balanced';
 
 export const LEVEL_LABELS: Record<CompressLevel, string> = {
   conservative: '只删重复',
@@ -281,11 +286,13 @@ export const formatYuan = (yuan: number): string =>
 export const measurementRecord = (args: {
   project: string;
   level: CompressLevel;
+  /** 思考力度。⚠️ 必须是**这一次实际发出去的**那个值。 */
+  reasoning: string;
   outcome: CompressOutcome;
   audit: CompressionAudit;
   at?: Date;
 }): string => {
-  const { project, level, outcome: o, audit: a } = args;
+  const { project, level, reasoning, outcome: o, audit: a } = args;
   const at = args.at ?? new Date();
   const cost = estimateCost(o, at);
   const pct = Math.round((a.charsAfter / Math.max(1, a.charsBefore)) * 100);
@@ -301,6 +308,7 @@ export const measurementRecord = (args: {
     `时间      ${at.toISOString()}（北京${isPeakBeijing(at) ? '高峰' : '闲时'}）`,
     `项目      ${project}`,
     `档位      ${level}`,
+    `思考力度  ${reasoning === '' ? '默认（没发这个参数）' : reasoning === 'off' ? '关掉' : reasoning}`,
     `原文      ${a.charsBefore} 字符 / ${a.entriesBefore} 块`,
     `压缩稿    ${a.charsAfter} 字符 / ${a.entriesAfter} 块（剩 ${pct}%）`,
     `模型      ${o.model ?? '(接口没报)'}`,
