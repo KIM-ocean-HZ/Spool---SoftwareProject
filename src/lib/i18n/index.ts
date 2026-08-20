@@ -1042,4 +1042,96 @@ const EN: Record<string, string> = {
     'Both switches on the MCP tab must be on — AI maintenance produces a block, and read access is not enough for that.',
   '现在还不会出现：MCP 那一页的「MCP 服务」和「允许 AI 写入」要都打开。':
     'Not showing yet: “MCP service” and “Let AI write” on the MCP tab both need to be on.',
+  // ---------------------------------------------------------------------------------------
+  // 形态 C：Spool 自己调 API 压缩上下文（WORKPLAN-2026-08-20 §6.2 / §6.4.1）
+  //
+  // ⚠️ 这一组里有几句是**在改一句对外说了很久的话**（§6.3 把「永不联网」精确化）。
+  // 英文这一侧不是意译：它跟中文一样,必须把「谁发的请求、用谁的额度、内容到了谁那里」
+  // 三件事说全。少说一件,英文用户读到的就是一个比中文更宽的承诺。
+  '让 Spool 自己调 AI 压缩上下文': 'Let Spool call an AI to compress a briefing',
+  'Spool 主程序不发任何网络请求。打开这个开关之后，请求由 Spool 启动的一个本地小程序发出，用你自己的 key 和额度，内容会到达你选的那家模型厂商。':
+    'Spool itself makes no network request. With this on, the request is sent by a small program Spool starts on this machine, using your own key and your own credit, and what you send reaches the model vendor you picked.',
+  '已经装了 claude / codex 这类命令行工具的话，用「AI 引擎」那一节就行，一分钱不花、一个 key 不用填。这一节是给不想装命令行工具的人的第二条路。':
+    'If you already have a CLI like claude or codex, use the section below instead — it costs nothing and needs no key. This section is the other route, for people who would rather not install one.',
+  'key 存在你这台电脑上一个单独的文件里，只有你的账号能读。它不会进设置文件，也不会跟着导出的库走。':
+    'The key is kept in a file of its own on this machine, readable only by your account. It never goes into the settings file, and it does not travel with an exported library.',
+  '接口地址': 'Endpoint',
+  '模型': 'Model',
+  '单次最长等待（秒）': 'Longest wait per run (seconds)',
+  '必须是 https 开头 —— 用普通 http 的话，你的 key 会明文发出去。':
+    'This must start with https:// — over plain http your key would go out in the clear.',
+  '找不到负责联网的那个小程序（spool-ai）。重装一次 Spool 应该能修好。':
+    'The program that does the networking (spool-ai) is missing. Reinstalling Spool should fix it.',
+  '显示': 'Show',
+  '隐藏': 'Hide',
+
+  // 并排核对
+  // '压缩' / '停下' 上面已经有了（第 679 / 942 行），这里不重复。
+  '交给 AI 压短一点,压完并排给你核对': 'Have an AI shorten it, then check the two side by side',
+  '压缩这份上下文': 'Compress this briefing',
+  '左边是原文，右边是压缩稿。核对完自己复制走 —— 这一步不会改动你的库。':
+    'The original is on the left, the compressed version on the right. Copy it when you are happy — this does not change your library.',
+  '这一步不会改动你的库 —— 压缩稿只在这个窗口里。':
+    'Nothing here touches your library — the compressed version lives only in this window.',
+  '压多狠?': 'How hard?',
+  '只删重复': 'Only drop repeats',
+  '保留结论和数字': 'Keep conclusions and numbers',
+  '压到最短': 'As short as it goes',
+  '同一件事在别处说过了才合并。大约压到原文的一半到四分之三。':
+    'Merges a thing only once it has been said elsewhere. Usually leaves half to three quarters.',
+  '去冗余，但结论、日期、数字、金额、人名一字不改。大约压到四分之一到一半。':
+    'Removes redundancy, but conclusions, dates, numbers, sums and names stay word for word. Usually leaves a quarter to a half.',
+  '只留结论、数字和你自己写的东西。大约压到十分之一到四分之一。':
+    'Keeps conclusions, numbers and what you wrote yourself. Usually leaves a tenth to a quarter.',
+  '开始压缩': 'Compress',
+  '再压一次': 'Compress again',
+  '正在压缩…': 'Compressing…',
+  '点右下角开始。': 'Press the button at the bottom right to start.',
+  '压缩稿': 'Compressed',
+  '压缩稿（标出来的是它自己写的句子）': 'Compressed (highlighted lines are ones it wrote itself)',
+  '原文（划掉的是被压掉的）': 'Original (struck through is what went)',
+  '复制压缩稿': 'Copy the compressed version',
+  '复制这次的数据': 'Copy this run\u2019s numbers',
+  '把这一次的 token 数、缓存命中、耗时、估算金额拷走':
+    'Copy this run\u2019s token counts, cache hits, duration and estimated cost',
+  '原始 {a} 块 → 压缩后 {b} 块': '{a} blocks → {b} blocks',
+  '{a} → {b} 字符（剩 {p}%）': '{a} → {b} characters ({p}% left)',
+  '用了 {n} 秒': 'took {n}s',
+  '有本来要求一字不改保留的东西不见了 —— 下面按行标了出来：':
+    'Something that had to survive word for word did not — the lines are marked below:',
+  '少了整节：{s}': 'A whole section is gone: {s}',
+  '少了 {n} 条你自己的批注': '{n} of your own annotations are gone',
+  '少了 {n} 条你自己写的内容': '{n} things you wrote yourself are gone',
+  '少了 {n} 处你划的重点': '{n} of your highlights are gone',
+  '你的批注、你自己写的内容、你划的重点，一条都没少。':
+    'Your annotations, the things you wrote, and your highlights all survived.',
+  '它说它删的是：{s}': 'It says it cut: {s}',
+  '⚠️ 它没有说自己删掉了什么。': '⚠️ It did not say what it cut.',
+  '这一次：输入 {i} token，输出 {o} token': 'This run: {i} tokens in, {o} tokens out',
+  '，其中 {c} 命中了缓存': ', {c} of them cache hits',
+  '，这家接口没有报缓存命中': ', and this endpoint does not report cache hits',
+  '。按官方价目算大约 {y}{u}': '. At the published prices that is about {y}{u}',
+  '（按全部未命中算，这是上限）': ' (counted as all misses, so this is an upper bound)',
+  '。认不出这个模型的价目，所以不报价。':
+    '. The price list for this model is not known here, so no cost is shown.',
+
+  // 失败的每一类各说各的（§6.2 约束 4）。⛔ 不许塌成一句 "It failed."
+  '这个 key 被拒绝了。检查一下是不是复制少了字符，或者已经被吊销。':
+    'The key was rejected. Check whether it was copied in full, or whether it has been revoked.',
+  '账户余额不足，这次没跑成。去模型厂商那边充值后再试。':
+    'The account is out of credit, so this run did not happen. Top it up with the vendor and try again.',
+  '被限流了——刚才请求太密。等一会儿再点一次。':
+    'Rate limited — too many requests just now. Wait a little and press it again.',
+  '模型太久没回话，已经停掉了。可以在设置里把超时调长，或者换个小一点的范围。':
+    'The model took too long and was stopped. Raise the timeout in Settings, or pack a smaller range.',
+  '连不上那个地址。检查网络，或者确认设置里的接口地址没写错。':
+    'Could not reach that address. Check your connection, or the endpoint in Settings.',
+  '模型厂商那边出错了，不是你的问题。过一会儿再试。':
+    'The vendor had a server-side error — nothing you did. Try again shortly.',
+  '设置有问题：接口地址必须是 https 开头，而且 key 不能是空的。':
+    'Something is wrong in Settings: the endpoint must start with https:// and the key must not be empty.',
+  '对方回来的东西看不懂，可能不是一个 OpenAI 兼容的接口。':
+    'The reply made no sense — this may not be an OpenAI-compatible endpoint.',
+  '接口返回了一个错误。': 'The endpoint returned an error.',
+  'Spool 自己出错了。': 'Spool itself hit an error.',
 };

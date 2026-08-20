@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { IS_MAC } from '@/lib/platform';
 import { useSettingsStore } from '@/stores/settingsStore';
 import AdvancedConfig from './AdvancedConfig';
+import ApiEngineConfig from './ApiEngineConfig';
 import EngineConfig from './EngineConfig';
 import GeneralConfig from './GeneralConfig';
 import McpConfig from './McpConfig';
@@ -53,7 +54,11 @@ export default function Settings() {
     // a run cannot yet take the whole process tree with it). The page would render its
     // "no CLI found — install claude or codex" state, which is an instruction that would
     // not help: installing one changes nothing until the Job Object work lands.
-    ...(IS_MAC ? [{ key: 'engine' as const, label: t('AI 引擎') }] : []),
+    // ⚠️ 2026-08-20（WORKPLAN §9 第 4 步）：这一格**在 Windows 上也要有了**。
+    // 上面那条「Windows 上没有」的理由只对**命令行引擎**成立（取消一次运行还带不走整棵进程树）。
+    // 形态 C 的 API 引擎不是命令行工具,是 Spool 自己带的一个子进程,它没有子进程要带走,
+    // `kill` 在两个平台上都够用。所以标签常驻,页面里的命令行那一半才按平台隐藏。
+    { key: 'engine' as const, label: t('AI 引擎') },
     { key: 'shortcuts', label: t('快捷键') },
     { key: 'advanced', label: t('高级') },
   ];
@@ -99,7 +104,17 @@ export default function Settings() {
         <div className="flex-1 overflow-y-auto px-5 py-2">
           {tab === 'general' && <GeneralConfig />}
           {tab === 'mcp' && <McpConfig />}
-          {tab === 'engine' && <EngineConfig />}
+          {tab === 'engine' && (
+            <>
+              {/* 形态 C 在前:它是不用先去装点什么就能用的那一条路。 */}
+              <ApiEngineConfig />
+              {IS_MAC && (
+                <div className="border-t border-line">
+                  <EngineConfig />
+                </div>
+              )}
+            </>
+          )}
           {tab === 'shortcuts' && (
             <div className="py-2.5">
               <ShortcutConfig />

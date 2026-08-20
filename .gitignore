@@ -31,3 +31,12 @@ docs/ID.txt
 # Local-only files
 CLAUDE.md
 .claude/
+
+# Download metrics: the CSV is the record and is committed; the dashboard is
+# regenerated from it on every run, so committing it would be daily churn.
+docs/metrics/dashboard.html
+docs/metrics/snapshot.log
+
+# 形态 C sidecar 的产物（scripts/build-sidecar.sh 每次构建重新生成）
+src-tauri/sidecar/target/
+src-tauri/binaries/

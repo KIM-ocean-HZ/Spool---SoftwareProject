@@ -1,6 +1,7 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { Check, Copy, X } from 'lucide-react';
+import { Check, Copy, Shrink, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import CompressDialog from './CompressDialog';
 import {
   assemble,
   filterBlocksForRange,
@@ -55,6 +56,10 @@ export default function PackDialog({
   // in — it follows the app's own language, not a hard-coded one (2026-08-04).
   const language = useLanguage();
   const [copied, setCopied] = useState(false);
+  // 形态 C（WORKPLAN §9 第 4 步）。⚠️ 只在 API 引擎被打开时才出现——默认关闭,
+  // 而一个点了只会说「你还没配」的按钮不如没有。
+  const apiEngineEnabled = useSettingsStore((s) => s.apiEngineEnabled);
+  const [compressing, setCompressing] = useState(false);
   // §17 range selector: per-pack, defaults to everything — deliberately not persisted,
   // it is a per-task choice rather than a standing fact about this user.
   const [range, setRange] = useState<PackRange>('all');
@@ -187,6 +192,17 @@ export default function PackDialog({
           <span className="text-muted">
             {t('{packed} / {total} 块 · {chars} 字符', { packed: packedCount, total: blocks.length, chars: text.length.toLocaleString() })}
           </span>
+          <div className="flex items-center gap-2">
+          {apiEngineEnabled && (
+            <button
+              onClick={() => setCompressing(true)}
+              title={t('交给 AI 压短一点,压完并排给你核对')}
+              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-muted transition-colors hover:border-line-strong hover:text-ink"
+            >
+              <Shrink size={12} />
+              <span>{t('压缩')}</span>
+            </button>
+          )}
           <button
             onClick={() => void onCopy()}
             autoFocus
@@ -199,8 +215,16 @@ export default function PackDialog({
             {copied ? <Check size={12} /> : <Copy size={12} />}
             <span>{copied ? t('已复制') : t('复制到剪贴板')}</span>
           </button>
+          </div>
         </footer>
       </div>
+      {compressing && (
+        <CompressDialog
+          packText={text}
+          project={thread.title || '(untitled)'}
+          onClose={() => setCompressing(false)}
+        />
+      )}
     </div>
   );
 }

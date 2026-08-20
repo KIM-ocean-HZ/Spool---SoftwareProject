@@ -1,3 +1,4 @@
+mod api_engine;
 mod capture;
 #[cfg(target_os = "macos")]
 mod double_tap;
@@ -361,6 +362,12 @@ pub fn run() {
             transfer::stage_import_db,
             transfer::discard_import_staging,
             transfer::count_missing_targets,
+            api_engine::compress_pack_via_api,
+            api_engine::compress_cancel,
+            api_engine::compress_sidecar_present,
+            api_engine::api_key_save,
+            api_engine::api_key_load,
+            api_engine::api_key_present,
             ai_engine_status,
             ai_engine_run,
             ai_engine_cancel,

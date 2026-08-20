@@ -1,0 +1,516 @@
+//! 形态 C 的接线端（WORKPLAN-2026-08-20 §6.2 / §6.4.1 / §9 第 4 步）。
+//!
+//! 这个文件负责的只有一件事：**把请求交给 `spool-ai` 子进程，把信封收回来。**
+//! 它自己**一个 socket 都不开**，也没有任何 HTTP/TLS 依赖——`src-tauri/Cargo.toml` 里
+//! 一个都没有，`cargo tree` 可以当场验。出网发生在另一个可执行文件里，那是 §6.2 选形态 C
+//! 而不是形态 A 的**全部理由**：主进程「不发网络请求」因此仍然是能被外人验证的架构性质，
+//! 而不是一句意图承诺。
+//!
+//! ⛔ **不要把 ureq / reqwest 之类的东西加进主 crate**，哪怕只是「放着不用」。
+//!
+//! # 和引擎槽（形态 B）的关系
+//!
+//! 形态 B（`engine.rs`：用户自己装的 claude / codex / gemini）**没有被取代**，两条路并行：
+//! B 一分钱不花、一个 key 不填，C 是给不想装 CLI 的人的第二条路。所以这里**不复用**
+//! `engine.rs` 的串行队列——它守的是「两个 CLI 同时经 MCP 往库里写」这个竞争，而这条路
+//! **一个字都不往库里写**（§9 第 4 步：先不接 `supersedes` 写入），没有那个竞争要守。
+//! 它自己的并发闸在下面 `RUNNING`。
+
+use std::io::{Read, Write};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use crate::mcp::{compress_messages_for_api, split_cuts, CompressLevel};
+
+/// 一次只跑一个。和 `engine.rs` 一样，闸在 Rust 这边而不是只在 JS 队列里——第二个窗口
+/// 或者一次手工 invoke 否则就能起第二个进程，而取消按钮只握得住一个。
+static RUNNING: AtomicBool = AtomicBool::new(false);
+/// 取消是从另一个线程来的（命令跑在阻塞线程上），只能靠这个把子进程的句柄递过去。
+static CHILD: Mutex<Option<Arc<Mutex<Option<Child>>>>> = Mutex::new(None);
+
+/// 上限 15 分钟。压一份满额 pack 是一次几十秒的调用，比这更久的一定是卡住了，
+/// 而一个卡住的进程会一直占着那道闸。
+fn clamp_timeout(secs: u64) -> u64 {
+    secs.clamp(10, 900)
+}
+
+/// 找 `spool-ai`。
+///
+/// 装机后它就躺在主程序旁边（Tauri 的 `externalBin` 会把它放进 `Contents/MacOS/`，
+/// 并且跟主程序一起签名/公证）。开发时它在 sidecar crate 自己的 target 里。
+///
+/// ⚠️ 两条都是**固定位置**，不查 PATH。PATH 上的同名程序是别人的东西，
+/// 而我们要往它 stdin 里写一个 API key。
+fn sidecar_path() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let name = if cfg!(windows) { "spool-ai.exe" } else { "spool-ai" };
+    if let Some(dir) = exe.parent() {
+        let beside = dir.join(name);
+        if beside.is_file() {
+            return Ok(beside);
+        }
+    }
+    // 开发时：`cargo build` 在 sidecar crate 里产出的那个。debug 优先，因为开发时改的是它。
+    let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("sidecar/target");
+    for profile in ["debug", "release"] {
+        let p = here.join(profile).join(name);
+        if p.is_file() {
+            return Ok(p);
+        }
+    }
+    Err(format!(
+        "the AI sidecar ({name}) was not found beside Spool — reinstall, or run `cargo build` in src-tauri/sidecar"
+    ))
+}
+
+/// 界面拿到的东西。失败也走这里，**不走 `Err`**——§6.2 约束 4：
+/// 「超时、余额不足、限流都要在界面上说出来」，而一个 `Err(String)` 在界面上只会变成
+/// 一句「失败了」。`kind` 让界面能分别说话，`message` 是给「详情」的原文。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompressOutcome {
+    pub ok: bool,
+    /// 压缩稿本体（已经把「这次删了什么」那一段切掉）。失败时为空。
+    pub text: String,
+    /// 模型自己交代的「这一次删/合并了哪几类东西」。
+    /// ⚠️ `None` 是有意义的一种结果：它**没说**。界面必须把这件事说出来，不能显示成「什么都没删」。
+    pub cuts: Option<String>,
+    pub kind: Option<String>,
+    pub message: Option<String>,
+    pub status: Option<u16>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// ⚠️ `None` = **这家端点没报缓存命中**，不是「一次都没命中」。
+    /// §6.2 那个「一到三分钱」全建立在缓存上，而那是估算；把「不知道」显示成 0 会让实测说谎。
+    pub cached_input_tokens: Option<u64>,
+    pub ms: u128,
+    /// 端点回报的实际模型名——按次付费的时候，「我以为在用 Flash」和「实际在用 Pro」差 3 倍。
+    pub model: Option<String>,
+}
+
+impl CompressOutcome {
+    fn failed(kind: &str, message: String, status: Option<u16>) -> Self {
+        Self {
+            ok: false,
+            text: String::new(),
+            cuts: None,
+            kind: Some(kind.to_string()),
+            message: Some(message),
+            status,
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_input_tokens: None,
+            ms: 0,
+            model: None,
+        }
+    }
+}
+
+/// 压一份 pack。
+///
+/// ⚠️ `api_key` 从前端传进来，在这里**只做一件事**：写进子进程的 stdin。
+/// 它不进 argv（`ps` 能看到任何进程的完整命令行）、不进环境变量（子进程的环境在 macOS 上
+/// 也可被同用户读到）、不进日志、不进错误信息。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn compress_pack_via_api(
+    app: tauri::AppHandle,
+    pack_text: String,
+    level: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    max_output_tokens: u32,
+    timeout_secs: u64,
+) -> Result<CompressOutcome, String> {
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("a compression run is already in flight".into());
+    }
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        run_blocking(&app, pack_text, level, base_url, api_key, model, max_output_tokens, timeout_secs)
+    })
+    .await;
+    RUNNING.store(false, Ordering::SeqCst);
+    *CHILD.lock().unwrap() = None;
+    match out {
+        Ok(o) => Ok(o),
+        Err(e) => Ok(CompressOutcome::failed("internal", e.to_string(), None)),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_blocking(
+    app: &tauri::AppHandle,
+    pack_text: String,
+    level: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    max_output_tokens: u32,
+    timeout_secs: u64,
+) -> CompressOutcome {
+    // 提示词跟着 app 的语言走，和 MCP 那条路每次请求重读一次是同一个做法。
+    if let Ok(dir) = tauri::Manager::path(app).app_config_dir() {
+        crate::mcp::refresh_lang(&dir);
+    }
+    let level = match CompressLevel::parse(&level) {
+        Some(l) => l,
+        // 设置里存了个不认识的值（settings.json 是可以手改的，见 DESIGN_LIBRARY_TRANSFER）。
+        // 掉回最保守那档，不要因此让一次压缩失败。
+        None => CompressLevel::Conservative,
+    };
+    let (system, user) = compress_messages_for_api(&pack_text, level);
+
+    let bin = match sidecar_path() {
+        Ok(p) => p,
+        Err(e) => return CompressOutcome::failed("no_sidecar", e, None),
+    };
+    let timeout_secs = clamp_timeout(timeout_secs);
+    let request = serde_json::json!({
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+        "system": system,
+        "user": user,
+        "max_output_tokens": max_output_tokens,
+        // 子进程自己也要有超时，否则它可能比我们活得久。
+        // 比外层短一点，好让它有机会把一个说人话的 timeout 信封写出来，
+        // 而不是被我们杀掉之后只剩「进程没了」。
+        "timeout_secs": timeout_secs.saturating_sub(5).max(10),
+    });
+    let payload = match serde_json::to_vec(&request) {
+        Ok(v) => v,
+        Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
+    };
+    spawn_sidecar(&bin, payload, timeout_secs)
+}
+
+/// 起子进程、喂 stdin、收信封。
+///
+/// 拆出来是为了**能被验证**：这一段（找到二进制、起进程、把 key 从 stdin 递进去、
+/// 拿回一个分类过的信封）是形态 C 的全部机械部分,而它不需要任何 Tauri 类型。
+/// 下面 `the_whole_chain_answers`（`--ignored`,要联网）跑的就是它。
+fn spawn_sidecar(bin: &std::path::Path, payload: Vec<u8>, timeout_secs: u64) -> CompressOutcome {
+    let mut cmd = Command::new(bin);
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // 环境清空：这个子进程要的东西全部从 stdin 进来。清掉也顺便保证它读不到
+    // 用户环境里可能存在的别的家 API key。
+    cmd.env_clear();
+    #[cfg(unix)]
+    {
+        // 自成进程组，取消/超时能把它整棵带走——和 engine.rs 同一个做法。
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setpgid(0, 0) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return CompressOutcome::failed("no_sidecar", format!("could not start {bin:?} — {e}"), None)
+        }
+    };
+    let mut stdin = child.stdin.take();
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+
+    if let Some(s) = stdin.as_mut() {
+        // 写完就关，子进程读到 EOF 才会开始干活。
+        let _ = s.write_all(&payload);
+    }
+    drop(stdin);
+    // payload 里有 key。
+    drop(payload);
+
+    // 两个读线程：stdout 是信封，stderr 只在「连信封都产不出来」时才有东西。
+    // 分开读是因为任何一个管道写满都会把子进程卡死。
+    let out_h = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(s) = stdout.as_mut() {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+    let err_h = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(s) = stderr.as_mut() {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+
+    let handle = Arc::new(Mutex::new(Some(child)));
+    *CHILD.lock().unwrap() = Some(handle.clone());
+    let timed_out = wait_or_kill(&handle, Duration::from_secs(timeout_secs));
+    let stdout = out_h.join().unwrap_or_default();
+    let stderr = err_h.join().unwrap_or_default();
+
+    if timed_out {
+        return CompressOutcome::failed(
+            "timeout",
+            format!("The sidecar did not answer within {timeout_secs} seconds and was stopped."),
+            None,
+        );
+    }
+    if stdout.trim().is_empty() {
+        // 子进程死在了产出信封之前。stderr 里没有 key（子进程从不回显请求）。
+        let detail = if stderr.trim().is_empty() { "no output".into() } else { stderr.trim().to_string() };
+        return CompressOutcome::failed("no_sidecar", format!("The sidecar said nothing — {detail}"), None);
+    }
+    parse_envelope(&stdout)
+}
+
+/// 轮询等待，因为 `Child::wait` 拿不到超时，而取消要能从另一个线程插进来。
+/// 返回 true = 是我们把它杀掉的。
+fn wait_or_kill(handle: &Arc<Mutex<Option<Child>>>, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        {
+            let mut guard = handle.lock().unwrap();
+            let Some(child) = guard.as_mut() else {
+                // 被 cancel 拿走并杀掉了。
+                return false;
+            };
+            match child.try_wait() {
+                Ok(Some(_)) => return false,
+                Ok(None) => {}
+                Err(_) => return false,
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            let mut guard = handle.lock().unwrap();
+            if let Some(child) = guard.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn parse_envelope(stdout: &str) -> CompressOutcome {
+    let line = stdout.trim();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return CompressOutcome::failed(
+            "bad_response",
+            format!("The sidecar's answer was not JSON: {}", clip(line)),
+            None,
+        );
+    };
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        return CompressOutcome::failed(
+            v.get("kind").and_then(|s| s.as_str()).unwrap_or("http"),
+            v.get("message").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+            v.get("status").and_then(|n| n.as_u64()).map(|n| n as u16),
+        );
+    }
+    let raw = v.get("text").and_then(|s| s.as_str()).unwrap_or("");
+    let (text, cuts) = split_cuts(raw);
+    let usage = v.get("usage");
+    let n = |k: &str| usage.and_then(|u| u.get(k)).and_then(|x| x.as_u64());
+    CompressOutcome {
+        ok: true,
+        text,
+        cuts,
+        kind: None,
+        message: None,
+        status: None,
+        input_tokens: n("input_tokens").unwrap_or(0),
+        output_tokens: n("output_tokens").unwrap_or(0),
+        cached_input_tokens: n("cached_input_tokens"),
+        ms: v.get("ms").and_then(|x| x.as_u64()).unwrap_or(0) as u128,
+        model: v.get("model").and_then(|s| s.as_str()).map(|s| s.to_string()),
+    }
+}
+
+fn clip(s: &str) -> String {
+    if s.chars().count() <= 300 {
+        return s.to_string();
+    }
+    format!("{}…", s.chars().take(300).collect::<String>())
+}
+
+/// 取消。和 `engine.rs::request_cancel` 一样：没在跑也算成功——用户按的是一个已经结束的东西。
+#[tauri::command]
+pub fn compress_cancel() -> bool {
+    let guard = CHILD.lock().unwrap();
+    let Some(handle) = guard.as_ref() else { return false };
+    let mut child = handle.lock().unwrap();
+    let Some(c) = child.as_mut() else { return false };
+    let _ = c.kill();
+    let _ = c.wait();
+    *child = None;
+    true
+}
+
+/// 设置页要能说「找到了 / 没找到」，而不是等到用户点了压缩才报错。
+#[tauri::command]
+pub fn compress_sidecar_present() -> bool {
+    sidecar_path().is_ok()
+}
+
+// ---------------------------------------------------------------------------------------
+// API key 存哪儿
+//
+// ⛔ **不存 settings.json，这一条是硬的。** 两个理由，任何一个单独都成立：
+//
+// 1. 这个仓库已经就同一件事做过判断了。`settingsStore.ts` 里的 `LEGACY_AI_KEYS` 会在每次
+//    启动时**主动擦掉** settings.json 里遗留的 `groqKey` / `geminiKey`，注释原话是
+//    「plaintext API keys and must not linger on disk once nothing reads them」。现在再往
+//    同一个文件里塞一个明文 key，等于把当初专门清掉的东西请回来。
+// 2. settings.json 是**会跟着人走**的：`breakReminder.ts` 里写着它「hand-editable and
+//    travels between builds (DESIGN_LIBRARY_TRANSFER)」。一个会被导出、被拷到另一台机器、
+//    被贴进 issue 的文件，不该装着一把能花钱的钥匙。
+//
+// 所以 key 单独一个文件、0600、不参与任何导出。
+//
+// ⚠️⚠️ **这不是终点，是这一步的合理选择。** 真正该去的地方是系统钥匙串
+// （macOS Keychain / Windows Credential Manager）。没有一步到位是因为：那需要 Security.framework
+// 的 FFI 和 Windows 的 CredReadW 两套平台代码，而 §9 第 4 步的目的是**先确认压缩质量你认可**
+// ——质量不认可，后面整段都不用写。0600 文件挡得住「settings.json 被拷走」这个实际风险，
+// 挡不住「同一个账号下的别的程序去读它」。⛔ **接 `supersedes` 写入那一步之前，把它挪进钥匙串。**
+
+fn key_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = tauri::Manager::path(app).app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("api-key"))
+}
+
+#[tauri::command]
+pub fn api_key_save(app: tauri::AppHandle, key: String) -> Result<(), String> {
+    let path = key_path(&app)?;
+    let key = key.trim();
+    if key.is_empty() {
+        // 清空 = 删掉文件，不是写一个空文件。
+        let _ = std::fs::remove_file(&path);
+        return Ok(());
+    }
+    std::fs::write(&path, key).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // 0600。⚠️ 写完再改权限有一个短暂的窗口，但 app_config_dir 本身就是 0700，
+        // 同一个账号之外的人进不来。
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
+    let path = key_path(&app)?;
+    Ok(std::fs::read_to_string(&path).unwrap_or_default().trim().to_string())
+}
+
+/// 设置页只想知道「填没填」，不需要把 key 拿到前端去。
+#[tauri::command]
+pub fn api_key_present(app: tauri::AppHandle) -> bool {
+    key_path(&app).map(|p| p.is_file()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_envelope_keeps_the_kind_so_the_ui_can_say_which_one() {
+        let o = parse_envelope(r#"{"ok":false,"kind":"quota","message":"out of balance","status":402}"#);
+        assert!(!o.ok);
+        assert_eq!(o.kind.as_deref(), Some("quota"));
+        assert_eq!(o.status, Some(402));
+    }
+
+    // §6.2 约束 4：退回未压缩版而不告诉用户，是这个项目最怕的一类 bug。
+    #[test]
+    fn garbage_on_stdout_is_a_visible_failure_not_an_empty_success() {
+        let o = parse_envelope("<html>gateway error</html>");
+        assert!(!o.ok);
+        assert_eq!(o.kind.as_deref(), Some("bad_response"));
+    }
+
+    #[test]
+    fn a_success_envelope_carries_the_numbers_the_ledger_needs() {
+        let o = parse_envelope(
+            r#"{"ok":true,"text":"PACK","usage":{"input_tokens":30000,"output_tokens":2000,"cached_input_tokens":27000},"model":"deepseek-chat","ms":8123}"#,
+        );
+        assert!(o.ok);
+        assert_eq!(o.input_tokens, 30000);
+        assert_eq!(o.cached_input_tokens, Some(27000));
+        assert_eq!(o.model.as_deref(), Some("deepseek-chat"));
+    }
+
+    // 「这家没报缓存命中」必须留成 None。显示成 0 就等于宣称一次都没命中，
+    // 而第 5 步要拿这个数字去推翻或坐实 §6.2 的估算。
+    #[test]
+    fn an_endpoint_that_reports_no_cache_field_stays_unknown() {
+        let o = parse_envelope(
+            r#"{"ok":true,"text":"PACK","usage":{"input_tokens":100,"output_tokens":10},"model":"m","ms":1}"#,
+        );
+        assert_eq!(o.cached_input_tokens, None);
+    }
+
+    #[test]
+    fn the_cuts_section_is_split_off_the_pack() {
+        let o = parse_envelope(
+            r##"{"ok":true,"text":"# Project Context\n\nbody\n⟦SPOOL:CUTS⟧\n- merged two repeats\n⟦/SPOOL:CUTS⟧","usage":{},"model":"m","ms":1}"##,
+        );
+        assert!(o.ok);
+        assert!(!o.text.contains("SPOOL:CUTS"));
+        assert!(o.text.ends_with("body"));
+        assert_eq!(o.cuts.as_deref(), Some("- merged two repeats"));
+    }
+
+    // 模型没写那一段时，界面要能说「它没说自己删了什么」——所以这里必须是 None，
+    // 不能编一句「无」出来。
+    #[test]
+    fn a_model_that_never_said_what_it_cut_leaves_cuts_unknown() {
+        let (pack, cuts) = split_cuts("# Project Context\n\nbody");
+        assert_eq!(pack, "# Project Context\n\nbody");
+        assert_eq!(cuts, None);
+    }
+
+    // 整条链子：找到二进制 → 起进程 → 把请求(含 key)从 stdin 递进去 → 拿回分类过的信封。
+    //
+    // ⚠️ `--ignored`,因为它**真的会联网**（打到 api.deepseek.com），而这个项目的测试
+    // 平时必须能离线跑完。跑法：
+    //
+    //     cargo test --lib the_whole_chain_answers -- --ignored --nocapture
+    //
+    // 用的是一个假 key,所以**不花钱**,期望结果就是 `auth`。这条能过就说明形态 C 的机械
+    // 部分是通的;还没被证明的只剩一件事：**一次成功的压缩长什么样**——那个需要真 key。
+    #[test]
+    #[ignore = "reaches the network; run with --ignored"]
+    fn the_whole_chain_answers() {
+        let bin = sidecar_path().expect("build it first: cargo build --manifest-path src-tauri/sidecar/Cargo.toml");
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "base_url": "https://api.deepseek.com",
+            "api_key": "sk-deliberately-not-a-real-key",
+            "model": "deepseek-chat",
+            "system": "s",
+            "user": "u",
+            "max_output_tokens": 16,
+            "timeout_secs": 30,
+        }))
+        .unwrap();
+        let out = spawn_sidecar(&bin, payload, 60);
+        println!("kind={:?} status={:?} message={:?}", out.kind, out.status, out.message);
+        assert!(!out.ok);
+        assert_eq!(out.kind.as_deref(), Some("auth"), "expected the endpoint to reject a bogus key");
+        assert_eq!(out.status, Some(401));
+    }
+
+    #[test]
+    fn timeouts_are_clamped_at_both_ends() {
+        assert_eq!(clamp_timeout(1), 10);
+        assert_eq!(clamp_timeout(99_999), 900);
+        assert_eq!(clamp_timeout(120), 120);
+    }
+}

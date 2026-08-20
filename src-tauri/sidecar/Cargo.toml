@@ -1,0 +1,37 @@
+# `spool-ai` — 形态 C 的那个子进程（WORKPLAN-2026-08-20 §6.2）。
+#
+# ⚠️⚠️ 这是一个**独立的 crate，不是主 crate 的第二个 [[bin]]**，而这一点是整件事的要害。
+#
+# Spool 对外说的话是「主进程不发出任何网络请求」，而这句话之所以还能说，是因为它**可以被外人
+# 当场验证**：`otool -L Spool.app/Contents/MacOS/spool`（Windows 上是 dumpbin /dependents）
+# 里看不到任何 HTTP/TLS 栈，`src-tauri/Cargo.toml` 的依赖表里也一个都没有。
+#
+# 如果把 ureq 加进主 crate、只是「不在主二进制里调用它」，那句话就从**架构性质**降级成
+# **意图承诺** —— 依赖表里躺着一个 HTTP 客户端，谁也没法只靠看就确认它没被走到。§6.2 的三形态
+# 对照表里，形态 A 被否掉的理由一字不差就是这个。所以出网的代码必须住在**另一个文件**里，
+# 用户能看见它、能删掉它、能拿防火墙单独拦它。
+#
+# ⛔ 因此：**永远不要把这里的依赖挪进 `src-tauri/Cargo.toml`。**
+[package]
+name = "spool-ai"
+version = "0.1.0"
+edition = "2021"
+description = "Spool's outbound AI sidecar — the only part of Spool that opens a socket"
+publish = false
+
+[[bin]]
+name = "spool-ai"
+path = "src/main.rs"
+
+[dependencies]
+# 阻塞式、小依赖树、自带 rustls。这个进程一辈子只发一个请求然后退出，用不上 async 运行时。
+ureq = { version = "3.4", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+# 子进程随 app 一起分发，体积直接进安装包。
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"

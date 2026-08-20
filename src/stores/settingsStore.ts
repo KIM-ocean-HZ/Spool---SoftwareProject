@@ -8,6 +8,7 @@ import {
   workMinutesOrDefault,
   type WorkMinutes,
 } from '@/lib/breakReminder';
+import { DEFAULT_LEVEL, type CompressLevel } from '@/lib/ai/compress';
 import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
 import { DEFAULT_THEME, themeOrDefault, type Theme } from '@/lib/theme';
 
@@ -36,7 +37,14 @@ type PersistableKey =
   | 'closeToTrayHintSeen'
   | 'theme'
   | 'breakReminderEnabled'
-  | 'breakWorkMinutes';
+  | 'breakWorkMinutes'
+  // 形态 C（WORKPLAN-2026-08-20 §6.2）：Spool 自己出去调 API。
+  // ⚠️ key 不在这里，也永远不要放进来 —— 见 api_engine.rs 里 api_key_save 上面那段。
+  | 'apiEngineEnabled'
+  | 'apiBaseUrl'
+  | 'apiModel'
+  | 'apiCompressLevel'
+  | 'apiTimeoutSecs';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -160,6 +168,13 @@ interface SettingsState {
    *  ⚠️ This is the only key in this file that changes what 经典 does rather than how it looks,
    *  which is why it is a switch the user can find in one place and turn off in one click. */
   breakReminderEnabled: boolean;
+  /** 形态 C 总开关。⚠️ 默认 false —— §6.2 约束 5。 */
+  apiEngineEnabled: boolean;
+  /** OpenAI 兼容端点的根地址。⛔ 必须 https,子进程会拒绝明文 http。 */
+  apiBaseUrl: string;
+  apiModel: string;
+  apiCompressLevel: CompressLevel;
+  apiTimeoutSecs: number;
   /** How long a sitting runs before the break lock comes up — 30 / 60 / 120, the arms of the
    *  study quoted beside the picker. Validated on read (lib/breakReminder's
    *  `workMinutesOrDefault`): the file is hand-editable and a stray number would otherwise
@@ -247,6 +262,11 @@ const KEYS: PersistableKey[] = [
   'theme',
   'breakReminderEnabled',
   'breakWorkMinutes',
+  'apiEngineEnabled',
+  'apiBaseUrl',
+  'apiModel',
+  'apiCompressLevel',
+  'apiTimeoutSecs',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -292,6 +312,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   theme: DEFAULT_THEME,
   breakReminderEnabled: true,
   breakWorkMinutes: DEFAULT_WORK_MINUTES,
+  // ⚠️ §6.2 设计约束 5：**默认关闭**，而且是和 MCP 分开的第二个独立开关。
+  // 打开它才会有任何东西离开这台机器,而且离开的也不是主进程 —— 是 spool-ai 子进程。
+  apiEngineEnabled: false,
+  // DeepSeek 是 §6.2 算过账的那家（兼容 OpenAI 格式）。地址可改,因为「OpenAI 兼容」
+  // 的端点不止一家,而换一家不需要改一行代码。
+  apiBaseUrl: 'https://api.deepseek.com',
+  apiModel: 'deepseek-chat',
+  apiCompressLevel: DEFAULT_LEVEL,
+  apiTimeoutSecs: 180,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,
