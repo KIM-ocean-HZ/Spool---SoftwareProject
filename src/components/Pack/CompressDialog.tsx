@@ -16,7 +16,7 @@ import {
   loadApiKey,
   measurementRecord,
   PROGRESS_EVENT,
-  type CompressStage,
+  type CompressProgress,
   type CompressLevel,
   type CompressOutcome,
 } from '@/lib/ai/compress';
@@ -61,7 +61,7 @@ export default function CompressDialog({
   // 2026-08-20 Ocean：「deepseek 在压缩时根本不会给反馈，用户不知道有没有连接成功」。
   // 不流式的一次调用可以一分钟不吭声，而一个转圈说不出「连上了没有」。
   // 所以显示两样：子进程报回来的**阶段**，和一个**秒表**（连着说清最长等多久）。
-  const [stage, setStage] = useState<CompressStage | null>(null);
+  const [progress, setProgress] = useState<CompressProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
 
@@ -73,14 +73,14 @@ export default function CompressDialog({
   }, [running]);
 
   useEffect(() => {
-    const un = listen<CompressStage>(PROGRESS_EVENT, (e) => setStage(e.payload));
+    const un = listen<CompressProgress>(PROGRESS_EVENT, (e) => setProgress(e.payload));
     return () => void un.then((f) => f());
   }, []);
 
   const run = async () => {
     setRunning(true);
     setOutcome(null);
-    setStage('starting');
+    setProgress({ stage: 'starting' });
     startedAt.current = Date.now();
     setElapsed(0);
     try {
@@ -112,7 +112,7 @@ export default function CompressDialog({
       });
     } finally {
       setRunning(false);
-      setStage(null);
+      setProgress(null);
     }
   };
 
@@ -326,16 +326,24 @@ export default function CompressDialog({
               <div className="flex h-full items-center justify-center px-6 text-center text-[11px] leading-relaxed text-muted">
                 {running ? (
                   <div className="space-y-1">
+                    {/* ⚠️ 这两个字数是「它还在正常干活」的唯一证据。之前那次 180 秒超时，
+                        界面上分不出「在写」和「卡死」，就是因为没有它们。 */}
                     <div className="text-ink-2">
-                      {stage === 'reading'
-                        ? t('回话来了，正在接收结果…')
-                        : stage === 'sending'
-                          ? t('请求已经发出去了，正在等模型回话…')
-                          : t('正在启动联网的那个小程序…')}
+                      {progress?.stage === 'writing'
+                        ? t('正在写压缩稿…已经写了 {n} 字', { n: (progress.written ?? 0).toLocaleString() })
+                        : progress?.stage === 'thinking'
+                          ? t('模型在思考…已经想了 {n} 字，还没开始写', {
+                              n: (progress.thinking ?? 0).toLocaleString(),
+                            })
+                          : progress?.stage === 'sending'
+                            ? t('请求已经发出去了，正在等它开口…')
+                            : t('正在启动联网的那个小程序…')}
                     </div>
                     <div>{t('已经等了 {n} 秒（最长等 {max} 秒）', { n: elapsed, max: timeoutSecs })}</div>
                     <div className="text-muted/70">
-                      {t('这一步不是逐字蹦出来的 —— 模型要把整份压缩稿写完才会回话，中间安静是正常的。')}
+                      {progress?.stage === 'thinking'
+                        ? t('⚠️ 这一档模型会先想完再动笔。上面那个数字一直在涨，就说明它没卡住。')
+                        : t('上面那个字数一直在涨，就说明它在正常干活。')}
                     </div>
                   </div>
                 ) : (

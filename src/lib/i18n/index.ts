@@ -1086,11 +1086,16 @@ const EN: Record<string, string> = {
   '开始压缩': 'Compress',
   '再压一次': 'Compress again',
   '正在启动联网的那个小程序…': 'Starting the program that does the networking…',
-  '请求已经发出去了，正在等模型回话…': 'The request is out — waiting for the model to answer…',
-  '回话来了，正在接收结果…': 'It answered — reading the result…',
+  '请求已经发出去了，正在等它开口…': 'The request is out — waiting for it to start…',
+  '模型在思考…已经想了 {n} 字，还没开始写': 'Thinking… {n} characters of reasoning so far, nothing written yet',
+  '正在写压缩稿…已经写了 {n} 字': 'Writing the briefing… {n} characters so far',
+  '⚠️ 这一档模型会先想完再动笔。上面那个数字一直在涨，就说明它没卡住。':
+    '⚠️ This model thinks the whole thing through before writing. As long as that number keeps rising, it is not stuck.',
+  '上面那个字数一直在涨，就说明它在正常干活。':
+    'As long as that count keeps rising, it is working normally.',
+  '压缩稿写到一半连接断了，没拿到完整的一份。⚠️ 半份稿子看起来和「删得很狠」一模一样，所以没有交给你。把设置里的「单次最长等待」调大，或者换个小一点的打包范围。':
+    'The briefing was cut off partway, so no complete version came back. ⚠️ A half-written briefing looks exactly like an aggressively compressed one, so it is not shown. Raise “Longest wait per run” in Settings, or pack a smaller range.',
   '已经等了 {n} 秒（最长等 {max} 秒）': 'Waited {n}s so far (it gives up after {max}s)',
-  '这一步不是逐字蹦出来的 —— 模型要把整份压缩稿写完才会回话，中间安静是正常的。':
-    'Nothing streams here — the model writes the whole briefing before it answers, so the quiet is normal.',
   '停下（{n}s）': 'Stop ({n}s)',
   '这个模型把整次回复都用来「思考」了，正文一个字都没写出来。换一个不思考的模型（比如 pro 那一档里的非推理款），或者把范围缩小一点再试。':
     'This model spent the whole reply thinking and wrote no briefing at all. Try a model that does not reason, or pack a smaller range.',

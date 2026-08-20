@@ -323,7 +323,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // 不是照着文档抄的——而且它带着 `flash`，成本估算那边正好认得出是哪一档价目。
   apiModel: 'deepseek-v4-flash',
   apiCompressLevel: DEFAULT_LEVEL,
-  apiTimeoutSecs: 180,
+  // ⚠️ 2026-08-20 从 180 提到 600。180 是照着「一次几十秒的调用」定的，而那个前提是错的：
+  // 26,615 字符那份 pack 跑到 180 秒还没写完就被掐了，**而那一次已经计了 ¥0.08**。
+  // 会思考的模型要先想再写，几分钟是正常的。
+  apiTimeoutSecs: 600,
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

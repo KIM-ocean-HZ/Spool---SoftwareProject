@@ -30,10 +30,16 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 /// 取消是从另一个线程来的（命令跑在阻塞线程上），只能靠这个把子进程的句柄递过去。
 static CHILD: Mutex<Option<Arc<Mutex<Option<Child>>>>> = Mutex::new(None);
 
-/// 上限 15 分钟。压一份满额 pack 是一次几十秒的调用，比这更久的一定是卡住了，
-/// 而一个卡住的进程会一直占着那道闸。
+/// ⚠️ 上限 2026-08-20 从 15 分钟提到 30 分钟，因为「几十秒的调用」这个前提是错的。
+///
+/// 实测：一份 26,615 字符的 pack，V4-Flash 跑到 180 秒**还没写完**就被掐了，
+/// 而那一次 DeepSeek 已经计了 ¥0.08 —— 钱花了，一个字没拿到。会思考的模型要先想再写，
+/// 输出又和输入一个量级，几分钟是正常的，不是卡住。
+///
+/// 现在流式了，所以「还在正常生成」和「真的卡死」在界面上分得开（字数一直在涨），
+/// 这个上限只是最后一道闸，不再兼职「判断它是不是卡住了」。
 fn clamp_timeout(secs: u64) -> u64 {
-    secs.clamp(10, 900)
+    secs.clamp(10, 1800)
 }
 
 /// 找 `spool-ai`。
@@ -267,15 +273,15 @@ fn spawn_sidecar_with(
         let reader = std::io::BufReader::new(s);
         for line in std::io::BufRead::lines(reader) {
             let Ok(line) = line else { break };
-            if let Some(stage) = serde_json::from_str::<serde_json::Value>(&line)
-                .ok()
-                .and_then(|v| v.get("stage").and_then(|s| s.as_str()).map(str::to_string))
-            {
-                if let Some(app) = app.as_ref() {
-                    use tauri::Emitter;
-                    let _ = app.emit(PROGRESS_EVENT, stage);
+            // 进度行是一个对象（阶段 + 已思考多少字 + 已写多少字），整块转发给界面。
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if v.get("stage").is_some() {
+                    if let Some(app) = app.as_ref() {
+                        use tauri::Emitter;
+                        let _ = app.emit(PROGRESS_EVENT, v);
+                    }
+                    continue;
                 }
-                continue;
             }
             // 不是进度行——那就是真的出事了，留着当报错详情。
             buf.push_str(&line);

@@ -301,10 +301,19 @@ export interface CompressRequest {
   timeoutSecs: number;
 }
 
-/** 子进程报回来的阶段。⚠️ 这条路**不流式**（产物是一整份要并排核对的稿子），
- *  所以除了这两个阶段和一个秒表，界面上没有别的东西可以显示。
- *  但「请求已经发出去了」和「还没连上」是用户真正想知道的那件事。 */
-export type CompressStage = 'starting' | 'sending' | 'reading';
+/** 子进程报回来的进度。
+ *
+ *  ⚠️ 2026-08-20 之后这条路是**流式**的，所以这里能报的不只是阶段，还有
+ *  **已经思考了多少字 / 已经写了多少字**。这两个数字是「它还在正常干活」的唯一证据——
+ *  之前那次 180 秒超时，界面上分不出「在写」和「卡死」，就是因为没有它们。 */
+export type CompressStage = 'starting' | 'sending' | 'thinking' | 'writing';
+export interface CompressProgress {
+  stage: CompressStage;
+  /** 已经产出的「思考」字数。会思考的模型先想再写，这个数先涨。 */
+  thinking?: number;
+  /** 已经写出的压缩稿字数。 */
+  written?: number;
+}
 export const PROGRESS_EVENT = 'compress://progress';
 
 export const compressPack = (req: CompressRequest): Promise<CompressOutcome> =>
@@ -334,6 +343,8 @@ export const FAILURE_SENTENCE: Record<string, string> = {
   thought_only:
     '这个模型把整次回复都用来「思考」了，正文一个字都没写出来。换一个不思考的模型（比如 pro 那一档里的非推理款），或者把范围缩小一点再试。',
   truncated: '结果被输出长度掐断了，没拿到完整的压缩稿。换个小一点的打包范围再试。',
+  cut_off:
+    '压缩稿写到一半连接断了，没拿到完整的一份。⚠️ 半份稿子看起来和「删得很狠」一模一样，所以没有交给你。把设置里的「单次最长等待」调大，或者换个小一点的打包范围。',
   no_sidecar: '找不到负责联网的那个小程序（spool-ai）。重装一次 Spool 应该能修好。',
   http: '接口返回了一个错误。',
   internal: 'Spool 自己出错了。',
