@@ -345,6 +345,13 @@ export const ZH = {
   'story-release-link': '<a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">到 GitHub 查看这次发布和它的产物</a>。官网上那个固定的下载地址，指向与带版本号的产物一同发布的固定文件名副本。',
 
   'story-measurement-h': '实测改变了什么',
+  /* WORKPLAN-2026-08-20 §2.4 —— 首页「零安装试用」那一块。文件本身是渲染器生成的，
+     中文站拿的是中文那一份（main.js 按 <html lang> 挑）。 */
+  'sample-p': '也可以直接拿走一份真的。这就是一个项目按 ⌘⇧P 打出来的东西——开头的说明、每条的来源标注，一样不少。粘进你常用的那个 AI，然后问它一个关于这门课的问题。',
+  'sample-copy': '复制整份 Pack',
+  'sample-copied': '复制好了——粘进你的 AI 试试',
+  'sample-open': '先看看这个文件',
+  'sample-note': '大约 8,000 字——五条存下来的东西，外加当时想到的那句话。',
   'story-measurement-p': '案例研究台账为每一个对外公开的数字都记下了命令和证据来源。其中两次实测改变了产品的优先级，而不只是描述了做完的系统。',
   'story-m2-h': '去重是一次性的补救',
   'story-m2-p': '实测到的那一对重复内容占了 <strong>Pack 的 13%</strong>。把它标记为作废解决了眼前的体量问题，同时那条更早的块仍留在库里，也仍然搜得到。',

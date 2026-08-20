@@ -122,6 +122,26 @@
       <div id="demo-app"></div>
       <noscript><p class="center muted" data-i18n="demo-noscript">交互演示需要 JavaScript；你仍可阅读<a href="story.html">开发故事</a>和下方截图。</p></noscript>
     </div>
+
+    <!-- WORKPLAN-2026-08-20 §2.4. A Pack is just text, so the honest demo needs no backend
+         and no account: hand over the real file and let the visitor's own AI answer from it.
+         sample-pack.md is GENERATED (scripts/build-sample-pack.ts) by the same assemble()
+         the app's ⌘⇧P runs, from the same rows a fresh install seeds — never hand-written,
+         or it would drift from the product and the first to notice would be a new user. -->
+    <div class="center reveal sample-pack">
+      <p class="measure" style="margin-left:auto;margin-right:auto" data-i18n="sample-p">也可以直接拿走一份真的。这就是一个项目按 ⌘⇧P 打出来的东西——开头的说明、每条的来源标注，一样不少。粘进你常用的那个 AI，然后问它一个关于这门课的问题。</p>
+      <div class="cta-row" style="margin-top:1rem">
+        <button class="btn btn-primary" type="button" id="copy-sample-pack"
+          data-i18n="sample-copy">复制整份 Pack</button>
+        <!-- The confirmation lives in the DOM, not in a JS string: build-site-zh.mjs
+             translates data-i18n text nodes and nothing else, so a literal in main.js
+             would stay English on the Chinese page. -->
+        <span id="copy-sample-pack-done" hidden data-i18n="sample-copied">复制好了——粘进你的 AI 试试</span>
+        <a class="btn btn-ghost" id="open-sample-pack" href="../assets/sample-pack.md"
+          data-i18n="sample-open">先看看这个文件</a>
+      </div>
+      <p class="fineprint" style="margin-top:0.6rem" data-i18n="sample-note">大约 8,000 字——五条存下来的东西，外加当时想到的那句话。</p>
+    </div>
   </div>
 </section>
 

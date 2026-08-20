@@ -212,6 +212,10 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
   .hero-ring, .hero img.mark { animation: none !important; }
 }
 
+/* §2.4 sample Pack: it sits under the interactive demo and is a second, quieter offer —
+   the gap is what keeps it from reading as part of the demo's own controls. */
+.sample-pack { margin-top: 2.6rem; }
+
 /* ---------- Chinese-mode typography ----------
    Applied when the language toggle sets <html lang="zh-CN">. The font system
    itself stays (Literata→宋体 display, Geist→苹方 body — the standard
