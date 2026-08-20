@@ -72,6 +72,28 @@ const EN: Record<string, string> = {
   '想在别的 app 里复制就存，需要开一个权限。在那之前 Spool 照样能用——在下面写笔记，或者在 Spool 里复制后双击 ⌥。':
     'Capturing from other apps needs one permission. Until then Spool still works — write notes below, or copy inside Spool and double-tap ⌥.',
   '打开捕捉': 'Turn on capture',
+  // WORKPLAN-2026-08-20 §2.3 — Settings → 通用. A fresh install seeds this project itself;
+  // the row is for libraries older than the feature, and for getting the sample back.
+  '载入示例项目': 'Load the sample project',
+  '一个已经攒了几周的项目，用来看打包出来是什么样。不需要了整条删掉即可。':
+    'A project with a few weeks already in it, so you can see what a pack looks like. Delete the whole thing when you are done with it.',
+  '载入': 'Load',
+  '已载入': 'Loaded',
+  // WORKPLAN-2026-08-20 §2.2 — the card shown BEFORE the macOS grant dialog. macOS's own
+  // sentence is "Spool would like to monitor input from your keyboard", which for a
+  // product that never goes online is the worst possible first sentence about itself.
+  // ⚠️ Keep these three lines true to double_tap.rs: with the grant the tap watches
+  // FlagsChanged + LeftMouseDown + KeyDown, and the KeyDown branch stores one timestamp
+  // when the chord is ⌘C/⌘X. Nothing typed is retained.
+  '系统马上会问你要键盘权限': 'macOS is about to ask for keyboard access',
+  'Spool 用它分辨两件事：你有没有连按两下 ⌥，以及你按 ⌥ 之前是不是刚按了 ⌘C。':
+    'Spool uses it to tell two things apart: whether you tapped ⌥ twice, and whether you had just pressed ⌘C before you did.',
+  '你打的字一个都不存。按下 ⌘C 时它只记一个时间点，别的按键看完就扔。':
+    'Nothing you type is kept. A ⌘C press leaves one timestamp behind; every other key is looked at and dropped.',
+  'Spool 不联网，开了这个权限也一样：没有服务器，没有账号，你存的东西只在这台电脑上。':
+    'Spool does not go online, and this permission does not change that: no server, no account, what you save stays on this computer.',
+  '先不开': 'Not now',
+  '继续': 'Continue',
   '在系统设置里勾选 Spool，然后完全退出 Spool（托盘图标 → 退出）再重新打开。没看到系统弹窗？点右边打开设置。':
     'Tick Spool in System Settings, then fully quit Spool (tray icon → Quit) and reopen. No system dialog? Open Settings on the right.',
   '已授权 — 重启 Spool 后生效': 'Granted — takes effect after Spool restarts',
