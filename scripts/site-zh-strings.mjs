@@ -213,9 +213,20 @@ export const ZH = {
   'cta-h': '项目背景，不必再解释第二次。',
   'cta-p': '免费、可离线使用、无需账号。',
   'cta-fine': 'Apple 芯片 Mac（arm64），已签名并公证 · Windows x64，未签名 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a>',
+  'fb-k': '出问题的时候',
+  'fb-h': '三条路都能找到我。',
+  'fb-p': 'Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你报告问题。要是它坏了，或者你想要的事情它做不了，下面任意一条都能找到我。',
+  'fb-l-what': '发生了什么，或者你希望它能做什么',
+  'fb-l-where': '版本和系统——可不填',
+  'fb-l-reply': '你的邮箱，想要回复的话——可不填',
+  'fb-send': '写这封邮件',
+  'fb-note': '这个页面没有服务器，什么都不收集。按钮只是打开你自己的邮件应用，信已经写好了，发不发由你决定——不会有任何东西自己从这个页面发出去。',
+  'fb-alt': '不想用表格也行：<a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。',
+
   'foot-copy': 'Spool 思簿 · © 2026 · 保留所有权利',
   'foot-home': '首页',
   'foot-story': '开发故事',
+  'foot-feedback': '反馈',
   'foot-privacy': '隐私政策',
 
   /* The story page (story.html). Long-form, so the copy is keyed element by
@@ -334,9 +345,7 @@ export const ZH = {
   'story-release-link': '<a href="https://github.com/KIM-ocean-HZ/spool/releases/latest">到 GitHub 查看这次发布和它的产物</a>。官网上那个固定的下载地址，指向与带版本号的产物一同发布的固定文件名副本。',
 
   'story-measurement-h': '实测改变了什么',
-  'story-measurement-p': '案例研究台账为每一个对外公开的数字都记下了命令和证据来源。其中三次实测改变了产品的优先级，而不只是描述了做完的系统。',
-  'story-m1-h': '背景的体量来自粘贴进来的文档',
-  'story-m1-p': '一个真实项目打包后是 <strong>26,163 / 50,000 字符</strong>。用户粘贴的材料占 <strong>95%</strong>，AI 客户端占 <strong>5%</strong>，AI 写的块平均<strong>小 11 倍</strong>。于是“内容过期”排到了“AI 输出去重”前面。',
+  'story-measurement-p': '案例研究台账为每一个对外公开的数字都记下了命令和证据来源。其中两次实测改变了产品的优先级，而不只是描述了做完的系统。',
   'story-m2-h': '去重是一次性的补救',
   'story-m2-p': '实测到的那一对重复内容占了 <strong>Pack 的 13%</strong>。把它标记为作废解决了眼前的体量问题，同时那条更早的块仍留在库里，也仍然搜得到。',
   'story-m3-h': '对外的写入路径是能被摸索出来的',

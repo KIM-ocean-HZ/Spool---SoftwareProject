@@ -1,6 +1,6 @@
 /* Spool website — shares the app's design tokens (src/styles/tokens.css)
    so the site and the product read as one object. English-first typography:
-   Fraunces for display, Geist for body, generous measure and line-height.
+   Literata for display, Geist for body, generous measure and line-height.
    Scroll narrative + interactive demo styles live in the second half. */
 
 @font-face {
@@ -15,10 +15,23 @@
   font-weight: 100 900;
   font-display: swap;
 }
+/* Literata replaced Fraunces 2026-08-20: Fraunces ships its WONK axis (wonky
+   glyphs) defaulting to 1, which is where the bent 'j' in "project" came from.
+   Literata carries opsz 7–72 and wght 200–900; optical sizing is left on
+   `auto` on purpose, so never set font-variation-settings on it — doing that
+   overrides font-optical-sizing and pins opsz to its default 12, which is the
+   small-text drawing and looks wrong on the hero. Subset to Latin so it costs
+   less than the Fraunces it replaces (311 KB vs 360 KB):
+     python3 -m fontTools.subset Literata.ttf --output-file=Literata.ttf \
+       --unicodes="U+0020-007E,U+00A0-00FF,U+0131,U+0152-0153,U+2000-200B,\
+       U+2010-2015,U+2018-201E,U+2020-2022,U+2026,U+2030,U+2032-2033,\
+       U+2039-203A,U+2044,U+20AC,U+2122,U+2190-2193,U+2212,U+FEFF,U+FFFD" \
+       --layout-features='*' --name-IDs='*' --name-legacy --name-languages='*'
+*/
 @font-face {
-  font-family: 'Fraunces';
-  src: url('fonts/Fraunces.ttf') format('truetype-variations');
-  font-weight: 100 900;
+  font-family: 'Literata';
+  src: url('fonts/Literata.ttf') format('truetype-variations');
+  font-weight: 200 900;
   font-display: swap;
 }
 
@@ -40,7 +53,7 @@
   --ok:          #6b7c5a;
 
   --font-ui:    'Geist', -apple-system, 'PingFang SC', sans-serif;
-  --font-serif: 'Fraunces', 'Songti SC', serif;
+  --font-serif: 'Literata', 'Songti SC', serif;
   --font-mono:  'Geist Mono', ui-monospace, monospace;
 
   --r-sm: 4px;
@@ -201,7 +214,7 @@ main, .nav-shell, footer { position: relative; z-index: 2; }
 
 /* ---------- Chinese-mode typography ----------
    Applied when the language toggle sets <html lang="zh-CN">. The font system
-   itself stays (Fraunces→宋体 display, Geist→苹方 body — the standard
+   itself stays (Literata→宋体 display, Geist→苹方 body — the standard
    serif-title / sans-body pairing); what changes is what CJK glyphs actually
    need: no fake italics anywhere (CJK has no italic tradition — obliquing
    just breaks the strokes), zero tracking on display sizes (the Latin
