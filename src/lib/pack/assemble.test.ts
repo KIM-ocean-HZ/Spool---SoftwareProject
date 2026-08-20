@@ -5,6 +5,7 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { assemble, filterBlocksForRange, foldedCorrectionIds } from './assemble';
+import { INSTRUCTION_HEADER } from './templates';
 import goldenFixture from './fixtures/golden-pack.json';
 
 const NOW = new Date('2026-05-15T10:00:00').getTime();
@@ -65,9 +66,30 @@ describe('assemble', () => {
     expect(out).toContain('### 🧩 Synthesis (already-formed understanding)');
     expect(out).toContain('### 🔄 Process (conversation traces — read for evolution, not facts)');
     expect(out).toContain("### 💭 Personal (the user's own hypotheses and notes)");
-    expect(out).toContain('If they conflict with other categories, Reference wins.');
+    expect(out).toContain('If they conflict with other categories, Reference wins — but');
+    // Reference outranks the other bands only at equal recency. Without this clause
+    // a stale official page beat the user's newer note, and the 💭 Personal rule
+    // then had the model tell them so bluntly. The two rules were each fine alone.
+    expect(out).toContain('only at equal recency');
+    // The header says how to read and must also say what to do: a pack pasted with
+    // no question otherwise gets a different guess from every model.
+    expect(out).toContain('## What This Is');
+    expect(out).toContain('context, not a task');
     expect(out).toContain('## Output Language');
     expect(out).toContain('Respond in Simplified Chinese unless content itself dictates');
+  });
+
+  // The header is written out twice — here as a TS template literal, and in
+  // src-tauri/src/mcp.rs as a Rust raw string for the MCP renderer. Nothing but
+  // this test makes the two agree, and drift is invisible in both languages:
+  // each side compiles, each side's own tests pass, and the only symptom is that
+  // a pack pasted from the app and a pack read over MCP quietly stop matching.
+  // The 2026-08-19 header fixes had to be applied to both copies by hand.
+  it('the Rust copy of the header is byte-identical to this one', () => {
+    const rust = readFileSync(join(__dirname, '../../../src-tauri/src/mcp.rs'), 'utf8');
+    const match = rust.match(/const INSTRUCTION_HEADER: &str = r##"([\s\S]*?)"##;/);
+    expect(match, 'INSTRUCTION_HEADER not found in mcp.rs').not.toBeNull();
+    expect(match![1]).toBe(INSTRUCTION_HEADER);
   });
 
   // DESIGN_CONTEXT_HYGIENE §1.1-bis (Ocean: 「目前表头是开发初期的作品,需要更新」). The four
@@ -184,7 +206,7 @@ describe('assemble', () => {
   it('renders a block annotation indented beneath it', () => {
     const blocks = [textBlock('b1', 'kickoff note', { annotation: '这条要重点跟进' })];
     const out = assemble({ thread, blocks, now: NOW });
-    expect(out).toContain('    note: 这条要重点跟进');
+    expect(out).toContain('    💭 note: 这条要重点跟进');
   });
 
   // v15 (DESIGN_PROJECT_FILES §5.1 ②): a file is listed ONCE, in the project's own section,
@@ -371,7 +393,7 @@ describe('assemble', () => {
       ]);
       const out = assemble({ thread, blocks, refBlocks, now: NOW });
       // note line first (the user's voice), then the citation.
-      const noteIdx = out.indexOf('    note: 写入方声明的依据');
+      const noteIdx = out.indexOf('    💭 note: 写入方声明的依据');
       const citeIdx = out.indexOf('    ↩ cites: [2026-05-15 09:10] 被引块的第一行 第二行不进锚点');
       expect(noteIdx).toBeGreaterThan(-1);
       expect(citeIdx).toBeGreaterThan(noteIdx);
@@ -720,7 +742,7 @@ describe('assemble', () => {
         textBlock('b1', '门槛是召回率 60%', { seq: 1, pinned: true, annotation: '先按这个数走' }),
       ];
       const out = assemble({ thread, blocks, now: NOW });
-      expect(out).toContain('📌 #1 [2026-05-15 09:00] 门槛是召回率 60% (pinned');
+      expect(out).toContain('📌 💭 #1 [2026-05-15 09:00] 门槛是召回率 60% (pinned');
       expect(out).not.toContain('先按这个数走 (pinned');
     });
 
@@ -735,11 +757,11 @@ describe('assemble', () => {
       ];
       const out = assemble({ thread, blocks, now: NOW });
       expect(out).toContain(
-        '📌 #1 [2026-05-15 09:00] 这条讲的是评分口径 (pinned — full text in "Pinned Blocks" above)',
+        '📌 💭 #1 [2026-05-15 09:00] 这条讲的是评分口径 (pinned — full text in "Pinned Blocks" above)',
       );
       // No note → rung three, exactly as before v13.
       expect(out).toContain(
-        '📌 #2 [2026-05-15 09:01] 另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文… ' +
+        '📌 💭 #2 [2026-05-15 09:01] 另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文另一段很长的原文… ' +
           '(pinned — full text in "Pinned Blocks" above)',
       );
     });

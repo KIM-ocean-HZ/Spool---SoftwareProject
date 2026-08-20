@@ -15,6 +15,7 @@ import {
   NOTE_MARKER,
   OUTPUT_LANGUAGE_BY_LANG,
   PACK_HEADER,
+  PERSONAL_PREFIX,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
   PROVENANCE_PREFIX,
@@ -250,6 +251,11 @@ const provenanceLine = (b: Block, now: number): string | null => {
   return `${NOTE_INDENT}${PROVENANCE_PREFIX}${parts.join(PROVENANCE_SEP)}`;
 };
 
+// v22 (§2.6 表头第八条): the 💭 band, decided from fields alone. A `ref` block is not a
+// typed note — it is a pointer at another project — so it stays unmarked even though it
+// carries no source either.
+const isPersonal = (b: Block): boolean => b.kind !== 'ref' && !b.source;
+
 const renderBlock = (
   b: Block,
   refTitles: Map<string, string> | undefined,
@@ -270,7 +276,8 @@ const renderBlock = (
     lines.push(`${star}${n}[${time}] ${REF_MARKER}${title}`);
   } else {
     const bracket = b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
-    lines.push(`${star}${n}[${bracket}] ${b.content.trim()}`);
+    const band = isPersonal(b) ? PERSONAL_PREFIX : '';
+    lines.push(`${star}${band}${n}[${bracket}] ${b.content.trim()}`);
   }
 
   // v20: directly under the head line — where the block came from is part of what it IS,
@@ -281,7 +288,10 @@ const renderBlock = (
   if (b.annotation?.trim()) {
     // v14 (§9.3 拍板乙): which marker decides how much authority the next model gives this
     // sentence — the whole point of recording who wrote it.
-    const noteMarker = annotationIsAi(b.annotationBy, b.source) ? AI_NOTE_MARKER : NOTE_MARKER;
+    // The AI-written slot keeps no band marker on purpose: 💭 is what the user wrote, and
+    // the contrast between the two lines is the point (`ai note:` weighs as 🧩 Synthesis).
+    const ai = annotationIsAi(b.annotationBy, b.source);
+    const noteMarker = ai ? AI_NOTE_MARKER : `${PERSONAL_PREFIX}${NOTE_MARKER}`;
     lines.push(`${NOTE_INDENT}${noteMarker}${oneLine(b.annotation)}`);
   }
   if (b.refBlockId) {
@@ -435,7 +445,8 @@ const renderPinnedPlaceholder = (b: Block): string => {
     b.kind !== 'ref' && b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
   const head = blockLabel(b.content, b.annotation, annotationIsAi(b.annotationBy, b.source));
   const anchor = head.length > 0 ? `${head} ` : '';
-  return `${PINNED_PREFIX}${seqMarker(b)}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
+  const band = isPersonal(b) ? PERSONAL_PREFIX : '';
+  return `${PINNED_PREFIX}${band}${seqMarker(b)}[${bracket}] ${anchor}${PINNED_SEE_ABOVE}`;
 };
 
 // Pure function. No await, no fetch, no DB calls — this is the §6.4 hot path. The

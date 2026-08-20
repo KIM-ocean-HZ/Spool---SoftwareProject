@@ -13,6 +13,15 @@ export const EXTRACT_CHAR_CAP = 8000; // max extracted chars inlined per attachm
 
 // --- Inline markers ---------------------------------------------------------------------
 export const SOURCE_MARKER = ' · from ';
+// v22 (WORKPLAN-2026-08-20 §2.6, 表头第八条): the 💭 band, printed on the line that carries
+// it instead of only in the header. Every other inline marker (📌, ⚠️, ↩) appears on the
+// block that needs it, so it still works after the header has scrolled out of attention;
+// the four-band classification was the one thing left that a receiving model had to hold in
+// memory — and worse, 💭 was decided by NOT finding a `· from` label, which is a weaker
+// signal than seeing one. Only the two bands the renderer can settle from fields alone get
+// a printed marker (no `source` → 💭; `note:` → 💭). 📖 / 🧩 / 🔄 need the content read, so
+// they stay the receiving model's call and stay in the header.
+export const PERSONAL_PREFIX = '💭 ';
 export const NOTE_MARKER = 'note: ';
 // v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): the same slot when an AI wrote the annotation
 // rather than the user. `note:` is documented in the Notation section as 💭 Personal — the
@@ -137,7 +146,7 @@ export const INSTRUCTION_HEADER = `---
 
 The blocks below come from FOUR different authority categories. Treat each
 category according to the rules in this section. This sorting matters —
-mishandling categories will produce wrong or unsafe output.
+mishandling categories will produce confidently wrong answers.
 
 ### 📖 Reference (authoritative)
 Blocks whose \`source\` looks like an institutional / official artifact:
@@ -147,12 +156,17 @@ Blocks whose \`source\` looks like an institutional / official artifact:
 - forum / platform posts from authoritative figures
 
 **Handling**: Treat as ground truth. Do not contradict. Do not extrapolate
-beyond what they say. If they conflict with other categories, Reference wins.
+beyond what they say. If they conflict with other categories, Reference wins — but
+only at equal recency. When a later block from any category says a Reference has
+since changed, put the conflict in front of the user with both dates. Do not
+silently pick a side, and do not tell them they are wrong on the strength of an
+older Reference alone.
 
 ### 🧩 Synthesis (already-formed understanding)
 Blocks whose \`source\` is another AI tool (Claude, ChatGPT, Gemini, etc.)
 AND whose content has the shape of a long structured explanation (headings,
-formulas, multi-paragraph essays).
+formulas, multi-paragraph essays). An AI-sourced block that is not clearly a
+dialogue trace belongs here rather than in 🔄 Process — that is the default.
 
 **Handling**: These are someone else's synthesis. They may be useful as
 background or framing, but their correctness is not guaranteed. Do not
@@ -178,7 +192,8 @@ incomplete or speculative.
 
 **Handling**: Read these to understand where the user currently stands.
 If they contain factual errors, point them out directly — do not protect
-the user's feelings at the cost of correctness.
+the user's feelings at the cost of correctness. What they have already written
+down correctly, do not explain back to them.
 
 ### ⭐ User-highlighted spans (\`==…==\`)
 Substrings wrapped in \`==…==\` inside any block above are sentence-level key points the user emphasized at capture time — prioritize them. They coexist with pinned blocks (pin = whole block is core context; highlight = a sentence within a block is key); when a highlight sits inside a pinned block, treat it as one emphasis, not two.
@@ -193,7 +208,12 @@ A block is one line, optionally followed by indented sub-lines:
   Spool, so it is how you point at one block — say "#12", never an internal id.
 - The bracket is when it was captured and, after \`· from\`, where it came from. That
   \`from\` label is what the four categories above are decided by; no label means the
-  user typed it themselves (💭 Personal).
+  user typed it themselves, and that case is marked \`💭\` on the line rather than left
+  for you to infer.
+- \`💭\` = the user wrote this themselves — the block carries no \`· from\` label, so it is
+  💭 Personal, the highest signal in the pack. It is printed here so you never have to
+  settle the band by failing to find a label. The same marker sits on \`note:\` sub-lines,
+  which are 💭 Personal for the same reason even when their block is not.
 - \`📌\` = the user pinned it as core context. Pinned blocks are printed in full ONCE, in
   "Pinned Blocks"; their slot in the timeline is a one-line placeholder ending in
   \`(pinned — full text …)\`. That placeholder is not missing content.
@@ -209,7 +229,9 @@ Indented under a block:
   a block, and it never outranks the block's own source.
 - \`↩ cites:\` — this block builds on the older block previewed after the marker.
 - \`↩ replaces (that block no longer holds):\` — the user has retired the older block.
-  It is history: do not use it, and do not go looking for it in this pack.
+  Do not use it as a current fact, and do not go looking for it in this pack. You may
+  still say the user considered it and ruled it out — that a road was already closed is
+  worth knowing.
 - \`↩ corrects one point in:\` — one point in the older block is wrong. The older block is
   still printed here in full and still stands on everything else.
 - \`⚠️ one point in this block was corrected later — see #N\` — the same fact, seen from
@@ -221,7 +243,17 @@ when the user opted in; otherwise its row is marked \`[extracted: yes, not inlin
 means the text exists and you may ask the user for it.
 
 Any line wrapped in \`[... ...]\` is Spool speaking, not content: it states what was left
-out of this pack and how to get it. Nothing Spool leaves out has been deleted.
+out of this pack and how to get it. Nothing Spool leaves out has been deleted. If what it
+says is missing looks likely to bear on what the user is asking, say so before answering.
+
+## What This Is
+
+Everything above and below is context, not a task. The user's own request arrives
+separately — do that, and use this to do it well.
+
+If they have not asked for anything yet, do not summarise the whole project back to
+them and do not audit their notes. Give a short re-entry briefing — where the project
+stands, what is still open, what changed most recently — and then stop and wait.
 
 ---`;
 

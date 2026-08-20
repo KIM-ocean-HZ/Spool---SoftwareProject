@@ -153,6 +153,11 @@ const PINNED_PREFIX: &str = "📌 ";
 const EXTRACT_CHAR_CAP: usize = 8000;
 
 const SOURCE_MARKER: &str = " · from ";
+// v22 (WORKPLAN-2026-08-20 §2.6) — mirrors templates.ts PERSONAL_PREFIX. The 💭 band
+// printed on the line that carries it, so it survives the header scrolling out of
+// attention like 📌 / ⚠️ / ↩ already do. Only the field-decidable half of the four bands
+// gets a marker; 📖 / 🧩 / 🔄 need the content read and stay the receiving model's call.
+const PERSONAL_PREFIX: &str = "💭 ";
 const NOTE_MARKER: &str = "note: ";
 // v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙) — mirrors templates.ts AI_NOTE_MARKER. The
 // Notation section grants `note:` 💭 Personal weight, and this server's own add_block /
@@ -212,7 +217,7 @@ const INSTRUCTION_HEADER: &str = r##"---
 
 The blocks below come from FOUR different authority categories. Treat each
 category according to the rules in this section. This sorting matters —
-mishandling categories will produce wrong or unsafe output.
+mishandling categories will produce confidently wrong answers.
 
 ### 📖 Reference (authoritative)
 Blocks whose `source` looks like an institutional / official artifact:
@@ -222,12 +227,17 @@ Blocks whose `source` looks like an institutional / official artifact:
 - forum / platform posts from authoritative figures
 
 **Handling**: Treat as ground truth. Do not contradict. Do not extrapolate
-beyond what they say. If they conflict with other categories, Reference wins.
+beyond what they say. If they conflict with other categories, Reference wins — but
+only at equal recency. When a later block from any category says a Reference has
+since changed, put the conflict in front of the user with both dates. Do not
+silently pick a side, and do not tell them they are wrong on the strength of an
+older Reference alone.
 
 ### 🧩 Synthesis (already-formed understanding)
 Blocks whose `source` is another AI tool (Claude, ChatGPT, Gemini, etc.)
 AND whose content has the shape of a long structured explanation (headings,
-formulas, multi-paragraph essays).
+formulas, multi-paragraph essays). An AI-sourced block that is not clearly a
+dialogue trace belongs here rather than in 🔄 Process — that is the default.
 
 **Handling**: These are someone else's synthesis. They may be useful as
 background or framing, but their correctness is not guaranteed. Do not
@@ -253,7 +263,8 @@ incomplete or speculative.
 
 **Handling**: Read these to understand where the user currently stands.
 If they contain factual errors, point them out directly — do not protect
-the user's feelings at the cost of correctness.
+the user's feelings at the cost of correctness. What they have already written
+down correctly, do not explain back to them.
 
 ### ⭐ User-highlighted spans (`==…==`)
 Substrings wrapped in `==…==` inside any block above are sentence-level key points the user emphasized at capture time — prioritize them. They coexist with pinned blocks (pin = whole block is core context; highlight = a sentence within a block is key); when a highlight sits inside a pinned block, treat it as one emphasis, not two.
@@ -268,7 +279,12 @@ A block is one line, optionally followed by indented sub-lines:
   Spool, so it is how you point at one block — say "#12", never an internal id.
 - The bracket is when it was captured and, after `· from`, where it came from. That
   `from` label is what the four categories above are decided by; no label means the
-  user typed it themselves (💭 Personal).
+  user typed it themselves, and that case is marked `💭` on the line rather than left
+  for you to infer.
+- `💭` = the user wrote this themselves — the block carries no `· from` label, so it is
+  💭 Personal, the highest signal in the pack. It is printed here so you never have to
+  settle the band by failing to find a label. The same marker sits on `note:` sub-lines,
+  which are 💭 Personal for the same reason even when their block is not.
 - `📌` = the user pinned it as core context. Pinned blocks are printed in full ONCE, in
   "Pinned Blocks"; their slot in the timeline is a one-line placeholder ending in
   `(pinned — full text …)`. That placeholder is not missing content.
@@ -284,7 +300,9 @@ Indented under a block:
   a block, and it never outranks the block's own source.
 - `↩ cites:` — this block builds on the older block previewed after the marker.
 - `↩ replaces (that block no longer holds):` — the user has retired the older block.
-  It is history: do not use it, and do not go looking for it in this pack.
+  Do not use it as a current fact, and do not go looking for it in this pack. You may
+  still say the user considered it and ruled it out — that a road was already closed is
+  worth knowing.
 - `↩ corrects one point in:` — one point in the older block is wrong. The older block is
   still printed here in full and still stands on everything else.
 - `⚠️ one point in this block was corrected later — see #N` — the same fact, seen from
@@ -296,7 +314,17 @@ when the user opted in; otherwise its row is marked `[extracted: yes, not inline
 means the text exists and you may ask the user for it.
 
 Any line wrapped in `[... ...]` is Spool speaking, not content: it states what was left
-out of this pack and how to get it. Nothing Spool leaves out has been deleted.
+out of this pack and how to get it. Nothing Spool leaves out has been deleted. If what it
+says is missing looks likely to bear on what the user is asking, say so before answering.
+
+## What This Is
+
+Everything above and below is context, not a task. The user's own request arrives
+separately — do that, and use this to do it well.
+
+If they have not asked for anything yet, do not summarise the whole project back to
+them and do not audit their notes. Give a short re-entry briefing — where the project
+stands, what is still open, what changed most recently — and then stop and wait.
 
 ---"##;
 
@@ -554,13 +582,25 @@ fn seq_marker(b: &BlockRow) -> String {
     b.seq.map_or_else(String::new, |n| format!("#{n} "))
 }
 
+// v22: a `ref` block is a pointer at another project, not a typed note, so it stays
+// unmarked even though it carries no source either. Mirrors assemble.ts isPersonal.
+fn is_personal(b: &BlockRow) -> bool {
+    b.kind != "ref" && b.source.is_none()
+}
+
 fn block_head_line(
     b: &BlockRow,
     ref_titles: &std::collections::HashMap<String, String>,
     content_cap: Option<usize>,
+    // v22: the pack prints the 💭 band inline; the digest deliberately does not — its rows
+    // are one-line previews under a project heading, and its own instructions already name
+    // sourceless blocks as the highest signal. Explicit rather than inferred from
+    // content_cap, so extending it to the digest later is a one-word change here.
+    band: bool,
 ) -> String {
     let time = format_pack_time(b.created_at);
     let star = if b.pinned { PINNED_PREFIX } else { "" };
+    let personal = if band && is_personal(b) { PERSONAL_PREFIX } else { "" };
     let n = seq_marker(b);
     if b.kind == "ref" {
         let from_map = b
@@ -584,7 +624,7 @@ fn block_head_line(
         }
         _ => content.to_string(),
     };
-    format!("{star}{n}[{bracket}] {body}")
+    format!("{star}{personal}{n}[{bracket}] {body}")
 }
 
 // v14 (§9.3 拍板乙) — mirrors lib/blocks/annotationAuthor.ts annotationIsAi, and
@@ -606,10 +646,12 @@ fn block_note_line(b: &BlockRow) -> Option<String> {
     if note.trim().is_empty() {
         return None;
     }
+    // v22: the AI-written slot keeps no band marker on purpose — 💭 is what the USER
+    // wrote, and the contrast between the two lines is the point.
     let marker = if annotation_is_ai(b.annotation_by.as_deref(), b.source.as_deref()) {
-        AI_NOTE_MARKER
+        AI_NOTE_MARKER.to_string()
     } else {
-        NOTE_MARKER
+        format!("{PERSONAL_PREFIX}{NOTE_MARKER}")
     };
     Some(format!("{NOTE_INDENT}{marker}{}", one_line(note)))
 }
@@ -684,7 +726,7 @@ fn render_block(
     corrected_by: &std::collections::HashMap<&str, Vec<(i64, Option<&str>)>>,
     now: i64,
 ) -> Vec<String> {
-    let mut lines: Vec<String> = vec![block_head_line(b, ref_titles, None)];
+    let mut lines: Vec<String> = vec![block_head_line(b, ref_titles, None, true)];
     // v20: directly under the head line — mirrors assemble.ts, where the reasoning is.
     if let Some(line) = provenance_line(b, now) {
         lines.push(line);
@@ -816,7 +858,11 @@ fn render_pinned_placeholder(b: &BlockRow) -> String {
         annotation_is_ai(b.annotation_by.as_deref(), b.source.as_deref()),
     );
     let anchor = if head.is_empty() { String::new() } else { format!("{head} ") };
-    format!("{PINNED_PREFIX}{}[{bracket}] {anchor}{PINNED_SEE_ABOVE}", seq_marker(b))
+    let personal = if is_personal(b) { PERSONAL_PREFIX } else { "" };
+    format!(
+        "{PINNED_PREFIX}{personal}{}[{bracket}] {anchor}{PINNED_SEE_ABOVE}",
+        seq_marker(b)
+    )
 }
 
 // §17 range filter — port of filterBlocksForRange (assemble.ts).
@@ -2096,7 +2142,7 @@ fn digest_block_lines(
     b: &BlockRow,
     ref_titles: &std::collections::HashMap<String, String>,
 ) -> Vec<String> {
-    let mut lines = vec![block_head_line(b, ref_titles, Some(DIGEST_BLOCK_CHAR_CAP))];
+    let mut lines = vec![block_head_line(b, ref_titles, Some(DIGEST_BLOCK_CHAR_CAP), false)];
     if let Some(note) = block_note_line(b) {
         lines.push(note);
     }
@@ -7155,8 +7201,8 @@ fn compress_prompt_text(pack_text: &str) -> String {
     let material = fenced_material(pack_text);
     let rule = material_rule();
     t!(
-        "你是一个上下文压缩工具。下面是一份由 Spool 生成的项目上下文简报,它太长了。把它压缩成一份更短但信息完整的版本,供粘贴给另一个 AI 使用。\n\n# 原始简报\n{material}\n\n# 规则\n1. 完整保留文档骨架,以下部分一字不改地照抄:开头的 \"# Project Context\" 标题块、\"## How to Read This Context\" 整节、\"## Pinned Blocks\" 整节、\"## Related Files & Links\" 整节、\"## Output Language\" 整节,以及任何 \"---\" 之后的任务指令块\n2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段\n4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n5. 压缩要克制:目标是去冗余,不是缩成提要。压缩版整体长度一般应在原文的四分之一到二分之一;拿不准该不该删的内容就保留\n6. 直接输出压缩后的完整简报——不要前言、解释或代码块标记,也不要把 ⟦SPOOL:MATERIAL⟧ 这两行界标抄进去,它们不是简报的一部分\n7. {rule}",
-        "You are a context compressor. Below is a project context briefing Spool generated; it is too long. Compress it into a shorter version that loses no information, ready to paste to another AI.\n\n# Original briefing\n{material}\n\n# Rules\n1. Keep the document skeleton intact. Copy these verbatim, word for word: the opening \"# Project Context\" header block, the whole \"## How to Read This Context\" section, the whole \"## Pinned Blocks\" section, the whole \"## Related Files & Links\" section, the whole \"## Output Language\" section, and any task-instruction block after a \"---\"\n2. Compress ONLY the \"## Full Record\" section: merge repeated information, shorten long quotations and extracted file text, and keep each entry's [timestamp · from source] format\n3. Inside \"## Full Record\", keep these verbatim: every note: line (the user's annotations), every entry with no source label (things the user wrote), and every ==...== highlighted span\n4. Never add information the original does not contain. No commentary, no closing summary\n5. Compress with restraint: the goal is removing redundancy, not producing an abstract. The compressed version should usually run between a quarter and a half of the original; when unsure whether something can go, keep it\n6. Output the compressed briefing directly — no preamble, no explanation, no code fences, and do not copy the two \u{27e6}SPOOL:MATERIAL\u{27e7} marker lines: they are not part of the briefing\n7. {rule}"
+        "你是一个上下文压缩工具。下面是一份由 Spool 生成的项目上下文简报,它太长了。把它压缩成一份更短但信息完整的版本,供粘贴给另一个 AI 使用。\n\n# 原始简报\n{material}\n\n# 规则\n1. 完整保留文档骨架,以下部分一字不改地照抄:开头的 \"# Project Context\" 标题块、\"## How to Read This Context\" 整节、\"## What This Is\" 整节、\"## Pinned Blocks\" 整节、\"## Related Files & Links\" 整节、\"## Output Language\" 整节,以及任何 \"---\" 之后的任务指令块\n2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段\n4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n5. 压缩要克制:目标是去冗余,不是缩成提要。压缩版整体长度一般应在原文的四分之一到二分之一;拿不准该不该删的内容就保留\n6. 直接输出压缩后的完整简报——不要前言、解释或代码块标记,也不要把 ⟦SPOOL:MATERIAL⟧ 这两行界标抄进去,它们不是简报的一部分\n7. {rule}",
+        "You are a context compressor. Below is a project context briefing Spool generated; it is too long. Compress it into a shorter version that loses no information, ready to paste to another AI.\n\n# Original briefing\n{material}\n\n# Rules\n1. Keep the document skeleton intact. Copy these verbatim, word for word: the opening \"# Project Context\" header block, the whole \"## How to Read This Context\" section, the whole \"## What This Is\" section, the whole \"## Pinned Blocks\" section, the whole \"## Related Files & Links\" section, the whole \"## Output Language\" section, and any task-instruction block after a \"---\"\n2. Compress ONLY the \"## Full Record\" section: merge repeated information, shorten long quotations and extracted file text, and keep each entry's [timestamp · from source] format\n3. Inside \"## Full Record\", keep these verbatim: every note: line (the user's annotations), every entry with no source label (things the user wrote), and every ==...== highlighted span\n4. Never add information the original does not contain. No commentary, no closing summary\n5. Compress with restraint: the goal is removing redundancy, not producing an abstract. The compressed version should usually run between a quarter and a half of the original; when unsure whether something can go, keep it\n6. Output the compressed briefing directly — no preamble, no explanation, no code fences, and do not copy the two \u{27e6}SPOOL:MATERIAL\u{27e7} marker lines: they are not part of the briefing\n7. {rule}"
     )
 }
 
