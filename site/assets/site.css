@@ -1850,3 +1850,34 @@ footer a { color: var(--ink-2); }
   .nav-links .nav-cta { min-height: 44px; display: flex; align-items: center; }
   .demo-frame button { min-width: 44px; min-height: 44px; }
 }
+
+/* ---------- feedback: the three routes back to me ---------- */
+/* The form is a mailto composer, not a submission: this site is static GitHub
+   Pages with no server, and adding one would mean a third-party form host
+   collecting visitors — the one thing the whole page promises does not happen. */
+.fb-form {
+  max-width: 34rem;
+  margin: 2.25rem auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.fb-form label { font-size: 0.9rem; color: var(--ink-2); margin-top: 0.9rem; }
+.fb-form label:first-child { margin-top: 0; }
+.fb-form textarea,
+.fb-form input {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  width: 100%;
+}
+.fb-form textarea { resize: vertical; min-height: 6.5rem; }
+.fb-form textarea:focus,
+.fb-form input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.fb-form button { margin-top: 1.25rem; align-self: flex-start; }
+.fb-note { margin-top: 0.9rem; }
+.fb-alt { margin-top: 2rem; }

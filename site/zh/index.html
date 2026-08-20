@@ -539,6 +539,32 @@ the user's feelings at the cost of correctness.</span>
   </div>
 </section>
 
+<section class="alt" id="feedback">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="kicker" data-i18n="fb-k">出问题的时候</div>
+      <h2 data-i18n="fb-h">三条路都能找到我。</h2>
+      <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你报告问题。要是它坏了，或者你想要的事情它做不了，下面任意一条都能找到我。</p>
+    </div>
+
+    <form class="fb-form reveal" id="feedback-form">
+      <label for="fb-what" data-i18n="fb-l-what">发生了什么，或者你希望它能做什么</label>
+      <textarea id="fb-what" name="what" rows="5" required></textarea>
+
+      <label for="fb-where" data-i18n="fb-l-where">版本和系统——可不填</label>
+      <input id="fb-where" name="where" type="text" autocomplete="off">
+
+      <label for="fb-reply" data-i18n="fb-l-reply">你的邮箱，想要回复的话——可不填</label>
+      <input id="fb-reply" name="reply" type="email" autocomplete="email">
+
+      <button class="btn btn-primary" type="submit" data-i18n="fb-send">写这封邮件</button>
+      <p class="fineprint fb-note" data-i18n="fb-note">这个页面没有服务器，什么都不收集。按钮只是打开你自己的邮件应用，信已经写好了，发不发由你决定——不会有任何东西自己从这个页面发出去。</p>
+    </form>
+
+    <p class="center fineprint fb-alt" data-i18n="fb-alt">不想用表格也行：<a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。</p>
+  </div>
+</section>
+
 </main>
 
 <footer>
@@ -547,6 +573,7 @@ the user's feelings at the cost of correctness.</span>
     <div>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
       <a href="story.html" data-i18n="foot-story">开发故事</a> ·
+      <a href="#feedback" data-i18n="foot-feedback">反馈</a> ·
       <a href="privacy.html" data-i18n="foot-privacy">隐私政策</a>
     </div>
   </div>

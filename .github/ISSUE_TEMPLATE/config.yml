@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Email me instead
+    url: mailto:jinhz0531@gmail.com
+    about: If you would rather not post in public, or the thing you want to send is personal.
+  - name: The feedback form on the site
+    url: https://spoolapp.org/#feedback
+    about: The same three routes, from the website — no GitHub account needed.

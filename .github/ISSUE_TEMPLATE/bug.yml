@@ -1,0 +1,44 @@
+name: Something is broken
+description: Spool did the wrong thing, or stopped doing anything.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Spool never sends anything anywhere, so nothing about your machine reached
+        me automatically. Everything I know about this is what you write here.
+
+        Please do not paste your notes or a Pack — those are yours, and this is a
+        public page. Describe what happened instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what Spool did instead of what you expected.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Spool version
+      description: The number under Settings, e.g. 0.6.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows 11
+        - Windows 10
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Does it happen every time?
+      description: If you found a way to make it happen again, the steps go here.
+    validations:
+      required: false

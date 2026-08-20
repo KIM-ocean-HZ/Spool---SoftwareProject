@@ -1,0 +1,23 @@
+name: It should do something it does not
+description: A thing you needed Spool to do, and it could not.
+labels: [idea]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful version of this is the story, not the feature. What were you
+        actually trying to get done when Spool got in the way?
+  - type: textarea
+    id: situation
+    attributes:
+      label: What were you trying to do
+      description: The real situation — the project, the moment, what you reached for.
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What did you do instead
+      description: Whatever you fell back on, even if it was doing it by hand.
+    validations:
+      required: false

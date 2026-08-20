@@ -200,3 +200,27 @@
     });
   });
 })();
+
+/* Feedback form → the visitor's own mail app.
+   There is no endpoint to post to: the site is static and a hosted form service
+   would put a third party between a reader and a page that promises nothing is
+   collected. So the button assembles a mailto: and hands it over — the reader
+   sees the message before it is sent, and this page never holds it. */
+(function () {
+  var form = document.getElementById('feedback-form');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var val = function (id) { return (document.getElementById(id).value || '').trim(); };
+    var what = val('fb-what');
+    if (!what) return;
+    var where = val('fb-where');
+    var reply = val('fb-reply');
+    var body = what;
+    if (where) body += '\n\n---\nVersion / system: ' + where;
+    if (reply) body += (where ? '\n' : '\n\n---\n') + 'Reply to: ' + reply;
+    window.location.href =
+      'mailto:jinhz0531@gmail.com?subject=' + encodeURIComponent('Spool feedback') +
+      '&body=' + encodeURIComponent(body);
+  });
+})();

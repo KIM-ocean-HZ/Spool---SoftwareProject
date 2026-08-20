@@ -672,6 +672,39 @@ the user's feelings at the cost of correctness.</span>
   </div>
 </section>
 
+<section class="alt" id="feedback">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="kicker" data-i18n="fb-k">When it goes wrong</div>
+      <h2 data-i18n="fb-h">Three ways to tell me.</h2>
+      <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool has no
+      account and never sends anything anywhere, which also means it cannot report a problem for you.
+      If something broke, or it will not do a thing you needed it to do, one of these reaches me.</p>
+    </div>
+
+    <form class="fb-form reveal" id="feedback-form">
+      <label for="fb-what" data-i18n="fb-l-what">What happened, or what you wish it did</label>
+      <textarea id="fb-what" name="what" rows="5" required></textarea>
+
+      <label for="fb-where" data-i18n="fb-l-where">Version and system — optional</label>
+      <input id="fb-where" name="where" type="text" autocomplete="off">
+
+      <label for="fb-reply" data-i18n="fb-l-reply">Your email, if you would like a reply — optional</label>
+      <input id="fb-reply" name="reply" type="email" autocomplete="email">
+
+      <button class="btn btn-primary" type="submit" data-i18n="fb-send">Write the email</button>
+      <p class="fineprint fb-note" data-i18n="fb-note">This page has no server and collects nothing. The
+      button opens your own mail app with the message already written, and you decide whether to send
+      it — nothing leaves this page on its own.</p>
+    </form>
+
+    <p class="center fineprint fb-alt" data-i18n="fb-alt">Or skip the form:
+      <a href="mailto:jinhz0531@gmail.com?subject=Spool">email me directly</a> ·
+      <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">open an issue on GitHub</a> ·
+      <a href="https://github.com/KIM-ocean-HZ/spool/releases">watch the releases page</a> to hear about new versions.</p>
+  </div>
+</section>
+
 </main>
 
 <footer>
@@ -680,6 +713,7 @@ the user's feelings at the cost of correctness.</span>
     <div>
       <a href="https://github.com/KIM-ocean-HZ/spool">GitHub</a> ·
       <a href="story.html" data-i18n="foot-story">Engineering story</a> ·
+      <a href="#feedback" data-i18n="foot-feedback">Feedback</a> ·
       <a href="privacy.html" data-i18n="foot-privacy">Privacy</a>
     </div>
   </div>
