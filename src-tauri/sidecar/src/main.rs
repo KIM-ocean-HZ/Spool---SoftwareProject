@@ -53,6 +53,21 @@ struct Request {
     /// (只是允许它是 null),少了这一行,调用方不发这个字段就会被判成「请求不是合法 JSON」。
     #[serde(default)]
     max_output_tokens: Option<u32>,
+    /// 思考力度。`None` = **什么都不发**，用服务端的默认。
+    ///
+    /// ⚠️ 2026-08-20 实测：约九成的账单和九成的等待时间花在「思考」上，不是花在压缩上。
+    /// DeepSeek 的文档里确实有 `thinking` / `reasoning_effort` 这两个旋钮
+    /// （`"thinking": {"type": "enabled"}, "reasoning_effort": "high"`），
+    /// **但文档没有列出关掉它或者调低它的合法取值**。
+    ///
+    /// 所以这里不猜：把用户选的值原样发出去，让端点自己回答。不认的值会被 400 顶回来，
+    /// 而 400 **不计费**，报错里又带着厂商原话（通常会点出合法取值）——
+    /// 一个没有文档的问题，就这样变成一次不花钱的实验。
+    #[serde(default)]
+    reasoning_effort: Option<String>,
+    /// 直接关掉思考。发的是 `"thinking": {"type": "disabled"}`。同上：不猜，让端点回答。
+    #[serde(default)]
+    thinking_disabled: bool,
     timeout_secs: u64,
 }
 
@@ -177,6 +192,12 @@ fn run(req: Request) -> Envelope {
     });
     if let Some(n) = req.max_output_tokens {
         body["max_tokens"] = serde_json::json!(n);
+    }
+    if let Some(effort) = req.reasoning_effort.as_deref().filter(|s| !s.is_empty()) {
+        body["reasoning_effort"] = serde_json::json!(effort);
+    }
+    if req.thinking_disabled {
+        body["thinking"] = serde_json::json!({ "type": "disabled" });
     }
 
     let timeout = Duration::from_secs(req.timeout_secs.clamp(10, 900));

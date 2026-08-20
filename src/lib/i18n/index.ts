@@ -1056,6 +1056,11 @@ const EN: Record<string, string> = {
   'key 存在你这台电脑上一个单独的文件里，只有你的账号能读。它不会进设置文件，也不会跟着导出的库走。':
     'The key is kept in a file of its own on this machine, readable only by your account. It never goes into the settings file, and it does not travel with an exported library.',
   '接口地址': 'Endpoint',
+  '思考力度': 'How hard it thinks',
+  // '默认' 上面第 930 行已经有了，不重复。
+  '关掉': 'Off',
+  '实测下来，一次压缩里大约九成的钱和九成的时间花在「思考」上。调低它能省多少、质量掉不掉，这几个值都试一次就知道。不认的值会被接口顶回来，那一次不收费。':
+    'Measured: about nine tenths of both the bill and the wait goes on thinking rather than on compressing. Whether turning it down saves that — and what it costs in quality — is one run per value away. A value the endpoint rejects is not billed.',
   '模型': 'Model',
   '单次最长等待（秒）': 'Longest wait per run (seconds)',
   '必须是 https 开头 —— 用普通 http 的话，你的 key 会明文发出去。':

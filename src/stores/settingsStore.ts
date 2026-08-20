@@ -44,7 +44,8 @@ type PersistableKey =
   | 'apiBaseUrl'
   | 'apiModel'
   | 'apiCompressLevel'
-  | 'apiTimeoutSecs';
+  | 'apiTimeoutSecs'
+  | 'apiReasoning';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -175,6 +176,8 @@ interface SettingsState {
   apiModel: string;
   apiCompressLevel: CompressLevel;
   apiTimeoutSecs: number;
+  /** 思考力度。'' = 不发这个参数（用服务端默认）；'off' = 明确关掉；其余原样发。 */
+  apiReasoning: string;
   /** How long a sitting runs before the break lock comes up — 30 / 60 / 120, the arms of the
    *  study quoted beside the picker. Validated on read (lib/breakReminder's
    *  `workMinutesOrDefault`): the file is hand-editable and a stray number would otherwise
@@ -267,6 +270,7 @@ const KEYS: PersistableKey[] = [
   'apiModel',
   'apiCompressLevel',
   'apiTimeoutSecs',
+  'apiReasoning',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -327,6 +331,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // 26,615 字符那份 pack 跑到 180 秒还没写完就被掐了，**而那一次已经计了 ¥0.08**。
   // 会思考的模型要先想再写，几分钟是正常的。
   apiTimeoutSecs: 600,
+  // ⚠️ 默认空 = **什么都不发**，行为和 2026-08-20 那四次实测完全一致。
+  // 这是一个旋钮，不是一个默认值的改动：实测说约九成账单花在思考上，但合法取值
+  // DeepSeek 文档里没列，所以由用户去问端点，而不是由我们猜一个填进去。
+  apiReasoning: '',
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

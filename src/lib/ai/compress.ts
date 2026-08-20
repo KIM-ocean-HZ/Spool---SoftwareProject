@@ -84,13 +84,14 @@ export interface CompressionAudit {
   missingSections: string[];
   /** ⚠️⚠️ 压缩稿里**凭空多出来**的批注行。
    *
-   *  2026-08-20 实测抓到的第一例：宣发那份的第 2 块在库里**根本没有批注**（查过库确认），
-   *  而压缩稿给它写了一行 `↪ note: AI回复`。
+   *  为什么要防「添」：批注是 💭 Personal 那一带 —— pack 里权威最高的一带，规则明写着
+   *  「有事实错误就直接指出，不要照顾用户感受」。一行编出来的批注会穿着用户自己的权威，
+   *  被下一个 AI 当成他的主张去执行。只数「原文有的还在不在」是防丢，防不了这个。
    *
-   *  这是所有失败方式里最坏的一种，而且原来的核对**看不见它**：以前只数「原文有的东西还在不在」，
-   *  那是防丢，防不了**添**。而批注是 💭 Personal 那一带 —— pack 里权威最高的一带，
-   *  规则明写着「有事实错误就直接指出，不要照顾用户感受」。一行编出来的批注会穿着你自己的
-   *  权威，被下一个 AI 当成你的主张去执行。 */
+   *  ⚠️ 比的是**批注行对批注行**，不是拿批注文字去全文搜。
+   *  2026-08-20 差点栽在这上面：当时怀疑 `↪ note: AI回复` 是编的，而全文搜法没有报——
+   *  因为「AI回复」那四个字正好也出现在同一块的正文里。后来查清那一行本来就在正文里、
+   *  根本不是编的，**结论蒙对了，方法是错的**：换一个措辞没那么巧的编造就会漏过去。 */
   fabricatedNotes: string[];
 }
 
@@ -121,14 +122,17 @@ export const auditCompression = (original_: string, compressed: string): Compres
 
   const gone = (xs: string[]): string[] => xs.filter((x) => !hay.includes(norm(x)));
 
-  // 反向查一遍：压缩稿里的批注，原文里有没有。
-  const originalNorm = norm(original_);
-  const fabricatedNotes = uniq(
-    compressed
-      .split('\n')
-      .map((l) => ANY_NOTE_RE.exec(l)?.[1])
-      .filter((s): s is string => !!s),
-  ).filter((x) => !originalNorm.includes(norm(x)));
+  // 反向查一遍：压缩稿里的每一条批注，原文里**有没有同样的一条批注**。
+  const noteLines = (text: string): string[] =>
+    uniq(
+      text
+        .split('\n')
+        .map((l) => ANY_NOTE_RE.exec(l)?.[1])
+        .filter((s): s is string => !!s)
+        .map(norm),
+    );
+  const originalNotes = new Set(noteLines(original_));
+  const fabricatedNotes = noteLines(compressed).filter((x) => !originalNotes.has(x));
 
   return {
     entriesBefore: countPackEntries(original_),
@@ -323,6 +327,7 @@ export interface CompressRequest {
   baseUrl: string;
   apiKey: string;
   model: string;
+  reasoning: string;
   timeoutSecs: number;
 }
 

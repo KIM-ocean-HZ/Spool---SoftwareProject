@@ -101,6 +101,21 @@ describe('核对：不该删的删了没有', () => {
     expect(auditCompression(ORIGINAL, ORIGINAL).fabricatedNotes).toEqual([]);
   });
 
+  // ⚠️ 2026-08-20 差点栽在这上面。原来的实现是拿批注文字去**全文搜**，
+  // 于是只要编出来的那句话碰巧在正文里出现过，就会被判成「原文有的」。
+  // 批注是结构化的行，就该按行比对。
+  it('编的批注碰巧和正文里的字重合，也要抓出来', () => {
+    const orig = '#1 [t · from X] 我们讨论了 AI回复 的语气\n#2 [t · from X] 另一段';
+    const bad = '#1 [t · from X] 我们讨论了 AI回复 的语气\n    note: AI回复\n#2 [t · from X] 另一段';
+    expect(auditCompression(orig, bad).fabricatedNotes).toEqual(['AI回复']);
+  });
+
+  // 反过来：那一行本来就在正文里（宣发第 2 块的真实情况），照抄不算编。
+  it('原文正文里本来就带着一行批注记号，照抄不算编', () => {
+    const orig = '#1 [t · from X] 前半段\n↪ note: AI回复\n后半段';
+    expect(auditCompression(orig, orig).fabricatedNotes).toEqual([]);
+  });
+
   it('整节被拆掉要报——第 1 条要求骨架照抄', () => {
     const shrunk = ORIGINAL.replace('## Output Language\n\nAnswer in Chinese.', '');
     expect(auditCompression(ORIGINAL, shrunk).missingSections).toEqual(['Output Language']);

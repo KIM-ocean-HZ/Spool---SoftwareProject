@@ -132,13 +132,14 @@ pub async fn compress_pack_via_api(
     base_url: String,
     api_key: String,
     model: String,
+    reasoning: String,
     timeout_secs: u64,
 ) -> Result<CompressOutcome, String> {
     if RUNNING.swap(true, Ordering::SeqCst) {
         return Err("a compression run is already in flight".into());
     }
     let out = tauri::async_runtime::spawn_blocking(move || {
-        run_blocking(&app, pack_text, level, base_url, api_key, model, timeout_secs)
+        run_blocking(&app, pack_text, level, base_url, api_key, model, reasoning, timeout_secs)
     })
     .await;
     RUNNING.store(false, Ordering::SeqCst);
@@ -157,6 +158,7 @@ fn run_blocking(
     base_url: String,
     api_key: String,
     model: String,
+    reasoning: String,
     timeout_secs: u64,
 ) -> CompressOutcome {
     // 提示词跟着 app 的语言走，和 MCP 那条路每次请求重读一次是同一个做法。
@@ -180,6 +182,10 @@ fn run_blocking(
         "base_url": base_url,
         "api_key": api_key,
         "model": model,
+        // 「思考力度」：空 = 什么都不发（用服务端默认），`off` = 明确关掉，其余原样发出去。
+        // ⚠️ 不在这里校验取值 —— 合法取值文档里没有，端点才是权威，而它答一次不要钱。
+        "reasoning_effort": if reasoning == "off" || reasoning.is_empty() { serde_json::Value::Null } else { serde_json::json!(reasoning) },
+        "thinking_disabled": reasoning == "off",
         "system": system,
         "user": user,
         // ⚠️ 故意不发 `max_output_tokens`。2026-08-20 实测：V4-Flash 会思考,思考和正文

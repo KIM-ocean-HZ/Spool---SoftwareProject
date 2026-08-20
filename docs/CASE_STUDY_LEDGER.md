@@ -1722,13 +1722,22 @@ is sound; what it measured is that §6.2 had the shape of the call backwards.
   explicit compression levels were supposed to replace "please cut less" with a checkable
   target; the conservative band asks for 50–75% and run 1 missed it entirely. A level that the
   model meets half the time is still asking it to behave.
-* **It invented an annotation, and the audit was built to catch the opposite mistake.** Run 2
-  wrote `↪ note: AI回复` onto block #2. That block has no annotation in the library — checked
-  against `spool.db`, not inferred. The audit compared original-to-compressed looking for what
-  had gone missing, so an addition passed through it silently, and the added line lands in the
-  `💭` band, the one the pack header tells a receiving model carries the user's own intent and
-  should be argued with rather than deferred to. **Guarding a lossy transform against loss is
-  half a guard.** Now checked in both directions.
+* **⛔ RETRACTED, same night: the model did not invent that annotation — I misread the schema.**
+  Run 2 emitted `↪ note: AI回复` on block #2, and `blocks.annotation` for that row is NULL, so it
+  was written up here as a fabricated annotation in the `💭` band — the worst failure class this
+  product has. It was not fabricated. That line is inside the block's own `content`: the captured
+  passage already contained it, because the user pasted a conversation that had the marker in it.
+  Run 1, the least-compressed of the four, is the one that **dropped** it. **A column named
+  `annotation` is not where annotations necessarily are, and checking one column is not checking
+  the record.** The retraction is kept beside the claim rather than deleted: this ledger's job is
+  to record what measurement did to belief, and this one was overturned inside two hours by the
+  same method that produced it — looking at the data instead of at a field name.
+* **The addition guard was still worth building, and it still had a hole.** It asked whether the
+  annotation's *text* appeared anywhere in the original, so any invented line whose wording
+  happened to occur somewhere in a 5,000-character pack would pass. Annotation lines are
+  structural, so they are now compared line-to-line against the original's annotation lines.
+  Neither version produced a false negative here — the line was genuine — but the weak one would
+  have, on the next case that mattered.
 * **Run 1 deleted a verbatim quotation and said so in its own summary of what it cut.** The
   §1 quote inside block #4 went, and the model reported removing it. Nobody would have noticed:
   the audit protects `note:` lines, sourceless entries, `==spans==` and section headings, and a

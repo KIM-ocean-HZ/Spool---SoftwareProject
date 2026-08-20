@@ -21,6 +21,7 @@ export default function ApiEngineConfig() {
   const baseUrl = useSettingsStore((s) => s.apiBaseUrl);
   const model = useSettingsStore((s) => s.apiModel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
+  const reasoning = useSettingsStore((s) => s.apiReasoning);
   const update = useSettingsStore((s) => s.update);
 
   const [key, setKey] = useState('');
@@ -123,6 +124,40 @@ export default function ApiEngineConfig() {
               spellCheck={false}
               className="mt-1 w-full rounded border border-line bg-paper px-2 py-1 font-mono text-[11px] text-ink outline-none focus:border-accent"
             />
+          </label>
+
+          {/* ⚠️ 2026-08-20 实测：约九成的账单和九成的等待时间花在「思考」上，不是花在压缩上。
+              DeepSeek 文档里有 thinking / reasoning_effort 两个旋钮，**但没有列出调低或关掉的
+              合法取值**。所以这里不替用户猜：把他选的值原样发出去，让端点自己回答——
+              不认的值会被 400 顶回来，而 400 不计费，报错里带着厂商原话。 */}
+          <label className="block">
+            <span className="text-[11px] text-muted">{t('思考力度')}</span>
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {[
+                { v: '', label: t('默认') },
+                { v: 'high', label: 'high' },
+                { v: 'medium', label: 'medium' },
+                { v: 'low', label: 'low' },
+                { v: 'off', label: t('关掉') },
+              ].map(({ v, label }) => (
+                <button
+                  key={v || 'default'}
+                  type="button"
+                  onClick={() => void update({ apiReasoning: v })}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+                    reasoning === v
+                      ? 'border-accent text-accent'
+                      : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+                  }`}
+                  style={reasoning === v ? { background: 'var(--accent-soft)' } : undefined}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="mt-1 block text-[11px] leading-relaxed text-muted/80">
+              {t('实测下来，一次压缩里大约九成的钱和九成的时间花在「思考」上。调低它能省多少、质量掉不掉，这几个值都试一次就知道。不认的值会被接口顶回来，那一次不收费。')}
+            </span>
           </label>
 
           <label className="flex items-center justify-between gap-3">

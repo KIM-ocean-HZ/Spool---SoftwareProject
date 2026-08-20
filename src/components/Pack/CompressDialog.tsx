@@ -52,6 +52,7 @@ export default function CompressDialog({
   const model = useSettingsStore((s) => s.apiModel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
   const level = useSettingsStore((s) => s.apiCompressLevel);
+  const reasoning = useSettingsStore((s) => s.apiReasoning);
   const update = useSettingsStore((s) => s.update);
 
   const [running, setRunning] = useState(false);
@@ -91,6 +92,7 @@ export default function CompressDialog({
         baseUrl,
         apiKey,
         model,
+        reasoning,
         timeoutSecs,
       });
       setOutcome(res);
