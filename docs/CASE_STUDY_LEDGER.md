@@ -1693,12 +1693,47 @@ rejected form A.
 - Rust: main crate **110 passed, 1 ignored** (the ignored one is the network probe above);
   the sidecar crate's own **7 / 7**. Vitest **485 / 485**. TypeScript clean.
 
-**Not measured, and deliberately not written down as though it were:** what a successful
-compression costs, how good it is, and whether the cache behaves as §6.2 assumed. All three
-need a funded key. The ledger line WORKPLAN §9 step 5 asks for is therefore still open — the
-arithmetic is in place and pinned by tests against §6.2's own table (0.108 / 0.0297 / 0.0105
-yuan for the three cases it works through), but every one of those figures is still an
-estimate multiplied by a price list, not a bill anyone has paid.
+**Measured on a funded key the same evening — and it overturned the cost model.** Two runs
+over the same 5,150-character pack (`宣发`, 5 blocks), `deepseek-v4-flash`, conservative
+setting, off-peak:
+
+| | in | out | cached in | time | billed |
+|---|---|---|---|---|---|
+| run 1 | 3,295 | **39,499** | 0 | 279s | **¥0.1827** |
+| run 2 | 3,295 | **17,759** | 3,200 (97%) | 120s | **¥0.0802** |
+
+Both bills reproduce to the fifth decimal from DeepSeek's published table, so the instrument
+is sound; what it measured is that §6.2 had the shape of the call backwards.
+
+* **The estimate assumed input-dominated calls; the real calls are output-dominated by a
+  factor of 180.** §6.2 budgeted 30,000 in / 2,000 out — output at 6% of input. Measured:
+  3,295 in / 39,499 out, output at **1,200%** of input. The compressed briefing itself is only
+  ~3,000 tokens, so roughly **92% of the output, and ~90% of the bill, was the model thinking**.
+  A pack one tenth the size of §6.2's worked example cost **six times its worst case**.
+* **The cache works almost perfectly and it does not matter.** Run 2 hit 97% on input — better
+  than the pessimistic reading of the date-stamped pack header predicted, because two runs the
+  same day over the same blocks produce a byte-identical pack, which is exactly the case
+  determinism was supposed to win. It saved **¥0.0046, or 6% of the bill.** Input is 8% of the
+  spend, so 8% is the hard ceiling on anything caching can ever save here, whatever the hit
+  rate. §6.2 called determinism-times-cache the moat and derived "一到三分钱" from it; the moat
+  is real, drains into a puddle, and the headline figure does not survive.
+* **Same input, same setting, twice: 2.3× apart on cost, time and compression ratio.** Run 1
+  returned 90% of the original for ¥0.18 — a fifth of a yuan to remove one line in ten. The
+  explicit compression levels were supposed to replace "please cut less" with a checkable
+  target; the conservative band asks for 50–75% and run 1 missed it entirely. A level that the
+  model meets half the time is still asking it to behave.
+* **It invented an annotation, and the audit was built to catch the opposite mistake.** Run 2
+  wrote `↪ note: AI回复` onto block #2. That block has no annotation in the library — checked
+  against `spool.db`, not inferred. The audit compared original-to-compressed looking for what
+  had gone missing, so an addition passed through it silently, and the added line lands in the
+  `💭` band, the one the pack header tells a receiving model carries the user's own intent and
+  should be argued with rather than deferred to. **Guarding a lossy transform against loss is
+  half a guard.** Now checked in both directions.
+* **Run 1 deleted a verbatim quotation and said so in its own summary of what it cut.** The
+  §1 quote inside block #4 went, and the model reported removing it. Nobody would have noticed:
+  the audit protects `note:` lines, sourceless entries, `==spans==` and section headings, and a
+  quotation inside a block's body is none of those. The rules a compressor is given are only
+  as good as the ones something checks.
 
 * **The saving in the cost model has a load-bearing assumption nobody had looked at.** §6.2's
   "一到三分钱" rests on prefix caching, and prefix caching rests on the request's first tokens

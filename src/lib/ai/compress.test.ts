@@ -84,6 +84,23 @@ describe('核对：不该删的删了没有', () => {
     expect(auditCompression(ORIGINAL, shrunk).missingPersonal.length).toBe(1);
   });
 
+  // ⚠️ 2026-08-20 实测抓到的真实一例（宣发那份）。查过库：第 2 块**根本没有批注**，
+  // 而压缩稿给它写了一行 `↪ note: AI回复`。这是最坏的一种失败——批注是 💭 那一带，
+  // 一行编出来的批注会穿着用户自己的权威被下一个 AI 当成他的主张。
+  it('压缩稿凭空多写一行批注，要抓出来', () => {
+    const withNote = ORIGINAL.replace(
+      '#2 [2025-06-05 06:06 · from Safari]',
+      '    ↪ note: AI回复\n#2 [2025-06-05 06:06 · from Safari]',
+    );
+    const a = auditCompression(ORIGINAL, withNote);
+    expect(a.fabricatedNotes).toEqual(['AI回复']);
+    expect(auditHasLosses(a)).toBe(true);
+  });
+
+  it('原文本来就有的批注，照抄一遍不算编造', () => {
+    expect(auditCompression(ORIGINAL, ORIGINAL).fabricatedNotes).toEqual([]);
+  });
+
   it('整节被拆掉要报——第 1 条要求骨架照抄', () => {
     const shrunk = ORIGINAL.replace('## Output Language\n\nAnswer in Chinese.', '');
     expect(auditCompression(ORIGINAL, shrunk).missingSections).toEqual(['Output Language']);

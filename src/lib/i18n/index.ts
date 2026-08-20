@@ -1118,8 +1118,10 @@ const EN: Record<string, string> = {
   '少了 {n} 条你自己的批注': '{n} of your own annotations are gone',
   '少了 {n} 条你自己写的内容': '{n} things you wrote yourself are gone',
   '少了 {n} 处你划的重点': '{n} of your highlights are gone',
-  '你的批注、你自己写的内容、你划的重点，一条都没少。':
-    'Your annotations, the things you wrote, and your highlights all survived.',
+  '你的批注、你自己写的内容、你划的重点，一条都没少，也没有多。':
+    'Your annotations, the things you wrote and your highlights all survived — and nothing was invented.',
+  '⚠️ 它凭空写了 {n} 条你没写过的批注：{s}':
+    '⚠️ It invented {n} annotation(s) you never wrote: {s}',
   '它说它删的是：{s}': 'It says it cut: {s}',
   '⚠️ 它没有说自己删掉了什么。': '⚠️ It did not say what it cut.',
   '这一次：输入 {i} token，输出 {o} token': 'This run: {i} tokens in, {o} tokens out',

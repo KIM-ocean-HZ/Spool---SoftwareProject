@@ -229,11 +229,20 @@ export default function CompressDialog({
                   {audit.missingHighlights.length > 0 && (
                     <div>{t('少了 {n} 处你划的重点', { n: audit.missingHighlights.length })}</div>
                   )}
+                  {/* ⚠️ 「编」比「丢」更坏：一行编出来的批注穿的是你自己的权威。 */}
+                  {audit.fabricatedNotes.length > 0 && (
+                    <div className="font-medium">
+                      {t('⚠️ 它凭空写了 {n} 条你没写过的批注：{s}', {
+                        n: audit.fabricatedNotes.length,
+                        s: audit.fabricatedNotes.join('、'),
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="text-muted">
-                {t('你的批注、你自己写的内容、你划的重点，一条都没少。')}
+                {t('你的批注、你自己写的内容、你划的重点，一条都没少，也没有多。')}
               </div>
             )}
 

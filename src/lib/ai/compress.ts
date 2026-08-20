@@ -82,9 +82,22 @@ export interface CompressionAudit {
   missingPersonal: string[];
   /** 原文有、压缩稿没有的整节标题——第 1 条要求整节照抄，少一节就是骨架被拆了。 */
   missingSections: string[];
+  /** ⚠️⚠️ 压缩稿里**凭空多出来**的批注行。
+   *
+   *  2026-08-20 实测抓到的第一例：宣发那份的第 2 块在库里**根本没有批注**（查过库确认），
+   *  而压缩稿给它写了一行 `↪ note: AI回复`。
+   *
+   *  这是所有失败方式里最坏的一种，而且原来的核对**看不见它**：以前只数「原文有的东西还在不在」，
+   *  那是防丢，防不了**添**。而批注是 💭 Personal 那一带 —— pack 里权威最高的一带，
+   *  规则明写着「有事实错误就直接指出，不要照顾用户感受」。一行编出来的批注会穿着你自己的
+   *  权威，被下一个 AI 当成你的主张去执行。 */
+  fabricatedNotes: string[];
 }
 
 const NOTE_RE = /^\s*note:\s*(.+)$/;
+// 宽一档：`note:` / `ai note:` / 模型自己发明的 `↪ note:` 都算进来。
+// 防「添」不能只认我们自己的记号 —— 编出来的那一行本来就不长得像正版。
+const ANY_NOTE_RE = /^\s*\S*\s*(?:ai\s+)?note:\s*(.+)$/;
 const PERSONAL_RE = /^💭\s+#\d+\s+\[[^\]]*\]\s*(.*)$/;
 const SECTION_RE = /^##\s+(.+)$/;
 const HIGHLIGHT_RE = /==([^=]+)==/g;
@@ -95,28 +108,38 @@ const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)];
 
-export const auditCompression = (original: string, compressed: string): CompressionAudit => {
+export const auditCompression = (original_: string, compressed: string): CompressionAudit => {
   const hay = norm(compressed);
-  const lines = original.split('\n');
+  const lines = original_.split('\n');
 
   const notes = uniq(lines.map((l) => NOTE_RE.exec(l)?.[1]).filter((s): s is string => !!s));
   const personal = uniq(
     lines.map((l) => PERSONAL_RE.exec(l)?.[1]).filter((s): s is string => !!s && s.length > 0),
   );
   const sections = uniq(lines.map((l) => SECTION_RE.exec(l)?.[1]).filter((s): s is string => !!s));
-  const highlights = uniq([...original.matchAll(HIGHLIGHT_RE)].map((m) => m[1]));
+  const highlights = uniq([...original_.matchAll(HIGHLIGHT_RE)].map((m) => m[1]));
 
   const gone = (xs: string[]): string[] => xs.filter((x) => !hay.includes(norm(x)));
 
+  // 反向查一遍：压缩稿里的批注，原文里有没有。
+  const originalNorm = norm(original_);
+  const fabricatedNotes = uniq(
+    compressed
+      .split('\n')
+      .map((l) => ANY_NOTE_RE.exec(l)?.[1])
+      .filter((s): s is string => !!s),
+  ).filter((x) => !originalNorm.includes(norm(x)));
+
   return {
-    entriesBefore: countPackEntries(original),
+    entriesBefore: countPackEntries(original_),
     entriesAfter: countPackEntries(compressed),
-    charsBefore: original.length,
+    charsBefore: original_.length,
     charsAfter: compressed.length,
     missingNotes: gone(notes),
     missingHighlights: gone(highlights),
     missingPersonal: gone(personal),
     missingSections: gone(sections),
+    fabricatedNotes,
   };
 };
 
@@ -125,7 +148,8 @@ export const auditHasLosses = (a: CompressionAudit): boolean =>
   a.missingNotes.length > 0 ||
   a.missingHighlights.length > 0 ||
   a.missingPersonal.length > 0 ||
-  a.missingSections.length > 0;
+  a.missingSections.length > 0 ||
+  a.fabricatedNotes.length > 0;
 
 // ---------------------------------------------------------------------------------------
 // 行级 diff：中间那一栏「压掉了哪些句子」
@@ -266,6 +290,7 @@ export const measurementRecord = (args: {
     a.missingNotes.length && `少${a.missingNotes.length}条批注`,
     a.missingPersonal.length && `少${a.missingPersonal.length}条手写`,
     a.missingHighlights.length && `少${a.missingHighlights.length}处高亮`,
+    a.fabricatedNotes.length && `⚠️编了${a.fabricatedNotes.length}条批注`,
   ].filter(Boolean);
   return [
     'SPOOL 压缩实测',
