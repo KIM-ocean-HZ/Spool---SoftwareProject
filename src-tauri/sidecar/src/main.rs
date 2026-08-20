@@ -158,6 +158,13 @@ fn run(req: Request) -> Envelope {
         .timeout_global(Some(timeout))
         // 这个进程只会连一个地址然后退出，连接池没有意义。
         .max_idle_connections(0)
+        // ⚠️ 关掉「非 2xx 直接变成 Error」这个默认行为，这条不是风格问题。
+        //
+        // 默认那条路给回来的只有一个状态码，**厂商写在响应体里的那句解释会被丢掉**。
+        // 而第一次配置时最可能撞上的错就是这一类：模型名写错了、账号还没实名、
+        // 这个 key 没有开通这个模型 —— 它们全是 400，状态码本身什么也没说，
+        // 有用的那句话全在响应体里。关掉之后每一条错误路径都能把厂商原话带回界面。
+        .http_status_as_error(false)
         .build()
         .into();
 
@@ -171,11 +178,6 @@ fn run(req: Request) -> Envelope {
 
     let mut resp = match resp {
         Ok(r) => r,
-        Err(ureq::Error::StatusCode(code)) => {
-            // ureq 3 在这条分支上不带 body，只有状态码。分类仍然要做 —— 界面上「余额不足」和
-            // 「限流」是两句完全不同的话。
-            return err(classify(code), http_message(code), Some(code));
-        }
         Err(ureq::Error::Timeout(_)) => {
             return err(
                 "timeout",
@@ -204,9 +206,14 @@ fn run(req: Request) -> Envelope {
             )
         }
     };
-    // 有些兼容端点会用 200 包一个 error 对象。
+    // 厂商写在响应体里的那句解释,优先于我们自己那句通用的。
+    // ⚠️ 也覆盖了「200 里包一个 error 对象」这种兼容端点的写法。
     if let Some(msg) = parsed.get("error").and_then(api_error_message) {
         return err(classify(status), msg, Some(status));
+    }
+    if status >= 400 {
+        // 有响应体但里面没有 error 字段。带上原文,别只报一个数字。
+        return err(classify(status), format!("{} — {}", http_message(status), clip(&text)), Some(status));
     }
     let Some(content) = parsed
         .pointer("/choices/0/message/content")
