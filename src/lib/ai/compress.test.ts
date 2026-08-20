@@ -42,6 +42,7 @@ const outcome = (over: Partial<CompressOutcome> = {}): CompressOutcome => ({
   inputTokens: 30_000,
   outputTokens: 2_000,
   cachedInputTokens: null,
+  reasoningTokens: null,
   ms: 8_000,
   model: 'deepseek-v4-flash',
   ...over,
@@ -190,7 +191,10 @@ describe('实测记录', () => {
       audit: base,
     });
     expect(r).toContain('缓存命中 0');
-    expect(r).not.toContain('未报');
+    // 断在「缓存」那一行上，不是整段 —— 「其中思考」那行也可能是「未报」，
+    // 而那是另一件事。断整段会让这条测试在无关的改动上乱响。
+    const cacheLine = r.split('\n').find((l) => l.includes('缓存命中'))!;
+    expect(cacheLine).not.toContain('未报');
   });
 
   // 按次付费时「我以为在用哪档」和「实际在用哪档」差三倍，接口回报的模型名是唯一凭据。

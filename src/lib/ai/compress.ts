@@ -39,6 +39,8 @@ export interface CompressOutcome {
   outputTokens: number;
   /** ⚠️ null = 这家端点**没报**缓存命中，不是「一次都没命中」。见下面 estimateCost。 */
   cachedInputTokens: number | null;
+  /** 「思考」烧掉的 token。⚠️ 按**输出价**计费，而 §6.2 那张表按「2,000 输出」算的。 */
+  reasoningTokens: number | null;
   ms: number;
   model: string | null;
 }
@@ -276,6 +278,9 @@ export const measurementRecord = (args: {
     `tokens    输入 ${o.inputTokens} · 输出 ${o.outputTokens} · 缓存命中 ${
       o.cachedInputTokens === null ? '未报（这家接口没有这个字段）' : o.cachedInputTokens
     }`,
+    `其中思考  ${
+      o.reasoningTokens === null ? '未报' : `${o.reasoningTokens} token（按输出价计费）`
+    }`,
     `耗时      ${(o.ms / 1000).toFixed(1)}s`,
     `估算      ${cost ? `${formatYuan(cost.yuan)}${cost.cacheUnknown ? '（按全未命中算，上限）' : ''}` : '认不出这个模型的价目'}`,
     `一字不改  ${losses.length ? `⚠️ ${losses.join('、')}` : '通过'}`,
@@ -293,9 +298,14 @@ export interface CompressRequest {
   baseUrl: string;
   apiKey: string;
   model: string;
-  maxOutputTokens: number;
   timeoutSecs: number;
 }
+
+/** 子进程报回来的阶段。⚠️ 这条路**不流式**（产物是一整份要并排核对的稿子），
+ *  所以除了这两个阶段和一个秒表，界面上没有别的东西可以显示。
+ *  但「请求已经发出去了」和「还没连上」是用户真正想知道的那件事。 */
+export type CompressStage = 'starting' | 'sending' | 'reading';
+export const PROGRESS_EVENT = 'compress://progress';
 
 export const compressPack = (req: CompressRequest): Promise<CompressOutcome> =>
   invoke<CompressOutcome>('compress_pack_via_api', { ...req });
@@ -321,6 +331,9 @@ export const FAILURE_SENTENCE: Record<string, string> = {
   upstream: '模型厂商那边出错了，不是你的问题。过一会儿再试。',
   bad_config: '设置有问题：接口地址必须是 https 开头，而且 key 不能是空的。',
   bad_response: '对方回来的东西看不懂，可能不是一个 OpenAI 兼容的接口。',
+  thought_only:
+    '这个模型把整次回复都用来「思考」了，正文一个字都没写出来。换一个不思考的模型（比如 pro 那一档里的非推理款），或者把范围缩小一点再试。',
+  truncated: '结果被输出长度掐断了，没拿到完整的压缩稿。换个小一点的打包范围再试。',
   no_sidecar: '找不到负责联网的那个小程序（spool-ai）。重装一次 Spool 应该能修好。',
   http: '接口返回了一个错误。',
   internal: 'Spool 自己出错了。',

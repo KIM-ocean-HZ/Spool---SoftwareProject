@@ -2,6 +2,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Check, Copy, Shrink, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import CompressDialog from './CompressDialog';
+import { createBackdropClose } from '@/lib/utils/backdropClose';
 import {
   assemble,
   filterBlocksForRange,
@@ -102,6 +103,8 @@ export default function PackDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const backdrop = useMemo(() => createBackdropClose(onClose), [onClose]);
+
   const onCopy = async () => {
     await writeText(text);
     setCopied(true);
@@ -111,7 +114,7 @@ export default function PackDialog({
   return (
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-ink/30 p-8"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="flex max-h-[80vh] w-[640px] flex-col rounded-lg border border-line-strong bg-paper"

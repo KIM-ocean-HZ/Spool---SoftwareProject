@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, ClipboardList, Copy, Loader2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { listen } from '@tauri-apps/api/event';
 import {
   auditCompression,
   auditHasLosses,
@@ -14,10 +15,13 @@ import {
   LEVEL_LABELS,
   loadApiKey,
   measurementRecord,
+  PROGRESS_EVENT,
+  type CompressStage,
   type CompressLevel,
   type CompressOutcome,
 } from '@/lib/ai/compress';
 import { useT } from '@/lib/i18n';
+import { createBackdropClose } from '@/lib/utils/backdropClose';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // 并排核对（WORKPLAN-2026-08-20 §6.4.1 / §9 第 4 步）。
@@ -54,10 +58,31 @@ export default function CompressDialog({
   const [outcome, setOutcome] = useState<CompressOutcome | null>(null);
   const [copied, setCopied] = useState(false);
   const [recorded, setRecorded] = useState(false);
+  // 2026-08-20 Ocean：「deepseek 在压缩时根本不会给反馈，用户不知道有没有连接成功」。
+  // 不流式的一次调用可以一分钟不吭声，而一个转圈说不出「连上了没有」。
+  // 所以显示两样：子进程报回来的**阶段**，和一个**秒表**（连着说清最长等多久）。
+  const [stage, setStage] = useState<CompressStage | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(0);
+
+  // 秒表。只在跑的时候走。
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)), 500);
+    return () => clearInterval(id);
+  }, [running]);
+
+  useEffect(() => {
+    const un = listen<CompressStage>(PROGRESS_EVENT, (e) => setStage(e.payload));
+    return () => void un.then((f) => f());
+  }, []);
 
   const run = async () => {
     setRunning(true);
     setOutcome(null);
+    setStage('starting');
+    startedAt.current = Date.now();
+    setElapsed(0);
     try {
       const apiKey = await loadApiKey();
       const res = await compressPack({
@@ -66,10 +91,6 @@ export default function CompressDialog({
         baseUrl,
         apiKey,
         model,
-        // 压缩稿最长可能接近原文的四分之三（最保守那档），按字符粗折 token 再留一倍余量。
-        // ⚠️ 给少了会被截断，而截断的压缩稿看起来和「模型删得很狠」一模一样 —— 那正是
-        // 这个功能最容易骗到人的地方。
-        maxOutputTokens: Math.min(32_000, Math.max(4_096, Math.ceil(packText.length / 2))),
         timeoutSecs,
       });
       setOutcome(res);
@@ -85,11 +106,13 @@ export default function CompressDialog({
         inputTokens: 0,
         outputTokens: 0,
         cachedInputTokens: null,
+        reasoningTokens: null,
         ms: 0,
         model: null,
       });
     } finally {
       setRunning(false);
+      setStage(null);
     }
   };
 
@@ -102,6 +125,8 @@ export default function CompressDialog({
     [packText, outcome],
   );
   const cost = useMemo(() => (outcome?.ok ? estimateCost(outcome) : null), [outcome]);
+
+  const backdrop = useMemo(() => createBackdropClose(onClose), [onClose]);
 
   const copy = async () => {
     if (!outcome?.ok) return;
@@ -120,7 +145,7 @@ export default function CompressDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-8" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-8" {...backdrop}>
       <div
         className="flex h-[86vh] w-[min(1180px,94vw)] flex-col rounded-lg border border-line-strong bg-paper"
         style={{ boxShadow: 'var(--shadow-toast)' }}
@@ -298,8 +323,24 @@ export default function CompressDialog({
                   ))}
               </pre>
             ) : (
-              <div className="flex h-full items-center justify-center text-center text-[11px] text-muted">
-                {running ? t('正在压缩…') : t('点右下角开始。')}
+              <div className="flex h-full items-center justify-center px-6 text-center text-[11px] leading-relaxed text-muted">
+                {running ? (
+                  <div className="space-y-1">
+                    <div className="text-ink-2">
+                      {stage === 'reading'
+                        ? t('回话来了，正在接收结果…')
+                        : stage === 'sending'
+                          ? t('请求已经发出去了，正在等模型回话…')
+                          : t('正在启动联网的那个小程序…')}
+                    </div>
+                    <div>{t('已经等了 {n} 秒（最长等 {max} 秒）', { n: elapsed, max: timeoutSecs })}</div>
+                    <div className="text-muted/70">
+                      {t('这一步不是逐字蹦出来的 —— 模型要把整份压缩稿写完才会回话，中间安静是正常的。')}
+                    </div>
+                  </div>
+                ) : (
+                  t('点右下角开始。')
+                )}
               </div>
             )}
           </div>
@@ -338,7 +379,9 @@ export default function CompressDialog({
               className="flex items-center gap-1.5 rounded-md border border-line-strong bg-paper px-3 py-1.5 text-ink transition-colors hover:border-accent hover:text-accent"
             >
               {running && <Loader2 size={12} className="animate-spin" />}
-              <span>{running ? t('停下') : outcome ? t('再压一次') : t('开始压缩')}</span>
+              <span>
+                {running ? t('停下（{n}s）', { n: elapsed }) : outcome ? t('再压一次') : t('开始压缩')}
+              </span>
             </button>
           </div>
         </footer>

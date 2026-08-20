@@ -39,7 +39,20 @@ struct Request {
     system: String,
     /// 这一次要压的东西。
     user: String,
-    max_output_tokens: u32,
+    /// ⚠️ `None` = **不发这个字段**，让服务端用它自己的上限。
+    ///
+    /// 2026-08-20 实测踩到的坑：DeepSeek V4-Flash 是**会思考的模型**，思考产生的 token
+    /// 和正文共用同一个额度。给了一个自以为够用的 `max_tokens`(按原文长度折算的),
+    /// 结果它把额度全花在 `reasoning_content` 上,`content` 回来是**空字符串**——
+    /// 界面上看起来像「接口不兼容」,实际上是我们自己把它掐断的。
+    ///
+    /// 猜一个更大的数同样不行:猜高了会被服务端以 400 顶回来。所以干脆不猜——**不发**。
+    /// 花销由超时和账单兜底,而账单正是这一步要测的东西。
+    ///
+    /// ⚠️ `#[serde(default)]` 不能省。serde 对 `Option<T>` 的默认行为是**字段仍然必须出现**
+    /// (只是允许它是 null),少了这一行,调用方不发这个字段就会被判成「请求不是合法 JSON」。
+    #[serde(default)]
+    max_output_tokens: Option<u32>,
     timeout_secs: u64,
 }
 
@@ -79,6 +92,12 @@ struct Usage {
     input_tokens: u64,
     output_tokens: u64,
     cached_input_tokens: Option<u64>,
+    /// 「思考」烧掉的 token，单独报。
+    ///
+    /// ⚠️ 这一栏会直接动摇 §6.2 那个成本估算：那张表按「30,000 输入 + **2,000 输出**」算的，
+    /// 而一个会思考的模型可能先烧掉几千个思考 token,它们**按输出价计费**(最贵的那一档)。
+    /// 混在 `output_tokens` 里就看不出这笔钱花在哪儿了。`None` = 这家没报。
+    reasoning_tokens: Option<u64>,
 }
 
 fn main() {
@@ -110,6 +129,11 @@ fn main() {
     }
 }
 
+/// 一行 JSON 到 stderr。⚠️ 这里永远不会出现请求内容,更不会出现 key。
+fn progress(stage: &str) {
+    eprintln!("{{\"stage\":\"{stage}\"}}");
+}
+
 fn err(kind: &'static str, message: impl Into<String>, status: Option<u16>) -> Envelope {
     Envelope::Err { ok: false, kind, message: message.into(), status }
 }
@@ -139,19 +163,21 @@ fn run(req: Request) -> Envelope {
     // PACK_HEADER）—— 换一天、或者项目多了一块，这一行就变了，它后面那一大片静态表头也就跟着
     // 全部未命中。所以能稳定命中的只有 system 这一截。**这正是第 5 步要去实测的东西**，别在
     // 实测出来之前就照着估算的数字对外说话。
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": req.model,
         "messages": [
             { "role": "system", "content": req.system },
             { "role": "user", "content": req.user },
         ],
-        "max_tokens": req.max_output_tokens,
         // 不流式：这个动作的产物是一整份压缩稿，要并排核对，逐字蹦出来没有意义，
         // 而流式会把错误处理变成两条路（HTTP 层的错 + 流里的错）。
         "stream": false,
         // 压缩是搬运不是创作。低温让「一字不改地照抄骨架」这条规则更可能被守住。
         "temperature": 0.2,
     });
+    if let Some(n) = req.max_output_tokens {
+        body["max_tokens"] = serde_json::json!(n);
+    }
 
     let timeout = Duration::from_secs(req.timeout_secs.clamp(10, 900));
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -168,6 +194,12 @@ fn run(req: Request) -> Envelope {
         .build()
         .into();
 
+    // 进度。⚠️ 走 **stderr**,因为 stdout 是信封的地盘(调用方整块读)。
+    //
+    // 为什么要有这个:这条路是**不流式**的,而一个会思考的模型可能一分钟不吭声。
+    // 界面上如果只有一个转圈,用户分不出「还在等」和「根本没连上」——2026-08-20 Ocean
+    // 报的正是这一条。至少要让「请求已经发出去了」这件事是可见的。
+    progress("sending");
     let started = Instant::now();
     let resp = agent
         .post(&url)
@@ -191,6 +223,7 @@ fn run(req: Request) -> Envelope {
         }
     };
 
+    progress("reading");
     let status = resp.status().as_u16();
     let text = match resp.body_mut().read_to_string() {
         Ok(t) => t,
@@ -206,6 +239,20 @@ fn run(req: Request) -> Envelope {
             )
         }
     };
+    envelope_from_body(&parsed, status, &text, &req.model, ms)
+}
+
+/// 响应体 → 信封。
+///
+/// 单独一个函数是为了**能被测试钉住**：这里判的每一条都是 2026-08-20 实测撞出来的
+/// （厂商的错误原话、思考吃光额度、被 max_tokens 截断），而它们只靠一个假 key 是撞不出来的。
+fn envelope_from_body(
+    parsed: &serde_json::Value,
+    status: u16,
+    raw: &str,
+    asked_model: &str,
+    ms: u128,
+) -> Envelope {
     // 厂商写在响应体里的那句解释,优先于我们自己那句通用的。
     // ⚠️ 也覆盖了「200 里包一个 error 对象」这种兼容端点的写法。
     if let Some(msg) = parsed.get("error").and_then(api_error_message) {
@@ -213,16 +260,48 @@ fn run(req: Request) -> Envelope {
     }
     if status >= 400 {
         // 有响应体但里面没有 error 字段。带上原文,别只报一个数字。
-        return err(classify(status), format!("{} — {}", http_message(status), clip(&text)), Some(status));
+        return err(classify(status), format!("{} — {}", http_message(status), clip(raw)), Some(status));
     }
-    let Some(content) = parsed
+    let content = parsed
         .pointer("/choices/0/message/content")
         .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    else {
+        .filter(|s| !s.trim().is_empty());
+    let Some(content) = content else {
+        // ⚠️ 2026-08-20 实测踩到的那一条：正文空的,但 `reasoning_content` 里塞满了思考过程。
+        //
+        // 这**不是**「接口不兼容」,而这个区分很重要——它决定用户下一步该干什么:
+        // 一个是「换个接口」,一个是「别把额度掐死在思考上」。原来那句笼统的
+        // 「对方回来的东西看不懂」把人指向了完全错误的方向。
+        let thought = parsed
+            .pointer("/choices/0/message/reasoning_content")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let finish = parsed
+            .pointer("/choices/0/finish_reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if let Some(thought) = thought {
+            return err(
+                "thought_only",
+                format!(
+                    "The model spent the whole reply thinking and wrote no briefing (finish_reason: {}). Its thinking began: {}",
+                    if finish.is_empty() { "not reported" } else { finish },
+                    clip(thought)
+                ),
+                Some(status),
+            );
+        }
+        if finish == "length" {
+            return err(
+                "truncated",
+                "The reply was cut off by the output-token limit before anything usable came back.".to_string(),
+                Some(status),
+            );
+        }
         return err(
             "bad_response",
-            format!("The reply had no message content: {}", clip(&text)),
+            format!("The reply had no message content: {}", clip(raw)),
             Some(status),
         );
     };
@@ -231,7 +310,7 @@ fn run(req: Request) -> Envelope {
         ok: true,
         text: content.to_string(),
         usage: read_usage(parsed.get("usage")),
-        model: parsed.get("model").and_then(|v| v.as_str()).unwrap_or(&req.model).to_string(),
+        model: parsed.get("model").and_then(|v| v.as_str()).unwrap_or(asked_model).to_string(),
         ms,
     }
 }
@@ -247,6 +326,9 @@ fn read_usage(u: Option<&serde_json::Value>) -> Usage {
         // 因为「OpenAI 兼容」的端点抄的往往是后者。
         cached_input_tokens: n("prompt_cache_hit_tokens")
             .or_else(|| u.pointer("/prompt_tokens_details/cached_tokens").and_then(|v| v.as_u64())),
+        reasoning_tokens: u
+            .pointer("/completion_tokens_details/reasoning_tokens")
+            .and_then(|v| v.as_u64()),
     }
 }
 
@@ -299,7 +381,7 @@ mod tests {
             model: "deepseek-chat".into(),
             system: "s".into(),
             user: "u".into(),
-            max_output_tokens: 16,
+            max_output_tokens: Some(16),
             timeout_secs: 30,
         }
     }
@@ -358,6 +440,43 @@ mod tests {
             "prompt_tokens_details": { "cached_tokens": 32 }
         })));
         assert_eq!(u.cached_input_tokens, Some(32));
+    }
+
+    // 2026-08-20 实测：V4-Flash 把整个回复都用来思考了,content 是空字符串。
+    // 那不是「接口不兼容」,把它报成 bad_response 会把人指向换接口,而正确的动作是别掐额度。
+    #[test]
+    fn a_reply_that_is_all_thinking_says_so_instead_of_blaming_the_endpoint() {
+        let body = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "length",
+                "message": { "role": "assistant", "content": "", "reasoning_content": "Let me analyze this task carefully." }
+            }]
+        });
+        let e = envelope_from_body(&body, 200, "", "m", 1);
+        assert_eq!(kind_of(&e), "thought_only");
+    }
+
+    #[test]
+    fn a_truncated_reply_with_no_thinking_is_named_as_truncated() {
+        let body = serde_json::json!({
+            "choices": [{ "index": 0, "finish_reason": "length", "message": { "content": "" } }]
+        });
+        assert_eq!(kind_of(&envelope_from_body(&body, 200, "", "m", 1)), "truncated");
+    }
+
+    // 「思考」按输出价计费,而 §6.2 那张成本表是按「2000 输出」算的。
+    // 混进 output_tokens 里就看不出这笔钱花在哪儿。
+    #[test]
+    fn thinking_tokens_are_reported_on_their_own() {
+        let u = read_usage(Some(&serde_json::json!({
+            "prompt_tokens": 100,
+            "completion_tokens": 4200,
+            "completion_tokens_details": { "reasoning_tokens": 4000 }
+        })));
+        assert_eq!(u.output_tokens, 4200);
+        assert_eq!(u.reasoning_tokens, Some(4000));
     }
 
     #[test]

@@ -85,6 +85,9 @@ pub struct CompressOutcome {
     /// ⚠️ `None` = **这家端点没报缓存命中**，不是「一次都没命中」。
     /// §6.2 那个「一到三分钱」全建立在缓存上，而那是估算；把「不知道」显示成 0 会让实测说谎。
     pub cached_input_tokens: Option<u64>,
+    /// 「思考」烧掉的 token。⚠️ 它们按**输出价**计费（最贵的那一档），而 §6.2 那张成本表
+    /// 是按「2,000 输出」算的。单独一栏，否则这笔钱看不出花在了哪儿。
+    pub reasoning_tokens: Option<u64>,
     pub ms: u128,
     /// 端点回报的实际模型名——按次付费的时候，「我以为在用 Flash」和「实际在用 Pro」差 3 倍。
     pub model: Option<String>,
@@ -102,6 +105,7 @@ impl CompressOutcome {
             input_tokens: 0,
             output_tokens: 0,
             cached_input_tokens: None,
+            reasoning_tokens: None,
             ms: 0,
             model: None,
         }
@@ -122,14 +126,13 @@ pub async fn compress_pack_via_api(
     base_url: String,
     api_key: String,
     model: String,
-    max_output_tokens: u32,
     timeout_secs: u64,
 ) -> Result<CompressOutcome, String> {
     if RUNNING.swap(true, Ordering::SeqCst) {
         return Err("a compression run is already in flight".into());
     }
     let out = tauri::async_runtime::spawn_blocking(move || {
-        run_blocking(&app, pack_text, level, base_url, api_key, model, max_output_tokens, timeout_secs)
+        run_blocking(&app, pack_text, level, base_url, api_key, model, timeout_secs)
     })
     .await;
     RUNNING.store(false, Ordering::SeqCst);
@@ -148,7 +151,6 @@ fn run_blocking(
     base_url: String,
     api_key: String,
     model: String,
-    max_output_tokens: u32,
     timeout_secs: u64,
 ) -> CompressOutcome {
     // 提示词跟着 app 的语言走，和 MCP 那条路每次请求重读一次是同一个做法。
@@ -174,7 +176,10 @@ fn run_blocking(
         "model": model,
         "system": system,
         "user": user,
-        "max_output_tokens": max_output_tokens,
+        // ⚠️ 故意不发 `max_output_tokens`。2026-08-20 实测：V4-Flash 会思考,思考和正文
+        // 共用同一个输出额度,按原文长度折算出来的那个「够用」的数字把正文整个掐掉了
+        // ——回来的 `content` 是空字符串,界面上看起来像「接口不兼容」。
+        // 猜一个更大的又会被服务端顶回来。所以不猜:让服务端用它自己的上限。
         // 子进程自己也要有超时，否则它可能比我们活得久。
         // 比外层短一点，好让它有机会把一个说人话的 timeout 信封写出来，
         // 而不是被我们杀掉之后只剩「进程没了」。
@@ -184,7 +189,7 @@ fn run_blocking(
         Ok(v) => v,
         Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
     };
-    spawn_sidecar(&bin, payload, timeout_secs)
+    spawn_sidecar_with(&bin, payload, timeout_secs, Some(app.clone()))
 }
 
 /// 起子进程、喂 stdin、收信封。
@@ -193,6 +198,18 @@ fn run_blocking(
 /// 拿回一个分类过的信封）是形态 C 的全部机械部分,而它不需要任何 Tauri 类型。
 /// 下面 `the_whole_chain_answers`（`--ignored`,要联网）跑的就是它。
 fn spawn_sidecar(bin: &std::path::Path, payload: Vec<u8>, timeout_secs: u64) -> CompressOutcome {
+    spawn_sidecar_with(bin, payload, timeout_secs, None)
+}
+
+/// 进度事件的名字。前端 `listen` 它。
+pub const PROGRESS_EVENT: &str = "compress://progress";
+
+fn spawn_sidecar_with(
+    bin: &std::path::Path,
+    payload: Vec<u8>,
+    timeout_secs: u64,
+    app: Option<tauri::AppHandle>,
+) -> CompressOutcome {
     let mut cmd = Command::new(bin);
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // 环境清空：这个子进程要的东西全部从 stdin 进来。清掉也顺便保证它读不到
@@ -238,10 +255,31 @@ fn spawn_sidecar(bin: &std::path::Path, payload: Vec<u8>, timeout_secs: u64) -> 
         }
         buf
     });
+    // ⚠️ stderr 是**逐行**读的，不是等进程结束再一把读完。
+    //
+    // 2026-08-20 Ocean 报的那条：「压缩时根本不会给反馈，用户不知道有没有连接成功」。
+    // 这条路是不流式的，一个会思考的模型可以一分钟不吭声，界面上只有一个转圈——
+    // 分不出「还在等」和「根本没连上」。子进程现在会在发出请求、开始收结果时各写一行，
+    // 这个线程把它们即时转成事件送到界面。
     let err_h = std::thread::spawn(move || {
         let mut buf = String::new();
-        if let Some(s) = stderr.as_mut() {
-            let _ = s.read_to_string(&mut buf);
+        let Some(s) = stderr.take() else { return buf };
+        let reader = std::io::BufReader::new(s);
+        for line in std::io::BufRead::lines(reader) {
+            let Ok(line) = line else { break };
+            if let Some(stage) = serde_json::from_str::<serde_json::Value>(&line)
+                .ok()
+                .and_then(|v| v.get("stage").and_then(|s| s.as_str()).map(str::to_string))
+            {
+                if let Some(app) = app.as_ref() {
+                    use tauri::Emitter;
+                    let _ = app.emit(PROGRESS_EVENT, stage);
+                }
+                continue;
+            }
+            // 不是进度行——那就是真的出事了，留着当报错详情。
+            buf.push_str(&line);
+            buf.push('\n');
         }
         buf
     });
@@ -326,6 +364,7 @@ fn parse_envelope(stdout: &str) -> CompressOutcome {
         input_tokens: n("input_tokens").unwrap_or(0),
         output_tokens: n("output_tokens").unwrap_or(0),
         cached_input_tokens: n("cached_input_tokens"),
+        reasoning_tokens: n("reasoning_tokens"),
         ms: v.get("ms").and_then(|x| x.as_u64()).unwrap_or(0) as u128,
         model: v.get("model").and_then(|s| s.as_str()).map(|s| s.to_string()),
     }
@@ -496,7 +535,6 @@ mod tests {
             "model": "deepseek-chat",
             "system": "s",
             "user": "u",
-            "max_output_tokens": 16,
             "timeout_secs": 30,
         }))
         .unwrap();

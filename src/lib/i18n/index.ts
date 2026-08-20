@@ -1085,7 +1085,17 @@ const EN: Record<string, string> = {
     'Keeps conclusions, numbers and what you wrote yourself. Usually leaves a tenth to a quarter.',
   '开始压缩': 'Compress',
   '再压一次': 'Compress again',
-  '正在压缩…': 'Compressing…',
+  '正在启动联网的那个小程序…': 'Starting the program that does the networking…',
+  '请求已经发出去了，正在等模型回话…': 'The request is out — waiting for the model to answer…',
+  '回话来了，正在接收结果…': 'It answered — reading the result…',
+  '已经等了 {n} 秒（最长等 {max} 秒）': 'Waited {n}s so far (it gives up after {max}s)',
+  '这一步不是逐字蹦出来的 —— 模型要把整份压缩稿写完才会回话，中间安静是正常的。':
+    'Nothing streams here — the model writes the whole briefing before it answers, so the quiet is normal.',
+  '停下（{n}s）': 'Stop ({n}s)',
+  '这个模型把整次回复都用来「思考」了，正文一个字都没写出来。换一个不思考的模型（比如 pro 那一档里的非推理款），或者把范围缩小一点再试。':
+    'This model spent the whole reply thinking and wrote no briefing at all. Try a model that does not reason, or pack a smaller range.',
+  '结果被输出长度掐断了，没拿到完整的压缩稿。换个小一点的打包范围再试。':
+    'The reply was cut off before a complete briefing came back. Try a smaller pack range.',
   '点右下角开始。': 'Press the button at the bottom right to start.',
   '压缩稿': 'Compressed',
   '压缩稿（标出来的是它自己写的句子）': 'Compressed (highlighted lines are ones it wrote itself)',

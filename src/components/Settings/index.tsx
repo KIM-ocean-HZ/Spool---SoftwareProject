@@ -1,9 +1,10 @@
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { IS_MAC } from '@/lib/platform';
 import { useSettingsStore } from '@/stores/settingsStore';
 import AdvancedConfig from './AdvancedConfig';
 import ApiEngineConfig from './ApiEngineConfig';
+import { createBackdropClose } from '@/lib/utils/backdropClose';
 import EngineConfig from './EngineConfig';
 import GeneralConfig from './GeneralConfig';
 import McpConfig from './McpConfig';
@@ -42,6 +43,10 @@ export default function Settings() {
     return () => window.removeEventListener('keydown', h);
   }, [open, close]);
 
+  // 划选输入框里的文字时很容易划出面板、在遮罩上松手；只判「松开在哪」会把那一下
+  // 当成关闭意图（Ocean 2026-08-20 在模型名那一栏撞到的就是这个）。
+  const backdrop = useMemo(() => createBackdropClose(close), [close]);
+
   if (!open) return null;
 
   const TABS: { key: Tab; label: string }[] = [
@@ -66,7 +71,7 @@ export default function Settings() {
   return (
     <div
       className="fixed inset-0 z-50 flex justify-center bg-ink/30 px-8 pt-[14vh]"
-      onClick={close}
+      {...backdrop}
     >
       <div
         className="flex max-h-[72vh] w-[480px] flex-col overflow-hidden rounded-lg border border-line-strong bg-paper"

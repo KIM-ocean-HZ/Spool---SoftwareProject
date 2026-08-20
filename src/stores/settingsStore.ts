@@ -318,7 +318,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // DeepSeek 是 §6.2 算过账的那家（兼容 OpenAI 格式）。地址可改,因为「OpenAI 兼容」
   // 的端点不止一家,而换一家不需要改一行代码。
   apiBaseUrl: 'https://api.deepseek.com',
-  apiModel: 'deepseek-chat',
+  // ⚠️ 2026-08-20 改过一次：原来填的 `deepseek-chat` 是旧名字，现在这家只有 pro 和 flash
+  // 两档。这个名字是**接口自己回报的**（Ocean 那次实测的响应里 model 字段就是它），
+  // 不是照着文档抄的——而且它带着 `flash`，成本估算那边正好认得出是哪一档价目。
+  apiModel: 'deepseek-v4-flash',
   apiCompressLevel: DEFAULT_LEVEL,
   apiTimeoutSecs: 180,
   loaded: false,
