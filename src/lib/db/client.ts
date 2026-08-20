@@ -3,6 +3,7 @@ import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
 import { followUpFingerprint } from '@/lib/engine/followUp';
 import { IS_MAC, localizeKeyCaps } from '@/lib/platform';
+import { insertDemoProject } from './demoSeed';
 import schemaSql from './schema.sql?raw';
 
 export const INBOX_WORKSPACE_TITLE = '默认工作区';
@@ -1139,6 +1140,29 @@ const seedTutorialThread = async (db: Database, lang: SeedLanguage): Promise<voi
 // Test-only export: lets Vitest exercise the seed against the node:sqlite adapter.
 export const __seedTutorialThreadForTest = seedTutorialThread;
 
+const firstWorkspaceId = async (db: Database): Promise<string | null> => {
+  const ws = await db.select<{ id: string }[]>(
+    'SELECT id FROM workspaces WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC LIMIT 1',
+  );
+  return ws[0]?.id ?? null;
+};
+
+const seedDemoProject = async (db: Database, lang: SeedLanguage): Promise<string | null> => {
+  const wsId = await firstWorkspaceId(db);
+  if (!wsId) return null;
+  return insertDemoProject(db, wsId, lang);
+};
+
+/** Settings → 载入示例项目. Same rows as a fresh install seeds, on demand — for libraries
+ *  created before §2.3 existed, and for anyone who deleted the sample and wants it back.
+ *  Returns the new project's id so the caller can open it. */
+export const loadDemoProject = async (lang: SeedLanguage): Promise<string | null> => {
+  const db = await getDb();
+  return seedDemoProject(db, lang);
+};
+
+export const __insertDemoProjectForTest = insertDemoProject;
+
 // The provenance label every seeded tutorial block carries, in both languages. A thread
 // made up entirely of these is still the tutorial as we wrote it — LogView opens those at
 // the top so the guide is read from block 1, while every other thread opens at the newest
@@ -1266,6 +1290,12 @@ const initDb = async (): Promise<Database> => {
     if (fresh) {
       console.info(`[db] fresh install; seeding tutorial thread (lang=${seedLanguage})`);
       await seedTutorialThread(db, seedLanguage);
+      // §2.3: the tutorial explains the gesture; this gives them something to use it on.
+      // A brand-new library has nothing to pack, so ⌘⇧P — the whole point of the product
+      // — has nothing to show on day one. Seeded here, inside the `fresh` branch, for the
+      // same reason the tutorial is: it must never be reachable for a populated database.
+      // Existing installs get it from Settings instead (loadDemoProject below).
+      await seedDemoProject(db, seedLanguage);
     }
   } else {
     console.info('[db] loaded; non-main window skips migration + seeding');

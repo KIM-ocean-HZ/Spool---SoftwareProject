@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
 import { WORK_MINUTE_OPTIONS, type WorkMinutes } from '@/lib/breakReminder';
+import { loadDemoProject } from '@/lib/db/client';
 import { THEMES, type Theme } from '@/lib/theme';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useThreadsStore } from '@/stores/threadsStore';
 import { useT } from '@/lib/i18n';
 
 // 情人节限定版 (2026-08-19) — the switch's labels. Ocean asked for 「中英文都支持」, so these go
@@ -20,6 +22,11 @@ const THEME_LABEL: Record<Theme, string> = {
 // clear-all-data to 高级 — this tab is the short everyday page.
 export default function GeneralConfig() {
   const t = useT();
+  // WORKPLAN-2026-08-20 §2.3. A fresh install seeds this project automatically; the button
+  // is for the libraries that already existed when it landed, and for anyone who deleted
+  // the sample and wants it back. It only ever INSERTS — see demoSeed.ts on why that
+  // distinction matters for a populated database.
+  const [demoState, setDemoState] = useState<'idle' | 'loading' | 'done'>('idle');
   const launchAtLogin = useSettingsStore((s) => s.launchAtLogin);
   const setLaunchAtLogin = useSettingsStore((s) => s.setLaunchAtLogin);
   const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
@@ -175,6 +182,40 @@ export default function GeneralConfig() {
           <div className="mt-0.5 text-xs text-muted">{t('登录时自动运行,捕捉快捷键随时可用')}</div>
         </div>
         <Toggle checked={launchAtLogin} onChange={(v) => void setLaunchAtLogin(v)} />
+      </div>
+
+      <div className="border-t border-line" />
+
+      <div className="border-t border-line" />
+
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{t('载入示例项目')}</div>
+          <div className="mt-0.5 text-xs text-muted">
+            {t('一个已经攒了几周的项目，用来看打包出来是什么样。不需要了整条删掉即可。')}
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={demoState !== 'idle'}
+          onClick={() => {
+            setDemoState('loading');
+            void (async () => {
+              try {
+                const id = await loadDemoProject(language === 'en' ? 'en' : 'zh');
+                await useThreadsStore.getState().loadAll();
+                if (id) useThreadsStore.getState().select(id);
+                setDemoState('done');
+              } catch (e) {
+                console.error('[demo] load failed', e);
+                setDemoState('idle');
+              }
+            })();
+          }}
+          className="flex-none rounded-md border border-line bg-paper px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+        >
+          {demoState === 'done' ? t('已载入') : t('载入')}
+        </button>
       </div>
 
       <div className="border-t border-line" />

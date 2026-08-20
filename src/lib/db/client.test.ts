@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   drainMigrationNotices,
   __migrateSchemaForTest,
+  __insertDemoProjectForTest,
   __seedTutorialThreadForTest,
   __setTestDb,
   retranslateTutorial,
@@ -920,6 +921,58 @@ describe('migrateSchema registry (§19.3)', () => {
     seedUserData(handle);
 
     expect(await __migrateSchemaForTest(db)).toBe(false);
+  });
+
+  // WORKPLAN-2026-08-20 §2.3. What makes the sample worth shipping is that a pack rendered
+  // from it shows all four authority bands, so the checks below are on the SHAPE of the
+  // rows — a sourceless block (💭), a user annotation, an AI-filed block, and the citation
+  // between the last two — not on the prose, which is allowed to be reworded.
+  it('loads the sample project with the four bands and its citation intact', async () => {
+    applySchema(handle);
+    handle.exec(`
+      INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+        VALUES ('w1', '收件箱', 0, 1, 1);
+    `);
+
+    const threadId = await __insertDemoProjectForTest(db, 'w1', 'zh');
+
+    const rows = handle
+      .prepare(
+        'SELECT content, annotation, annotation_by, source, seq, ref_block_id, ref_kind, id FROM blocks WHERE thread_id = ? ORDER BY seq ASC',
+      )
+      .all(threadId) as {
+      annotation: string | null;
+      annotation_by: string | null;
+      source: string | null;
+      seq: number;
+      ref_block_id: string | null;
+      ref_kind: string | null;
+      id: string;
+    }[];
+
+    expect(rows).toHaveLength(5);
+    // seq is drawn per thread the same way blocks.ts draws it — a seeded row must be
+    // indistinguishable from a captured one, and NULL seq is a state real use cannot make.
+    expect(rows.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5]);
+
+    // 💭 Personal: exactly one block with no source at all — the user's own decision.
+    expect(rows.filter((r) => r.source === null)).toHaveLength(1);
+    // 📖 / 🧩 / the MCP write: every other block is labelled, and one came in over MCP.
+    expect(rows.some((r) => r.source?.includes('MCP'))).toBe(true);
+    // The user's own annotation, marked as theirs (it renders as `💭 note:`, not `ai note:`).
+    expect(rows.filter((r) => r.annotation !== null && r.annotation_by === 'user')).toHaveLength(1);
+
+    // ↩ cites: the AI's block points at the user's decision, and the id resolves inside
+    // this same project — a citation into nothing renders as "(cited block no longer exists)".
+    const citing = rows.find((r) => r.ref_block_id !== null)!;
+    expect(citing.ref_kind).toBe('cites');
+    expect(rows.some((r) => r.id === citing.ref_block_id)).toBe(true);
+
+    // The deadline is relative, so the sample never reads as expired.
+    const t = handle.prepare('SELECT deadline FROM threads WHERE id = ?').get(threadId) as {
+      deadline: number;
+    };
+    expect(t.deadline).toBeGreaterThan(Date.now());
   });
 
   it('seeds the tutorial + MCP scenario threads (fresh install only)', async () => {
