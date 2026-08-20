@@ -179,3 +179,68 @@ export const insertDemoProject = async (
   }
   return threadId;
 };
+
+/**
+ * The sample project follows the language switch, exactly like the tutorial threads
+ * (client.ts retranslateTutorial, Ocean 2026-08-03「教程的语言…需要随切换语言变化」).
+ * Without this a user whose machine reports an English locale, who then switches Spool to
+ * 中文, gets a Chinese UI, a Chinese tutorial — and an English sample project sitting
+ * between them, on the first screen they ever see.
+ *
+ * Same conservative rule as the tutorial's: rewrite ONLY while every block is still
+ * character-for-character as seeded. One edited block and the whole project is left alone
+ * — the moment the user touches it, it is theirs, not ours. Returns whether it changed
+ * anything, so the caller knows whether to reload.
+ */
+export const retranslateDemoProject = async (
+  db: Database,
+  from: SeedLanguage,
+  to: SeedLanguage,
+): Promise<boolean> => {
+  if (from === to) return false;
+  const before = DEMO_PROJECT[from];
+  const after = DEMO_PROJECT[to];
+  // Parallel translations; if that ever stops being true, do nothing rather than pair
+  // blocks up by the wrong index.
+  if (before.blocks.length !== after.blocks.length) return false;
+
+  const threads = await db.select<{ id: string; summary: string | null }[]>(
+    'SELECT id, summary FROM threads WHERE title = $1 AND deleted_at IS NULL',
+    [before.title],
+  );
+  const thread = threads[0];
+  if (!thread) return false;
+
+  const rows = await db.select<{ id: string; content: string; annotation: string | null }[]>(
+    'SELECT id, content, annotation FROM blocks WHERE thread_id = $1 ORDER BY seq ASC',
+    [thread.id],
+  );
+  // Matched positionally rather than by search: unlike the tutorial these blocks have
+  // different sources from each other, so seq order is what pairs them up.
+  if (rows.length !== before.blocks.length) return false;
+  for (let i = 0; i < rows.length; i++) {
+    const seeded = before.blocks[i]!;
+    const row = rows[i]!;
+    if (row.content !== seeded.content) return false;
+    if ((row.annotation ?? null) !== (seeded.annotation ?? null)) return false;
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const target = after.blocks[i]!;
+    await db.execute(
+      'UPDATE blocks SET content = $1, annotation = $2, source = $3 WHERE id = $4',
+      [target.content, target.annotation ?? null, target.source ?? null, rows[i]!.id],
+    );
+  }
+  // The summary is editable on its own, so it only swaps while it is still the seeded one.
+  if (thread.summary === before.summary) {
+    await db.execute('UPDATE threads SET title = $1, summary = $2 WHERE id = $3', [
+      after.title,
+      after.summary,
+      thread.id,
+    ]);
+  } else {
+    await db.execute('UPDATE threads SET title = $1 WHERE id = $2', [after.title, thread.id]);
+  }
+  return true;
+};

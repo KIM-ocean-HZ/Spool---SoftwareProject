@@ -5,6 +5,7 @@ import {
   drainMigrationNotices,
   __migrateSchemaForTest,
   __insertDemoProjectForTest,
+  __retranslateDemoProjectForTest,
   __seedTutorialThreadForTest,
   __setTestDb,
   retranslateTutorial,
@@ -973,6 +974,40 @@ describe('migrateSchema registry (§19.3)', () => {
       deadline: number;
     };
     expect(t.deadline).toBeGreaterThan(Date.now());
+  });
+
+  it('re-translates the sample project on a language switch, and leaves an edited one alone', async () => {
+    applySchema(handle);
+    handle.exec(`
+      INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+        VALUES ('w1', '收件箱', 0, 1, 1);
+    `);
+    const threadId = await __insertDemoProjectForTest(db, 'w1', 'en');
+
+    expect(await __retranslateDemoProjectForTest(db, 'en', 'zh')).toBe(true);
+    const zh = handle.prepare('SELECT title FROM threads WHERE id = ?').get(threadId) as {
+      title: string;
+    };
+    expect(zh.title).toBe('示例项目：机器学习课');
+    // The sources are per-language too — an English label under Chinese content would be
+    // a worse result than not translating at all.
+    const sources = handle
+      .prepare('SELECT source FROM blocks WHERE thread_id = ? ORDER BY seq')
+      .all(threadId) as { source: string | null }[];
+    expect(sources[1]!.source).toBe('第 7 讲课件 · Safari');
+    expect(sources[3]!.source).toBeNull();
+
+    // The moment the user edits one block the project is theirs: nothing is rewritten,
+    // not even the blocks that are still untouched.
+    handle.prepare('UPDATE blocks SET content = ? WHERE thread_id = ? AND seq = 1').run(
+      'my own words',
+      threadId,
+    );
+    expect(await __retranslateDemoProjectForTest(db, 'zh', 'en')).toBe(false);
+    const still = handle.prepare('SELECT title FROM threads WHERE id = ?').get(threadId) as {
+      title: string;
+    };
+    expect(still.title).toBe('示例项目：机器学习课');
   });
 
   it('seeds the tutorial + MCP scenario threads (fresh install only)', async () => {

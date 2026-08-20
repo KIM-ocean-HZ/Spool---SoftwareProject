@@ -3,7 +3,7 @@ import Database from '@tauri-apps/plugin-sql';
 import { nanoid } from 'nanoid';
 import { followUpFingerprint } from '@/lib/engine/followUp';
 import { IS_MAC, localizeKeyCaps } from '@/lib/platform';
-import { insertDemoProject } from './demoSeed';
+import { insertDemoProject, retranslateDemoProject } from './demoSeed';
 import schemaSql from './schema.sql?raw';
 
 export const INBOX_WORKSPACE_TITLE = '默认工作区';
@@ -1162,6 +1162,7 @@ export const loadDemoProject = async (lang: SeedLanguage): Promise<string | null
 };
 
 export const __insertDemoProjectForTest = insertDemoProject;
+export const __retranslateDemoProjectForTest = retranslateDemoProject;
 
 // The provenance label every seeded tutorial block carries, in both languages. A thread
 // made up entirely of these is still the tutorial as we wrote it — LogView opens those at
@@ -1202,6 +1203,10 @@ export const retranslateTutorial = async (
   const fromCopy = TUTORIAL[from];
   const toCopy = TUTORIAL[to];
   let changed = false;
+
+  // §2.3's sample project follows the switch too — it is seeded rows on the same first
+  // screen, and leaving it in the old language is the inconsistency the user actually sees.
+  if (await retranslateDemoProject(db, from, to)) changed = true;
 
   for (const key of ['gesture', 'mcp'] as const) {
     const before = fromCopy[key];
