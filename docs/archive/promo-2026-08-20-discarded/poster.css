@@ -1,0 +1,202 @@
+/* Spool promo posters — shares the product's real design tokens (site/assets/site.css)
+   so a poster and the app read as one object. Rendered art is allowed HERE and only
+   here (WORKPLAN §3.4.1); every poster ships with the real screenshot that backs it. */
+
+@font-face { font-family:'Geist';      src:url('../../site/assets/fonts/Geist.ttf')     format('truetype-variations'); font-weight:100 900; }
+@font-face { font-family:'Geist Mono'; src:url('../../site/assets/fonts/GeistMono.ttf') format('truetype-variations'); font-weight:100 900; }
+@font-face { font-family:'Fraunces';   src:url('../../site/assets/fonts/Fraunces.ttf')  format('truetype-variations'); font-weight:100 900; }
+
+:root{
+  --paper:#faf7f0; --paper-2:#f3eee2; --paper-edge:#ebe4d2;
+  --ink:#1c1a16; --ink-2:#4a463d; --muted:#6e6759;
+  --line:#e6dfcc; --line-strong:#d6cdb3;
+  --accent:#b45309; --accent-2:#92400e; --accent-soft:#fef3c7; --highlight:#fbbf24;
+  --ok:#6b7c5a;
+  --font-ui:'Geist',-apple-system,'PingFang SC',sans-serif;
+  --font-serif:'Fraunces','Songti SC',serif;
+  --font-mono:'Geist Mono',ui-monospace,monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000}
+body{font-family:var(--font-ui);-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+:lang(zh),.poster{line-break:strict;overflow-wrap:normal}
+
+/* ---- the frame ---- */
+.poster{
+  position:relative; overflow:hidden;
+  background:var(--paper);
+  color:var(--ink);
+  display:flex; flex-direction:column;
+}
+.poster.v{width:1080px;height:1440px;padding:96px 88px}   /* 3:4 — 小红书 */
+.poster.w{width:1600px;height:900px;padding:88px 96px}    /* 16:9 — Reddit / HN / X */
+
+/* warm paper depth: a soft vignette + the faintest grain */
+.poster::before{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:
+    radial-gradient(120% 90% at 12% 0%, rgba(255,255,255,.85) 0%, rgba(255,255,255,0) 55%),
+    radial-gradient(100% 80% at 100% 100%, rgba(180,83,9,.07) 0%, rgba(180,83,9,0) 60%);
+}
+.poster::after{
+  content:''; position:absolute; inset:0; pointer-events:none; opacity:.035;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>");
+}
+.poster > *{position:relative;z-index:2}
+
+/* the coil, bled off an edge — from the real app icon, at whisper opacity */
+.coil{position:absolute;z-index:1;pointer-events:none;right:-300px;bottom:-360px;width:1180px;height:1180px;opacity:.09}
+.coil.br{right:-300px;bottom:-360px;width:1180px;height:1180px;opacity:.09}
+.coil.tr{right:-260px;top:-300px;width:900px;height:900px;opacity:.075}
+
+/* ---- masthead ---- */
+.top{display:flex;align-items:center;justify-content:space-between;gap:24px}
+.brand{display:flex;align-items:center;gap:16px}
+.brand svg{width:46px;height:46px;border-radius:11px;display:block;box-shadow:0 3px 10px -3px rgba(120,80,20,.45)}
+.brand b{font-family:var(--font-serif);font-weight:600;font-size:27px;letter-spacing:-.01em}
+.brand span{font-size:20px;color:var(--muted);font-weight:400;margin-left:2px}
+.kicker{
+  font-family:var(--font-mono);font-size:14.5px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--accent-2);
+  border:1.5px solid var(--line-strong);border-radius:999px;padding:9px 20px;
+  background:rgba(255,255,255,.55);white-space:nowrap;
+}
+
+/* ---- body ---- */
+.mid{flex:1;display:flex;flex-direction:column;justify-content:center}
+.mid.low{justify-content:flex-end;padding-bottom:56px}
+.w .mid{max-width:1130px}
+
+.eyebrow{
+  font-family:var(--font-mono);font-size:16px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:34px;display:flex;align-items:center;gap:16px;
+}
+.eyebrow::after{content:'';height:1.5px;flex:1;background:linear-gradient(90deg,var(--line-strong),transparent);max-width:260px}
+
+h1{
+  font-family:var(--font-serif);font-weight:600;letter-spacing:-.028em;line-height:1.02;
+  font-size:104px;
+}
+.w h1{font-size:96px}
+h1 em{font-style:normal;color:var(--accent);position:relative;white-space:nowrap}
+/* the hand-drawn underline, in the app's own highlight yellow */
+h1 em::after{
+  content:'';position:absolute;left:-.04em;right:-.04em;bottom:.09em;height:.26em;z-index:-1;
+  background:var(--highlight);opacity:.34;border-radius:3px;transform:rotate(-.5deg);
+}
+
+.figure{
+  font-family:var(--font-serif);font-weight:600;letter-spacing:-.05em;line-height:.84;
+  font-size:400px;color:var(--accent);
+}
+.v .figure{font-size:380px}
+.figure small{font-size:.38em;letter-spacing:-.02em;color:var(--accent-2)}
+
+.lede{
+  font-family:var(--font-serif);font-size:52px;font-weight:400;line-height:1.24;
+  letter-spacing:-.015em;color:var(--ink);margin-top:34px;max-width:20ch;
+}
+.w .lede{font-size:46px;max-width:24ch}
+.lede b{font-weight:600;color:var(--accent-2)}
+
+.sub{font-size:27px;line-height:1.6;color:var(--ink-2);margin-top:28px;max-width:34ch;font-weight:380}
+.v .sub{max-width:800px}
+.v .lede{max-width:860px}
+.w .sub{max-width:44ch}
+
+/* the counterweight — the small number that makes the big one mean something */
+.against{
+  display:flex;align-items:center;gap:22px;margin-top:44px;
+  padding-top:30px;border-top:1.5px solid var(--line);
+}
+.against .n{font-family:var(--font-serif);font-size:82px;font-weight:600;color:var(--muted);letter-spacing:-.03em;line-height:1}
+.against .t{font-size:25px;color:var(--muted);line-height:1.4;font-weight:380}
+
+/* ---- footer ---- */
+.bot{display:flex;align-items:flex-end;justify-content:space-between;gap:40px;margin-top:auto;padding-top:44px}
+.proof{font-size:20px;color:var(--muted);line-height:1.6;max-width:60ch}
+.proof .lbl{font-family:var(--font-mono);font-size:13.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-2);display:block;margin-bottom:9px}
+.cmd{
+  font-family:var(--font-mono);font-size:17px;color:var(--ink-2);
+  background:rgba(255,255,255,.72);border:1.5px solid var(--line);border-left:3.5px solid var(--accent);
+  border-radius:7px;padding:14px 18px;margin-top:14px;display:inline-block;white-space:pre;
+  box-shadow:0 3px 10px -6px rgba(120,80,20,.35);
+}
+.site{font-family:var(--font-mono);font-size:23px;color:var(--accent-2);letter-spacing:.02em;white-space:nowrap;font-weight:500}
+
+/* honesty strip — this is the product's whole brand, so it gets a real slot */
+.strip{
+  display:inline-flex;align-self:flex-start;align-items:center;gap:13px;margin-top:38px;
+  font-family:var(--font-mono);font-size:16.5px;letter-spacing:.03em;color:var(--ok);
+  background:rgba(107,124,90,.09);border:1.5px solid rgba(107,124,90,.28);
+  border-radius:999px;padding:11px 22px;
+}
+.strip .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
+
+/* ---- the artifact: a real pack fragment, in the product's own typography ----
+   Bytes follow the real output format (src/lib/pack/fixtures/golden-pack.expected.txt),
+   so the inline marks — 📌 pinned, ⚠️ corrected later, ↩ cites — are genuine.
+   The card and the fade are separate elements on purpose: masking the card itself
+   also erases its border, which reads as a rendering fault rather than a choice. */
+.artifact{
+  background:linear-gradient(180deg,#fffdf8 0%,rgba(255,253,248,.5) 100%);
+  border:1.5px solid var(--line);border-radius:14px;overflow:hidden;
+  box-shadow:0 20px 52px -24px rgba(90,60,15,.34),0 2px 0 rgba(255,255,255,.75) inset;
+  transform:rotate(-.5deg);
+}
+.artifact-in{
+  font-family:var(--font-mono);font-size:18px;line-height:2.05;color:var(--ink-2);
+  padding:32px 34px;white-space:pre;height:100%;
+  -webkit-mask-image:linear-gradient(180deg,#000 66%,transparent 96%),linear-gradient(90deg,#000 90%,transparent 99%);
+  -webkit-mask-composite:source-in;
+          mask-image:linear-gradient(180deg,#000 66%,transparent 96%),linear-gradient(90deg,#000 90%,transparent 99%);
+          mask-composite:intersect;
+}
+.v .artifact{height:492px;margin-bottom:56px}
+.w .artifact{height:560px;transform:rotate(-.35deg)}
+.w .artifact-in{font-size:15.5px;line-height:2.15}
+.artifact .h{font-family:var(--font-serif);font-size:25px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.artifact .d{color:var(--muted);font-size:15px}
+.artifact .m{color:var(--accent);font-weight:600}
+.artifact .s{color:var(--muted)}
+.artifact .hl{background:var(--highlight);opacity:.55;padding:1px 3px;border-radius:3px;color:var(--ink)}
+.artifact .warn{color:var(--accent-2)}
+
+/* wide hero: words left, artifact right */
+.w .mid.split{display:grid;grid-template-columns:1.04fr .96fr;gap:64px;align-items:center;max-width:none;height:100%}
+.w .mid.split > *{min-width:0}
+.w .mid.split h1{font-size:76px}
+.w .mid.split .sub{font-size:24px;max-width:36ch;margin-top:24px}
+.w .mid.split .strip{margin-top:30px;font-size:15.5px}
+
+/* ---- wide + figure: 16:9 has height for one big numeral, not for a stacked column.
+   Split it: the numeral and its claim on the left, the counterweight and the
+   caveat on the right, so nothing runs off the bottom edge. ---- */
+.w .mid.fig{display:grid;grid-template-columns:1.06fr .94fr;gap:78px;align-items:center;max-width:none}
+.w .mid.fig > *{min-width:0}
+.w .mid.fig .figure{font-size:236px;line-height:.86}
+.w .mid.fig .lede{font-size:42px;margin-top:20px;max-width:none}
+.w .mid.fig .eyebrow{margin-bottom:26px}
+.w .mid.fig .against{margin-top:0;padding-top:0;border-top:0;border-left:3px solid var(--line-strong);padding-left:26px}
+.w .mid.fig .against .n{font-size:72px}
+.w .mid.fig .sub{font-size:23px;margin-top:32px;max-width:none}
+
+/* a counterweight whose value is a word, not a numeral, needs a smaller size */
+.against .n.long{font-size:52px;white-space:nowrap}
+.w .mid.fig .against .n.long{font-size:46px}
+.against .n.long + .t{font-size:23px}
+
+/* ---- closing card: centred, the mark at full size ---- */
+.mid.centre{align-items:center;justify-content:center;text-align:center}
+.outro{display:flex;flex-direction:column;align-items:center}
+.outro > svg{width:150px;height:150px;border-radius:35px;box-shadow:0 20px 46px -18px rgba(120,80,20,.5);margin-bottom:46px}
+.outro h1{font-size:104px;letter-spacing:-.03em;margin-bottom:8px}
+.outro h1 em{margin-right:.12em}
+.outro h1 em{color:var(--accent)}
+.outro h1 em::after{display:none}
+.outro .lede{max-width:none;margin-top:22px;color:var(--ink-2)}
+.outro .strip{align-self:center;margin-top:46px}
+.w .outro > svg{width:118px;height:118px;border-radius:27px;margin-bottom:34px}
+.w .outro h1{font-size:96px}
+.w .outro .lede{font-size:42px}
