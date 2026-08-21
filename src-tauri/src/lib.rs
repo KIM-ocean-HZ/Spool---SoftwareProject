@@ -526,7 +526,6 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(&dir);
             }
 
-            #[cfg(target_os = "windows")]
             fit_main_window_to_work_area(app.handle());
 
             #[cfg(desktop)]
@@ -649,20 +648,34 @@ pub fn run() {
         });
 }
 
-// Windows: open inside the screen the user actually has.
+// Open inside the screen the user actually has.
 //
 // Ocean, 2026-08-17 (2560×1600 laptop): 「打开之后底部一小部分被 windows 的程序坞挡住了」.
 // The configured 1600×1000 is a LOGICAL size, and Windows laptops ship scaled — at 150%
 // that display is 1706×1066 logical, of which the taskbar takes the bottom ~48. So the
 // window is taller than the space it is allowed to occupy and the last rows land under the
-// taskbar. Nothing on macOS reports this, and the port's rule is that Mac behaviour does not
-// move, so this is gated rather than shared.
+// taskbar.
 //
-// The work area is the taskbar-excluded rectangle of the monitor the window opened on —
+// ⚠️⚠️ **2026-08-21: this stopped being a Windows problem, and the gate came off.** It shipped
+// as `#[cfg(target_os = "windows")]`, reasoned as "nothing on macOS reports this". That was
+// true the day it was written — Ocean's Mac was on More Space (1800×1169), where 1600×1000
+// fits. He moved to the default scaling (1512×982) and it does not: measured on the running
+// app, the main window sat at (100, 51) at 1600×1000, i.e. **188pt off the right edge and
+// 69pt off the bottom, with 55% of the right rail off-screen** — every launch, since nothing
+// persists window state. The two most common Mac laptops (14" 1512×982, 13" Air 1470×956)
+// both fail it. Full measurement in `docs/CHECK-DISPLAY-2026-08-21.md`.
+//
+// So the reason was never "Windows"; it was "the window is bigger than the work area", and
+// that is platform-independent. `work_area()` is implemented on macOS too (NSScreen's
+// `visibleFrame` — menu bar and Dock already excluded), so the body needs no per-OS branch.
+//
+// The work area is the taskbar/Dock-excluded rectangle of the monitor the window opened on —
 // asking the OS for it is the only way to be right on every DPI, taskbar edge and monitor.
 // Chrome (title bar + borders) is measured rather than assumed: `set_size` sets the INNER
 // size, and the difference is what would otherwise still hang off the bottom.
-#[cfg(target_os = "windows")]
+//
+// ⚠️ A window that already fits returns before touching anything, so on the displays this was
+// never a problem on (15"/16" Macs, roomy externals) nothing moves — same size, same position.
 fn fit_main_window_to_work_area(app: &tauri::AppHandle) {
     use tauri::{LogicalSize, PhysicalPosition, PhysicalSize};
     let Some(win) = app.get_webview_window("main") else {
@@ -690,6 +703,9 @@ fn fit_main_window_to_work_area(app: &tauri::AppHandle) {
     if win.set_size(PhysicalSize::new(w, h)).is_err() {
         return;
     }
+    // ⚠️ Re-positioning is NOT cosmetic and not optional: a window shrunk to the work area's
+    // width but left at its old x still hangs off the same edge (1600→1512 at x=100 is still
+    // 100pt over). Centring is simply the position that is always inside, on every edge.
     // Re-read: the resize is what decides how much room is left to centre in.
     let Ok(outer) = win.outer_size() else { return };
     let x = work.position.x + ((work.size.width as i32 - outer.width as i32) / 2).max(0);
