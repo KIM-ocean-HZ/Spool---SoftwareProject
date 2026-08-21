@@ -45,7 +45,10 @@ type PersistableKey =
   | 'apiModel'
   | 'apiCompressLevel'
   | 'apiTimeoutSecs'
-  | 'apiReasoning';
+  | 'apiReasoning'
+  | 'compressQueue'
+  | 'compressNightlyAt'
+  | 'compressLastRunDay';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
 
@@ -178,6 +181,20 @@ interface SettingsState {
   apiTimeoutSecs: number;
   /** 思考力度。'' = 不发这个参数（用服务端默认）；'off' = 明确关掉；其余原样发。 */
   apiReasoning: string;
+  /** ⑥ 睡前排队（§9.6.4）：今晚要压哪几个项目，存的是项目 id。
+   *
+   *  ⚠️ **只有这份「选择」是持久的，跑出来的压缩稿不是**（见 compressStore 末尾那段）。
+   *  存选择是因为它就是那份「授权」——⭐ 授权发生在花钱之前，而且要能熬过一次重启。 */
+  compressQueue: string[];
+  /** ⑥ 几点跑，`HH:MM`；`''` = 不定时，只在你自己点的时候跑。
+   *
+   *  ⛔ **不排 launchd、不常驻后台**（§9.6.4）：v1 就做成「应用开着的时候到点跑；
+   *  到点没开，下次启动时补跑」——这样整个「调度器」表面根本不用长出来。
+   *  （而且这台机器上 launchd 碰 `~/Desktop` 会永久卡死，本来就不该碰。） */
+  compressNightlyAt: string;
+  /** ⑥ 上一次跑完那一批是哪一天（本地日期 `YYYY-MM-DD`）。补跑判断只看这一个数：
+   *  今天还没跑过、而且已经过了点，就补跑。⚠️ 存日期不存时刻 —— 一天只跑一次。 */
+  compressLastRunDay: string;
   /** How long a sitting runs before the break lock comes up — 30 / 60 / 120, the arms of the
    *  study quoted beside the picker. Validated on read (lib/breakReminder's
    *  `workMinutesOrDefault`): the file is hand-editable and a stray number would otherwise
@@ -271,6 +288,9 @@ const KEYS: PersistableKey[] = [
   'apiCompressLevel',
   'apiTimeoutSecs',
   'apiReasoning',
+  'compressQueue',
+  'compressNightlyAt',
+  'compressLastRunDay',
 ];
 
 // Settings the removed built-in AI layer (2026-07-09, MCP-first pivot) used to
@@ -339,6 +359,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // ⚠️ 2026-08-21：默认改成 low，依据同上——比默认力度**钱少一半多、时间少一半多，
   // 压得还更狠**。⛔ 别改成 'off'：实测关掉思考之后压完剩 101%，等于什么都没做。
   apiReasoning: 'low',
+  // ⑥ 睡前排队：默认空、默认不定时 —— 和 apiEngineEnabled 一样，什么都不选就什么都不花。
+  compressQueue: [],
+  compressNightlyAt: '',
+  compressLastRunDay: '',
   loaded: false,
   panelOpen: false,
   launchAtLogin: false,

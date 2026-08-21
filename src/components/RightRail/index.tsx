@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Globe, Inbox } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import CompressRail from "@/components/Compress/CompressRail";
 import LiveRun from "./LiveRun";
 import McpBar from "./McpBar";
 import ProjectFiles from "./ProjectFiles";
@@ -369,6 +370,13 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               Codex…」 line further up this column already tells a user with no engine what to
               install, and Settings → AI still reports what was detected. A permanently-visible
               picker for a decision taken once is what he asked to be rid of. */}
+
+          {/* WORKPLAN-2026-08-20 §9.6.2 — 压缩。Ocean:「压缩功能不要放在 pack 里面，放到右边栏，
+              他不是和 pack 绑定的工作」. It sits with the other 「这个项目的运行」 sections, and
+              like them it renders nothing when the API engine is off (§6.2 约束 5：默认关闭).
+              ⚠️ Only the ACTION lives here — the side-by-side review desk opens in the centre
+              column, because `railWidth` is ~300px and a two-column diff does not fit. */}
+          {thread && <CompressRail thread={thread} />}
 
           {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with
               no files says so and offers the ＋), because this is now the ONLY place a file can

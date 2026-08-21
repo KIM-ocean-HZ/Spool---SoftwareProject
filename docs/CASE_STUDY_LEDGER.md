@@ -1802,6 +1802,199 @@ measurement rather than about compression:
   library export — and that is a stopgap, not an answer. It is written down as one, with the
   keychain named as the thing to do before compression is ever allowed to write back.
 
+### 3.45 It compresses or it keeps the dates, and the two look identical (2026-08-21)
+
+Forty-five automated runs against a funded key, driven straight into the sidecar rather than
+through the interface: `spool-ai` takes JSON on stdin, so the sweep borrows the product's own
+pack renderer, prompt builder, request builder and spawn path and skips the GUI entirely. The
+harness lives in a `#[cfg(test)]` module and opens the library `SQLITE_OPEN_READ_ONLY`; nothing
+it does can write. **Real bill: ¥5.84 across 45 runs over 2h13m, no failures** — against a pre-run estimate of ¥11.
+
+**The calibration was supposed to be a footnote and turned out to be the measurement.** WORKPLAN
+§7 records that the Rust and TypeScript pack renderers are deliberately不一致, so round two was
+expected to be incomparable with round one. On these three projects the two renderers are
+**byte-identical except for three lines** — Rust prints `— in project: X` on cross-project
+citations and TypeScript cannot, because its `refBlocks` map carries no thread id. What actually
+differs between "the pack the MCP server serves" and "the pack the button sends" is the 6,594-character
+reading-instructions header, which the clipboard pack omits by default. On a small project that
+header is **56% of the document**, and rule 1 orders it copied verbatim — so including it would
+have made every compression ratio look better by an amount that has nothing to do with
+compression. **The thing that made two numbers incomparable was not the renderer everyone had
+been warned about; it was a default nobody had connected to the measurement.**
+
+**The headline finding is that the ratio is a property of the input, not of the setting.** Same
+settings, three projects: **Flux 62%, 宣发 79%, 申请规划 95%** — and Flux is the one holding the
+same README four times over. Meanwhile the three compression levels on 申请规划 give medians of
+**95% / 95% / 76%**, which is not a difference anybody can act on, and `reasoning_effort: medium`
+costs 4× and 4.5× the time to return **99%**. The levels were introduced to replace "please cut
+less" with a checkable target. What the sweep shows is that the quantity they claim to control is
+mostly decided before the request is sent. **A knob the user cannot actually turn should not be
+drawn as a knob**, so the level descriptions now state measured ranges and say out loud that the
+number depends on how much the project repeats itself.
+
+**And the finding that stopped the feature: it loses dates exactly when it does its job.** Split
+the 45 runs by whether anything actually came off:
+
+| | n | lost ≥1 number/date | median lost |
+|---|---|---|---|
+| **Actually compressed** (≤85% remaining) | 21 | **18 — 86% of them** | 3 |
+| **Barely compressed** (86–105%) | 23 | 5 | **0** |
+
+The ones that went were `2026-11-25` (the last date CMU SCS advises for a GRE retake), `12-15`
+and `2027-01-15` (two USC deadlines), `11-18`/`12-09` (CMU SCS milestones), `76.0` (a first-year
+grade), and the ports a demo runs on. The 「压到最短」 band is the worst of the three: ten runs, ten
+runs that lost numbers — and it is **no shorter** than the band above it (76–78% against 76%).
+
+The band is named 「保留结论和数字」 and its prompt says every conclusion, date, number, sum and
+name is kept word for word. **No run mentioned dropping a date in its own account of what it
+cut** — the third time this ledger records the same lesson about self-reported scores. It also
+deleted something worse than a date: Spool's own `[... 8945 more chars not shown ...]` line, the
+marker that says *this was truncated, you should know*. Removing that does not lose a fact; it
+loses the reader's knowledge that facts are missing.
+
+**So the verdict on unlocking `supersedes` writes is no, and the reason is not quality.** A
+95%-remaining briefing is a wasted ¥0.12. A 194%-remaining briefing — one run emitted the entire
+pack twice — is caught by block count in a second. The dangerous one is the good one: at 64% the
+prose is genuinely better, every fact that survives is accurate, nothing is invented, and three
+deadlines are gone. **It does not look broken.** §6.4.1's protection is that the original block
+stays and is one click away, and that protection assumes the user knows to go and look.
+
+**What the sweep bought, besides the verdict, was seven defects in the checker itself — three of
+which made it a no-op.** Running an audit against real data rather than fixtures is what found
+them, and every one of them had been passing:
+
+* The `note:` detector matched a bare `note:` prefix. The renderer emits `💭 note:` and
+  `ai note:`. Across three real packs it matched **none of 34 annotations**, so 「your annotations
+  all survived」 printed whether or not they had. **A check that cannot fail is not a check**, and
+  it had been reassuring people for a day.
+* Pinned personal blocks render as `📌 💭 #7`; the detector required `💭` first. The blocks most
+  worth protecting were the ones outside the guard.
+* Blocks pasted from Word carry CRLF, and JavaScript's `.` does not match `\r`, so the head line
+  failed to parse and the entry was `continue`d — **silently dropped from the comparison**, which
+  is the one behaviour the design document forbids by name.
+* Block bodies are markdown and contain their own `## ` headings, which the splitter read as pack
+  section boundaries — truncating a README block at 473 characters and then reporting that the
+  model had inflated it to 254%.
+* Pinned blocks legitimately appear twice in a pack (full text, then a placeholder), so a
+  duplicate-number warning fired on every project that has one. **A warning that fires every time
+  hides the real duplicate**, and a real one did occur.
+* Straight-vs-curly quotes: the model rewrote `“…”` as `"…"` and the audit reported **「it invented
+  4 annotations you never wrote」**. The text was identical. That sentence is the heaviest warning
+  in the interface, and spending it on punctuation would have taught the user to ignore it. Both
+  facts are now stated separately: nothing was lost, and verbatim was still broken.
+* Citation preview lines are truncated mid-token with `…`, so `（2026-0…` read as a lost date on
+  every single run once a number check existed.
+
+Two whole classes had never been counted at all, and both were found by looking rather than by
+reasoning: **`↩ cites:` / `↩ replaces` relation lines** (gone in five runs of ten; one run kept 2
+of 14) and **numbers and dates**. Both are now audited, per block, so the report points at the
+block rather than at the document.
+
+### 3.46 More thinking found less, and the checker rejected the run that was right (2026-08-21)
+
+The previous entry stopped a feature because its failure was invisible. This one measures a
+**different function against the same data** and reaches the opposite verdict, for a reason that
+has nothing to do with either model being better. Twenty-seven calls — a two-call probe and a
+twenty-five-call round — **¥1.7841 real, about 25 minutes, no failures.**
+
+**The setup was held identical on purpose.** Same harness, same read-only sampling port, same
+sidecar binary, same model and endpoint, and the three input packs were copied byte-for-byte out
+of the previous round's archive. **One thing differs and it is stated rather than buried: this
+round ran in Beijing peak hours and the previous one ran off-peak**, where the tariff is half.
+Every figure below is therefore given in tokens, or at the off-peak equivalent, and never as a
+peak price compared against an off-peak one.
+
+**What changed was the question, not the model.** Compression is asked to emit a rewritten
+document. This asks for **pointers**: block X is superseded whole by block Y, one line of
+reasoning, and two quotations copied out of the two blocks. Nothing is rewritten. The output of a
+26,615-character pack is a few dozen characters of JSON.
+
+**Finding one: the effort setting ran backwards from the one next door.**
+
+| `reasoning_effort` | runs that proposed anything | proposals passing the quote check | cost, off-peak |
+|---|---|---|---|
+| `low` | 2 of 5 | 3 of 3 | ¥0.0222 |
+| **`medium`** | **4 of 5** | **5 of 5** | ¥0.0478 |
+| `high` | 3 of 5 | **2 of 3** | ¥0.0617 |
+
+`high` proposed less, passed less, cost 29% more and was 14% slower; the probe run at `high` spent
+**15,377 reasoning tokens to return an empty array.** On compression, measured a day earlier,
+`medium` was the pure loss and `low` the right default. **The same dial, on the same model and
+the same documents, has its optimum in a different place for each task** — so a default carried
+across from a neighbouring feature is an assumption, not an inheritance.
+
+**Finding two: no false positives, and the silences were correct.** Twenty-five runs produced
+eleven proposals; every one named the same project and the same superseding block. Two control
+projects returned an empty array ten times out of ten. Both silences were then checked by hand
+rather than assumed:
+
+* One control **does** hold a superseded passage — but it sits inside a block whose remaining
+  content still stands, and the prompt permits only whole-block proposals. **Declining was
+  obedience, not blindness.**
+* The other control's redundancy is four copies of one file, which is literal repetition and
+  therefore compression's job — measured at 62% the previous round.
+
+That split is the useful part: **the two functions are not competitors, they answer to different
+kinds of redundancy**, and which one a project needs can be decided before any money is spent.
+
+**Finding three: the mechanical check earned its place by rejecting a proposal that was right.**
+Each proposal must quote both blocks, and the quotes are matched verbatim against the block they
+name — full-text matching is not enough, because quoting accurately from the wrong block would
+pass it. One run at `high` reached the correct conclusion and still failed, because two
+full-width punctuation marks came back as their half-width equivalents. **The model was not
+copying, it was retyping.** This is the third recorded variant of one defect: the previous round
+saw paired quotation marks flattened and the audit report it as four invented annotations. The
+discipline already settled there applies unchanged — fold punctuation when asking *does this
+match*, count it separately when reporting *was verbatim honoured*, and **never fold digits or
+dates.** With punctuation folded, all eleven proposals pass.
+
+**Finding four: the saving is entirely in the prose, and the thinking is not cheaper at all.**
+Same pack, same input tokens, medians:
+
+| | compression | supersession detection |
+|---|---|---|
+| output tokens | 26,924 | **10,446** |
+| — of which body | 16,986 | **33** |
+| — of which reasoning | 9,938 | **10,413** |
+| seconds | 158 | **88** |
+| cost, off-peak | ¥0.1219 | **¥0.0478** |
+
+**Reasoning tracks the input, not the output.** Every token saved is a token of document that no
+longer has to be written out. The intuition that a tiny answer implies a tiny bill is wrong by
+roughly the size of the reasoning trace, and an estimate made before this round said so with more
+confidence than it had earned.
+
+**Finding five: it retires more of the document than compression removes from it.** Two blocks
+retired amount to **2,390 of 26,615 characters, 9.0%**, with every character still in the library
+and no digit touched. Compression's median on that same pack is **5% removed**, at two and a half
+times the price, and losing at least one number in 86% of the runs where it removed anything.
+
+**Finding six, found by reading the database rather than the model: the mechanism it would write
+to is half-wired.** A block carries a `supersedes` relation and a separate retirement timestamp,
+and they are **decoupled on purpose** — retirement is its own reversible statement, and clearing
+a relation deliberately does not un-retire anything. **Only the timestamp removes a block from a
+pack.** The live library contains one relation whose target was never retired, so that block is
+still printed in every pack the project produces; how it reached that state was not established
+and is not guessed at here. Separately, **no block in the library has ever been retired** — the
+feature exists, is reachable, and has zero recorded uses, which also means the data holds no
+accumulated ground truth to test against.
+
+**The verdict differs from §3.45's, and the reason is the shape of the failure, not the quality
+of the output.** Compression's bad run is a complete, fluent, self-consistent briefing missing
+three deadlines, and the protection built for it assumes the reader knows to go and check. A bad
+proposal here is one visible line asserting that one block replaces another, offered to a person
+who either accepts it or does not. **What decides whether a machine judgement can be wired into a
+default path is not how often it is right, but whether being wrong is legible to the person who
+has to live with it.**
+
+**What twenty-five runs do not support**, stated because the temptation to over-read them is
+real: only one project had any ground truth, and that truth was taken from the owner naming the
+two blocks rather than from independent labelling; the two control projects tested false
+positives only and say nothing about recall; one prompt version was tested, so the known weakness
+— eleven proposals named the older of the two retirable blocks eight times and the other twice —
+has not been shown to be a prompt problem rather than a model one; and the explanation offered
+for why `high` was more cautious is a guess with no evidence behind it.
+
 ---
 
 ## 4. Boundaries stated on purpose

@@ -178,7 +178,29 @@ fn run_blocking(
         Err(e) => return CompressOutcome::failed("no_sidecar", e, None),
     };
     let timeout_secs = clamp_timeout(timeout_secs);
-    let request = serde_json::json!({
+    let request = sidecar_request(&base_url, &api_key, &model, &system, &user, &reasoning, timeout_secs);
+    let payload = match serde_json::to_vec(&request) {
+        Ok(v) => v,
+        Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
+    };
+    spawn_sidecar_with(&bin, payload, timeout_secs, Some(app.clone()))
+}
+
+/// 递给 `spool-ai` 的那个请求。
+///
+/// ⚠️ **拆出来是为了让第二轮实测量的是产品本身**（WORKPLAN §9.6.3）。自动化实测台
+/// 绕开界面直接喂子进程，如果它自己另拼一份请求，测出来的就是那份脚本，不是 Spool。
+/// 两边共用这一个函数，参数一旦改了，实测跟着改。
+fn sidecar_request(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+    reasoning: &str,
+    timeout_secs: u64,
+) -> serde_json::Value {
+    serde_json::json!({
         "base_url": base_url,
         "api_key": api_key,
         "model": model,
@@ -196,12 +218,7 @@ fn run_blocking(
         // 比外层短一点，好让它有机会把一个说人话的 timeout 信封写出来，
         // 而不是被我们杀掉之后只剩「进程没了」。
         "timeout_secs": timeout_secs.saturating_sub(5).max(10),
-    });
-    let payload = match serde_json::to_vec(&request) {
-        Ok(v) => v,
-        Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
-    };
-    spawn_sidecar_with(&bin, payload, timeout_secs, Some(app.clone()))
+    })
 }
 
 /// 起子进程、喂 stdin、收信封。
@@ -465,6 +482,40 @@ pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn api_key_present(app: tauri::AppHandle) -> bool {
     key_path(&app).map(|p| p.is_file()).unwrap_or(false)
+}
+
+// ---------------------------------------------------------------------------------------
+// 第二轮实测台的入口（WORKPLAN §9.6.3）。⚠️ `#[cfg(test)]` —— 发布构建里没有这两个函数。
+//
+// 存在的理由只有一条：**实测量的必须是产品本身**。所以实测台不自己找二进制、不自己拼请求、
+// 不自己起进程 —— 它借的就是上面那三样（`sidecar_path` / `sidecar_request` / `spawn_sidecar`）。
+// 哪天请求里多一个参数，实测跟着变；否则跑出来的数字描述的是那个脚本，不是 Spool。
+// ---------------------------------------------------------------------------------------
+
+#[cfg(test)]
+pub(crate) fn sidecar_path_for_test() -> Result<std::path::PathBuf, String> {
+    sidecar_path()
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn compress_for_test(
+    bin: &std::path::Path,
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+    reasoning: &str,
+    timeout_secs: u64,
+) -> CompressOutcome {
+    let timeout_secs = clamp_timeout(timeout_secs);
+    let request = sidecar_request(base_url, api_key, model, system, user, reasoning, timeout_secs);
+    let payload = match serde_json::to_vec(&request) {
+        Ok(v) => v,
+        Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
+    };
+    spawn_sidecar(bin, payload, timeout_secs)
 }
 
 #[cfg(test)]

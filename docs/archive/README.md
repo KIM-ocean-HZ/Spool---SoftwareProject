@@ -48,3 +48,10 @@
 | 文件 | 干什么用 |
 |---|---|
 | `EVAL_M1_M2_M3.md` | 引擎位 + MCP 写入的自评与实机探针结果(2026-08-05) |
+
+## 外部材料（2026-08-21 归档）
+
+| 文件 | 是什么 | 结论在哪 |
+|---|---|---|
+| `essayprove-gpt-analysis.md` | MemTrapBench 论文 + 一位老师的点评 + 三轮 GPT 分析的**原始粘贴**（776 行）。⛔ 里面有一条对 Spool 现状的描述是错的（读了过期的 `SPOOL_OVERVIEW.md`） | `docs/REVIEW_MEMTRAPBENCH-2026-08-21.md`，排期在 `WORKPLAN-2026-08-20.md` §9.13 |
+

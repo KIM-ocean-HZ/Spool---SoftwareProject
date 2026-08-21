@@ -1,13 +1,4 @@
-import {
-  CircleSlash,
-  Highlighter,
-  MessageSquarePlus,
-  Pencil,
-  PencilLine,
-  Pin,
-  PinOff,
-  Trash2,
-} from 'lucide-react';
+import { CircleSlash, Highlighter, MessageSquarePlus, Pencil, PencilLine, Pin, PinOff, Shrink, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useT } from '@/lib/i18n';
 
@@ -41,6 +32,11 @@ interface Props {
   onAnnotate: () => void;
   onToggleStale: () => void;
   onDelete: () => void;
+  // WORKPLAN-2026-08-20 §9.6.6 —— 单块压缩。Ocean:「可以项目压缩也可以 block 压缩」。
+  // ⚠️ **它不是「项目压缩缩小版」**：压缩干的主要活是合并重复，而重复是跨块的，单独压一块
+  // 看不见别的块。所以它只在**这一块特别长**的时候值得点（一整篇网页正文那种），
+  // 而核对桌上会把这句话写出来。`undefined` = API 引擎没开，这个按钮就不存在。
+  onCompress?: () => void;
 }
 
 interface ActionBtnProps {
@@ -91,6 +87,7 @@ export default function BlockActions({
   onAnnotate,
   onToggleStale,
   onDelete,
+  onCompress,
 }: Props) {
   const t = useT();
   const highlightTitle = !canHighlight
@@ -157,6 +154,12 @@ export default function BlockActions({
       >
         <CircleSlash size={11} className={stale ? 'text-accent' : ''} />
       </ActionBtn>
+      {/* §9.6.6：两个入口，同一张核对桌 —— 项目压缩在右侧栏，单块压缩在这儿。 */}
+      {onCompress && (
+        <ActionBtn title={t('把这一块压短（压完给你核对，不改库）')} onClick={onCompress}>
+          <Shrink size={11} />
+        </ActionBtn>
+      )}
       <ActionBtn title={t('删除')} onClick={onDelete} emphasis="accent">
         <Trash2 size={11} />
       </ActionBtn>

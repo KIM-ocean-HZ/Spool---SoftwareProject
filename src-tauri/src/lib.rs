@@ -1,4 +1,7 @@
 mod api_engine;
+// 第二轮压缩实测台（WORKPLAN §9.6.3）。⚠️ 只在测试构建里存在 —— 发布出去的 Spool 里没有它。
+#[cfg(test)]
+mod compress_sweep;
 mod capture;
 #[cfg(target_os = "macos")]
 mod double_tap;

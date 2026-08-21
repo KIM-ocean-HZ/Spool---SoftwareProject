@@ -18,6 +18,9 @@ import { useBlocksStore } from '@/stores/blocksStore';
 import { useSearchStore } from '@/stores/searchStore';
 import { toast } from '@/stores/toastStore';
 import { buildHighlightUndo, useUndoStore } from '@/stores/undoStore';
+import { useCompressStore } from '@/stores/compressStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import BlockActions from './BlockActions';
 import CitationLine from './CitationLine';
 import CorrectedByLine from './CorrectedByLine';
@@ -119,6 +122,10 @@ function TextBlockItem({
   onDelete,
 }: Props) {
   const t = useT();
+  // §9.6.6 单块压缩：从块自己的菜单进，和右侧栏的「压缩这个项目」通向同一张核对桌。
+  const apiEngineEnabled = useSettingsStore((s) => s.apiEngineEnabled);
+  const openCompressBlock = useCompressStore((s) => s.openBlock);
+  const compressThread = useThreadsStore(selectThreadById(block.threadId));
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
   const setStale = useBlocksStore((s) => s.setStale);
@@ -856,6 +863,13 @@ function TextBlockItem({
               void setStale(block.id, block.staleAt == null);
             }}
             onDelete={() => onDelete?.()}
+            // §9.6.6：单块压缩。⚠️ 只在 API 引擎开着、而且这一块所在的项目还在的时候出现 ——
+            // 默认关闭（§6.2 约束 5），一个点了只会说「你还没配」的按钮不如没有。
+            onCompress={
+              apiEngineEnabled && compressThread
+                ? () => void openCompressBlock(compressThread, block)
+                : undefined
+            }
           />
         )}
       </div>
