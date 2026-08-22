@@ -1189,9 +1189,20 @@ const EN: Record<string, string> = {
   '压缩《{name}》': 'Compressing {name}',
   '压缩《{name}》的第 {n} 块': 'Compressing block #{n} of {name}',
   '一块对一块地核对。': 'Checked block by block.',
-  // D9：为什么没有「用这一份」——把沉默的缺口写出来。
-  '这里没有「用这一份」：压缩稿丢了数字和日期的时候，和没丢长得一模一样，Spool 还认不出来。所以只给你复制走，库里一个字都不动。':
-    'There is no “use this version” here: when a compressed version has dropped numbers and dates it looks exactly like one that has not, and Spool cannot yet tell the two apart. So it is yours to copy, and your library is left untouched.',
+  // D9：为什么没有「用这一份」——把沉默的缺口写出来。D-b：数字硬闸门也写在这儿。
+  '这里没有「用这一份」：这一步只给你复制走，库里一个字都不动。':
+    'There is no “use this version” here: this step is yours to copy, and your library is left untouched.',
+  '丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。':
+    'A compressed version that has dropped a number or a date may never enter your library — that holds even once writing is unlocked.',
+  '这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。':
+    'This one is stuck on exactly that — use “add back from the original” above first.',
+  // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
+  '从原文加回去': 'Add back from the original',
+  '你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。':
+    'You added back {n} number(s)/date(s) from the original — those lines are your own words, verbatim.',
+  '从原文加回去了 {n} 处数字/日期': 'Added back {n} number(s)/date(s) from the original',
+  '这 {n} 个补不回去：在压缩稿里找不到该把它们插在哪儿。重压一次吧。':
+    'These {n} cannot be added back: there is nowhere in the compressed version to put them. Run the compression again.',
   '「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。':
     '\u201cOnly drop repeats\u201d has almost nothing to do on a single block: merging repeats is the main job, and repeats live ACROSS blocks — one block on its own cannot see the others. To drop repeats, compress the whole project.',
   '单独压一块，它只能把这一块自己的话说短，看不见别的块，也就删不掉跨块的重复。一块特别长（比如一整篇网页正文）的时候最划算。':

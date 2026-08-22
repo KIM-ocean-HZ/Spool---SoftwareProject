@@ -215,12 +215,13 @@ const SECTION_RE = /^##\s+(.+?)\s*$/;
  *  ⚠️ 三个字符以下不算：`R29/L24/S25/W26` 那种拆出来的 `29`、`24` 满篇都是，
  *  报出来只会淹掉真正丢掉的那几个。**宁可少报，也不要把这一行变成噪声。** */
 const NUMBERISH = /\d+(?:[.\-:]\d+)*/g;
+const squeeze = (text: string): string => text.replace(/\s+/g, '').replace(/(?<=\d),(?=\d)/g, '');
 export const numberTokens = (text: string): string[] =>
-  uniq(
-    (text.replace(/\s+/g, '').replace(/(?<=\d),(?=\d)/g, '').match(NUMBERISH) ?? []).filter(
-      (n) => n.length >= 3,
-    ),
-  );
+  uniq((squeeze(text).match(NUMBERISH) ?? []).filter((n) => n.length >= 3));
+/** 这一行里有没有这个数字。⚠️⚠️ **必须和 `numberTokens` 走同一套归一化** —— 抽出来的
+ *  `2026-08-07` 在原文里可能长着 `2026-0 8-0 7`（PDF 提取），一行一行地找的时候不去空白
+ *  就永远对不上它自己抽出来的那个数。D7「加回去」要靠它找到那个数住在哪一行。 */
+export const lineHasNumber = (line: string, n: string): boolean => squeeze(line).includes(n);
 // 块和块之间的连线。渲染器打出来的三种：`↩ cites:` / `↩ replaces (…)` / `↩ corrects …`。
 const RELATION_RE = /^\s*↩\s*(.+)$/;
 export const HIGHLIGHT_RE = /==([^=]+)==/g;
@@ -405,6 +406,19 @@ export const auditCompression = (original_: string, compressed: string): Compres
     fabricatedNotes: paired.fabricated,
   };
 };
+
+/** ⛔⛔ **D-b · 数字硬闸门**（2026-08-22）：这一份**够不够格进库**。
+ *
+ *  丢了数字/日期就是不够格 —— ⛔ **写入解锁之后这条也照样在**，而且**不许用"用户点了确认"
+ *  把它放行**。封锁写入的理由从来不是「AI 写的东西不可信」这种泛泛的话，是一件具体的事：
+ *  **它压得动的时候会丢日期，它不丢日期的时候等于没压，而两种结果长得一模一样。**
+ *  （实测：剩 91–101% 的那些一个数字都没丢；压到 64% 的那次丢了 5 个，含 CMU SCS 建议的
+ *  GRE 最晚重考日 `2026-11-25` —— 而那一档就叫「保留结论和数字」。）
+ *
+ *  ⭐ 闸门是**能过的**：`addBackNumbers` 把丢掉的那几行从原文补回来（纯本地、不问模型、
+ *  不花钱），补完这个判断就为真。⛔ 别把它改成「警告一下然后放行」—— 那就等于没有闸门。 */
+export const numbersGateOpen = (a: Pick<CompressionAudit, 'missingNumbers'>): boolean =>
+  a.missingNumbers.length === 0;
 
 /** 有没有踩到「必须一字不改」那条线。界面用它决定顶部是绿的还是红的。 */
 export const auditHasLosses = (a: CompressionAudit): boolean =>

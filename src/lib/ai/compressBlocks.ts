@@ -25,8 +25,10 @@
 
 import {
   ANY_NOTE_RE,
+  diffLines,
   ENTRY_RE,
   HIGHLIGHT_RE,
+  lineHasNumber,
   missingNumbersBetween,
   normLoose,
   packLines,
@@ -299,4 +301,116 @@ export const compareByEntry = (original: string, compressed: string): BlockCompa
 export const entryPercent = (p: EntryPair): number | null => {
   if (!p.before || !p.after) return null;
   return Math.round((p.after.raw.length / Math.max(1, p.before.raw.length)) * 100);
+};
+
+// ---------------------------------------------------------------------------------------
+// D7 · 把丢掉的数字/日期加回去（2026-08-22，Ocean）
+// ---------------------------------------------------------------------------------------
+//
+// 封锁写入的理由是：**它压得动的时候会丢日期，它不丢日期的时候等于没压。**
+// 原来给的解法是硬闸门（`numbersGateOpen`）—— 丢了就不许存，只能重跑，而重跑要再花一次钱、
+// 再等一分钟，还不保证这次不丢。
+//
+// ⭐ Ocean 这条给的是第三条路，比重跑好：**丢了就补回去。**
+// 那个数字和它所在的那一行**在原文里都还在** —— 这是纯本地、不出网、不花钱、不问模型的动作。
+//
+// ⚠️⚠️ **难在插哪儿。** 三条规矩，每一条都是为了不让「补救」自己变成新的损坏：
+//
+//   1. **补回去的是整行，不是"带数字的那一句"。** 一行本来就是 diff 的单位，而且整行拿回来
+//      永远是合法的 markdown（列表记号、`💭 note:` 前缀、标题都跟着回来）。
+//      ⛔ 抠句子会把一个日期塞进半截话里 —— 那正是这个功能要修的毛病。
+//   2. **落脚点是「它前面最后一个原样留下来的行」。** 插在那一行后面，顺序就还是原文的顺序。
+//      前面一行都没留下来（整段被改写）→ 插在这一块的头行后面，⛔ **绝不会跑到别的块里去**。
+//   3. **补不回去的必须报出来**（`failed`）。整块不见了、或者这一份根本切不出块的时候，
+//      没有落脚点 —— ⛔ 那时候假装"全补上了"，就是核对界面自己在撒谎。
+const RELATION_LINE = /^\s*↩/;
+
+export interface AddBackResult {
+  /** 补完之后的压缩稿全文。⚠️ 一处都没补的时候原样返回，不是空串。 */
+  text: string;
+  /** 真的补回去了的那些数字/日期。 */
+  added: string[];
+  /** ⛔ 没能补回去的。必须报给用户 —— 见上面第 3 条。 */
+  failed: string[];
+}
+
+/** 把压缩稿里丢掉的数字/日期，连着它在原文里的那一行一起补回去。纯本地，不问模型。 */
+export const addBackNumbers = (original: string, compressed: string): AddBackResult => {
+  const missing = missingNumbersBetween(original, compressed);
+  const cmp = missing.length > 0 ? compareByEntry(original, compressed) : null;
+  // 切不出块 = 没有落脚点。⛔ 这时候不许在整份文本上瞎猜位置，如实说补不回去。
+  if (!cmp) return { text: compressed, added: [], failed: missing };
+
+  // key（小节 + 编号）→（after 正文的行下标 → 插在它后面的那几行）
+  const plan = new Map<string, Map<number, string[]>>();
+  const added: string[] = [];
+  for (const p of cmp.pairs) {
+    if (!p.before || !p.after) continue;
+    const here = missing.filter((n) => p.audit.missingNumbers.includes(n));
+    if (here.length === 0) continue;
+    const perAnchor = new Map<number, string[]>();
+    // after 那一侧的行下标：0 = 头行（`#N […]` 那一行的尾巴），往后依次 +1。
+    let afterIdx = -1;
+    let lastSame = -1;
+    for (const l of diffLines(p.before.body, p.after.body)) {
+      if (l.op !== 'cut') {
+        afterIdx++;
+        if (l.op === 'same') lastSame = afterIdx;
+        continue;
+      }
+      // ⛔ `↩ cites:` 那种预览行不是正文，它是别的块开头几十个字、还被 `…` 截断了。
+      // 把它补回来等于往稿子里插一句半截话。那一类由 `missingRelations` 管。
+      if (RELATION_LINE.test(l.text)) continue;
+      const hits = here.filter((n) => !added.includes(n) && lineHasNumber(l.text, n));
+      if (hits.length === 0) continue;
+      const anchor = Math.max(lastSame, 0);
+      const at = perAnchor.get(anchor) ?? [];
+      if (!at.includes(l.text)) at.push(l.text);
+      perAnchor.set(anchor, at);
+      added.push(...hits);
+    }
+    if (perAnchor.size > 0) plan.set(p.key, perAnchor);
+  }
+
+  const failed = missing.filter((n) => !added.includes(n));
+  if (plan.size === 0) return { text: compressed, added, failed };
+  return { text: spliceBack(compressed, plan), added, failed };
+};
+
+/** 照 `plan` 把几行插回压缩稿。⚠️ 走的是和 `splitPackEntries` 同一套切法（同样的头行、
+ *  同样只认 pack 自己的小节标题），否则行下标会和上面算出来的落脚点错位。 */
+const spliceBack = (compressed: string, plan: Map<string, Map<number, string[]>>): string => {
+  const out: string[] = [];
+  let section = '';
+  let key: string | null = null;
+  let bodyIdx = -1;
+  const seen = new Set<string>();
+  const insertAfter = (idx: number): void => {
+    if (key) out.push(...(plan.get(key)?.get(idx) ?? []));
+  };
+  for (const line of packLines(compressed)) {
+    const sec = SECTION_RE.exec(line);
+    if (sec && PACK_SECTIONS.has(sec[1])) {
+      section = sec[1];
+      key = null;
+      out.push(line);
+      continue;
+    }
+    if (ENTRY_RE.test(line)) {
+      const k = `${section}#${Number(/#(\d+)/.exec(line)?.[1] ?? 0)}`;
+      // 重复编号只补第一份 —— `compareByEntry` 配对时留的也是第一份，两边要一致。
+      key = seen.has(k) ? null : k;
+      seen.add(k);
+      bodyIdx = 0;
+      out.push(line);
+      insertAfter(0);
+      continue;
+    }
+    out.push(line);
+    if (key !== null) {
+      bodyIdx++;
+      insertAfter(bodyIdx);
+    }
+  }
+  return out.join('\n');
 };

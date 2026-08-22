@@ -9,6 +9,7 @@ import {
   formatYuan,
   isPeakBeijing,
   measurementRecord,
+  numbersGateOpen,
   overlapRatio,
   pairRewrites,
   priceTier,
@@ -220,6 +221,14 @@ describe('行级 diff', () => {
     // diffLines 超行数上限时退化成只报原文侧，压缩稿侧的 added 行根本不存在。
     const degraded = diffLines(Array.from({ length: 2600 }, (_, i) => `l${i}`).join('\n'), 'l0\nnew');
     expect(diffChunks(degraded, 'after', 'l0\nnew')).toBeNull();
+  });
+});
+
+// D-b（2026-08-22）：闸门的方向被写反过测试照样绿，所以钉一下。
+describe('数字硬闸门', () => {
+  it('丢了数字就是不够格进库；一个都没丢才放行', () => {
+    expect(numbersGateOpen({ missingNumbers: ['2026-11-25'] })).toBe(false);
+    expect(numbersGateOpen({ missingNumbers: [] })).toBe(true);
   });
 });
 

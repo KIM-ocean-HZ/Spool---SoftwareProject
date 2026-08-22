@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { localDay, nightlyDue } from './compressStore';
+import { localDay, nightlyDue, useCompressStore, type CompressSession } from './compressStore';
+import type { CompressOutcome } from '@/lib/ai/compress';
 
 // ⑥ 的「调度器」就这一个判断（§9.6.4）。⛔ 没有 launchd、没有后台常驻，所以这条谓词
 // 就是全部的时序逻辑 —— 它错了，要么该跑的不跑，要么启动即扣钱。
@@ -37,5 +38,67 @@ describe('localDay', () => {
   // ⚠️ 本地时区 —— 「今晚」是用户的今晚，不是 UTC 的。
   it('补零到 YYYY-MM-DD', () => {
     expect(localDay(new Date(2026, 0, 5, 23, 30))).toBe('2026-01-05');
+  });
+});
+
+
+// D7（2026-08-22）：把丢掉的数字从原文补回去。
+const PACK = `# Project Context: 申请规划
+
+## Full Record (chronological)
+
+#1 [2026-08-01 09:00 · from Safari] 第一句话。
+GRE 最晚重考日是 2026-11-25。
+
+## Output Language
+
+Answer in Chinese.`;
+
+const outcome = (text: string): CompressOutcome => ({
+  ok: true,
+  text,
+  cuts: null,
+  kind: null,
+  message: null,
+  status: 200,
+  inputTokens: 100,
+  outputTokens: 80,
+  cachedInputTokens: null,
+  reasoningTokens: null,
+  ms: 1000,
+  model: 'deepseek-flash',
+});
+
+describe('addBack', () => {
+  const session = (): CompressSession => ({
+    target: { kind: 'project', threadId: 'x', title: '申请规划' },
+    source: PACK,
+    blocks: [],
+    level: 'balanced',
+    reasoning: 'medium',
+    outcome: outcome(PACK.split('\n').filter((l) => !l.startsWith('GRE')).join('\n')),
+    patched: null,
+    addedBack: [],
+    startedAt: 0,
+  });
+
+  it('补回去的落在 patched 上，原始 outcome 一个字不动（报账那一行读的是它）', () => {
+    const s = session();
+    useCompressStore.setState({ session: s, results: [] });
+    useCompressStore.getState().addBack();
+    const st = useCompressStore.getState();
+    expect(st.session!.patched).toContain('2026-11-25');
+    expect(st.session!.addedBack).toEqual(['2026-11-25']);
+    expect(st.session!.outcome!.text).not.toContain('2026-11-25');
+  });
+
+  // ⚠️ 夜里那一批的收件箱里躺的是同一个对象。只换 session 的话，关掉桌子再从右栏点回来，
+  // 补回去的那几行就没了 —— 而屏幕上不会有任何东西告诉你它没了。
+  it('右栏收件箱里那一份跟着一起换', () => {
+    const s = session();
+    useCompressStore.setState({ session: s, results: [s] });
+    useCompressStore.getState().addBack();
+    const st = useCompressStore.getState();
+    expect(st.results[0]).toBe(st.session);
   });
 });

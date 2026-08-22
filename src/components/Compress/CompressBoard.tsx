@@ -12,6 +12,7 @@ import {
   LEVEL_HINTS,
   LEVEL_LABELS,
   measurementRecord,
+  numbersGateOpen,
   type CompressLevel,
 } from '@/lib/ai/compress';
 import { compareByEntry } from '@/lib/ai/compressBlocks';
@@ -36,6 +37,7 @@ export default function CompressBoard() {
   const run = useCompressStore((s) => s.run);
   const cancel = useCompressStore((s) => s.cancel);
   const close = useCompressStore((s) => s.close);
+  const addBack = useCompressStore((s) => s.addBack);
 
   const level = useSettingsStore((s) => s.apiCompressLevel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
@@ -55,20 +57,23 @@ export default function CompressBoard() {
 
   const outcome = session?.outcome ?? null;
   const source = session?.source ?? '';
+  // ⭐ D7：屏幕上核对的、复制走的，是**补过之后**那一份（补过的话）。
+  // ⚠️ 只有它变 —— 下面报账那一行照旧读 `outcome`：补一行字是纯本地动作，不花钱。
+  const result = outcome?.ok ? (session?.patched ?? outcome.text) : null;
 
   const audit = useMemo(
-    () => (outcome?.ok ? auditCompression(source, outcome.text) : null),
-    [source, outcome],
+    () => (result !== null ? auditCompression(source, result) : null),
+    [source, result],
   );
   // ⚠️ null = **这一份没法按块对照**（模型没照 pack 的格式写）。§9.6.5 点名要求这件事是一个
   // 看得见的结果：下面会说出来，然后退回整份文本对照 —— 不是一个被吞掉的异常。
   const byEntry = useMemo(
-    () => (outcome?.ok ? compareByEntry(source, outcome.text) : null),
-    [source, outcome],
+    () => (result !== null ? compareByEntry(source, result) : null),
+    [source, result],
   );
   const wholeDiff = useMemo(
-    () => (outcome?.ok && !byEntry ? diffLines(source, outcome.text) : []),
-    [source, outcome, byEntry],
+    () => (result !== null && !byEntry ? diffLines(source, result) : []),
+    [source, result, byEntry],
   );
   const cost = useMemo(() => (outcome?.ok ? estimateCost(outcome) : null), [outcome]);
 
@@ -78,6 +83,8 @@ export default function CompressBoard() {
   // devtools 的 Console。要往 `Deepseek-API-compress-test.md` 追一条，就在那儿拷。
   useEffect(() => {
     if (!outcome?.ok || !audit || !session) return;
+    // ⛔ 补过的那一份不进台账：台账记的是**模型交出来的成绩**，补回去的行是我们自己加的。
+    if (session.patched) return;
     console.info(
       measurementRecord({
         project: session.target.title,
@@ -131,8 +138,8 @@ export default function CompressBoard() {
   })();
 
   const copy = async () => {
-    if (!outcome?.ok) return;
-    await writeText(outcome.text);
+    if (result === null) return;
+    await writeText(result);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -233,6 +240,15 @@ export default function CompressBoard() {
             )}
           </div>
 
+          {/* ⚠️ 补过就必须说：稿子里从此有几行不是模型写的，而是从原文抄回来的原话。 */}
+          {session.addedBack.length > 0 && (
+            <div className="text-muted">
+              {t('你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。', {
+                n: session.addedBack.length,
+              })}
+            </div>
+          )}
+
           {byEntry && (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0) && (
             <div className="flex items-start gap-1.5">
               <AlertTriangle size={12} className="mt-0.5 flex-none" />
@@ -285,6 +301,15 @@ export default function CompressBoard() {
                       n: audit.missingNumbers.length,
                       s: audit.missingNumbers.slice(0, 12).join('、'),
                     })}
+                    {/* ⭐ D7：那几行在原文里都还在 —— 补回去是**纯本地**的，不问模型、不花钱。
+                        ⛔ 一处都补不回去的时候 store 会说出来（toast），不许点了没反应。 */}
+                    <button
+                      type="button"
+                      onClick={addBack}
+                      className="ml-2 rounded border border-current px-1.5 py-0.5 font-normal hover:bg-paper-2"
+                    >
+                      {t('从原文加回去')}
+                    </button>
                   </div>
                 )}
                 {audit.missingRelations.length > 0 && (
@@ -433,10 +458,15 @@ export default function CompressBoard() {
             ⛔ 一个沉默的缺口正是这个项目最怕的东西，所以理由写在这儿，写全。
             ⚠️ 解锁的前提是 D7（丢了的数字一键加回去）+ D-b（数字硬闸门），两件都没做。 */}
         <span className="text-muted">
-          {t('这里没有「用这一份」：压缩稿丢了数字和日期的时候，和没丢长得一模一样，Spool 还认不出来。所以只给你复制走，库里一个字都不动。')}
+          {t('这里没有「用这一份」：这一步只给你复制走，库里一个字都不动。')}
+          {' '}
+          {t('丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。')}
+          {audit && !numbersGateOpen(audit) && (
+            <> {t('这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。')}</>
+          )}
         </span>
         <div className="flex items-center gap-2">
-          {outcome?.ok && (
+          {result !== null && (
             <button
               onClick={() => void copy()}
               className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
