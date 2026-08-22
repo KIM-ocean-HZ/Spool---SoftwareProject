@@ -14,6 +14,8 @@ import {
   NOTE_INDENT,
   NOTE_MARKER,
   OUTPUT_LANGUAGE_BY_LANG,
+  PACK_BEGIN,
+  PACK_END,
   PACK_HEADER,
   PERSONAL_PREFIX,
   PINNED_PREFIX,
@@ -477,6 +479,10 @@ export function assemble({
   const staleCount = allBlocks.length - blocks.length;
   const correctedBy = correctionsBySource(blocks);
 
+  // The pack's own boundary — outside the `instructions` switch on purpose (templates.ts).
+  out.push(PACK_BEGIN);
+  out.push('');
+
   out.push(
     PACK_HEADER(
       thread.title,
@@ -540,6 +546,9 @@ export function assemble({
   out.push('---');
   out.push('');
   out.push(OUTPUT_LANGUAGE_BY_LANG[outputLanguage ?? 'zh']);
+
+  out.push('');
+  out.push(PACK_END);
 
   // Trailing newline so consecutive paste actions don't run together.
   return out.join('\n') + '\n';

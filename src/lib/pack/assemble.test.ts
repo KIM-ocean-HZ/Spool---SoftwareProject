@@ -5,7 +5,7 @@ import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { assemble, filterBlocksForRange, foldedCorrectionIds } from './assemble';
-import { INSTRUCTION_HEADER } from './templates';
+import { INSTRUCTION_HEADER, PACK_BEGIN, PACK_END } from './templates';
 import goldenFixture from './fixtures/golden-pack.json';
 
 const NOW = new Date('2026-05-15T10:00:00').getTime();
@@ -422,12 +422,45 @@ describe('assemble', () => {
   // --- Pack task templates: removed (2026-08-09, Ocean 决定 6) ----------------------------
   // 复习资料 / 组合零散对话 were the only two templates that emitted anything, and with them
   // gone a pack is always context-only. This guards the removal: no `## Task` block, and the
-  // pack still closes on the Output Language directive.
+  // Output Language directive is still the last SECTION — only the END boundary line comes
+  // after it (v23, §6.1 五).
   it('carries no task block — a pack is context only', () => {
     const blocks = [textBlock('b1', 'one note')];
     const out = assemble({ thread, blocks, now: NOW });
     expect(out).not.toContain('## Task');
-    expect(out.trimEnd().endsWith('may stay in their original language.')).toBe(true);
+    expect(out.trimEnd().endsWith(PACK_END)).toBe(true);
+    expect(out).toContain('may stay in their original language.\n\n' + PACK_END);
+  });
+
+  // v23 (REVIEW_MEMTRAPBENCH-2026-08-21 §6.1 五): the pack says where it starts and where it
+  // stops. ⚠️ Outside the `instructions` switch on purpose — a minimal pack is a shorter
+  // pack, and it still has to end somewhere; and the END line is the one place the
+  // applicability rule survives a pack too long to read from the top.
+  it('fences the pack with BEGIN / END boundary lines, in both modes', () => {
+    const blocks = [textBlock('b1', 'one note')];
+    for (const instructions of [true, false]) {
+      const out = assemble({ thread, blocks, instructions, now: NOW });
+      expect(out.startsWith(PACK_BEGIN + '\n')).toBe(true);
+      expect(out.trimEnd().endsWith(PACK_END)).toBe(true);
+      // The BEGIN line stands above the title, not in place of it.
+      expect(out).toContain(PACK_BEGIN + '\n\n# Project Context:');
+    }
+  });
+
+  // The Rust twin carries its own copy of both lines (mcp.rs PACK_BEGIN / PACK_END), and
+  // they live OUTSIDE INSTRUCTION_HEADER — so the byte-identical test above does not cover
+  // them. Same failure mode as the header: each side compiles, each side's tests pass, and
+  // the app's pack and the MCP pack quietly stop matching.
+  it('the Rust copies of the boundary lines are byte-identical to these', () => {
+    const rust = readFileSync(join(__dirname, '../../../src-tauri/src/mcp.rs'), 'utf8');
+    // Rust string literals with `\` line continuations — undo them to get the value.
+    const literal = (name: string): string => {
+      const m = rust.match(new RegExp(`const ${name}: &str = "([\\s\\S]*?)";`));
+      expect(m, `${name} not found in mcp.rs`).not.toBeNull();
+      return m![1].replace(/\\\n\s*/g, '');
+    };
+    expect(literal('PACK_BEGIN')).toBe(PACK_BEGIN);
+    expect(literal('PACK_END')).toBe(PACK_END);
   });
 
   describe('pack range filter (§17 range selector)', () => {
