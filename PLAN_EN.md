@@ -90,7 +90,8 @@ Knowledge workers running several "cross-tool, cross-day" workstreams at once: r
 3. **A thread is a log, not a chat.** Append-only, time-ordered, quiet. No "send," no read receipts, no real-time. (Editing or annotating a block you own does not violate this — "append-only" governs the sequence of blocks, not the immutability of a block's text.)
 4. **Retrieval is deterministic.** The core "pack" operation is pure string assembly: instant, reliable, with AI never in the hot path. AI compression is an optional enhancement, never a dependency.
 5. **AI is a librarian, not an author.** It summarizes, classifies, compresses. It never writes content for you, and never decides "what is related" for you. **AI output is always disposable decoration, never a structural element of any view — when AI is absent, every part of the product must remain fully intact.**
-6. **Exactly two tiers of structure; deadlines hang on threads.** Workspace → Thread, and no deeper. Block-level properties — attachments, annotations, source — are not a third tier; they are payload on a block.
+6. **A block is payload, not a tier; deadlines hang on threads.** Block-level properties — attachments, annotations, source — are not a third tier.
+   > ⛔ **Audited 2026-08-21** (§2.6). This principle used to open with 「Exactly two tiers of structure. Workspace → Thread, and no deeper.」 **That half is false and has been for a long time**: workspaces nest to any depth (`workspaces.parent_id`, no cap, a recursive `descendantIds` walk behind delete and move, and a move menu in the sidebar that offers any non-descendant as a parent). Nobody removed the sentence, so it kept being cited as a veto over work the product already supports. What survives is the sentence above — structure does not grow a level every time a block gains a property. Nesting DEPTH is a usability question now, not a constitutional one.
 
 ### 2.5.1 Design Bias — Personal Annotation Amplifies Pack Value
 
@@ -118,27 +119,31 @@ The design bias that follows: **at every surface where the user is already pause
 
 > Scope drift almost always happens because someone (Ocean three months from now, or Claude Code) raises "should we add X?" and nobody remembers why X was rejected. **Every row below has already been discussed and rejected. Do not re-propose them. Do not "casually" implement them.**
 
-| Rejected Idea | Why It's Tempting | Why Rejected | What We Do Instead |
-|---|---|---|---|
-| **Become a lightweight Notion** | Notion's market is huge | Unwinnable fight on Notion's turf. Spool's moat is zero-friction capture | Be Notion's upstream |
-| **Infinite nesting** | Sounds "flexible" | Managing a tree instead of working | Exactly two tiers |
-| **Auto-link "similar" threads** | "AI magic" | 90% noise; violates Principle 5 | FTS + explicit @-mentions |
-| **AI continuation / AI writing content** | v1 did this | Turns AI into an author (Principle 5 violation) | AI only summarizes/classifies |
-| **AI-suggested annotations / "do you mean…" annotation autocomplete** | After v2.9 elevated annotation, this looks tempting | Same root violation as AI continuation. The §2.5.1 bias is about affordance, not content generation. AI filling the slot turns Personal into Synthesis | Visible annotation slots; never filled by anything but the user's keystrokes |
-| **Fully automatic capture** | Sounds "zero-friction" | "100% automatic + 100% non-invasive" is a contradiction | "Copy-and-remember" shortcut |
-| **Real-time collaboration** | Sells well | Different product; dilutes positioning | Sharing = pack hands you text |
-| **Cloud sync in v1** | Multi-device convenient | Sync done wrong = privacy disaster | v1 local-only; E2EE sync in v2 |
-| **Rich text editor** | Looks "polished" | Complexity explosion | Plain text / Markdown source |
-| **Kanban / calendar / table multi-views** | Notion/Things have them | Each view = forever maintenance | Sidebar is the only "view" |
-| **Always-on floating widget** | Stronger presence | Window-management/occlusion overhead; v1 fails §2.7 q5 | Capture toast (§9.4); widget = v1.5 |
-| **Collapse every block by default** | Tidy | Re-entry now costs one click per block | Smart truncation per long block |
-| **Node-graph thread view** | Impressive | Violates "quiet"; layout engine cost; linear reading is already fastest | Linear feed |
-| **Per-block AI summary** | "AI on tap" | Low payoff per block; reliability variance | Thread-level summary only |
-| **Manual 0–100 progress slider (rolled back v2.6)** | Dashboard signal | Theater; nobody maintains; produced number to *maintain*, not a signal to *trust* | active\|parked\|done + deadline + updated_at |
-| **Manual `next_step` per-thread (rolled back v2.6)** | "Write where you left off" | Negative dogfooding result; stale by re-entry; friction on exit | Append-only feed surfaces "where you left off" naturally |
-| **Color-coded blocks by source** | Instant visual sorting | Violates "quiet"; source is free-text | Source-category icons + date dividers |
-| **Per-block user-selected classification at capture time** | "Clean data" | Violates Principle 1 (zero-friction); user doesn't yet know category at capture | Pack header teaches AI to classify |
-| **Modal "what do you think?" prompts after capture** | "Surface annotation aggressively per §2.5.1" — looks like the bias taken to its extreme | Violates Principle 3 (quiet) and Principle 1's spirit. The §2.5.1 bias is about affordance — visible slot, easy entry — not interruption. A modal nag every time a block lands turns a workbench into a chatbot | Visible annotation slots in edit mode (§20.4) and per-staged-item in collect mode (§20.9). Slot is present; pressure is absent |
+> ⚠️ **Audited line by line on 2026-08-21** (WORKPLAN-2026-08-20 §9 第 3 步). This list is the one document nobody re-reads critically — that is exactly its job — so a row that has quietly stopped being true keeps vetoing work and **nobody notices, because the list exists to end the discussion**. It wrongly vetoed twice in the round before this audit. Verdicts: ✅ **仍然有效** = the reasoning still holds, do not re-propose; ⛔ **已被实现推翻** = the product already does this, the row is a false statement rather than a rule; ⚠️ **理由已变，需重议** = something narrower is still rejected but the row as written now blocks work it was never about — read the note before citing it.
+>
+> ⛔ **An audit records; it does not decide.** Nothing here lifts a rejection — that is Ocean's to say out loud.
+
+| Rejected Idea | 2026-08-21 | Why It's Tempting | Why Rejected | What We Do Instead |
+|---|---|---|---|---|
+| **Become a lightweight Notion** | ✅ 仍然有效 | Notion's market is huge | Unwinnable fight on Notion's turf. Spool's moat is zero-friction capture | Be Notion's upstream |
+| **Infinite nesting** | ⛔ **已被实现推翻** | Sounds "flexible" | Managing a tree instead of working | ~~Exactly two tiers~~ — **workspaces already nest to any depth** (`workspaces.parent_id`, no cap; recursive delete/move walks; sidebar move menu). What was actually kept is that a block is payload, not a tier. See Principle 6 |
+| **Auto-link "similar" threads** | ✅ 仍然有效 | "AI magic" | 90% noise; violates Principle 5 | FTS + explicit @-mentions. `find_similar_blocks` only *reports* duplicates; merging stays the user's curation |
+| **AI continuation / AI writing content** | ✅ 仍然有效 | v1 did this | Turns AI into an author (Principle 5 violation) | AI only summarizes/classifies |
+| **AI-suggested annotations / "do you mean…" annotation autocomplete** | ⚠️ **理由已变** | After v2.9 elevated annotation, this looks tempting | Same root violation as AI continuation. The §2.5.1 bias is about affordance, not content generation. AI filling the slot turns Personal into Synthesis | ~~Visible annotation slots; never filled by anything but the user's keystrokes~~ — **the slot half is no longer true**: an AI may write an annotation through the MCP write tools. It is kept out of the Personal BAND rather than out of the slot (`annotation_by`, rendered `ai note:`, weighed 🧩 Synthesis). The rejection itself stands — nothing suggests annotation text to the user — so cite the band rule, not the slot rule |
+| **Fully automatic capture** | ✅ 仍然有效 | Sounds "zero-friction" | "100% automatic + 100% non-invasive" is a contradiction | "Copy-and-remember" shortcut. Reaffirmed 2026-08-20 (双击 ⌥ 录屏 refused on this row) |
+| **Real-time collaboration** | ✅ 仍然有效 | Sells well | Different product; dilutes positioning | Sharing = pack hands you text |
+| **Cloud sync in v1** | ⚠️ **理由已变** | Multi-device convenient | Sync done wrong = privacy disaster | Local-only stands; ~~E2EE sync in v2~~ **is dead** — it is now explicitly not being built at all (WORKPLAN-2026-08-20 §4.3). The row promises a later version that is not coming |
+| **Rich text editor** | ✅ 仍然有效 | Looks "polished" | Complexity explosion | Plain text / Markdown source (`==spans==` are source, not formatting) |
+| **Kanban / calendar / table multi-views** | ⚠️ **理由已变** | Notion/Things have them | Each view = forever maintenance | The cost argued here is **a NEW first-class view**, and it does not cover reshaping one that already exists and is already maintained — `ProjectBoard` is in the build. ⛔ Do not cite this row against the v0.7 `C4` schedule-board conversion |
+| **Always-on floating widget** | ✅ 仍然有效 | Stronger presence | Window-management/occlusion overhead; v1 fails §2.7 q5 | Capture toast (§9.4); widget = v1.5 |
+| **Collapse every block by default** | ✅ 仍然有效 | Tidy | Re-entry now costs one click per block | Smart truncation per long block |
+| **Node-graph thread view** | ⚠️ **理由已变** | Impressive | Violates "quiet"; layout engine cost; linear reading is already fastest | Still true of a node graph as *the way you read a thread*. ⛔ It is **not** an argument against the provenance graph on the roadmap (WORKPLAN §9 step 11), which displays citation edges already in the data and never replaces the feed |
+| **Per-block AI summary** | ✅ 仍然有效 | "AI on tap" | Low payoff per block; reliability variance | Thread-level summary only (`distill`, `set_thread_summary`) |
+| **Manual 0–100 progress slider (rolled back v2.6)** | ✅ 仍然有效 | Dashboard signal | Theater; nobody maintains; produced number to *maintain*, not a signal to *trust* | active\|parked\|done + deadline + updated_at |
+| **Manual `next_step` per-thread (rolled back v2.6)** | ✅ 仍然有效 | "Write where you left off" | Negative dogfooding result; stale by re-entry; friction on exit | Append-only feed surfaces "where you left off" naturally |
+| **Color-coded blocks by source** | ✅ 仍然有效 | Instant visual sorting | Violates "quiet"; source is free-text | Source-category icons + date dividers. Reaffirmed 2026-08-20 (colour-by-priority refused on this row) |
+| **Per-block user-selected classification at capture time** | ✅ 仍然有效 | "Clean data" | Violates Principle 1 (zero-friction); user doesn't yet know category at capture | Pack header teaches AI to classify |
+| **Modal "what do you think?" prompts after capture** | ✅ 仍然有效 | "Surface annotation aggressively per §2.5.1" — looks like the bias taken to its extreme | Violates Principle 3 (quiet) and Principle 1's spirit. The §2.5.1 bias is about affordance — visible slot, easy entry — not interruption. A modal nag every time a block lands turns a workbench into a chatbot | Visible annotation slots in edit mode (§20.4) and per-staged-item in collect mode (§20.9). Slot is present; pressure is absent |
 
 ### 2.7 The Filter: Should This Feature Be Built?
 
@@ -183,7 +188,9 @@ Workspace   ← Big topic. e.g. "COMP3074", "Dissertation"
    │                   Blocks can carry file/folder/URL attachments.
 ```
 
-**Exactly two tiers, no more, no less** (Principle 6).
+**Two tiers is the shape to design for** (Principle 6) — a block is payload, never a third tier.
+⚠️ It is not a limit the software enforces: workspaces nest, so the picture above is the common
+case rather than the maximum. Audited 2026-08-21, see §2.6.
 
 ### 3.3 The Thread Lifecycle: Active → Done
 

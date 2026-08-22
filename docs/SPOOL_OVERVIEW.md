@@ -165,8 +165,15 @@ These outrank everything else in the project. Source: `PLAN_EN.md` §2.5.
 5. **AI is a librarian, not an author.** It summarises, classifies, compresses. It never writes
    content for you and never decides what is related for you. AI output is always disposable
    decoration, never a structural element of any view — with AI absent, the product is intact.
-6. **Exactly two tiers of structure.** Workspace → Project, no deeper. Block-level properties
-   (attachments, annotations, source) are payload on a block, not a third tier.
+6. **A block is payload, not a tier.** Attachments, annotations and source live *on* a block;
+   they never become a level of their own.
+   > ⛔ **This principle used to read 「Exactly two tiers of structure. Workspace → Project, no
+   > deeper.」 and that half was false** — audited 2026-08-21 (§2.5). Workspaces nest to any
+   > depth (`workspaces.parent_id`, no cap, recursive delete/move walks, a move menu in the
+   > sidebar), and have for long enough that no one remembers shipping it. The sentence was
+   > still being cited as a veto. What survives is the part above, which is what the principle
+   > was protecting: structure does not grow a level every time a block gains a property.
+   > ⚠️ Nesting DEPTH is now a usability question (see §9 `C5`), not a constitutional one.
 
 ### 2.4 The design bias: personal annotation amplifies pack value
 
@@ -186,25 +193,41 @@ about *affordance*, not pressure.
 
 Each row has already been discussed and rejected. Source: `PLAN_EN.md` §2.6.
 
-| Rejected | Why rejected | What we do instead |
-|---|---|---|
-| Become a lightweight Notion | Unwinnable on Notion's turf; the moat is zero-friction capture | Be Notion's upstream |
-| Infinite nesting | Managing a tree instead of working | Exactly two tiers |
-| Auto-link "similar" projects | 90% noise; violates Principle 5 | Full-text search + explicit @-mentions |
-| AI writing content for you | Turns AI into an author | AI only summarises / classifies / files |
-| AI-suggested annotations | Turns Personal into Synthesis — the one band AI must not fill | Visible slots, filled only by the user's keystrokes |
-| Fully automatic capture | "100% automatic + 100% non-invasive" is a contradiction | Copy-and-remember gesture |
-| Real-time collaboration | Different product; dilutes positioning | Sharing = pack hands you text |
-| Cloud sync in v1 | Sync done wrong is a privacy disaster | v1 local-only; E2EE sync is a v2 hook |
-| Rich text editor | Complexity explosion | Plain text / Markdown source |
-| Kanban / calendar / table views | Each view is forever maintenance | The sidebar is the only "view" |
-| Collapse every block by default | Re-entry then costs one click per block | Smart truncation per long block |
-| Node-graph project view | Violates "quiet"; linear reading is already fastest | Linear feed |
-| Per-block AI summary | Low payoff per block; reliability variance | Project-level summary only |
-| Manual 0–100 progress slider | Theatre; a number to *maintain*, not a signal to *trust* (rolled back after shipping) | status + deadline + `updated_at` |
-| Manual `next_step` per project | Stale by re-entry; friction on exit (rolled back after shipping) | The append-only feed *is* "where you left off" |
-| Colour-coded blocks by source | Violates "quiet" | Source-category icons + date dividers |
-| User classification at capture time | Violates Principle 1; the user does not yet know the category | The pack header teaches the AI to classify |
+> ⚠️ **Audited line by line on 2026-08-21** (WORKPLAN-2026-08-20 §9 第 3 步). A rejection list
+> is the one kind of document nobody re-reads critically — that is its job — so a row that has
+> quietly stopped being true keeps vetoing work, and **nobody notices, because the list exists
+> precisely to end the discussion**. In the round before this audit it wrongly vetoed twice.
+>
+> Three verdicts, and only the first means "argument closed":
+>
+> | | Means |
+> |---|---|
+> | ✅ **仍然有效** | The reasoning still holds against the current build. Do not re-propose. |
+> | ⛔ **已被实现推翻** | The product already does this. The row is not a rule any more, it is a false statement about the software. |
+> | ⚠️ **理由已变，需重议** | Something narrower than the row is still rejected, but the row as written now blocks work it was never about. **Read the note before citing it.** |
+>
+> ⛔ The verdicts are recorded, not acted on: nothing here removes a rejection. Reversing one is
+> Ocean's to say out loud (§13's rule), and an audit is not a decision.
+
+| Rejected | 2026-08-21 | Why rejected | What we do instead |
+|---|---|---|---|
+| Become a lightweight Notion | ✅ 仍然有效 | Unwinnable on Notion's turf; the moat is zero-friction capture | Be Notion's upstream |
+| Infinite nesting | ⛔ **已被实现推翻** | Managing a tree instead of working | ~~Exactly two tiers~~ — **workspaces nest to any depth and have for a long time**: `workspaces.parent_id` with no depth cap, a recursive `descendantIds` walk behind delete and move, and the sidebar's own move menu offering any non-descendant as a parent. What was actually kept is that a BLOCK is payload, not a tier. See §2.3 principle 6 |
+| Auto-link "similar" projects | ✅ 仍然有效 | 90% noise; violates Principle 5 | Full-text search + explicit @-mentions. `find_similar_blocks` only *reports* duplicates — merging stays the user's curation |
+| AI writing content for you | ✅ 仍然有效 | Turns AI into an author | AI only summarises / classifies / files |
+| AI-suggested annotations | ⚠️ **理由已变** | Turns Personal into Synthesis — the one band AI must not fill | The rejection itself stands: nothing suggests annotation text to the user. But **"filled only by the user's keystrokes" is no longer true** — an AI may write one through the MCP tools, and it is kept out of the Personal band instead of kept out of the slot (`annotation_by`, rendered `ai note:`, weighed 🧩). Cite the band rule, not the slot rule |
+| Fully automatic capture | ✅ 仍然有效 | "100% automatic + 100% non-invasive" is a contradiction | Copy-and-remember gesture. Reaffirmed 2026-08-20 (双击 ⌥ 录屏 refused on this row) |
+| Real-time collaboration | ✅ 仍然有效 | Different product; dilutes positioning | Sharing = pack hands you text |
+| Cloud sync in v1 | ⚠️ **理由已变** | Sync done wrong is a privacy disaster | Local-only still stands, but **the "v2 hook" half is dead**: E2EE sync is now explicitly not being built at all (WORKPLAN §4.3). The row promises a later version that is not coming |
+| Rich text editor | ✅ 仍然有效 | Complexity explosion | Plain text / Markdown source (`==spans==` are source, not formatting) |
+| Kanban / calendar / table views | ⚠️ **理由已变** | Each view is forever maintenance | The cost argued here is **a NEW first-class view**. It does not cover reshaping one that already exists and is already maintained — and `ProjectBoard` is already in the build. ⛔ Do not cite this row against the v0.7 `C4` schedule-board conversion |
+| Collapse every block by default | ✅ 仍然有效 | Re-entry then costs one click per block | Smart truncation per long block |
+| Node-graph project view | ⚠️ **理由已变** | Violates "quiet"; linear reading is already fastest | Still true of a node graph as *the way you read a project*. It is **not** an argument against the provenance graph on the roadmap (§9 step 11), which displays citation edges that already exist in the data and never replaces the feed |
+| Per-block AI summary | ✅ 仍然有效 | Low payoff per block; reliability variance | Project-level summary only (`distill`, `set_thread_summary`) |
+| Manual 0–100 progress slider | ✅ 仍然有效 | Theatre; a number to *maintain*, not a signal to *trust* (rolled back after shipping) | status + deadline + `updated_at` |
+| Manual `next_step` per project | ✅ 仍然有效 | Stale by re-entry; friction on exit (rolled back after shipping) | The append-only feed *is* "where you left off" |
+| Colour-coded blocks by source | ✅ 仍然有效 | Violates "quiet" | Source-category icons + date dividers. Reaffirmed 2026-08-20 (colour-by-priority refused on this row) |
+| User classification at capture time | ✅ 仍然有效 | Violates Principle 1; the user does not yet know the category | The pack header teaches the AI to classify |
 
 ### 2.6 The feature filter
 
