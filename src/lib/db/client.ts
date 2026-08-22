@@ -38,7 +38,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 23;
+const SCHEMA_VERSION = 24;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -759,6 +759,28 @@ const MIGRATIONS: Migration[] = [
         await db.execute('ALTER TABLE workspaces ADD COLUMN parent_id TEXT');
       } catch (e) {
         console.info('[db] workspaces.parent_id: not added (likely exists)', e);
+      }
+    },
+  },
+  {
+    // v24 (COMPRESS-UX-R2-2026-08-22 §1a): 压缩前的原文跟着块走 + 压过的时间。
+    //
+    // ⚠️⚠️ **这一步一个字的用户数据都不写** —— 只加两个空列（2026-05-29 那次抹库之后
+    // 定下的规矩）。两列都可空、都没有默认值，所以：
+    //   * 往前：老库走一遍这一步，每一行的两列都是 NULL，读出来就是「没压过」；
+    //   * 往回：`ALTER TABLE ... DROP COLUMN` 两句就能退回 v23，⛔ 而且退回不丢任何
+    //     v23 就有的数据（新列只装 v24 之后压缩留下的东西）。
+    // ⚠️ 退回之后**原文备份会一起没掉** —— 要退版本，先把库拷一份。
+    from: 23,
+    to: 24,
+    name: 'add-block-original-content',
+    run: async (db) => {
+      for (const col of ['original_content TEXT', 'compressed_at INTEGER']) {
+        try {
+          await db.execute(`ALTER TABLE blocks ADD COLUMN ${col}`);
+        } catch (e) {
+          console.info(`[db] blocks.${col}: not added (likely exists)`, e);
+        }
       }
     },
   },

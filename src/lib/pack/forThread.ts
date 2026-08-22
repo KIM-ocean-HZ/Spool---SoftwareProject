@@ -18,6 +18,9 @@ import { useThreadsStore } from '@/stores/threadsStore';
 export interface ThreadPack {
   text: string;
   blocks: Block[];
+  /** ⭐ v24（R2 §1e）：因为**已经压过**而没进这一份的块数。0 = 一块都没跳过。
+   *  ⚠️ 界面要说出这个数：pack 里少了几块，而用户没做任何选择。 */
+  skippedCompressed: number;
 }
 
 /** 组一份和打包对话框逐字相同的 pack。
@@ -25,8 +28,20 @@ export interface ThreadPack {
  *  ⚠️ `instructions` 跟设置走（`packInstructions`），和对话框一样。**这一条影响的不是排版
  *  是钱**：那段 `## How to Read This Context` 表头在小项目上能占到全文一半，而第 1 条规则
  *  要求它一字不改照抄 —— 它进不进来，直接决定「压完剩百分之几」是多少。 */
-export const buildThreadPack = async (thread: Thread): Promise<ThreadPack> => {
-  const blocks = await listBlocksByThread(thread.id);
+export const buildThreadPack = async (
+  thread: Thread,
+  /** ⭐ v24（R2 §1e，Ocean）：组**压缩用**的 pack 时跳过已经压过的块。
+   *
+   *  「新加入的 block 可以被单独压缩，压过一次下次就不会再被压缩。」
+   *  一条规矩同时解决两件事：**不重复花钱**，以及**压过的不会被越压越短**
+   *  （第二次压的是第一次的产物，而它已经不是用户的原话了）。
+   *
+   *  ⛔ 默认 false：别的调用方（真的要粘贴出去那一份）必须拿到完整的 pack。 */
+  skipCompressed = false,
+): Promise<ThreadPack> => {
+  const all = await listBlocksByThread(thread.id);
+  const blocks = skipCompressed ? all.filter((b) => b.compressedAt == null) : all;
+  const skippedCompressed = all.length - blocks.length;
   const attachments = await listAttachmentsByThread(thread.id);
 
   const refTitles = new Map<string, string>();
@@ -58,5 +73,5 @@ export const buildThreadPack = async (thread: Thread): Promise<ThreadPack> => {
     instructions: s.packInstructions,
     outputLanguage: s.language === 'en' ? 'en' : 'zh',
   });
-  return { text, blocks };
+  return { text, blocks, skippedCompressed };
 };

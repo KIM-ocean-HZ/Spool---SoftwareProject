@@ -1,4 +1,4 @@
-import { CircleSlash, Highlighter, MessageSquarePlus, Pencil, PencilLine, Pin, PinOff, Shrink, Trash2 } from 'lucide-react';
+import { CircleSlash, Highlighter, MessageSquarePlus, Pencil, PencilLine, Pin, PinOff, RotateCcw, Shrink, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useT } from '@/lib/i18n';
 
@@ -37,6 +37,9 @@ interface Props {
   // 看不见别的块。所以它只在**这一块特别长**的时候值得点（一整篇网页正文那种），
   // 而核对桌上会把这句话写出来。`undefined` = API 引擎没开，这个按钮就不存在。
   onCompress?: () => void;
+  /** ⭐ v24（R2 §1g）：这一块被压过、而且压缩前的原文还在 —— 一键换回去。
+   *  ⛔ 原文还在，还原是白拿的；不做还原就等于让 AI 产物盖掉用户自己的字。 */
+  onRestoreOriginal?: () => void;
 }
 
 interface ActionBtnProps {
@@ -88,6 +91,7 @@ export default function BlockActions({
   onToggleStale,
   onDelete,
   onCompress,
+  onRestoreOriginal,
 }: Props) {
   const t = useT();
   const highlightTitle = !canHighlight
@@ -155,6 +159,11 @@ export default function BlockActions({
         <CircleSlash size={11} className={stale ? 'text-accent' : ''} />
       </ActionBtn>
       {/* §9.6.6：两个入口，同一张核对桌 —— 项目压缩在右侧栏，单块压缩在这儿。 */}
+      {onRestoreOriginal && (
+        <ActionBtn title={t('还原成压缩时的原文')} onClick={onRestoreOriginal}>
+          <RotateCcw size={13} />
+        </ActionBtn>
+      )}
       {onCompress && (
         <ActionBtn title={t('把这一块压短（压完给你核对，不改库）')} onClick={onCompress}>
           <Shrink size={11} />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { auditCompression, auditHasLosses } from './compress';
-import { isEmptyHeld, shieldPack, unshieldPack } from './shield';
+import { contentFromEntryBody, isEmptyHeld, shieldPack, unshieldPack } from './shield';
 
 // R5（2026-08-22，Ocean 第二轮第 5 条）：**批注根本不发给 AI。**
 // 这一整组测试盯的是同一句话：**摘下来的东西，模型看不见；放回去之后，一个字都没变。**
@@ -115,5 +115,28 @@ describe('摘掉不该给 AI 看的东西', () => {
     );
     const { text } = shieldPack(withStray);
     expect(text).toContain('note: 这是 PDF 正文里抄到的一句');
+  });
+});
+
+// R1 · 写回库那一半（2026-08-22）。⚠️ 写进 `content` 的只能是**块自己的正文** ——
+// Spool 画在块下面的那几行是渲染出来的，写进去的话，下一次渲染会再画一遍，
+// 于是每压一次，块尾就多长出一份批注副本。
+describe('从条目正文里取出块的 content', () => {
+  it('把接回去的那几行减掉，剩下的才是 content', () => {
+    const { held } = shieldPack(PACK);
+    const lines = held.byEntry.find((h) => h.key === 'Full Record (chronological)#1')!.lines;
+    const body = ['压缩之后的第一块正文。', ...lines].join('\n');
+    expect(contentFromEntryBody(body, lines)).toBe('压缩之后的第一块正文。');
+  });
+
+  it('⛔ 按原文减，不按形状猜 —— 正文里真的以 ↩ 开头的一句话留下来', () => {
+    const body = '正文第一行\n↩ 这一句是用户自己写的，不是关系行\n    💭 note: 真的批注';
+    expect(contentFromEntryBody(body, ['    💭 note: 真的批注'])).toBe(
+      '正文第一行\n↩ 这一句是用户自己写的，不是关系行',
+    );
+  });
+
+  it('什么都没摘的时候原样返回', () => {
+    expect(contentFromEntryBody('就一行正文。')).toBe('就一行正文。');
   });
 });

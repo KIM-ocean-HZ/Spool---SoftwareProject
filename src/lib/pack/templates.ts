@@ -22,6 +22,10 @@ export const SOURCE_MARKER = ' · from ';
 // a printed marker (no `source` → 💭; `note:` → 💭). 📖 / 🧩 / 🔄 need the content read, so
 // they stay the receiving model's call and stay in the header.
 export const PERSONAL_PREFIX = '💭 ';
+/** v24（R2 §1d）：这一块被压过。⚠️ 记号印在头行上，Notation 一节里解释它是什么意思 ——
+ *  收件 AI 读到它才知道「这几句话不是原话，但结论仍然成立，要原话可以问 Spool 要」。
+ *  ⛔ 它和 `📌` `💭` 一样是**格式契约的一部分**：TS 和 Rust 两份渲染器逐字节一致，golden 盯着。 */
+export const COMPRESSED_PREFIX = '🗜 ';
 export const NOTE_MARKER = 'note: ';
 // v14 (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): the same slot when an AI wrote the annotation
 // rather than the user. `note:` is documented in the Notation section as 💭 Personal — the
@@ -248,6 +252,10 @@ A block is one line, optionally followed by indented sub-lines:
 - \`📌\` = the user pinned it as core context. Pinned blocks are printed in full ONCE, in
   "Pinned Blocks"; their slot in the timeline is a one-line placeholder ending in
   \`(pinned — full text …)\`. That placeholder is not missing content.
+- \`🗜\` = this block has been compressed: an AI shortened it, the user checked the
+  result and accepted it. Its wording is not verbatim what the source said, so do not
+  quote it as an exact quotation; everything it states still holds. Spool kept the
+  pre-compression original and can hand it over — ask for it when the wording matters.
 
 Indented under a block:
 

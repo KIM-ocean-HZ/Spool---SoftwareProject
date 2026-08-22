@@ -50,6 +50,13 @@ export interface Block {
    *  corrects — the aim v13 never had. Null = nobody said which sentence, which renders
    *  exactly as v13 did. Matched by substring at render time, never by offset. */
   correctedQuote: string | null;
+  /** v24（R2 §1a）：这一块**压缩之前**的正文。null 有两种意思，⚠️ 两种都不是「有原文」：
+   *  从来没压过，或者压过但用户把「备份原文」关了（那一次不可逆）。
+   *  分辨看 `compressedAt` —— 它非空而这个是 null，就是第二种。 */
+  originalContent: string | null;
+  /** v24：这一块什么时候被压过。null = 从来没压过。
+   *  ⚠️ 它同时是「只压新块」的依据：组压缩用的 pack 时跳过它非空的块。 */
+  compressedAt: number | null;
 }
 
 export interface CreateBlockArgs {
@@ -94,6 +101,8 @@ interface Row {
   retrieved_at: number | null;
   recheck_after: number | null;
   corrected_quote: string | null;
+  original_content: string | null;
+  compressed_at: number | null;
 }
 
 const fromRow = (r: Row): Block => ({
@@ -115,10 +124,12 @@ const fromRow = (r: Row): Block => ({
   retrievedAt: r.retrieved_at ?? null,
   recheckAfter: r.recheck_after ?? null,
   correctedQuote: r.corrected_quote ?? null,
+  originalContent: r.original_content ?? null,
+  compressedAt: r.compressed_at ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, original_content, compressed_at';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -386,6 +397,9 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     retrievedAt: args.retrievedAt ?? null,
     recheckAfter: args.recheckAfter ?? null,
     correctedQuote: args.correctedQuote ?? null,
+    // v24：新块从来没被压过。⛔ 这两列只有压缩写回和一键还原碰得到。
+    originalContent: null,
+    compressedAt: null,
   };
   // v9: `seq` is computed inside the INSERT, not read-then-written. WAL serialises
   // writers, so a single statement holding the write lock cannot lose the race against
@@ -592,6 +606,82 @@ export const restoreBlock = async (block: Block): Promise<void> => {
 export const setBlockStale = async (id: string, staleAt: number | null): Promise<void> => {
   const db = await getDb();
   await db.execute('UPDATE blocks SET stale_at = $1 WHERE id = $2', [staleAt, id]);
+};
+
+// ---------------------------------------------------------------------------------------
+// v24 · 压缩稿写回库（COMPRESS-UX-R2-2026-08-22 §1，Ocean 2026-08-22）
+// ---------------------------------------------------------------------------------------
+//
+// ⛔⛔ **这是整个项目里第一条会改写用户已有文字的路。** 在此之前，库里的块从来只增不改
+// （更正走 `corrects` 挂在旁边，作废走 `stale_at` 让它退出 pack，两条都不动原文）。
+// 这条锁是 Ocean 定的，也只有他能解 —— **2026-08-22 他明说解了**：
+//
+//   「不行，复制入库摩擦太大，需要用户一个一个 block 删除、添加，直接让用户自己审核、
+//     替换原库文字；但是未压缩的原库需要备份保存，默认备份，用户可关。」
+//
+// 所以这里的每一条护栏都不是洁癖：
+//
+//  1. **默认留原文**（`keepOriginal`）。留了就永远回得去（`restoreBlockOriginal`）。
+//  2. **只写第一次的原文**（`COALESCE`）。同一块压第二次不许把「原文」换成上一次的压缩稿 ——
+//     那样一键还原还回去的是一份 AI 产物，而用户以为那是他自己的字。
+//  3. **内容一样就不写**。压缩稿和原文逐字相同的块不该被标成「压过」——
+//     那个记号会印进以后每一份 pack，告诉收件 AI「这几句不是原话」，而它其实是原话。
+//  4. ⛔ **数字硬闸门在调用方**（`numbersGateOpen`）：丢了数字/日期的压缩稿不许走到这里。
+
+/** 一块要写回去的东西。`content` 是压缩后的正文，⚠️ 已经去掉了 Spool 自己画的那几行
+ *  （批注、关系、出处、更正指针）—— 那些行不属于 `content`，它们是渲染出来的。 */
+export interface CompressionWrite {
+  id: string;
+  content: string;
+}
+
+/** 把压缩稿写回这几块。返回真的改了的块数。
+ *
+ *  `keepOriginal = false` = 用户在设置里关掉了备份：⚠️ **这一次压缩不可逆**，
+ *  `original_content` 留空，`compressed_at` 照常写（记号还要印，只是还不回去了）。 */
+export const applyCompression = async (
+  writes: readonly CompressionWrite[],
+  keepOriginal: boolean,
+  now: number,
+): Promise<number> => {
+  const db = await getDb();
+  let changed = 0;
+  for (const w of writes) {
+    // ⚠️ `content <> $2` 那一句就是护栏 3：一个字都没短的块不该被标成压过。
+    const res = await db.execute(
+      keepOriginal
+        ? `UPDATE blocks
+              SET original_content = COALESCE(original_content, content),
+                  content = $2,
+                  compressed_at = $3
+            WHERE id = $1 AND content <> $2`
+        : `UPDATE blocks
+              SET content = $2,
+                  compressed_at = $3
+            WHERE id = $1 AND content <> $2`,
+      [w.id, w.content, now],
+    );
+    changed += res.rowsAffected;
+  }
+  return changed;
+};
+
+/** 一键还原：把这一块换回压缩前的原文。
+ *
+ *  ⭐ 原文还在，还原是白拿的（R2 §1g）。⛔ 不做还原就等于让 AI 产物盖掉用户的字。
+ *  ⚠️ `original_content IS NOT NULL` 那一句挡住的是「压过、但当时没留原文」那一种 ——
+ *  那时候还原会把正文清成空的，比不还原糟得多。 */
+export const restoreBlockOriginal = async (id: string): Promise<boolean> => {
+  const db = await getDb();
+  const res = await db.execute(
+    `UPDATE blocks
+        SET content = original_content,
+            original_content = NULL,
+            compressed_at = NULL
+      WHERE id = $1 AND original_content IS NOT NULL`,
+    [id],
+  );
+  return res.rowsAffected > 0;
 };
 
 /** DESIGN_CONTEXT_HYGIENE §3.1 — «它更正了哪一条», declared FROM the newer block.

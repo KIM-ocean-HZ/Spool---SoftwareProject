@@ -21,6 +21,8 @@ const block = (id: string, createdAt: number, source: string | null): Block => (
   retrievedAt: null,
   recheckAfter: null,
   correctedQuote: null,
+  originalContent: null,
+  compressedAt: null,
 });
 
 const T = 1_700_000_000_000;

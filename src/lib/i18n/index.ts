@@ -1178,8 +1178,35 @@ const EN: Record<string, string> = {
   '把这一块压短（压完给你核对，不改库）':
     'Shorten this one block (you check the result; nothing is written)',
   // D9：为什么没有「用这一份」——把沉默的缺口写出来。D-b：数字硬闸门也写在这儿。
-  '这里没有「用这一份」：这一步只给你复制走，库里一个字都不动。':
-    'There is no “use this version” here: this step is yours to copy, and your library is left untouched.',
+  // R1（2026-08-22）：写回库解锁。⚠️ 「关掉留原文 = 改不回去」必须写在按下按钮的那一刻。
+  '用这一份': 'Use this version',
+  '一块对一块地核对。你按「用这一份」之前，库里一个字都不动。':
+    'Checked block by block. Nothing in your library changes until you press “Use this version”.',
+  '压缩前的原文会留在每一块自己身上，随时可以还原。':
+    'Each block keeps its own pre-compression original, so you can restore it at any time.',
+  '⚠️ 你在设置里关掉了「留原文」—— 这一次换过去就改不回来了。':
+    '⚠️ You turned off “keep the original” in settings — this replacement cannot be undone.',
+  '这一份丢了数字或日期，不能进库 —— 先用上面那个「从原文加回去」。':
+    'This version has dropped a number or a date, so it may not enter your library — use “add back from the original” above first.',
+  '这一份的块对不上（有块不见了、或者多了编号），不能进库。重压一次吧。':
+    'The blocks do not line up (some are missing, or numbers were invented), so this may not enter your library. Run the compression again.',
+  '没有哪一块真的变短了 —— 库里什么都没改。':
+    'No block actually got shorter — nothing in your library was changed.',
+  '{n} 块换成了压缩稿。压缩前的原文留在每一块自己身上，随时可以还原。':
+    '{n} block(s) replaced with the compressed version. Each keeps its own pre-compression original, so you can restore it at any time.',
+  '{n} 块换成了压缩稿。⚠️ 你关掉了「留原文」，这一次改不回去了。':
+    '{n} block(s) replaced with the compressed version. ⚠️ You turned off “keep the original”, so this cannot be undone.',
+  '写不进去：{msg}': 'Could not write: {msg}',
+  '还原成压缩时的原文': 'Restore the text this block had before it was compressed',
+  '已还原成压缩前的原文': 'Restored to the pre-compression original',
+  '这一块压缩时没有留原文，还原不了。': 'No original was kept when this block was compressed, so it cannot be restored.',
+  '这一块被压过': 'This block has been compressed',
+  '备份压缩前的原文': 'Keep the pre-compression original',
+  '压缩把块的正文换成更短的版本。留着原文，随时可以还原；关掉的话省一点磁盘，但压缩不可逆。':
+    'Compression replaces a block’s text with a shorter version. Keeping the original lets you restore it at any time; turning this off saves a little disk, but compression then cannot be undone.',
+  '这个项目里 {n} 块已经压过了，这一次跳过它们 —— 压过一次就不再花第二笔钱。':
+    '{n} block(s) here have already been compressed and are skipped this time — no second charge for the same block.',
+  '这个项目里每一块都压过了，没有新的可压。': 'Every block here has already been compressed; there is nothing new to compress.',
   '丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。':
     'A compressed version that has dropped a number or a date may never enter your library — that holds even once writing is unlocked.',
   '这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。':

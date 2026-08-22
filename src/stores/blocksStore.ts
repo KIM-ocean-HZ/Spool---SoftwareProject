@@ -37,6 +37,8 @@ interface BlocksState {
   setSource: (id: string, source: string | null) => Promise<void>;
   /** DESIGN_CONTEXT_HYGIENE §3.1 — 「这条不作数了」and taking it back. */
   setStale: (id: string, stale: boolean) => Promise<void>;
+  /** ⭐ v24（R2 §1g）：把这一块换回压缩前的原文。⛔ 原文还在，还原是白拿的。 */
+  restoreOriginal: (id: string) => Promise<void>;
   /** §3.1 — declared FROM the newer block: which older one it replaces or corrects.
    *  `supersedes` retires the target in the same call; `corrects` leaves it untouched. */
   setSupersession: (
@@ -262,6 +264,30 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const staleAt = stale ? Date.now() : null;
       await db.setBlockStale(id, staleAt);
       patchBlock(set, get, id, { staleAt });
+    },
+
+    // ⭐ v24（R2 §1g）：一键还原。⚠️ 原文回到 `content` 之后，`original_content` 和
+    // `compressed_at` 一起清空 —— 这一块从此又是「没被压过」，🗜 记号也跟着没了。
+    restoreOriginal: async (id) => {
+      const before = Object.values(get().byThread)
+        .flat()
+        .find((b) => b.id === id);
+      if (!before?.originalContent) {
+        // ⛔ 不静默：按钮本来就只在原文还在的时候出现，走到这儿说明状态和库对不上了。
+        toast.error(t('这一块压缩时没有留原文，还原不了。'));
+        return;
+      }
+      const ok = await db.restoreBlockOriginal(id);
+      if (!ok) {
+        toast.error(t('这一块压缩时没有留原文，还原不了。'));
+        return;
+      }
+      patchBlock(set, get, id, {
+        content: before.originalContent,
+        originalContent: null,
+        compressedAt: null,
+      });
+      toast.notice(t('已还原成压缩前的原文'));
     },
 
     setSupersession: async (id, targetBlockId, kind) => {
@@ -553,6 +579,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           // more field OF that relation, and a copy that dropped it would point at the
           // right block with the aim knocked off.
           correctedQuote: src.correctedQuote,
+          // ⚠️ v24：**原文备份不跟着复制走。** 复制出来的是一块新块，它自己从来没被压过；
+          // 把源块的压缩前原文抄过来，会让「回 Spool 拿原始信息」指向一块并不是它的原文。
+          originalContent: null,
+          compressedAt: null,
         });
       });
 

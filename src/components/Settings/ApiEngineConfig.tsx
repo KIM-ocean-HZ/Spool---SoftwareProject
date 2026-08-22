@@ -22,6 +22,7 @@ export default function ApiEngineConfig() {
   const model = useSettingsStore((s) => s.apiModel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
   const reasoning = useSettingsStore((s) => s.apiReasoning);
+  const keepOriginal = useSettingsStore((s) => s.compressKeepOriginal);
   const update = useSettingsStore((s) => s.update);
 
   const [key, setKey] = useState('');
@@ -162,6 +163,22 @@ export default function ApiEngineConfig() {
               {t('模型下笔之前会先想一会儿，这一段也按字数收费。默认 low：想得短一点，压出来的东西不比想得久的差，钱和时间都省下大半。不认的值会被接口顶回来，那一次不收费。')}
             </span>
           </label>
+
+          {/* ⭐ R1 §1c（Ocean：「未压缩的原库需要备份保存，默认备份，用户可关」）。
+              ⚠️ 关掉之后那句话**同时印在核对面的页脚上** —— 用户不会为了压一次上下文
+              先去翻一遍设置，而这一条关系到他的字改不改得回来。 */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] text-ink">{t('备份压缩前的原文')}</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted/80">
+                {t('压缩把块的正文换成更短的版本。留着原文，随时可以还原；关掉的话省一点磁盘，但压缩不可逆。')}
+              </p>
+            </div>
+            <Toggle
+              checked={keepOriginal}
+              onChange={(v) => void update({ compressKeepOriginal: v })}
+            />
+          </div>
 
           <label className="flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted">{t('单次最长等待（秒）')}</span>

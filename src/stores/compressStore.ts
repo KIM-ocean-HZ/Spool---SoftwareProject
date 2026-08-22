@@ -12,13 +12,22 @@ import {
   type CompressProgress,
   type DuplicateProbe,
 } from '@/lib/ai/compress';
-import { addBackNumbers, worthRetrying } from '@/lib/ai/compressBlocks';
-import { isEmptyHeld, shieldPack, unshieldPack, type Unshielded } from '@/lib/ai/shield';
-import type { Block } from '@/lib/db/blocks';
+import { auditCompression, numbersGateOpen } from '@/lib/ai/compress';
+import { addBackNumbers, compareByEntry, worthRetrying } from '@/lib/ai/compressBlocks';
+import {
+  contentFromEntryBody,
+  isEmptyHeld,
+  shieldPack,
+  unshieldPack,
+  type Unshielded,
+} from '@/lib/ai/shield';
+import { applyCompression, type Block } from '@/lib/db/blocks';
+import { PINNED_SEE_ABOVE } from '@/lib/pack/templates';
 import type { Thread } from '@/lib/db/threads';
 import { assemble } from '@/lib/pack/assemble';
 import { buildThreadPack } from '@/lib/pack/forThread';
 import { t } from '@/lib/i18n';
+import { useBlocksStore } from './blocksStore';
 import { toast } from './toastStore';
 import { useSettingsStore } from './settingsStore';
 import { useThreadsStore } from './threadsStore';
@@ -89,6 +98,9 @@ export interface CompressSession {
    *  ⛔ 那时候界面上什么都不说，不编一个数）。⚠️ 只有整项目压缩有它：重复是跨块的，
    *  单独压一块本来就看不见别的块。 */
   probe: DuplicateProbe | null;
+  /** ⭐ v24（R2 §1e）：因为**已经压过**而没进这一份的块数。
+   *  ⚠️ 界面要说出这个数：pack 里少了几块，而用户没做过任何选择。 */
+  skippedCompressed: number;
   startedAt: number;
 }
 
@@ -131,9 +143,45 @@ interface CompressState {
    *  `only` = 只补这几个（界面上一处一处地补）；不传 = 全补。 */
   addBack: (threadId: string, only?: readonly string[]) => void;
 
+  /** ⭐ R1（2026-08-22）：**用这一份** —— 把压缩稿写回库。
+   *
+   *  ⛔ 三道闸，都在这个函数里，⛔ 一道都不许挪到界面上去（界面会被绕过）：
+   *  数字硬闸门 · 块数结构没坏 · 一块的正文真的变了。 */
+  useDraft: (threadId: string) => Promise<void>;
+
   runQueue: () => Promise<void>;
   dropResult: (index: number) => void;
 }
+
+/** 这一份压缩稿要往库里写哪几块。
+ *
+ *  ⚠️⚠️ **置顶的块在 pack 里出现两次**：`## Pinned Blocks` 里是全文，`## Full Record` 里
+ *  是一行占位（`(pinned — full text …)`）。⛔ 拿占位那一条去写库，会把一块置顶的正文
+ *  换成一句「全文在上面」—— 那是这条路上最贵的一个错，所以占位那一条在这里被明确排掉。
+ *
+ *  ⚠️ 写回去的是**块的 `content`**，不是条目的正文：Spool 画在块下面的那几行（批注、关系、
+ *  出处、更正指针）是渲染出来的，写进 `content` 的话，下一次渲染会再画一遍。 */
+const draftWrites = (session: CompressSession, compressed: string) => {
+  const cmp = compareByEntry(session.source, compressed);
+  if (!cmp) return null;
+  const heldFor = new Map(shieldPack(session.source).held.byEntry.map((h) => [h.key, h.lines]));
+  const bySeq = new Map<number, Block>();
+  for (const b of session.blocks) if (b.seq !== null) bySeq.set(b.seq, b);
+
+  const writes = new Map<string, string>();
+  for (const p of cmp.pairs) {
+    if (!p.before || !p.after) continue;
+    // 占位那一条：认它的是**原文侧**那一行（压缩稿侧可能被改写成别的话）。
+    if (p.before.body.trimEnd().endsWith(PINNED_SEE_ABOVE)) continue;
+    const block = bySeq.get(p.seq);
+    if (!block) continue;
+    const content = contentFromEntryBody(p.after.body, heldFor.get(p.key));
+    if (content.trim().length === 0) continue;
+    if (content === block.content) continue;
+    writes.set(block.id, content);
+  }
+  return [...writes].map(([id, content]) => ({ id, content }));
+};
 
 /** 一份只装一个块的 pack。
  *
@@ -174,7 +222,12 @@ const omit = <T,>(m: Record<string, T>, key: string): Record<string, T> => {
   return rest;
 };
 
-const freshSession = (target: CompressTarget, source: string, blocks: Block[]): CompressSession => {
+const freshSession = (
+  target: CompressTarget,
+  source: string,
+  blocks: Block[],
+  skippedCompressed = 0,
+): CompressSession => {
   const s = useSettingsStore.getState();
   return {
     target,
@@ -189,6 +242,7 @@ const freshSession = (target: CompressTarget, source: string, blocks: Block[]): 
     retry: null,
     shield: null,
     probe: null,
+    skippedCompressed,
     startedAt: 0,
   };
 };
@@ -271,11 +325,12 @@ export const useCompressStore = create<CompressState>((set, get) => ({
 
   openProject: async (thread) => {
     try {
-      const { text, blocks } = await buildThreadPack(thread);
+      const { text, blocks, skippedCompressed } = await buildThreadPack(thread, true);
       const fresh = freshSession(
         { kind: 'project', threadId: thread.id, title: thread.title },
         text,
         blocks,
+        skippedCompressed,
       );
       set((st) => ({
         sessions: { ...st.sessions, [thread.id]: fresh },
@@ -467,6 +522,50 @@ export const useCompressStore = create<CompressState>((set, get) => ({
    *     到点没开，下次启动补跑）。这样整个「调度器」表面根本不用长出来 ——
    *     v0.7 §10.4 已经把提醒调度器定为唯一真正新增的表面并且排在最后，
    *     而这台机器上 launchd 碰 `~/Desktop` 会永久卡死。 */
+  // ⭐⭐ R1 · 「用这一份」（2026-08-22，Ocean 解了「库里一个字都不动」那条锁）。
+  //
+  // ⛔ 三道闸全在这儿，⛔ 一道都不许挪到界面上：
+  //  ① **数字硬闸门**（`numbersGateOpen`）—— 丢了数字/日期的稿子不许进库，
+  //     ⛔ 写入解锁之后这条也不放宽，⛔ 而且不许「用户点了确认」就放行；
+  //  ② **结构没坏** —— 少了块、多了编号、同一块写了两遍，都不写；
+  //  ③ **真的变了** —— 一个字没短的块不该被标成「压过」（那个记号会印进以后每一份 pack）。
+  useDraft: async (threadId) => {
+    const s = get().sessions[threadId];
+    if (!s?.outcome?.ok || get().running) return;
+    const text = s.patched ?? s.outcome.text;
+    if (!numbersGateOpen(auditCompression(s.source, text))) {
+      toast.error(t('这一份丢了数字或日期，不能进库 —— 先用上面那个「从原文加回去」。'));
+      return;
+    }
+    const cmp = compareByEntry(s.source, text);
+    if (!cmp || cmp.dropped > 0 || cmp.invented > 0 || cmp.duplicated.length > 0) {
+      toast.error(t('这一份的块对不上（有块不见了、或者多了编号），不能进库。重压一次吧。'));
+      return;
+    }
+    const writes = draftWrites(s, text);
+    if (!writes || writes.length === 0) {
+      toast.notice(t('没有哪一块真的变短了 —— 库里什么都没改。'));
+      return;
+    }
+    const keep = useSettingsStore.getState().compressKeepOriginal;
+    try {
+      const n = await applyCompression(writes, keep, Date.now());
+      // ⚠️ 写完把这个项目的块重读一遍 —— 不重读的话屏幕上还是压之前那份，
+      // 而用户刚刚按的按钮上写着「用这一份」。
+      await useBlocksStore.getState().load(threadId);
+      set((st) => ({ sessions: omit(st.sessions, threadId), tabs: { ...st.tabs, [threadId]: 'content' } }));
+      toast.notice(
+        keep
+          ? t('{n} 块换成了压缩稿。压缩前的原文留在每一块自己身上，随时可以还原。', { n })
+          : t('{n} 块换成了压缩稿。⚠️ 你关掉了「留原文」，这一次改不回去了。', { n }),
+      );
+    } catch (e) {
+      // ⛔ 写库失败必须说出来。一个点了没反应的按钮，在这条路上意味着用户不知道
+      //    自己的库到底改没改。
+      toast.error(t('写不进去：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
+    }
+  },
+
   runQueue: async () => {
     if (get().batchRunning) return;
     // ⚠️ 队列的**唯一**权威是 settings.json 里那一份 —— 它就是「授权」，而授权必须
@@ -487,9 +586,14 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       }
       try {
         const s = useSettingsStore.getState();
-        const { text, blocks } = await buildThreadPack(thread);
+        const { text, blocks, skippedCompressed } = await buildThreadPack(thread, true);
         const session: CompressSession = {
-          ...freshSession({ kind: 'project', threadId: thread.id, title: thread.title }, text, blocks),
+          ...freshSession(
+            { kind: 'project', threadId: thread.id, title: thread.title },
+            text,
+            blocks,
+            skippedCompressed,
+          ),
           startedAt: Date.now(),
         };
         set({ running: true, runningThreadId: thread.id, progress: { stage: 'starting' } });

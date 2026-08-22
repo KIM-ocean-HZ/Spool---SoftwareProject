@@ -100,7 +100,9 @@
       "pinned": false,
       "createdAt": 1749997000000,
       "seq": 6,
-      "correctedQuote": null
+      "correctedQuote": null,
+      "compressedAt": 1751000000000,
+      "originalContent": "结论:除以 sqrt(d_k) 是为了控制点积方差,防止 softmax 梯度消失。这一句原来还带着一整段推导,压缩时被合并掉了 —— 原文留在库里,这一行只是让 golden 钉住 🗜 记号。"
     },
     {
       "id": "b7",

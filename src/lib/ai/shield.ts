@@ -20,6 +20,8 @@
 // |---|---|---|
 // | `💭 note:` / `ai note:` 整行 | 整行拿掉 | 按**块**放回**该块末尾** |
 // | `↩ cites:` / `↩ replaces` / `↩ corrects` 整行 | 整行拿掉 | 同上 |
+// | `↗ 出处 · retrieved 日期` 整行 | 整行拿掉 | 同上 |
+// | `⚠️ 这一块有一点后来被更正了 — 见 #6` | 整行拿掉 | 同上 |
 // | `==划的重点==` | 换成 `⟦H3⟧` 这样的占位符 | 占位符换回**原文连 `==` 一起** |
 //
 // ⚠️ 前两类是**整行**、而且明确属于某一块，所以「放回哪儿」没有歧义 —— 这是它们能被
@@ -43,8 +45,17 @@ import { ENTRY_RE, HIGHLIGHT_RE, PACK_SECTIONS, packLines, RENDERED_NOTE_RE } fr
 const SPAN_TOKEN = (n: number): string => `⟦H${n}⟧`;
 const SPAN_TOKEN_RE = /⟦H(\d+)⟧/g;
 
-/** 关系行：`↩ cites:` / `↩ replaces …` / `↩ corrects …`。 */
-const RELATION_LINE = /^\s*↩/;
+/** ⚠️ **Spool 自己画在块下面的那几行**，一条不落：
+ *
+ *  | 行 | 谁写的 | 为什么不能给模型碰 |
+ *  |---|---|---|
+ *  | `↩ cites:` / `↩ replaces` / `↩ corrects` | Spool | 块和块之间的连线，实测 45 次里 19 次被压没 |
+ *  | `↗ https://… · retrieved 2026-08-09` | Spool | 出处和**日期**，被压掉就成了「丢了一个数字」 |
+ *  | `⚠️ one point in this block was corrected later — see #6` | Spool | 指向更正它的那一块 |
+ *
+ *  ⭐ 摘掉这几行还有第二个好处，R1（压缩稿写回库）直接靠它：**摘完之后，一条 pack 条目的
+ *  正文就恰好等于那一块的 `content`** —— 写回库的时候不用再从压缩稿里猜哪几行是装饰。 */
+const DECORATION_LINE = /^\s*(?:↩|↗ |⚠️ one point in this block was corrected later)/;
 
 /** 从某一块上摘下来的那几整行。⚠️ `key` 和 `compareByEntry` 用的是同一套（小节 + 编号）——
  *  两边各算一套键，放回去就会放到别的块上，而那正是这件事最不能出的错。 */
@@ -104,7 +115,7 @@ export const shieldPack = (packText: string): Shielded => {
     //    ⛔ 不许用宽的 `ANY_NOTE_RE`。真实语料上撞到过：〈宣发〉那份 pack 的**正文里**
     //    有一行 `↪ note: AI回复` —— 那是用户当初粘进来的原文的一部分，不是批注。
     //    宽的那条会把它从正文中间摘走，而放回去只放得到块尾 —— 一句正文就这样挪了位置。
-    if (key !== null && (RENDERED_NOTE_RE.test(line) || RELATION_LINE.test(line))) {
+    if (key !== null && (RENDERED_NOTE_RE.test(line) || DECORATION_LINE.test(line))) {
       const at = byEntry.get(key) ?? [];
       at.push(line);
       byEntry.set(key, at);
@@ -203,4 +214,24 @@ export const unshieldPack = (compressed: string, held: Held): Unshielded => {
     orphaned: held.byEntry.filter((h) => !used.has(h.key)),
     lostSpans: held.spans.filter((_, i) => !seen.has(i)),
   };
+};
+
+/** ⭐ v24（R1 · 压缩稿写回库）：从一条 pack 条目的正文里，取出**属于块 `content` 的那部分**。
+ *
+ *  一条 pack 条目 = 块的 `content` + Spool 画在它下面的那几行（批注 / 关系 / 出处 / 更正指针）。
+ *  写回库的时候只能写 `content` —— 把那几行一起写进去，下一次渲染会**再画一遍**，
+ *  于是每压一次，块尾就多长出一份批注副本。
+ *
+ *  ⚠️ 传进来的 `held` 就是 `shieldPack` 从**这一块**摘下来的那几行（`unshieldPack` 原样接
+ *  回块尾的也是它们）。按**原文**减，不按形状猜 —— ⛔ 用正则去认「像装饰的行」会误伤正文里
+ *  真的以 `↩` 开头的一句话。 */
+export const contentFromEntryBody = (body: string, held: readonly string[] = []): string => {
+  const left = [...held];
+  const kept = packLines(body).filter((l) => {
+    const at = left.indexOf(l);
+    if (at === -1) return true;
+    left.splice(at, 1);
+    return false;
+  });
+  return kept.join('\n').replace(/\s+$/, '');
 };

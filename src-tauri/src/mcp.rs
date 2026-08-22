@@ -150,6 +150,10 @@ fn untitled() -> &'static str {
 const NOTE_INDENT: &str = "    ";
 const EXTRACT_INDENT: &str = "      ";
 const PINNED_PREFIX: &str = "📌 ";
+// v24 (COMPRESS-UX-R2-2026-08-22 §1d): 这一块被压过。Notation 一节解释它是什么意思 ——
+// 收件 AI 读到它才知道「这几句话不是原话，但结论仍然成立，要原话可以问 Spool 要」。
+// ⛔ 和 📌 💭 一样是格式契约的一部分，assemble.ts 那份逐字节一致（golden 盯着）。
+const COMPRESSED_PREFIX: &str = "🗜 ";
 const EXTRACT_CHAR_CAP: usize = 8000;
 
 const SOURCE_MARKER: &str = " · from ";
@@ -310,6 +314,10 @@ A block is one line, optionally followed by indented sub-lines:
 - `📌` = the user pinned it as core context. Pinned blocks are printed in full ONCE, in
   "Pinned Blocks"; their slot in the timeline is a one-line placeholder ending in
   `(pinned — full text …)`. That placeholder is not missing content.
+- `🗜` = this block has been compressed: an AI shortened it, the user checked the
+  result and accepted it. Its wording is not verbatim what the source said, so do not
+  quote it as an exact quotation; everything it states still holds. Spool kept the
+  pre-compression original and can hand it over — ask for it when the wording matters.
 
 Indented under a block:
 
@@ -412,6 +420,9 @@ pub struct BlockRow {
     // it corrects. None on everything else — and on a correction whose writer did not say
     // which sentence, which renders exactly as v13 did.
     pub corrected_quote: Option<String>,
+    // v24 (R2 §1d): 这一块被压过的时间。None = 从来没压过，头行上就没有 🗜。
+    // ⚠️ 压缩前的原文**不进 pack** —— 那是他定的：pack 里只放记号，让 AI 主动来问。
+    pub compressed_at: Option<i64>,
 }
 
 // v2.4 (D2): cited block id → (content, created_at) — mirrors assemble.ts refBlocks.
@@ -623,6 +634,9 @@ fn block_head_line(
     let time = format_pack_time(b.created_at);
     let star = if b.pinned { PINNED_PREFIX } else { "" };
     let personal = if band && is_personal(b) { PERSONAL_PREFIX } else { "" };
+    // v24: 记号跟着 💭 走同一条规矩 —— pack 印，digest 不印（digest 一行一条预览，
+    // 而「这几句不是原话」这件事只在读全文的时候才要紧）。
+    let squeezed = if band && b.compressed_at.is_some() { COMPRESSED_PREFIX } else { "" };
     let n = seq_marker(b);
     if b.kind == "ref" {
         let from_map = b
@@ -646,7 +660,7 @@ fn block_head_line(
         }
         _ => content.to_string(),
     };
-    format!("{star}{personal}{n}[{bracket}] {body}")
+    format!("{star}{personal}{squeezed}{n}[{bracket}] {body}")
 }
 
 // v14 (§9.3 拍板乙) — mirrors lib/blocks/annotationAuthor.ts annotationIsAi, and
@@ -2247,7 +2261,7 @@ fn get_digest_json(
         "SELECT b.thread_id, b.id, b.kind, b.content, b.annotation, b.ref_thread_id,
                 b.ref_block_id, b.source, b.pinned, b.seq, b.created_at, b.stale_at, b.ref_kind,
                 b.annotation_by, b.source_url, b.retrieved_at, b.recheck_after,
-                b.corrected_quote
+                b.corrected_quote, b.compressed_at
          FROM blocks b
          JOIN threads t ON t.id = b.thread_id
          JOIN workspaces w ON w.id = t.workspace_id
@@ -2286,6 +2300,9 @@ fn get_digest_json(
                 retrieved_at: r.get(15)?,
                 recheck_after: r.get(16)?,
                 corrected_quote: r.get(17)?,
+                // v24: digest 不印 🗜（`band: false`），但和 source_url 同一条理由 ——
+                // 一个 BlockRow 谎称「这块没被压过」，下一个读它的人就会建在假话上。
+                compressed_at: r.get(18)?,
             },
         })
     };
@@ -2668,6 +2685,87 @@ impl BlockFilters<'_> {
         }
         (clauses, params)
     }
+}
+
+// v24 (COMPRESS-UX-R2-2026-08-22 §1f): 一块**压缩之前**的原文。
+//
+// ⚠️⚠️ **pack 里不带原文。** 那是 Ocean 定的形状：带上等于把 pack 撑回原来的大小，压缩就白做了。
+// pack 上只印一个 🗜 记号，Notation 一节告诉收件 AI「要原话就来问」—— 这个工具就是那扇门。
+//
+// ⛔ 三种「没有原文」必须分开说，不能塌成一句「没有」：
+//   * 这一块从来没被压过 —— 它的正文就是原文，不用问；
+//   * 压过、但用户关掉了备份 —— 原文**真的不存在了**，⛔ 别让模型以为再问一次就能拿到；
+//   * 这个 id 根本不在库里。
+fn get_block_original_json(conn: &Connection, block_id: &str) -> Result<String, String> {
+    struct OriginalRow {
+        original: Option<String>,
+        compressed_at: Option<i64>,
+        seq: Option<i64>,
+        title: String,
+    }
+    let row: Option<OriginalRow> = conn
+        .query_row(
+            "SELECT b.original_content, b.compressed_at, b.seq, t.title
+               FROM blocks b JOIN threads t ON t.id = b.thread_id
+              WHERE b.id = ?1",
+            [block_id],
+            |r| {
+                Ok(OriginalRow {
+                    original: r.get(0)?,
+                    compressed_at: r.get(1)?,
+                    seq: r.get(2)?,
+                    title: r.get(3)?,
+                })
+            },
+        )
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other.to_string()),
+        })?;
+    let Some(OriginalRow { original, compressed_at, seq, title }) = row else {
+        return Err(t!(
+            "库里没有这一块。block_id 从 get_blocks / search_blocks / get_pack(include_ids=true) 来。",
+            "No such block. block_id comes from get_blocks / search_blocks / get_pack(include_ids=true)."
+        ));
+    };
+    let out = match (compressed_at, original) {
+        (None, _) => serde_json::json!({
+            "block_id": block_id,
+            "project": title,
+            "seq": seq,
+            "compressed": false,
+            "original": Value::Null,
+            "note": t!(
+                "这一块没有被压缩过 —— 它现在的正文就是原文,不用另外取。",
+                "This block has never been compressed — what it says now IS the original; there is nothing extra to fetch."
+            ),
+        }),
+        (Some(_), None) => serde_json::json!({
+            "block_id": block_id,
+            "project": title,
+            "seq": seq,
+            "compressed": true,
+            "original": Value::Null,
+            "note": t!(
+                "这一块被压缩过,但用户关掉了「备份压缩前的原文」,所以原文没有留下来。⛔ 再问一次也拿不到 ——                  要原话只能问用户本人。",
+                "This block was compressed, but the user had turned OFF keeping the pre-compression                  original, so it was not saved. Asking again will not produce it — for the exact                  wording, ask the user."
+            ),
+        }),
+        (Some(at), Some(text)) => serde_json::json!({
+            "block_id": block_id,
+            "project": title,
+            "seq": seq,
+            "compressed": true,
+            "compressed_at": format_pack_time(at),
+            "original": text,
+            "note": t!(
+                "这是压缩之前的原文。要逐字引用就引这一份;块现在的正文是压过的,意思不变但措辞不是原话。",
+                "This is the text as it read before compression. Quote THIS when quoting verbatim; the                  block's current text is the compressed one — same meaning, not the same words."
+            ),
+        }),
+    };
+    Ok(out.to_string())
 }
 
 fn get_blocks_json(
@@ -3260,7 +3358,8 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
         .prepare(
             "SELECT id, kind, content, annotation, ref_thread_id, ref_block_id, source,
                     pinned, seq, created_at, stale_at, ref_kind, annotation_by,
-                    source_url, retrieved_at, recheck_after, corrected_quote
+                    source_url, retrieved_at, recheck_after, corrected_quote,
+                    compressed_at
              FROM blocks WHERE thread_id = ?1 ORDER BY created_at ASC",
         )
         .map_err(|e| e.to_string())?;
@@ -3287,6 +3386,7 @@ fn build_pack(conn: &Connection, thread_id: &str, range: &str) -> Result<PackBui
                 retrieved_at: r.get(14)?,
                 recheck_after: r.get(15)?,
                 corrected_quote: r.get(16)?,
+                compressed_at: r.get(17)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -3486,7 +3586,7 @@ fn thread_resources(conn: &Connection) -> Result<Vec<Value>, String> {
 // Must stay in lockstep with the GUI's migration registry (src/lib/db/client.ts).
 // Writing into a schema this binary doesn't know is how the 2026-05-29 wipe class of
 // bugs happens — refuse instead.
-const EXPECTED_SCHEMA_VERSION: i64 = 23;
+const EXPECTED_SCHEMA_VERSION: i64 = 24;
 
 // Name reported by the client at initialize (clientInfo.name); feeds the source label.
 static CLIENT_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -6152,6 +6252,23 @@ fn tools_descriptor() -> Value {
             }
         },
         {
+            // v24 (COMPRESS-UX-R2-2026-08-22 §1f): a 🗜 block's pre-compression original.
+            // ⚠️ The original is deliberately NOT in the pack (it would roughly double it and
+            // undo the whole point of compressing). The pack carries the 🗜 marker; this is
+            // how a model that cares about the exact wording goes and gets it.
+            "name": "get_block_original",
+            "description": "The ORIGINAL text of one block, as it read before it was compressed. Call this when a block's pack line carries the 🗜 marker and the exact wording matters — you are about to quote it, the user asks what it said before, or a compressed sentence reads ambiguously. Packs never carry originals (that would undo the compression), so this is the only way to see one. A block that was never compressed, or whose user turned the original backup off, says so and returns nothing — that is a normal answer, not an error. Read-only: it changes nothing and needs no consent toggle.",
+            "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "block_id": { "type": "string", "description": "Block id, from get_blocks / search_blocks / get_pack(include_ids=true)." }
+                },
+                "required": ["block_id"],
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "request_file_access",
             "description": "Ask the user to let you read files they put in one of their projects. This reads NOTHING: it queues one card on Spool's review screen naming the files and your reason, and the user answers there. Files are listed by get_blocks (the `files` section) and by search_blocks (attachment_hits), each with an attachment_id and ai_readable — call this only for the ones where ai_readable is false. The parameter is an attachment_id and never a path: you can ask about a file the user chose in their own file dialog, and you can never name a new one; a file that is not in the project you name does not exist to this tool. If they say yes the grant is standing — that file's text then rides along with get_blocks(include_extracted_text=true) until they untick it in Spool. Tell the user a request is waiting for them; never that you read anything. Unanswered requests expire after 7 days. Requires MCP writes enabled in Spool's settings.",
             "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false },
@@ -6308,6 +6425,13 @@ fn handle_tool_call(params: &Value) -> Value {
                 args.get("workspace_title").and_then(Value::as_str),
                 num("max_groups"),
             ),
+            "get_block_original" => {
+                let block_id = args
+                    .get("block_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| t!("缺少 block_id 参数。", "Missing the block_id argument."))?;
+                get_block_original_json(&open_db(&dir)?, block_id)
+            }
             "get_blocks" => {
                 let thread_id = args
                     .get("thread_id")
@@ -8491,6 +8615,9 @@ source_text = the USER'S turns only\n\
 \"what files are in X\" / \"有哪些文件\" / \"里面写了什么\" \u{2192} get_blocks, then \
 request_file_access for every file with ai_readable:false \u{2014} never tell the user to send \
 the file some other way\n\
+\"这一块原来是怎么写的\" / \"what did this block say before\" / a \u{1F5DC} block whose exact \
+wording you are about to quote \u{2192} get_block_original (the pack carries the marker, never the \
+original text)\n\
 \"what are you watching for me\" / \"现在在跟进什么\" / \"现在在盯什么\" \u{2192} get_follow_up_brief (read the lines \
 back verbatim)\n\
 \"这个先记着\" / \"等 X 出来再说\" / \"回头查一下\" / any question the two of you could not settle \
@@ -8839,6 +8966,7 @@ mod tests {
                 retrieved_at: b["retrievedAt"].as_i64(),
                 recheck_after: b["recheckAfter"].as_i64(),
                 corrected_quote: b["correctedQuote"].as_str().map(String::from),
+                compressed_at: b["compressedAt"].as_i64(),
             })
             .collect();
         let attachments = v["attachments"]
@@ -10924,6 +11052,46 @@ mod tests {
         }
     }
 
+    // v24 (R2 §1f)：⛔ 三种「没有原文」必须分得开。
+    // 塌成一句「没有」的代价：**关掉备份那一种是永久的**，而模型会以为再问一次就能拿到，
+    // 或者更糟 —— 拿现在这份压过的正文当原话去引用。
+    #[test]
+    fn a_block_original_says_which_kind_of_absent_it_is() {
+        store_lang(Lang::En);
+        let tmp = std::env::temp_dir().join(format!("spool-orig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at) VALUES ('w','W',0,1,1);
+             INSERT INTO threads (id, workspace_id, title, created_at, updated_at)
+               VALUES ('t','w','P',1,1);
+             INSERT INTO blocks (id, thread_id, content, seq, created_at) VALUES ('never','t','plain',1,1);
+             INSERT INTO blocks (id, thread_id, content, seq, created_at, compressed_at)
+               VALUES ('nobackup','t','short',2,1,1700000000000);
+             INSERT INTO blocks (id, thread_id, content, seq, created_at, compressed_at, original_content)
+               VALUES ('kept','t','short',3,1,1700000000000,'the long original');",
+        )
+        .unwrap();
+
+        let never = get_block_original_json(&conn, "never").unwrap();
+        assert!(never.contains("\"compressed\":false"), "{never}");
+        assert!(never.contains("never been compressed"), "{never}");
+
+        let nobackup = get_block_original_json(&conn, "nobackup").unwrap();
+        assert!(nobackup.contains("\"compressed\":true"), "{nobackup}");
+        assert!(nobackup.contains("\"original\":null"), "{nobackup}");
+        // ⛔ 必须说清楚「再问一次也拿不到」。
+        assert!(nobackup.contains("Asking again will not produce it"), "{nobackup}");
+
+        let kept = get_block_original_json(&conn, "kept").unwrap();
+        assert!(kept.contains("the long original"), "{kept}");
+
+        assert!(get_block_original_json(&conn, "nope").is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     // §4.1 A — the two corridors with no handle on the door. Both defects were one
     // sentence's worth of code and cost a whole feature in the real run: asked what was in
     // his project, the model read the file's name off a listing that offered no way in, and
@@ -12316,6 +12484,7 @@ mod tests {
             retrieved_at: None,
             recheck_after: None,
             corrected_quote: None,
+            compressed_at: None,
         };
         let blocks: Vec<BlockRow> =
             (0..20).map(|i| mk_block(i, i == 0)).collect(); // oldest block pinned
@@ -12447,6 +12616,7 @@ mod tests {
             retrieved_at: None,
             recheck_after: None,
             corrected_quote: None,
+            compressed_at: None,
         };
         // ⚠️ The reported bug was filed at max_chars=8000 and this test used that number
         // until 2026-08-21. It is 9000 now, and the reason is worth keeping: v23 added

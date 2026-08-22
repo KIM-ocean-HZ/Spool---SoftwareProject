@@ -46,7 +46,7 @@ const blocksSansV13 = (handle: Sqlite): Record<string, unknown>[] =>
     void stale_at;
     void ref_kind;
     void annotation_by;
-    return stripProvenance(stripCorrectedQuote(rest));
+    return stripCompression(stripProvenance(stripCorrectedQuote(rest)));
   });
 
 // v20's three columns, off a `blocks` row. Same job as stripBriefSuggestion below: a test
@@ -64,6 +64,15 @@ const stripProvenance = (r: Record<string, unknown>): Record<string, unknown> =>
 const stripCorrectedQuote = (r: Record<string, unknown>): Record<string, unknown> => {
   const { corrected_quote, ...rest } = r;
   void corrected_quote;
+  return rest;
+};
+
+// v24's two columns, off a `blocks` row — same job again. ⚠️ 一个从 v13 以下起步的库会
+// 一路走到头，路上把 v24 这两列也捡起来；那一步自己有一条测试盯着「两列全空」。
+const stripCompression = (r: Record<string, unknown>): Record<string, unknown> => {
+  const { original_content, compressed_at, ...rest } = r;
+  void original_content;
+  void compressed_at;
   return rest;
 };
 
@@ -107,8 +116,19 @@ const downgradeToV13 = (handle: Sqlite): void => {
   `);
 };
 
+// Rewind past v24: a block carried no memory of what it said before an AI shortened it.
+// ⚠️ 这两句 DROP 就是 v24 的「能回滚」——`add-block-original-content` 只加了两个空列。
+const downgradeToV23 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE blocks DROP COLUMN original_content;
+    ALTER TABLE blocks DROP COLUMN compressed_at;
+    PRAGMA user_version = 23;
+  `);
+};
+
 // Rewind past v23: workspaces were flat — a workspace could not sit inside another one.
 const downgradeToV22 = (handle: Sqlite): void => {
+  downgradeToV23(handle);
   handle.exec(`
     ALTER TABLE workspaces DROP COLUMN parent_id;
     PRAGMA user_version = 22;
@@ -326,7 +346,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const threadCols = columnNames(handle, 'threads');
     expect(threadCols).not.toContain('progress');
     expect(threadCols).not.toContain('next_step');
@@ -361,7 +381,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(columnNames(handle, 'attachments')).toContain('include_in_pack');
     expect(columnNames(handle, 'threads')).toContain('summary_source');
     expect(columnNames(handle, 'blocks')).toContain('ref_block_id');
@@ -381,7 +401,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(handle.prepare('SELECT summary, summary_source FROM threads').get()).toEqual({
       summary: '既有摘要',
       summary_source: null,
@@ -399,7 +419,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(handle.prepare('SELECT content, ref_block_id FROM blocks').get()).toEqual({
       content: 'hello block',
       ref_block_id: null,
@@ -421,7 +441,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const rows = handle
       .prepare("SELECT id, source FROM blocks WHERE id LIKE 'm%' ORDER BY id")
       .all() as { id: string; source: string }[];
@@ -452,7 +472,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     // b1 (from seedUserData) is the oldest in t1, so it takes #1.
     expect(
       handle.prepare("SELECT id, seq FROM blocks WHERE thread_id = 't1' ORDER BY seq").all(),
@@ -507,7 +527,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     for (const table of ['proposal_batches', 'proposals']) {
       expect(
         handle
@@ -530,7 +550,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const cols = columnNames(handle, 'threads');
     expect(cols).toContain('follow_up_brief');
     expect(cols).toContain('follow_up_state');
@@ -565,7 +585,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     // The column the whole table exists for (DESIGN_WORKBENCH §1.1: the AI's prose had
     // nowhere to live, so it was thrown away and the user was told "没有新增块").
     const cols = columnNames(handle, 'engine_runs');
@@ -603,7 +623,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const cols = columnNames(handle, 'blocks');
     expect(cols).toContain('stale_at');
     expect(cols).toContain('ref_kind');
@@ -627,7 +647,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(columnNames(handle, 'blocks')).toContain('annotation_by');
     expect(columnNames(handle, 'proposals')).toContain('ref_kind');
     // ⚠️ The property this step lives or dies by (DESIGN_CONTEXT_HYGIENE §9.3 拍板乙): it
@@ -644,7 +664,7 @@ describe('migrateSchema registry (§19.3)', () => {
       (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map((r) => {
         const { annotation_by, ...rest } = r;
         void annotation_by;
-        return stripProvenance(stripCorrectedQuote(rest));
+        return stripCompression(stripProvenance(stripCorrectedQuote(rest)));
       }),
     ).toEqual(blocksBefore);
   });
@@ -660,7 +680,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const cols = columnNames(handle, 'attachments');
     expect(cols).toContain('thread_id');
     expect(cols).toContain('ai_access');
@@ -707,7 +727,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(columnNames(handle, 'threads')).toContain('summary_at');
     expect(handle.prepare('SELECT summary, summary_at FROM threads').all()).toEqual([
       { summary: '旧摘要', summary_at: null },
@@ -724,12 +744,12 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(columnNames(handle, 'date_dismissals')).toEqual(['block_id', 'due_at', 'created_at']);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM date_dismissals').get()).toEqual({ c: 0 });
     expect(
       (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(
-        (r: Record<string, unknown>) => stripProvenance(stripCorrectedQuote(r)),
+        (r: Record<string, unknown>) => stripCompression(stripProvenance(stripCorrectedQuote(r))),
       ),
     ).toEqual(blocksBefore);
   });
@@ -748,7 +768,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM file_access_requests').get()).toEqual({
       c: 0,
     });
@@ -765,7 +785,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(
       handle
         .prepare(
@@ -801,7 +821,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const items = handle
       .prepare('SELECT text, standing, status, sort_order, why FROM follow_up_items ORDER BY sort_order')
       .all();
@@ -816,7 +836,11 @@ describe('migrateSchema registry (§19.3)', () => {
     // `follow_up_brief` after this step, and it is deliberately not cleared: if the split
     // above is ever wrong, what the user actually approved is still sitting there.
     expect(handle.prepare('SELECT * FROM threads').all()).toEqual(threadsBefore);
-    expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
+    expect(
+      (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(
+        stripCompression,
+      ),
+    ).toEqual(blocksBefore);
   });
 
   it('v21 → v22 leaves a project that never followed anything up with an empty list', async () => {
@@ -861,7 +885,7 @@ describe('migrateSchema registry (§19.3)', () => {
 
     await __migrateSchemaForTest(db);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(columnNames(handle, 'workspaces')).toContain('parent_id');
     expect(handle.prepare('SELECT id, parent_id FROM workspaces').all()).toEqual([
       { id: 'w1', parent_id: null },
@@ -872,6 +896,30 @@ describe('migrateSchema registry (§19.3)', () => {
     ).toEqual(workspacesBefore);
   });
 
+  // v24 (COMPRESS-UX-R2-2026-08-22 §1a). ⚠️⚠️ 这是 Spool 第一条会改写用户已有文字的路，
+  // 所以这一步本身必须是**加两个空列、一个字都不写**（2026-05-29 抹库之后定的规矩）。
+  // 盯的就是这一条：走过之后每一行的两列都是 NULL，其余每个字段逐字未动。
+  it('v23 → v24 adds two empty columns and writes no user data', async () => {
+    applySchema(handle);
+    downgradeToV23(handle);
+    seedUserData(handle);
+    const before = handle.prepare('SELECT * FROM blocks').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(24);
+    expect(columnNames(handle, 'blocks')).toContain('original_content');
+    expect(columnNames(handle, 'blocks')).toContain('compressed_at');
+    // ⛔ 一行用户数据都没写：两列全空 = 「从来没压过」，正文一个字没动。
+    expect(handle.prepare('SELECT original_content, compressed_at FROM blocks').all()).toEqual(
+      before.map(() => ({ original_content: null, compressed_at: null })),
+    );
+    const cols = Object.keys(before[0] as object);
+    expect(
+      handle.prepare(`SELECT ${cols.join(', ')} FROM blocks`).all(),
+    ).toEqual(before);
+  });
+
   it('is a no-op when the version already matches', async () => {
     applySchema(handle);
     handle.exec('PRAGMA user_version = 19');
@@ -880,7 +928,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // Only the fresh-rebuild path reports true — it is the sole tutorial-seed gate.
     expect(await __migrateSchemaForTest(db)).toBe(false);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     expect(handle.prepare('SELECT COUNT(*) AS c FROM blocks').get()).toEqual({ c: 1 });
   });
 
@@ -900,7 +948,7 @@ describe('migrateSchema registry (§19.3)', () => {
     // which is what lets initDb seed the tutorial thread exactly once.
     expect(await __migrateSchemaForTest(db)).toBe(true);
 
-    expect(userVersion(handle)).toBe(23);
+    expect(userVersion(handle)).toBe(24);
     const tables = (
       handle.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {
         name: string;

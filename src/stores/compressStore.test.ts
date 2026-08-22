@@ -81,6 +81,7 @@ const session = (): CompressSession => ({
   restoredLines: [],
   retry: null,
   shield: null,
+  skippedCompressed: 0,
   probe: null,
   startedAt: 0,
 });

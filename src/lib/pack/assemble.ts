@@ -18,6 +18,7 @@ import {
   PACK_END,
   PACK_HEADER,
   PERSONAL_PREFIX,
+  COMPRESSED_PREFIX,
   PINNED_PREFIX,
   PINNED_SEE_ABOVE,
   PROVENANCE_PREFIX,
@@ -279,7 +280,11 @@ const renderBlock = (
   } else {
     const bracket = b.source ? `${time}${SOURCE_MARKER}${b.source}` : time;
     const band = isPersonal(b) ? PERSONAL_PREFIX : '';
-    lines.push(`${star}${band}${n}[${bracket}] ${b.content.trim()}`);
+    // v24（R2 §1d）：压过的块带记号。⚠️ 只有 pack 印它（digest 不印，和 💭 同一条规矩）——
+    // 「这几句不是原话」只在读全文的时候才要紧。⛔ 压缩前的原文**不进 pack**：那是他定的，
+    // pack 里只放记号，让收件 AI 主动来问（`get_block_original`）。
+    const squeezed = b.compressedAt != null ? COMPRESSED_PREFIX : '';
+    lines.push(`${star}${band}${squeezed}${n}[${bracket}] ${b.content.trim()}`);
   }
 
   // v20: directly under the head line — where the block came from is part of what it IS,

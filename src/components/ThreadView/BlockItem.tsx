@@ -125,6 +125,7 @@ function TextBlockItem({
   // §9.6.6 单块压缩：从块自己的菜单进，和右侧栏的「压缩这个项目」通向同一张核对桌。
   const apiEngineEnabled = useSettingsStore((s) => s.apiEngineEnabled);
   const openCompressBlock = useCompressStore((s) => s.openBlock);
+  const restoreOriginal = useBlocksStore((s) => s.restoreOriginal);
   const compressThread = useThreadsStore(selectThreadById(block.threadId));
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
@@ -868,6 +869,14 @@ function TextBlockItem({
             onCompress={
               apiEngineEnabled && compressThread
                 ? () => void openCompressBlock(compressThread, block)
+                : undefined
+            }
+            // ⭐ v24（R2 §1g）：只有**压过、而且原文还留着**的块才有这个入口。
+            // ⚠️ 压过但没留原文（用户关了备份）的块**不给**这个按钮 —— 一个点了会说
+            // 「还原不了」的按钮，比没有更伤：它承诺了一件做不到的事。
+            onRestoreOriginal={
+              block.compressedAt != null && block.originalContent != null
+                ? () => void restoreOriginal(block.id)
                 : undefined
             }
           />

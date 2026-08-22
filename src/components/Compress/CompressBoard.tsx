@@ -39,11 +39,13 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
   const runIt = useCompressStore((s) => s.run);
   const cancel = useCompressStore((s) => s.cancel);
   const clearSession = useCompressStore((s) => s.clearSession);
+  const useDraft = useCompressStore((s) => s.useDraft);
   const addBackRaw = useCompressStore((s) => s.addBack);
   const addBack = (only?: readonly string[]) => addBackRaw(threadId, only);
 
   const level = useSettingsStore((s) => s.apiCompressLevel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
+  const keepOriginal = useSettingsStore((s) => s.compressKeepOriginal);
   const update = useSettingsStore((s) => s.update);
 
   const [copied, setCopied] = useState(false);
@@ -154,7 +156,7 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
             不说一句，用户在这一页上找不到它们，也不知道它们存在。 */}
         <div className="min-w-0 text-[11px] text-muted">
           {session.target.kind === 'project'
-            ? t('一块对一块地核对。库里一个字都不动。')
+            ? t('一块对一块地核对。你按「用这一份」之前，库里一个字都不动。')
             : t('只压这一块（第 {n} 块）。库里一个字都不动。', { n: session.target.seq ?? '?' })}
           {' '}
           {t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}
@@ -491,6 +493,17 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
                     那句话原来只是界面上的一行提示，等于把一个没解决的问题丢给用户：
                     他没法在花钱之前知道自己这个项目有没有重复。这一行就是那句提示的解药。
                     ⛔ 数不出来就什么都不说（`probe` 是 null）—— 不编一个数。 */}
+                {/* ⭐ R1 §1e（Ocean：「压过一次下次就不会再被压缩，只能被检测语义是否废除」）：
+                    pack 里少了几块，而用户没做过任何选择 —— ⛔ 不说就是静默。 */}
+                {session.skippedCompressed > 0 && (
+                  <div>
+                    {session.blocks.length === 0
+                      ? t('这个项目里每一块都压过了，没有新的可压。')
+                      : t('这个项目里 {n} 块已经压过了，这一次跳过它们 —— 压过一次就不再花第二笔钱。', {
+                          n: session.skippedCompressed,
+                        })}
+                  </div>
+                )}
                 {session.probe &&
                   (session.probe.groups === 0 ? (
                     <div>
@@ -517,15 +530,33 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
             一个好像少做了一半的功能，而不是「这里被有意封着，理由是 X」。
             ⛔ 一个沉默的缺口正是这个项目最怕的东西，所以理由写在这儿，写全。
             ⚠️ 解锁的前提是 D7（丢了的数字一键加回去）+ D-b（数字硬闸门），两件都没做。 */}
+        {/* ⭐ R1（2026-08-22）：这里原来写的是「这里没有『用这一份』…库里一个字都不动」。
+            那条锁**他明说解了**（R2 §1）。留下来的是它的两半：
+            数字硬闸门照旧（⛔ 解锁之后也不放宽），以及「关掉留原文 = 改不回去」这句话
+            —— ⚠️ 它必须写在**按下按钮的那一刻**看得见的地方，不能只写在设置里。 */}
         <span className="text-muted">
-          {t('这里没有「用这一份」：这一步只给你复制走，库里一个字都不动。')}
-          {' '}
           {t('丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。')}
           {audit && !numbersGateOpen(audit) && (
             <> {t('这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。')}</>
           )}
+          {' '}
+          {keepOriginal
+            ? t('压缩前的原文会留在每一块自己身上，随时可以还原。')
+            : t('⚠️ 你在设置里关掉了「留原文」—— 这一次换过去就改不回来了。')}
         </span>
         <div className="flex items-center gap-2">
+          {/* ⭐ R1 · 「用这一份」。⛔ 三道闸都在 store 里（数字硬闸门 / 结构没坏 / 真的变了）——
+              ⛔ 别在这儿放行，界面上的判断会被绕过。这里只负责**不假装它能点**：
+              闸门关着的时候按钮是灰的，而理由就印在左边那句话里。 */}
+          {result !== null && session.target.kind === 'project' && (
+            <button
+              onClick={() => void useDraft(threadId)}
+              disabled={!audit || !numbersGateOpen(audit) || busy}
+              className="rounded-md border border-line-strong bg-paper px-3 py-1.5 text-ink transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-50"
+            >
+              {t('用这一份')}
+            </button>
+          )}
           {result !== null && (
             <button
               onClick={() => void copy()}

@@ -50,6 +50,7 @@ type PersistableKey =
   | 'apiReasoning'
   | 'compressQueue'
   | 'compressNightlyAt'
+  | 'compressKeepOriginal'
   | 'compressLastRunDay';
 
 type PersistablePatch = Partial<Pick<SettingsState, PersistableKey>>;
@@ -200,6 +201,11 @@ interface SettingsState {
    *  到点没开，下次启动时补跑」——这样整个「调度器」表面根本不用长出来。
    *  （而且这台机器上 launchd 碰 `~/Desktop` 会永久卡死，本来就不该碰。） */
   compressNightlyAt: string;
+  /** v24（R2 §1c）：压缩写回库的时候**留不留压缩前的原文**。默认 true。
+   *
+   *  ⚠️ 关掉 = 压缩不可逆，⛔ 而且这句话必须写在**按下「用这一份」的那一刻**看得见的地方，
+   *  不能只写在设置里 —— 用户不会为了压一次上下文先去翻一遍设置。 */
+  compressKeepOriginal: boolean;
   /** ⑥ 上一次跑完那一批是哪一天（本地日期 `YYYY-MM-DD`）。补跑判断只看这一个数：
    *  今天还没跑过、而且已经过了点，就补跑。⚠️ 存日期不存时刻 —— 一天只跑一次。 */
   compressLastRunDay: string;
@@ -300,6 +306,7 @@ const KEYS: PersistableKey[] = [
   'apiReasoning',
   'compressQueue',
   'compressNightlyAt',
+  'compressKeepOriginal',
   'compressLastRunDay',
 ];
 
@@ -372,6 +379,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   apiReasoning: 'low',
   // ⑥ 睡前排队：默认空、默认不定时 —— 和 apiEngineEnabled 一样，什么都不选就什么都不花。
   compressQueue: [],
+  // ⭐ 默认留原文（他原话「默认备份，用户可关」）：还原是白拿的，代价只是磁盘。
+  compressKeepOriginal: true,
   compressNightlyAt: '',
   compressLastRunDay: '',
   loaded: false,

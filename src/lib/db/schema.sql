@@ -210,7 +210,28 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- offsets of that selection (selectionRange.ts) — never by searching for the words on
   -- screen, which the renderer has already stripped `**` and `## ` out of. So the invariant
   -- holds for every writer alike: whatever is stored here occurs verbatim in the block.
-  corrected_quote TEXT
+  corrected_quote TEXT,
+  -- v24 (COMPRESS-UX-R2-2026-08-22 §1, Ocean 2026-08-22): 压缩前的原文，跟着块走。
+  --
+  -- 他的原话：「不行，复制入库摩擦太大……直接让用户自己审核、替换原库文字；但是未压缩的
+  -- 原库需要备份保存，默认备份，用户可关……被压缩的 block 带一个 compressed 的标签，
+  -- 用户可以回 spool 拿到原始信息。」
+  --
+  -- ⚠️ 他明说推翻了「库里一个字都不动」那条锁。锁是他定的，也只有他能解 —— 他解了。
+  --
+  -- **为什么是「原文跟着块走」，不是整库快照。** 快照做不到一一对应：压缩会合并、会重编号，
+  -- 于是「这一块压之前长什么样」在快照里根本定位不到。一块自己带着自己的原文，天然对得上，
+  -- 导出、备份、换机器都跟着走。代价是库大约 1.8 倍 —— 只是磁盘，⛔ 不进 pack。
+  --
+  -- NULL 有两种意思，⚠️ 两种都不能当成「有原文」：
+  --   * 这一块从来没被压过（v24 之前的每一行，和之后没压过的每一行）；
+  --   * 压过，但用户把「备份原文」关掉了 —— 那一次压缩**不可逆**，界面必须当场说清楚。
+  -- 分辨这两种看 `compressed_at`：它非空而这一列是 NULL，就是第二种。
+  original_content TEXT,
+  -- v24: 这一块是什么时候被压过的。NULL = 从来没压过。
+  -- ⚠️ 它同时是「只压新块」那条规则的依据（R2 §1e）：组压缩用的 pack 时跳过它非空的块 ——
+  -- 一块压过一次就不再花第二笔钱去压，也不会被压第二遍越压越短。
+  compressed_at INTEGER
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
