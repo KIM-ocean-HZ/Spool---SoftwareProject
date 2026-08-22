@@ -487,13 +487,25 @@ pub fn compress_duplicate_probe(thread_id: String) -> Result<DuplicateProbe, Str
 //    travels between builds (DESIGN_LIBRARY_TRANSFER)」。一个会被导出、被拷到另一台机器、
 //    被贴进 issue 的文件，不该装着一把能花钱的钥匙。
 //
-// 所以 key 单独一个文件、0600、不参与任何导出。
+// ⭐⭐ **2026-08-23：挪进系统钥匙串了**（E3 的前置，Ocean 在三档里选的 `security-framework`）。
 //
-// ⚠️⚠️ **这不是终点，是这一步的合理选择。** 真正该去的地方是系统钥匙串
-// （macOS Keychain / Windows Credential Manager）。没有一步到位是因为：那需要 Security.framework
-// 的 FFI 和 Windows 的 CredReadW 两套平台代码，而 §9 第 4 步的目的是**先确认压缩质量你认可**
-// ——质量不认可，后面整段都不用写。0600 文件挡得住「settings.json 被拷走」这个实际风险，
-// 挡不住「同一个账号下的别的程序去读它」。⛔ **接 `supersedes` 写入那一步之前，把它挪进钥匙串。**
+// 在此之前是「app_config_dir 下一个 0600 的文件」——那是个**够用的临时方案**，当时的目的是
+// 先让 Ocean 看见压缩质量。它挡得住「settings.json 被拷走」，⛔ **挡不住「同一个账号下的
+// 别的程序去读它」**：0600 防的是别的用户，而在一台个人电脑上，威胁本来就在同一个账号里。
+//
+// ⚠️ **`security-framework` 不碰网络**，所以 §4.2 那条护栏（主进程不发网络请求，外人能当场验）
+// 仍然成立。⛔ 每次动 `Cargo.toml` 都要再跑一次：
+//   cargo tree -e normal | grep -iE "ureq|rustls|reqwest|hyper|openssl"   # 必须是空的
+//
+// ⛔ **只有 macOS 走钥匙串。** Windows 继续用 0600 文件（那边还没签名，不是当前战场），
+// 换跨平台的 `keyring` 会把 dbus/secret-service 拖进依赖树 —— 那一档被明确否了。
+
+/// 钥匙串里那一条的名字。⚠️ 两个都别改：改了等于用户的 key 凭空消失，
+/// 而钥匙串里还躺着一条谁也读不到的旧记录。
+#[cfg(target_os = "macos")]
+const KEYCHAIN_SERVICE: &str = "com.oceanjin.spool";
+#[cfg(target_os = "macos")]
+const KEYCHAIN_ACCOUNT: &str = "api-key";
 
 fn key_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = tauri::Manager::path(app).app_config_dir().map_err(|e| e.to_string())?;
@@ -501,36 +513,125 @@ fn key_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("api-key"))
 }
 
+/// 老地方那个 0600 文件里还有没有 key。⚠️ 只在 macOS 上用来做一次性搬家。
+fn legacy_file_key(app: &tauri::AppHandle) -> Option<String> {
+    let path = key_path(app).ok()?;
+    let key = std::fs::read_to_string(&path).ok()?.trim().to_string();
+    if key.is_empty() { None } else { Some(key) }
+}
+
+#[cfg(target_os = "macos")]
+mod keychain {
+    use super::{KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE};
+    use security_framework::passwords as pw;
+
+    pub fn save(key: &str) -> Result<(), String> {
+        pw::set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, key.as_bytes())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn load() -> Option<String> {
+        // ⚠️ 读不到有两种：没存过，和用户在钥匙串弹窗上点了「不允许」。
+        // 两种都当成「没有」——⛔ 不在这儿弹二次提示，界面上那句「你还没填 key」已经够了。
+        let bytes = pw::get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).ok()?;
+        let s = String::from_utf8(bytes).ok()?.trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    }
+
+    pub fn delete() {
+        let _ = pw::delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
+    }
+}
+
+/// 一次性搬家：老地方那个文件里有 key、而钥匙串里没有 → 搬进去，然后**删掉文件**。
+///
+/// ⚠️ **删文件是这件事的重点**，不是收尾：留着的话，挪进钥匙串就只是多了一份拷贝，
+/// 原来那份仍然躺在磁盘上任人读 —— 那等于什么都没做。
+/// ⛔ 写钥匙串失败就**不删**：宁可两份都在，也不能把用户唯一那把钥匙弄丢。
+#[cfg(target_os = "macos")]
+fn migrate_key_into_keychain(app: &tauri::AppHandle) {
+    if keychain::load().is_some() {
+        // 钥匙串里已经有了 —— 老文件如果还在，它是搬家没删干净的残留，清掉。
+        if let Ok(path) = key_path(app) {
+            let _ = std::fs::remove_file(path);
+        }
+        return;
+    }
+    let Some(key) = legacy_file_key(app) else { return };
+    if keychain::save(&key).is_ok() {
+        if let Ok(path) = key_path(app) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 #[tauri::command]
 pub fn api_key_save(app: tauri::AppHandle, key: String) -> Result<(), String> {
-    let path = key_path(&app)?;
     let key = key.trim();
-    if key.is_empty() {
-        // 清空 = 删掉文件，不是写一个空文件。
-        let _ = std::fs::remove_file(&path);
-        return Ok(());
-    }
-    std::fs::write(&path, key).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     {
-        use std::os::unix::fs::PermissionsExt;
-        // 0600。⚠️ 写完再改权限有一个短暂的窗口，但 app_config_dir 本身就是 0700，
-        // 同一个账号之外的人进不来。
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        // 清空 = 从钥匙串里删掉那一条，不是存一个空串。
+        if key.is_empty() {
+            keychain::delete();
+        } else {
+            keychain::save(key)?;
+        }
+        // 老文件不该再存在。⚠️ 用户可能是从一个没走过搬家那一步的旧版本升上来的。
+        if let Ok(path) = key_path(&app) {
+            let _ = std::fs::remove_file(path);
+        }
+        Ok(())
     }
-    Ok(())
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = key_path(&app)?;
+        if key.is_empty() {
+            // 清空 = 删掉文件，不是写一个空文件。
+            let _ = std::fs::remove_file(&path);
+            return Ok(());
+        }
+        std::fs::write(&path, key).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // 0600。⚠️ 写完再改权限有一个短暂的窗口，但 app_config_dir 本身就是 0700，
+            // 同一个账号之外的人进不来。
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    }
 }
 
 #[tauri::command]
 pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
-    let path = key_path(&app)?;
-    Ok(std::fs::read_to_string(&path).unwrap_or_default().trim().to_string())
+    #[cfg(target_os = "macos")]
+    {
+        migrate_key_into_keychain(&app);
+        Ok(keychain::load().unwrap_or_default())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let path = key_path(&app)?;
+        Ok(std::fs::read_to_string(&path).unwrap_or_default().trim().to_string())
+    }
 }
 
 /// 设置页只想知道「填没填」，不需要把 key 拿到前端去。
+///
+/// ⚠️ macOS 上这一条**会读一次钥匙串**（`SecItemCopyMatching`）。同一个签名身份下
+/// 不弹窗；⛔ 换了签名身份（比如从公证版换成 dev build）系统会当成另一个程序来问，
+/// 那一次会弹一个「允许访问钥匙串」的框 —— 那是对的，不是 bug。
 #[tauri::command]
 pub fn api_key_present(app: tauri::AppHandle) -> bool {
-    key_path(&app).map(|p| p.is_file()).unwrap_or(false)
+    #[cfg(target_os = "macos")]
+    {
+        migrate_key_into_keychain(&app);
+        keychain::load().is_some()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        key_path(&app).map(|p| p.is_file()).unwrap_or(false)
+    }
 }
 
 // ---------------------------------------------------------------------------------------

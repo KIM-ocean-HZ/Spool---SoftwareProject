@@ -1067,8 +1067,8 @@ const EN: Record<string, string> = {
     'Spool itself makes no network request. With this on, the request is sent by a small program Spool starts on this machine, using your own key and your own credit, and what you send reaches the model vendor you picked.',
   '已经装了 claude / codex 这类命令行工具的话，用「AI 引擎」那一节就行，一分钱不花、一个 key 不用填。这一节是给不想装命令行工具的人的第二条路。':
     'If you already have a CLI like claude or codex, use the section below instead — it costs nothing and needs no key. This section is the other route, for people who would rather not install one.',
-  'key 存在你这台电脑上一个单独的文件里，只有你的账号能读。它不会进设置文件，也不会跟着导出的库走。':
-    'The key is kept in a file of its own on this machine, readable only by your account. It never goes into the settings file, and it does not travel with an exported library.',
+  'key 存在你这台电脑的系统钥匙串里，和别的密码放在一起。它不会进设置文件，也不会跟着导出的库走。':
+    'Your key lives in this machine’s system keychain, alongside your other passwords. It never enters the settings file, and it does not travel with an exported library.',
   '接口地址': 'Endpoint',
   '思考力度': 'How hard it thinks',
   // '默认' 上面第 930 行已经有了，不重复。

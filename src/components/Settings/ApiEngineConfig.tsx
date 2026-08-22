@@ -98,7 +98,7 @@ export default function ApiEngineConfig() {
             </div>
             {/* ⚠️ 说实话，而且说在它旁边。这个产品的信任全靠「说的和做的一致」。 */}
             <span className="mt-1 block text-[11px] leading-relaxed text-muted/80">
-              {t('key 存在你这台电脑上一个单独的文件里，只有你的账号能读。它不会进设置文件，也不会跟着导出的库走。')}
+              {t('key 存在你这台电脑的系统钥匙串里，和别的密码放在一起。它不会进设置文件，也不会跟着导出的库走。')}
             </span>
           </label>
 

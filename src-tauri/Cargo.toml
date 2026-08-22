@@ -49,6 +49,18 @@ toml_edit = "0.25.11"
 core-graphics = "0.23"
 core-foundation = "0.9"
 foreign-types = "0.5"
+# 2026-08-23（E3 前置，Ocean 拍的是「加 security-framework」那一档）：API key 挪进
+# 系统钥匙串。在此之前它是 app_config_dir 下一个 0600 的文件 —— 挡得住「settings.json
+# 被拷走」，挡不住「同一个账号下的别的程序去读它」。
+#
+# ⚠️⚠️ **这个 crate 不碰网络，加它不破 §4.2 那条护栏。** 它是 macOS 自带
+# Security.framework 的薄绑定（SecItemAdd / SecItemCopyMatching），全部符号来自系统。
+# 加完之后那条护栏照旧验得过，⛔ 每次动这个文件都要再跑一次：
+#   cargo tree -e normal | grep -iE "ureq|rustls|reqwest|hyper|openssl"   # 必须是空的
+#
+# ⛔ 只加 macOS 这一档。Windows 继续用 0600 文件（那边本来就还没签名，不是当前战场），
+# 换成跨平台的 `keyring` 会把 dbus/secret-service 拖进依赖树 —— Ocean 明确否了那一档。
+security-framework = "2"
 
 # Windows-only: the two things the port cannot fake (see win32.rs).
 #   - BCryptGenRandom, because MCP ids came from /dev/urandom and that device does not
