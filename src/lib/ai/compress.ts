@@ -1003,3 +1003,69 @@ export const FAILURE_SENTENCE: Record<string, string> = {
   http: '接口返回了一个错误。',
   internal: 'Spool 自己出错了。',
 };
+
+// ---------------------------------------------------------------------------------------
+// E3 · 作废检测（COMPRESS-UX-R2-2026-08-22 §7 / WORKPLAN §2.E3）
+// ---------------------------------------------------------------------------------------
+//
+// ⚠️ 这一整段只是**过桥**：提示词、请求、和回来之后那道**引文逐字闸**全在 Rust 那一侧
+// （`api_engine.rs`）。⛔ 别在这边另写一道闸 —— 界面上放行的和 Rust 放行的必须是同一批。
+
+/** 一条提议。⚠️ 编号是**块自己的 `#N`**，不是它在 pack 里排第几。 */
+export interface StaleProposal {
+  staleSeq: number;
+  bySeq: number;
+  why: string;
+  /** 旧块里能证明它作废的那一句原文。⚠️ 已经过了逐字闸。 */
+  quoteStale: string;
+  /** 新块里取代它的那一句原文。 */
+  quoteNew: string;
+  /** 两句引文里至少有一句是「只差标点的重打」。⚠️ 界面要说出来：
+   *  它确实破了「逐字」，只是没改内容。 */
+  retyped: boolean;
+}
+
+export interface StaleScan {
+  outcome: CompressOutcome;
+  /** ⚠️ **过了闸的**才在这儿。 */
+  proposals: StaleProposal[];
+  /** ⛔ 引文对不上、被整条丢掉的条数。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
+   *  和它本来就只提了 2 条，是两件完全不同的事。 */
+  dropped: number;
+}
+
+interface StaleScanRaw {
+  outcome: CompressOutcome;
+  proposals: {
+    stale_seq: number;
+    by_seq: number;
+    why: string;
+    quote_stale: string;
+    quote_new: string;
+    retyped: boolean;
+  }[];
+  dropped: number;
+}
+
+export const staleScan = async (req: Omit<CompressRequest, 'level'>): Promise<StaleScan> => {
+  const raw = await invoke<StaleScanRaw>('stale_scan_via_api', {
+    packText: req.packText,
+    baseUrl: req.baseUrl,
+    apiKey: req.apiKey,
+    model: req.model,
+    reasoning: req.reasoning,
+    timeoutSecs: req.timeoutSecs,
+  });
+  return {
+    outcome: raw.outcome,
+    dropped: raw.dropped,
+    proposals: raw.proposals.map((p) => ({
+      staleSeq: p.stale_seq,
+      bySeq: p.by_seq,
+      why: p.why,
+      quoteStale: p.quote_stale,
+      quoteNew: p.quote_new,
+      retyped: p.retyped,
+    })),
+  };
+};

@@ -791,3 +791,367 @@ mod tests {
         assert_eq!(clamp_timeout(120), 120);
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// E3 · 作废检测接产品（COMPRESS-UX-R2-2026-08-22 §7 / WORKPLAN §2.E3）
+// ---------------------------------------------------------------------------------------
+//
+// 60 次实测早就判定「可以接」，而产品里一行都没接 —— 提示词只活在 `compress_sweep.rs`，
+// 那个模块是 `#[cfg(test)]` 的。这一段是它进出货路径的那条命令。
+//
+// ⚠️⚠️ **这里最要紧的不是发请求，是回来之后那道闸。**
+//
+// 模型报的每一条都带两句引文（旧块里证明它作废的那一句、新块里取代它的那一句），
+// 提示词第 2 条明写「必须逐字连续出现，Spool 会拿它们回去精确比对，对不上的整条丢掉」。
+// ⛔ **那句话必须是真的**：一条引文对不上的提议，意味着模型在**指一句它自己编的话**，
+// 而用户要凭这句话决定退不退一个块。
+//
+// 折叠规则和第四轮那个 `gate.py` 逐字同源（§6.1 口径 1）：
+//   * 只折叠**标点**的全角/半角，⛔ **数字和日期一个都不折叠**；
+//   * 折叠表每一项都是**单字符对单字符**，所以折叠不改变长度 ——
+//     于是「有没有因为折叠放进本该被拒的」是可逐字打印的清单，不是一句保证；
+//   * `…` **故意不在表里**：提示词明写「不许用省略号」，所以它是破规矩，不是重打。
+
+/// 全角 → 半角，**只有标点**。⛔ 数字一个都不在这儿：全角 ０-９ 故意不折叠，
+/// 重打成半角数字必须报出来。⚠️ 每一项都必须是单字符对单字符（长度守恒）。
+fn fold_char(c: char) -> char {
+    match c {
+        '，' | '、' => ',',
+        '。' | '．' => '.',
+        '；' => ';',
+        '：' => ':',
+        '！' => '!',
+        '？' => '?',
+        '（' => '(',
+        '）' => ')',
+        '《' => '<',
+        '》' => '>',
+        '【' => '[',
+        '】' => ']',
+        '“' | '”' | '「' | '」' | '『' | '』' => '"',
+        '‘' | '’' => '\'',
+        '—' | '–' | '－' | '﹣' | '‐' => '-',
+        '／' => '/',
+        '＼' => '\\',
+        '｜' => '|',
+        '～' => '~',
+        '％' => '%',
+        '＃' => '#',
+        '＆' => '&',
+        '＊' => '*',
+        '＋' => '+',
+        '＝' => '=',
+        '＄' => '$',
+        '　' => ' ',
+        other => other,
+    }
+}
+
+fn fold(s: &str) -> Vec<char> {
+    s.chars().map(fold_char).collect()
+}
+
+/// 一句引文在一块里的下落。⚠️ 只有 `Verbatim` 和 `Retyped` 能留下来。
+#[derive(PartialEq, Debug)]
+enum Quoted {
+    /// 一字不差。
+    Verbatim,
+    /// 只差标点（每一处都在折叠表里，⛔ 两边都不是数字）。破了「逐字」，但没改内容。
+    Retyped,
+    /// ⛔ 折叠后能对上，但**有一处动的是数字** —— 整条丢掉。
+    Digits,
+    /// ⛔ 折叠后仍然对不上，或者块里根本没有 —— 整条丢掉。
+    Absent,
+}
+
+fn locate(quote: &str, block: &str) -> Quoted {
+    if quote.is_empty() {
+        return Quoted::Absent;
+    }
+    if block.contains(quote) {
+        return Quoted::Verbatim;
+    }
+    let fb = fold(block);
+    let fq = fold(quote);
+    if fq.is_empty() || fq.len() > fb.len() {
+        return Quoted::Absent;
+    }
+    let Some(at) = fb.windows(fq.len()).position(|w| w == fq.as_slice()) else {
+        return Quoted::Absent;
+    };
+    // 回到**原文**取同样长度的一段，逐字符比 —— 折叠长度守恒，所以这一步对得齐。
+    let raw: Vec<char> = block.chars().skip(at).take(fq.len()).collect();
+    for (a, b) in quote.chars().zip(raw.iter().copied()) {
+        if a == b {
+            continue;
+        }
+        if a.is_ascii_digit() || b.is_ascii_digit() || a.is_numeric() || b.is_numeric() {
+            return Quoted::Digits;
+        }
+        if fold_char(a) != fold_char(b) {
+            return Quoted::Absent;
+        }
+    }
+    Quoted::Retyped
+}
+
+/// 把一份 pack 按块首行切开 → `编号 → 那一块全文`。
+/// ⚠️ 和 `compress.ts::ENTRY_RE`、`gate.py::blocks_of` 同一条规则。
+fn blocks_of(pack: &str) -> std::collections::HashMap<i64, String> {
+    let mut out: std::collections::HashMap<i64, String> = std::collections::HashMap::new();
+    let mut cur: Option<i64> = None;
+    let mut buf: Vec<&str> = Vec::new();
+    for line in pack.lines() {
+        let head = crate::mcp::entry_seq(line);
+        if let Some(seq) = head {
+            if let Some(c) = cur {
+                out.entry(c).or_insert_with(|| buf.join("\n"));
+            }
+            cur = Some(seq);
+            buf = vec![line];
+        } else if cur.is_some() {
+            buf.push(line);
+        }
+    }
+    if let Some(c) = cur {
+        out.entry(c).or_insert_with(|| buf.join("\n"));
+    }
+    out
+}
+
+/// 一条提议。⚠️ 编号是**块自己的 `#N`**，不是它在 pack 里排第几。
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct StaleProposal {
+    pub stale_seq: i64,
+    pub by_seq: i64,
+    pub why: String,
+    pub quote_stale: String,
+    pub quote_new: String,
+    /// `true` = 两句引文里至少有一句是「只差标点的重打」。
+    /// ⚠️ **界面要说出来**：它确实破了「逐字」，只是没改内容。
+    pub retyped: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct StaleScan {
+    /// 请求本身的信封（成功没成功、花了多少、多久）。和压缩那条路共用一套。
+    pub outcome: CompressOutcome,
+    /// ⚠️ **过了闸的**才在这儿。
+    pub proposals: Vec<StaleProposal>,
+    /// ⛔ 引文对不上、被整条丢掉的条数。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
+    /// 和它本来就只提了 2 条，是两件完全不同的事。
+    pub dropped: usize,
+}
+
+/// 从模型那一坨输出里把 JSON 数组抠出来。⚠️ 提示词说了不要代码块标记，
+/// 但一个只在「它守规矩时」才work的解析器，等于把守规矩当成了前提。
+fn json_array_slice(text: &str) -> &str {
+    let t = text.trim();
+    match (t.find('['), t.rfind(']')) {
+        (Some(a), Some(b)) if b > a => &t[a..=b],
+        _ => "[]",
+    }
+}
+
+/// 逐条过闸。⛔ 一条引文对不上就整条丢掉 —— 提示词里那句承诺必须是真的。
+fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
+    let blocks = blocks_of(pack);
+    let parsed: Vec<serde_json::Value> =
+        serde_json::from_str(json_array_slice(raw)).unwrap_or_default();
+    let mut kept = Vec::new();
+    let mut dropped = 0usize;
+    for item in parsed {
+        let stale_seq = item.get("stale").and_then(serde_json::Value::as_i64);
+        let by_seq = item.get("by").and_then(serde_json::Value::as_i64);
+        let (Some(stale_seq), Some(by_seq)) = (stale_seq, by_seq) else {
+            dropped += 1;
+            continue;
+        };
+        // ⛔ 指到同一块、或者指到 pack 里没有的编号 —— 整条丢掉。
+        let (Some(old), Some(new)) = (blocks.get(&stale_seq), blocks.get(&by_seq)) else {
+            dropped += 1;
+            continue;
+        };
+        if stale_seq == by_seq {
+            dropped += 1;
+            continue;
+        }
+        let qs = item.get("quote_stale").and_then(serde_json::Value::as_str).unwrap_or("");
+        let qn = item.get("quote_new").and_then(serde_json::Value::as_str).unwrap_or("");
+        let (a, b) = (locate(qs, old), locate(qn, new));
+        let ok = |q: &Quoted| matches!(q, Quoted::Verbatim | Quoted::Retyped);
+        if !ok(&a) || !ok(&b) {
+            dropped += 1;
+            continue;
+        }
+        kept.push(StaleProposal {
+            stale_seq,
+            by_seq,
+            why: item
+                .get("why")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            quote_stale: qs.to_string(),
+            quote_new: qn.to_string(),
+            retyped: a == Quoted::Retyped || b == Quoted::Retyped,
+        });
+    }
+    (kept, dropped)
+}
+
+/// 查一遍这份 pack 里有没有被后面的块整条取代的旧块。
+///
+/// ⚠️ 和压缩共用同一把「正在跑」的锁：两件事都要起 `spool-ai`，而这台机器上同时跑两个
+/// 只会让两边都变慢，还把「这一次花了多少」搅在一起。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn stale_scan_via_api(
+    app: tauri::AppHandle,
+    pack_text: String,
+    base_url: String,
+    api_key: String,
+    model: String,
+    reasoning: String,
+    timeout_secs: u64,
+) -> Result<StaleScan, String> {
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("a run is already in flight".into());
+    }
+    let pack_for_gate = pack_text.clone();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(dir) = tauri::Manager::path(&app).app_config_dir() {
+            crate::mcp::refresh_lang(&dir);
+        }
+        let (system, user) = crate::mcp::stale_messages_for_api(&pack_text);
+        let bin = match sidecar_path() {
+            Ok(p) => p,
+            Err(e) => return CompressOutcome::failed("no_sidecar", e, None),
+        };
+        let timeout_secs = clamp_timeout(timeout_secs);
+        let request =
+            sidecar_request(&base_url, &api_key, &model, &system, &user, &reasoning, timeout_secs);
+        let payload = match serde_json::to_vec(&request) {
+            Ok(v) => v,
+            Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
+        };
+        spawn_sidecar_with(&bin, payload, timeout_secs, Some(app.clone()))
+    })
+    .await;
+    RUNNING.store(false, Ordering::SeqCst);
+    *CHILD.lock().unwrap() = None;
+    let outcome = match out {
+        Ok(o) => o,
+        Err(e) => CompressOutcome::failed("internal", e.to_string(), None),
+    };
+    let (proposals, dropped) = if outcome.ok {
+        gate_proposals(&outcome.text, &pack_for_gate)
+    } else {
+        (Vec::new(), 0)
+    };
+    Ok(StaleScan { outcome, proposals, dropped })
+}
+
+#[cfg(test)]
+mod stale_gate_tests {
+    use super::*;
+
+    const PACK: &str = "# Project Context: 申请规划\n\
+\n\
+## Full Record (chronological)\n\
+\n\
+#2 [2026-08-01 09:00 · from Claude] 名单定稿：15 所，含 UMich MSI。\n\
+#21 [2026-08-09 21:07 · from Claude] 名单重定：移出 UMich MSI，加入 CMU MSAII（16 个月）。\n";
+
+    fn gate(items: &str) -> (Vec<StaleProposal>, usize) {
+        gate_proposals(items, PACK)
+    }
+
+    #[test]
+    fn a_verbatim_pair_gets_through() {
+        let (kept, dropped) = gate(
+            r#"[{"stale":2,"by":21,"why":"名单重定","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#,
+        );
+        assert_eq!(dropped, 0);
+        assert_eq!(kept.len(), 1);
+        assert!(!kept[0].retyped);
+        assert_eq!(kept[0].stale_seq, 2);
+        assert_eq!(kept[0].by_seq, 21);
+    }
+
+    // ⛔ 这一条是整道闸存在的理由：提示词向模型承诺「对不上的整条丢掉」，
+    //    那句承诺必须是真的 —— 否则用户要凭一句模型自己编的话决定退不退一个块。
+    #[test]
+    fn an_invented_quote_takes_the_whole_item_with_it() {
+        let (kept, dropped) = gate(
+            r#"[{"stale":2,"by":21,"why":"x","quote_stale":"这句话原文里根本没有","quote_new":"移出 UMich MSI"}]"#,
+        );
+        assert_eq!(kept.len(), 0);
+        assert_eq!(dropped, 1);
+    }
+
+    // 只差标点的重打放行，但**必须报出来** —— 它确实破了「逐字」，只是没改内容。
+    #[test]
+    fn punctuation_retyped_gets_through_and_says_so() {
+        let (kept, _) = gate(
+            r#"[{"stale":2,"by":21,"why":"x","quote_stale":"名单定稿:15 所,含 UMich MSI","quote_new":"移出 UMich MSI"}]"#,
+        );
+        assert_eq!(kept.len(), 1);
+        assert!(kept[0].retyped, "重打了标点却没报出来");
+    }
+
+    // ⛔⛔ 数字一个都不折叠。改一个数字就是改了内容，整条丢掉。
+    #[test]
+    fn a_retyped_digit_is_never_folded_away() {
+        let (kept, dropped) = gate(
+            r#"[{"stale":2,"by":21,"why":"x","quote_stale":"名单定稿：16 所","quote_new":"移出 UMich MSI"}]"#,
+        );
+        assert_eq!(kept.len(), 0, "改了数字的引文放进来了");
+        assert_eq!(dropped, 1);
+    }
+
+    // ⚠️ 省略号故意不在折叠表里：提示词明写「不许用省略号」，用了就是破规矩。
+    #[test]
+    fn an_ellipsis_is_breaking_the_rule_not_retyping() {
+        let (kept, dropped) =
+            gate(r#"[{"stale":2,"by":21,"why":"x","quote_stale":"名单定稿：15 所…MSI","quote_new":"移出 UMich MSI"}]"#);
+        assert_eq!(kept.len(), 0);
+        assert_eq!(dropped, 1);
+    }
+
+    #[test]
+    fn a_block_number_the_pack_does_not_have_is_dropped() {
+        let (kept, dropped) =
+            gate(r#"[{"stale":99,"by":21,"why":"x","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#);
+        assert_eq!(kept.len(), 0);
+        assert_eq!(dropped, 1);
+    }
+
+    // 模型没守「不要代码块标记」那一条也要解析得出来 —— 一个只在它守规矩时才 work
+    // 的解析器，等于把守规矩当成了前提。
+    #[test]
+    fn a_fenced_answer_still_parses() {
+        let (kept, _) = gate(
+            "```json\n[{\"stale\":2,\"by\":21,\"why\":\"x\",\"quote_stale\":\"含 UMich MSI\",\"quote_new\":\"移出 UMich MSI\"}]\n```",
+        );
+        assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn nothing_found_is_a_normal_answer() {
+        let (kept, dropped) = gate("[]");
+        assert_eq!(kept.len(), 0);
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn entry_lines_are_read_the_same_way_the_ts_side_reads_them() {
+        assert_eq!(crate::mcp::entry_seq("#12 [2026-08-01] x"), Some(12));
+        assert_eq!(crate::mcp::entry_seq("📌 💭 #7 [2026-08-01] x"), Some(7));
+        assert_eq!(crate::mcp::entry_seq("🗜 #6 [2026-08-01] x"), Some(6));
+        // 正文里的 `#12` 不是条目头行。
+        assert_eq!(crate::mcp::entry_seq("见 #12 那一条"), None);
+        assert_eq!(crate::mcp::entry_seq("#12 没有方括号"), None);
+    }
+}

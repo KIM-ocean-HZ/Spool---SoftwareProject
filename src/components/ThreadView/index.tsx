@@ -6,6 +6,7 @@ import { useBlocksStore } from '@/stores/blocksStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import CompressBoard from '@/components/Compress/CompressBoard';
+import StaleReview from '@/components/Compress/StaleReview';
 import { useCompressStore } from '@/stores/compressStore';
 import DigestView from './DigestView';
 import LogView from './LogView';
@@ -104,7 +105,16 @@ export default function ThreadView() {
       )}
 
       {engineOn && tab === 'tidy' ? (
-        <CompressBoard threadId={thread.id} />
+        // ⭐ 「整理」页签里装两件事：作废建议在上，压缩核对在下（R2 §4：
+        // 「后续的作废都可以放进现在的压缩工作区，统一一个名字」）。
+        // ⚠️ 作废那一段自己有高度上限并且内部滚动，⛔ 不能让它把下面的核对面挤没了 ——
+        // 「核对区域太窄」正是上一轮挨骂的那件事。
+        <div className="flex h-full min-h-0 flex-col">
+          <StaleReview threadId={thread.id} />
+          <div className="min-h-0 flex-1">
+            <CompressBoard threadId={thread.id} />
+          </div>
+        </div>
       ) : viewMode === 'digest' ? (
         <DigestView
           key={thread.id}

@@ -15,6 +15,8 @@ import {
   listCapturesSince,
   mergeBlocks,
   restoreBlock,
+  applyCompression,
+  restoreBlockOriginal,
   setBlockStale,
   setBlockSupersession,
   setCorrectedQuote,
@@ -580,5 +582,92 @@ describe('supersession (v13)', () => {
     await restoreBlock(before);
     // ⌘Z must not quietly resurrect a conclusion the user had retired.
     expect((await listBlocksByThread(thread.id)).find((b) => b.id === older.id)).toEqual(before);
+  });
+});
+
+// v24 · 压缩稿写回库（COMPRESS-UX-R2-2026-08-22 §1）。
+// ⛔⛔ 这是 Spool 第一条会**改写用户已有文字**的路 —— 在此之前块只增不改
+// （更正挂在旁边、作废让它退出 pack，两条都不动原文）。所以这几条盯的是护栏本身。
+describe('applyCompression / restoreBlockOriginal', () => {
+  let sqlite: Sqlite;
+
+  beforeEach(() => {
+    sqlite = new DatabaseSync(':memory:');
+    sqlite.exec(schemaSql);
+    __setTestDb(makeAdapter(sqlite));
+  });
+
+  afterEach(() => {
+    __setTestDb(null);
+    sqlite.close();
+  });
+
+  const seed = async () => {
+    const ws = await createWorkspace('W');
+    const th = await createThread(ws.id, 'P');
+    const b = await createBlock({ threadId: th.id, content: '很长很长的原文，里面有 2026-11-25。' });
+    return { threadId: th.id, block: b };
+  };
+  const read = async (threadId: string) => (await listBlocksByThread(threadId))[0];
+
+  it('留原文：正文换成压缩稿，原文和时间一起写上', async () => {
+    const { threadId, block } = await seed();
+    const n = await applyCompression([{ id: block.id, content: '短一点，2026-11-25 还在。' }], true, 1_754_000_000_000);
+    expect(n).toBe(1);
+    const after = await read(threadId);
+    expect(after.content).toBe('短一点，2026-11-25 还在。');
+    expect(after.originalContent).toBe('很长很长的原文，里面有 2026-11-25。');
+    expect(after.compressedAt).toBe(1_754_000_000_000);
+  });
+
+  // ⛔ 压第二次不许把「原文」换成上一次的压缩稿 —— 那样一键还原还回去的是一份 AI 产物，
+  //    而用户以为那是他自己的字。
+  it('压第二次，原文仍然是**第一次**那一份', async () => {
+    const { threadId, block } = await seed();
+    await applyCompression([{ id: block.id, content: '第一次压完' }], true, 1);
+    await applyCompression([{ id: block.id, content: '第二次压完' }], true, 2);
+    const after = await read(threadId);
+    expect(after.content).toBe('第二次压完');
+    expect(after.originalContent).toBe('很长很长的原文，里面有 2026-11-25。');
+  });
+
+  // ⛔ 一个字都没短的块不该被标成「压过」—— 那个记号会印进以后每一份 pack，
+  //    告诉收件 AI「这几句不是原话」，而它其实是原话。
+  it('内容没变就一个字都不写', async () => {
+    const { threadId, block } = await seed();
+    const n = await applyCompression([{ id: block.id, content: block.content }], true, 1);
+    expect(n).toBe(0);
+    const after = await read(threadId);
+    expect(after.compressedAt).toBeNull();
+    expect(after.originalContent).toBeNull();
+  });
+
+  // 关掉备份 = 压缩不可逆。⚠️ 记号照样要写（pack 上仍然该说「这几句不是原话」），
+  // 只是还不回去了。
+  it('不留原文：记号照写，原文留空', async () => {
+    const { threadId, block } = await seed();
+    await applyCompression([{ id: block.id, content: '短一点' }], false, 5);
+    const after = await read(threadId);
+    expect(after.compressedAt).toBe(5);
+    expect(after.originalContent).toBeNull();
+  });
+
+  it('一键还原：换回原文，两列一起清空', async () => {
+    const { threadId, block } = await seed();
+    await applyCompression([{ id: block.id, content: '短一点' }], true, 1);
+    expect(await restoreBlockOriginal(block.id)).toBe(true);
+    const after = await read(threadId);
+    expect(after.content).toBe('很长很长的原文，里面有 2026-11-25。');
+    expect(after.originalContent).toBeNull();
+    // ⚠️ 记号也要跟着没 —— 还原之后这一块又是「没被压过」。
+    expect(after.compressedAt).toBeNull();
+  });
+
+  // ⛔ 压过、但当时没留原文的那一种：还原会把正文清成空的，比不还原糟得多。
+  it('没留原文的块还原不了，⛔ 而且不会把正文清空', async () => {
+    const { threadId, block } = await seed();
+    await applyCompression([{ id: block.id, content: '短一点' }], false, 5);
+    expect(await restoreBlockOriginal(block.id)).toBe(false);
+    expect((await read(threadId)).content).toBe('短一点');
   });
 });

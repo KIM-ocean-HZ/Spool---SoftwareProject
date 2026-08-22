@@ -1180,6 +1180,36 @@ const EN: Record<string, string> = {
   // D9：为什么没有「用这一份」——把沉默的缺口写出来。D-b：数字硬闸门也写在这儿。
   // R1（2026-08-22）：写回库解锁。⚠️ 「关掉留原文 = 改不回去」必须写在按下按钮的那一刻。
   '用这一份': 'Use this version',
+  // E3 · 作废检测的核对面（2026-08-23）。⛔ 这一面上不许出现「作废」两个字 ——
+  // 实测 39 条提议里 35 条是「同一件事、旧块还剩很多」，问「要不要作废」会让一个
+  // 内容仍然有效的块退出以后每一份 pack。所以问的是三件事。
+  '可能已经过期的块': 'Blocks that may have gone out of date',
+  '查一遍这个项目里，有没有被后面的块整条取代的旧块。这一步要花钱。':
+    'Check whether any older block here has been replaced outright by a later one. This step costs money.',
+  '查一遍': 'Check',
+  '再查一遍': 'Check again',
+  '这一次没找到被后面的块整条取代的旧块。':
+    'Nothing here was replaced outright by a later block this time.',
+  '找到 {n} 条，还剩 {k} 条没决定。': '{n} found, {k} still undecided.',
+  '另有 {n} 条被丢掉了 —— 它给的引文在块里对不上，Spool 不拿它给你看。':
+    '{n} more were dropped — the quotes it gave do not match the block, so Spool does not show them to you.',
+  '（引文的标点被重打过）': '(the quote’s punctuation was retyped)',
+  '旧的 #{n} 里：': 'In the older #{n}:',
+  '新的 #{n} 里：': 'In the newer #{n}:',
+  '只退旧的': 'Retire the older one',
+  '不动': 'Leave it',
+  '把 #{n} 标成「更正了 #{m}」。#{m} 原样留着，还会照常出现在 pack 里。':
+    'Marks #{n} as correcting #{m}. #{m} stays exactly as it is and keeps appearing in packs.',
+  '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。':
+    '#{m} stops going into packs (it stays in your library and is still searchable); #{n} is marked as the one that replaced it.',
+  '库里一个字都不改，这一条划掉。': 'Nothing in your library changes; this line is struck off.',
+  '已合并：#{n} 标成「更正了 #{m}」，#{m} 原样留着。':
+    'Merged: #{n} now corrects #{m}, and #{m} stays exactly as it is.',
+  '已退：#{m} 不再进 pack，#{n} 标成替代它的那一条。':
+    'Retired: #{m} no longer goes into packs; #{n} is marked as the one that replaced it.',
+  '这一条没动。': 'Left alone.',
+  '这两块里有一块已经不在了，这一条做不了。':
+    'One of these two blocks is gone, so this cannot be done.',
   '一块对一块地核对。你按「用这一份」之前，库里一个字都不动。':
     'Checked block by block. Nothing in your library changes until you press “Use this version”.',
   '压缩前的原文会留在每一块自己身上，随时可以还原。':

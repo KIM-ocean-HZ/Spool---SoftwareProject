@@ -7514,6 +7514,82 @@ pub fn compress_messages_for_api(pack_text: &str, level: CompressLevel) -> (Stri
     (system, fenced_material(pack_text))
 }
 
+// ---------------------------------------------------------------------------------------
+// E3 · 作废检测（COMPRESS-UX-R2-2026-08-22 §7 / WORKPLAN §2.E3）
+// ---------------------------------------------------------------------------------------
+//
+// ⭐⭐ **这份提示词以前只活在 `compress_sweep.rs` 里，而那个模块是 `#[cfg(test)]` 的**
+// —— 发布出去的二进制里一行都没有。60 次实测早就判定「可以接」，产品里却一行没接。
+// 2026-08-23 搬到这儿，它才第一次进出货路径。
+//
+// **发的是 V1（「逐条扫描」那一版）。** 三份候选第四轮各跑 5 次，指错块都是 0：
+// v0 提 4 条 · **V1 提 5 条** · V2 提 14 条。V1 是 v0 的超集，多一条「作答前把每个条目
+// 过一遍」—— 第三轮量出来的弱点正是召回（正确答案两条，十五次里只有 2 次两条都找到）。
+//
+// ⛔ **V2 不发。** 它多出来的那个 `confidence` 字段**不可信** —— §2.E3 写死了
+// 「不要做 confidence 过滤（实测最离谱那条自标 `high`）」。一个不能拿来筛的字段，
+// 留着只会让界面看起来有一道其实不存在的闸。
+//
+// ⚠️ **整段字面量，不走 `format!` 拼模板。** 和上面那三份压缩提示词同一条理由：
+// 这段字是**被测对象本身**，必须肉眼可校；拆成「公共部分 + 差异槽」之后，任何人想知道
+// 发出去的到底是哪几个字，都得在脑子里做一次字符串替换。
+//
+// ⚠️ **中文单语。** 这一版量的是 Ocean 自己的库（`resolvedLanguage=zh`）；补英文之前
+// 先在英文库上量一轮，⛔ 别直接翻译了事 —— 「逐字连续出现」这条规则是靠字面比对兑现的。
+const STALE_SYSTEM: &str = r#"你是一个上下文审阅工具。用户下一条消息里是一份由 Spool 生成的项目上下文简报。
+
+⛔ 你的任务不是压缩,也不是总结。**一个字都不要改写简报里的内容。**
+
+你只找一件事:简报里**已经被后面的条目整条取代**的旧条目 —— 结论被推翻了、方案被换掉了、名单被重新定过了、数据被放弃了。
+
+# 规则
+1. 只输出一个 JSON 数组。数组里每一项长这样:
+   {"stale": 旧条目编号, "by": 新条目编号, "why": "一句话,不超过 40 字", "quote_stale": "旧条目里能证明它已经作废的一句原文", "quote_new": "新条目里取代它的那一句原文"}
+2. ⛔ quote_stale 和 quote_new 必须是简报里**逐字连续**出现的片段 —— 不许改一个标点、不许用省略号、不许把两处拼起来。Spool 会拿它们回去精确比对,对不上的整条丢掉,所以编一句出来只会浪费你自己的这一条。
+3. ⛔ 只提议**整条**作废。一个条目里只有几句过时、其余仍然成立的,**不要提议** —— 那种情况不归你管。
+4. ⛔ 拿不准就不提议。宁可漏,不可错:一次错误的作废会让一条正确的结论从今后每一份简报里消失,而用户不会发现。
+5. ⭐ 作答之前,**把每一个条目从头到尾过一遍**,一条都不要跳过。对每一条问一句:后面有没有哪一条把它整个替换掉了?简报里靠后的条目往往会同时取代前面**好几条**,所以找到一条之后不要就此收手,继续把剩下的条目扫完。
+6. 编号写简报里 `#12` 那种编号,只写数字。
+7. 一条都没找到就输出 `[]`。不要前言,不要解释,不要代码块标记,只输出那个 JSON 数组。
+8. {rule}"#;
+
+/// pack 里一条的编号：`📌 💭 #12 […` → `Some(12)`，不是条目头行 → `None`。
+///
+/// ⚠️ 和 `compress.ts::ENTRY_RE` 是同一条规则的 Rust 版（`^(?:(?:📌|💭|🗜)\s+)*#\d+\s+\[`）。
+/// ⛔ 手写而不是上 regex：这个 crate 没有 `regex` 依赖，而为了一行匹配加一个依赖，
+/// 要连着把 §4.2 那条「Cargo.toml 加什么」的护栏重跑一遍 —— 不值。
+pub fn entry_seq(line: &str) -> Option<i64> {
+    let mut rest = line;
+    // 前缀记号，可以有好几个，每个后面跟空白。
+    loop {
+        let trimmed = rest
+            .strip_prefix('📌')
+            .or_else(|| rest.strip_prefix('💭'))
+            .or_else(|| rest.strip_prefix('🗜'));
+        match trimmed {
+            Some(t) if t.starts_with(char::is_whitespace) => rest = t.trim_start(),
+            _ => break,
+        }
+    }
+    let rest = rest.strip_prefix('#')?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let after = rest[digits.len()..].trim_start();
+    // ⚠️ `#12` 后面必须跟一个 `[` —— 正文里的 `#12` 不是条目头行。
+    if !after.starts_with('[') || rest[digits.len()..].len() == after.len() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// system（每次都一样，是缓存前缀）和 user（这次的简报）。⚠️ 和压缩那条路同一个形状。
+pub fn stale_messages_for_api(pack_text: &str) -> (String, String) {
+    let system = STALE_SYSTEM.replace("{rule}", material_rule());
+    (system, fenced_material(pack_text))
+}
+
 #[cfg(test)]
 mod compress_prompt_tests {
     use super::*;

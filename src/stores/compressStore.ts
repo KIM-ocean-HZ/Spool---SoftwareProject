@@ -6,11 +6,13 @@ import {
   duplicateProbe,
   loadApiKey,
   mergeOutcomes,
+  staleScan,
   PROGRESS_EVENT,
   type CompressLevel,
   type CompressOutcome,
   type CompressProgress,
   type DuplicateProbe,
+  type StaleProposal,
 } from '@/lib/ai/compress';
 import { auditCompression, numbersGateOpen } from '@/lib/ai/compress';
 import { addBackNumbers, compareByEntry, worthRetrying } from '@/lib/ai/compressBlocks';
@@ -21,7 +23,12 @@ import {
   unshieldPack,
   type Unshielded,
 } from '@/lib/ai/shield';
-import { applyCompression, type Block } from '@/lib/db/blocks';
+import {
+  applyCompression,
+  setCorrectedQuote,
+  setBlockSupersession,
+  type Block,
+} from '@/lib/db/blocks';
 import { PINNED_SEE_ABOVE } from '@/lib/pack/templates';
 import type { Thread } from '@/lib/db/threads';
 import { assemble } from '@/lib/pack/assemble';
@@ -151,6 +158,44 @@ interface CompressState {
 
   runQueue: () => Promise<void>;
   dropResult: (index: number) => void;
+
+  // -------------------------------------------------------------------------------
+  // E3 · 作废检测（COMPRESS-UX-R2 §7 / WORKPLAN §2.E3）
+  // -------------------------------------------------------------------------------
+  /** 每个项目自己那一批「可能已经过期」的提议。⚠️ 和整理稿一样按项目存。 */
+  stale: Record<string, StaleSession>;
+  /** 查一遍这个项目里有没有被后面的块整条取代的旧块。 */
+  runStaleScan: (threadId: string) => Promise<void>;
+  /** 对一条提议下决定。⛔ 三个动作的语义写在 `StaleAction` 上，别在界面里另解释一遍。 */
+  decideStale: (threadId: string, index: number, action: StaleAction) => Promise<void>;
+}
+
+/** ⭐ 界面**不许叫「作废」**（WORKPLAN §2.E3 写死的）。理由是实测的失败形状：
+ *  39 条提议里 **35 条**是「同一件事、**旧块还剩很多**」—— 点一下「作废」会让一个
+ *  **内容仍然有效**的块退出以后每一份 pack，而用户不会发现。
+ *
+ *  所以问的是三件事，不是一件：
+ *
+ *  - `merge`  = **合并**（2026-08-23 Ocean 在两种读法里选的 A）：新块标成「更正了旧块」，
+ *    ⛔ **旧块不退、正文一个字不改**。用的是库里已经有的那套关系（v13 的 `corrects`），
+ *    ⚠️ 代价说清楚：pack 不会因此变短。
+ *  - `retire` = **只退旧的**：旧块写 `stale_at` + 新块写 `ref_kind='supersedes'`。
+ *    ⛔ **两个一起写**，只写一半是负收益（+212 字符，第四轮量过）。
+ *  - `keep`   = **不动**：什么都不写，这一条从单子上划掉。 */
+export type StaleAction = 'merge' | 'retire' | 'keep';
+
+export interface StaleSession {
+  /** 送出去的那份 pack。⚠️ 提议里的 `#N` 是照它数的。 */
+  source: string;
+  blocks: Block[];
+  proposals: StaleProposal[];
+  /** ⛔ 引文对不上被整条丢掉的条数 —— 界面要说出来。 */
+  dropped: number;
+  outcome: CompressOutcome | null;
+  /** 已经下过决定的那几条（下标）。⚠️ 留在单子上但划掉，不是删掉 ——
+   *  用户要看得见自己刚才做了什么。 */
+  decided: Record<number, StaleAction>;
+  startedAt: number;
 }
 
 /** 这一份压缩稿要往库里写哪几块。
@@ -316,6 +361,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
   runningThreadId: null,
   progress: null,
   startErrors: {},
+  stale: {},
   results: [],
   failures: [],
   batchRunning: false,
@@ -652,6 +698,100 @@ export const useCompressStore = create<CompressState>((set, get) => ({
 
   dropResult: (index) =>
     set((st) => ({ results: st.results.filter((_, i) => i !== index) })),
+
+  // ---------------------------------------------------------------------------------
+  // E3 · 作废检测（2026-08-23）
+  // ---------------------------------------------------------------------------------
+  //
+  // ⚠️ 提示词、请求、和回来之后那道**引文逐字闸**全在 Rust 那一侧（`api_engine.rs`）。
+  // ⛔ 这边不另写一道闸 —— 界面上放行的和 Rust 放行的必须是同一批。
+  runStaleScan: async (threadId) => {
+    if (get().running) return;
+    const byId = new Map<string, Thread>();
+    for (const list of Object.values(useThreadsStore.getState().threadsByWorkspace)) {
+      for (const th of list) byId.set(th.id, th);
+    }
+    const thread = byId.get(threadId);
+    if (!thread) return;
+    set({ running: true, runningThreadId: threadId, progress: { stage: 'starting' } });
+    try {
+      // ⚠️ 查的是**完整**的 pack，⛔ 不跳过压过的块：压过不等于没过期，
+      // 而「压过的只能被检测语义是否废除」正是他自己写的那一句。
+      const { text, blocks } = await buildThreadPack(thread);
+      const s = useSettingsStore.getState();
+      const scan = await staleScan({
+        packText: text,
+        baseUrl: s.apiBaseUrl,
+        apiKey: await loadApiKey(),
+        model: s.apiModel,
+        reasoning: s.apiReasoning,
+        timeoutSecs: s.apiTimeoutSecs,
+      });
+      set((st) => ({
+        stale: {
+          ...st.stale,
+          [threadId]: {
+            source: text,
+            blocks,
+            proposals: scan.proposals,
+            dropped: scan.dropped,
+            outcome: scan.outcome,
+            decided: {},
+            startedAt: Date.now(),
+          },
+        },
+      }));
+    } catch (e) {
+      set((st) => ({
+        startErrors: { ...st.startErrors, [threadId]: e instanceof Error ? e.message : String(e) },
+      }));
+    } finally {
+      set({ running: false, runningThreadId: null, progress: null });
+    }
+  },
+
+  decideStale: async (threadId, index, action) => {
+    const sess = get().stale[threadId];
+    const p = sess?.proposals[index];
+    if (!sess || !p || sess.decided[index]) return;
+    const bySeq = new Map<number, Block>();
+    for (const b of sess.blocks) if (b.seq !== null) bySeq.set(b.seq, b);
+    const oldBlock = bySeq.get(p.staleSeq);
+    const newBlock = bySeq.get(p.bySeq);
+    if (action !== 'keep' && (!oldBlock || !newBlock)) {
+      // ⛔ 不静默：块在这中间被删了，用户点了没反应会以为库改了。
+      toast.error(t('这两块里有一块已经不在了，这一条做不了。'));
+      return;
+    }
+    try {
+      if (action === 'merge' && oldBlock && newBlock) {
+        // ⭐ A（Ocean 2026-08-23）：**只连线不动字**。新块标成「更正了旧块」，
+        // ⛔ 旧块不退、正文一个字不改。⚠️ `corrects` 不写 `stale_at` —— 那正是它和
+        // 「只退旧的」的全部区别（`setBlockSupersession` 只在 supersedes 时才写）。
+        await setBlockSupersession(newBlock.id, oldBlock.id, 'corrects', Date.now());
+        // ⭐ 引文正好是 v21 那个字段要的东西：「新块更正的是旧块里的哪一句」。
+        // 它过了逐字闸，所以「存进去的必然逐字出现在那一块里」这条不变量成立。
+        await setCorrectedQuote(newBlock.id, p.quoteStale);
+      } else if (action === 'retire' && oldBlock && newBlock) {
+        // ⛔ `stale_at` + `ref_kind` **一起写**，只写一半是负收益（+212 字符，量过）。
+        // `setBlockSupersession` 在 supersedes 这一档里两样都写。
+        await setBlockSupersession(newBlock.id, oldBlock.id, 'supersedes', Date.now());
+      }
+      if (action !== 'keep') await useBlocksStore.getState().load(threadId);
+      set((st) => {
+        const cur = st.stale[threadId];
+        if (!cur) return {};
+        return {
+          stale: {
+            ...st.stale,
+            [threadId]: { ...cur, decided: { ...cur.decided, [index]: action } },
+          },
+        };
+      });
+    } catch (e) {
+      toast.error(t('写不进去：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
+    }
+  },
 }));
 
 // 子进程报回来的进度（在思考 / 在写 / 已经多少字）。⚠️ 这两个数字是「它还在正常干活」的
