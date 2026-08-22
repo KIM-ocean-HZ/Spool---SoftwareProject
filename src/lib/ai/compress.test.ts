@@ -8,6 +8,8 @@ import {
   formatYuan,
   isPeakBeijing,
   measurementRecord,
+  overlapRatio,
+  pairRewrites,
   priceTier,
   type CompressOutcome,
 } from './compress';
@@ -125,6 +127,51 @@ describe('核对：不该删的删了没有', () => {
   it('只是重排了空白不算损失', () => {
     const rewrapped = ORIGINAL.replace('    💭 note: 这条是硬要求,别忘了', '💭 note:  这条是硬要求,别忘了 ');
     expect(auditCompression(ORIGINAL, rewrapped).missingNotes).toEqual([]);
+  });
+});
+
+// D4-b（2026-08-22）。⚠️ 这一组盯的是一个「改回去测试照样绿」的分类错误：
+// 2026-08-22 Ocean 那次跑出来「少了 13 条批注」+「凭空写了 13 条」，数目一样，
+// 因为那是同一批东西被改写之后的样子 —— 同一件事报成两条罪，警报翻倍，
+// 而最重的那一类（真的凭空捏造）被淹在里面。
+describe('改写是第三类，不是「丢了一条」加「编了一条」', () => {
+  // ⚠️ 这一对是实测里真的出现过的那一条（申请规划那份）。
+  const BEFORE = '现有成绩需按 Fall 2027 开学日复核';
+  const AFTER = '需按开学日复核';
+
+  it('删字型的改写配得上对', () => {
+    const r = pairRewrites([BEFORE], [AFTER]);
+    expect(r.rewrites).toEqual([{ before: BEFORE, after: AFTER }]);
+    expect(r.missing).toEqual([]);
+    expect(r.fabricated).toEqual([]);
+  });
+
+  it('⛔ 两条不相干的批注绝不配对 —— 宁可退回报两条', () => {
+    const r = pairRewrites(['这条是硬要求,别忘了'], ['先复现 baseline 再谈改进']);
+    expect(r.rewrites).toEqual([]);
+    expect(r.missing.length).toBe(1);
+    expect(r.fabricated.length).toBe(1);
+  });
+
+  it('一条只配一条：两条像的原批注对一条改写，另一条仍然算丢了', () => {
+    const r = pairRewrites([BEFORE, '现有成绩需按 Fall 2028 开学日复核'], [AFTER]);
+    expect(r.rewrites.length).toBe(1);
+    expect(r.missing.length).toBe(1);
+  });
+
+  it('整份核对里，改写不再同时算丢和算编', () => {
+    const orig = `#1 [t · from X] 正文\n    💭 note: ${BEFORE}`;
+    const comp = `#1 [t · from X] 正文\n    💭 note: ${AFTER}`;
+    const a = auditCompression(orig, comp);
+    expect(a.rewrittenNotes).toEqual([{ before: BEFORE, after: AFTER }]);
+    expect(a.missingNotes).toEqual([]);
+    expect(a.fabricatedNotes).toEqual([]);
+    // ⛔ 但它照样是损失 —— D4-b 改的是分类，不是放松核对。
+    expect(auditHasLosses(a)).toBe(true);
+  });
+
+  it('长度差得远的删字型改写，重合度撑得住（Dice 撑不住，所以没用 Dice）', () => {
+    expect(overlapRatio(BEFORE, AFTER)).toBeGreaterThan(0.6);
   });
 });
 

@@ -115,6 +115,8 @@ export default function CompressBoard() {
     if (byEntry && byEntry.dropped > 0) return t('有 {n} 块整块不见了', { n: byEntry.dropped });
     if (audit.fabricatedNotes.length > 0)
       return t('它写了 {n} 条你没写过的批注', { n: audit.fabricatedNotes.length });
+    if (audit.rewrittenNotes.length > 0)
+      return t('它改写了 {n} 条批注', { n: audit.rewrittenNotes.length });
     if (audit.missingSections.length > 0) return t('少了整节');
     if (audit.missingPersonal.length > 0)
       return t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length });
@@ -147,9 +149,9 @@ export default function CompressBoard() {
                   n: session.target.seq ?? '?',
                 })}
           </div>
-          <div className="mt-0.5 text-[11px] text-muted">
-            {t('一块对一块地核对。这一步不会改动你的库 —— 压缩稿只在这个界面里。')}
-          </div>
+          {/* D9：为什么这里没有「用这一份」,说在底下那一行(用户去找那个按钮的地方)。
+              这里就不再重复一遍「不会改动你的库」了 —— 同一句话说两遍也是一堵墙的一部分。 */}
+          <div className="mt-0.5 text-[11px] text-muted">{t('一块对一块地核对。')}</div>
         </div>
         <button
           onClick={close}
@@ -259,6 +261,15 @@ export default function CompressBoard() {
                 )}
                 {audit.missingNotes.length > 0 && (
                   <div>{t('少了 {n} 条批注', { n: audit.missingNotes.length })}</div>
+                )}
+                {/* D4-b：改写单列一类。⛔ 别把它并回上面那一行去 ——
+                    「丢了」和「改写了」要做的事不一样：丢了要找回来，改写了要对一眼改成了什么。 */}
+                {audit.rewrittenNotes.length > 0 && (
+                  <div>
+                    {t('有 {n} 条批注被改写了 —— 下面按块列出了改之前和改之后。', {
+                      n: audit.rewrittenNotes.length,
+                    })}
+                  </div>
                 )}
                 {audit.missingPersonal.length > 0 && (
                   <div>{t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length })}</div>
@@ -415,8 +426,15 @@ export default function CompressBoard() {
       </div>
 
       <footer className="flex flex-none items-center justify-between gap-3 border-t border-line bg-paper-2/40 px-5 py-3 text-xs">
-        {/* ⛔ 这句话必须在。这一步不写库，用户不该以为点了什么就生效了。 */}
-        <span className="text-muted">{t('这一步不会改动你的库 —— 压缩稿只在这个界面里。')}</span>
+        {/* ⛔ 这句话必须在。这一步不写库，用户不该以为点了什么就生效了。
+            ⭐ D9（2026-08-22，Ocean 原话「接受压缩的入口我都没有看见」）：那个入口确实没有，
+            **而且是故意的**（§9.9 的封锁理由没变）。但界面从来没说过这件事 —— 用户看到的是
+            一个好像少做了一半的功能，而不是「这里被有意封着，理由是 X」。
+            ⛔ 一个沉默的缺口正是这个项目最怕的东西，所以理由写在这儿，写全。
+            ⚠️ 解锁的前提是 D7（丢了的数字一键加回去）+ D-b（数字硬闸门），两件都没做。 */}
+        <span className="text-muted">
+          {t('这里没有「用这一份」：压缩稿丢了数字和日期的时候，和没丢长得一模一样，Spool 还认不出来。所以只给你复制走，库里一个字都不动。')}
+        </span>
         <div className="flex items-center gap-2">
           {outcome?.ok && (
             <button

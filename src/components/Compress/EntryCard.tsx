@@ -112,12 +112,17 @@ export default function EntryCard({
         >
           <AlertTriangle size={12} className="mt-0.5 flex-none" />
           <div className="space-y-0.5">
-            {/* 同一块里既少了批注又多了批注 = 它把批注**改写**了。实测里最常见的形态：
+            {/* D4-b（2026-08-22）：改写现在是**第三类**，由 `pairRewrites` 真的配上对，
+                不再是「既少了又多了」这种猜。实测里最常见的形态：
                 「现有成绩需按 Fall 2027 开学日复核」被改成「需按开学日复核」，日期没了。
-                两条都报是对的，但先说一句人话，省得用户以为是两件事。 */}
-            {pair.audit.missingNotes.length > 0 && pair.audit.fabricatedNotes.length > 0 && (
-              <div className="font-medium">{t('它把这一块的批注改写了 —— 下面是改之前和改之后：')}</div>
-            )}
+                ⛔ 它照样算损失 —— 改的是不再把同一件事报成两条罪。 */}
+            {pair.audit.rewrittenNotes.map((r) => (
+              <div key={r.before} className="space-y-0.5">
+                <div className="font-medium">{t('它把一条批注改写了：')}</div>
+                <div>{t('改之前：{s}', { s: r.before })}</div>
+                <div>{t('改之后：{s}', { s: r.after })}</div>
+              </div>
+            ))}
             {pair.audit.missingNotes.map((s) => (
               <div key={s}>{t('少了一条批注：{s}', { s })}</div>
             ))}

@@ -1130,6 +1130,13 @@ const EN: Record<string, string> = {
   '少了整节': 'a whole section is gone',
   '少了 {n} 条引用或替代关系': '{n} citation/supersede link(s) are gone',
   '它编了 {n} 个原文里没有的编号': 'it invented {n} block number(s) the original never had',
+  // D4-b：改写是第三类 —— 同一条被改写,不是「丢了一条」加「编了一条」。
+  '它改写了 {n} 条批注': 'it rewrote {n} annotation(s)',
+  '有 {n} 条批注被改写了 —— 下面按块列出了改之前和改之后。':
+    '{n} annotation(s) were rewritten — before and after are listed block by block below.',
+  '它把一条批注改写了：': 'It rewrote an annotation:',
+  '改之前：{s}': 'Before: {s}',
+  '改之后：{s}': 'After: {s}',
   // 「少了 {n} 条批注」/「少了 {n} 条你自己写的内容」/「少了 {n} 处你划的重点」下面证据那一段
   // 已经有了，同一个键复用，不重复写。
   '原始 {a} 块 → 压缩后 {b} 块': '{a} blocks → {b} blocks',
@@ -1181,10 +1188,10 @@ const EN: Record<string, string> = {
     'Shorten this one block (you check the result; nothing is written)',
   '压缩《{name}》': 'Compressing {name}',
   '压缩《{name}》的第 {n} 块': 'Compressing block #{n} of {name}',
-  '一块对一块地核对。这一步不会改动你的库 —— 压缩稿只在这个界面里。':
-    'Checked block by block. Nothing here touches your library — the compressed version lives only on this screen.',
-  '这一步不会改动你的库 —— 压缩稿只在这个界面里。':
-    'Nothing here touches your library — the compressed version lives only on this screen.',
+  '一块对一块地核对。': 'Checked block by block.',
+  // D9：为什么没有「用这一份」——把沉默的缺口写出来。
+  '这里没有「用这一份」：压缩稿丢了数字和日期的时候，和没丢长得一模一样，Spool 还认不出来。所以只给你复制走，库里一个字都不动。':
+    'There is no “use this version” here: when a compressed version has dropped numbers and dates it looks exactly like one that has not, and Spool cannot yet tell the two apart. So it is yours to copy, and your library is left untouched.',
   '「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。':
     '\u201cOnly drop repeats\u201d has almost nothing to do on a single block: merging repeats is the main job, and repeats live ACROSS blocks — one block on its own cannot see the others. To drop repeats, compress the whole project.',
   '单独压一块，它只能把这一块自己的话说短，看不见别的块，也就删不掉跨块的重复。一块特别长（比如一整篇网页正文）的时候最划算。':
@@ -1213,8 +1220,6 @@ const EN: Record<string, string> = {
   '它把这一块整个删掉了，或者合并进了别的块。左边那些话现在没有出处 —— 自己确认一遍。':
     'It dropped this block entirely, or merged it into another one. Nothing on the left has a home any more — check for yourself.',
   '少了一条批注：{s}': 'An annotation is gone: {s}',
-  '它把这一块的批注改写了 —— 下面是改之前和改之后：':
-    'It rewrote this block\u2019s annotation — before and after:',
   '少了你划的重点：{s}': 'A highlight of yours is gone: {s}',
   '少了一条引用/替代关系：{s}': 'A citation/supersession link is gone: {s}',
   '有 {n} 个数字/日期在压缩稿里再也找不到了：{s}':

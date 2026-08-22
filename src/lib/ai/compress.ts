@@ -153,6 +153,11 @@ export interface CompressionAudit {
    *  因为「AI回复」那四个字正好也出现在同一块的正文里。后来查清那一行本来就在正文里、
    *  根本不是编的，**结论蒙对了，方法是错的**：换一个措辞没那么巧的编造就会漏过去。 */
   fabricatedNotes: string[];
+  /** ⚠️ 第三类：**被改写的批注**（D4-b，2026-08-22）。原文里那条找不到了、压缩稿里多出来
+   *  一条，而两条像得配得上对 —— 那是同一条被改写，不是「丢了一条」加「编了一条」。
+   *  ⛔ 它照样破了「一字不改」，所以照样算损失（`auditHasLosses`），只是不再报两遍。
+   *  配对规则见 `pairRewrites`。 */
+  rewrittenNotes: NoteRewrite[];
 }
 
 // ⛔⛔ **2026-08-21：这两条以前都对不上真的 pack，于是「一条都没少」这句话是空的。**
@@ -254,6 +259,91 @@ export const normLoose = (s: string): string =>
 
 export const uniq = (xs: string[]): string[] => [...new Set(xs)];
 
+// ---------------------------------------------------------------------------------------
+// 改写：第三类（D4-b，2026-08-22）
+// ---------------------------------------------------------------------------------------
+
+/** ⚠️⚠️ **2026-08-22 Ocean 那一次跑出来的账里，「少了 13 条批注」和「它凭空写了 13 条」
+ *  数目一样 —— 因为那是同一批东西**：原批注被改写之后的样子
+ *  （「现有成绩需按 Fall 2027 开学日复核」→「需按开学日复核」）。
+ *
+ *  现在的两个判断各自都没错：查「丢」的按整条字符串比，找不到就是丢了；查「编」的反向比，
+ *  原文没有一模一样的就是编的。**但改一个字会同时满足两条**，于是同一件事被报成两条罪，
+ *  警报数目翻倍 —— 而且最重的那一类（真的凭空捏造）被淹在改写里。
+ *
+ *  ⛔ **修法不是放松核对**：改写**确实**破了「一字不改」，它照样要报、照样算损失。
+ *  修的是**分类**：把配得上对的那些从「丢了」和「编了」两边都取出来，单列成第三类。
+ *
+ *  为什么用「短的那条有多少落在长的那条里」而不是 Dice：改写的典型形态是**删字**，
+ *  两条长度差得远。上面那个真实例子的 Dice 只有 0.43（配不上），而这个比值是 0.83。 */
+export interface NoteRewrite {
+  before: string;
+  after: string;
+}
+
+const bigrams = (s: string): string[] => {
+  const t = normLoose(s).replace(/\s+/g, '');
+  const out: string[] = [];
+  for (let i = 0; i + 1 < t.length; i++) out.push(t.slice(i, i + 2));
+  return out;
+};
+
+/** 两条文字的重合度：**共有的二元组 ÷ 短的那条的二元组数**，0–1。 */
+export const overlapRatio = (a: string, b: string): number => {
+  const ga = bigrams(a);
+  const gb = bigrams(b);
+  if (ga.length === 0 || gb.length === 0) return 0;
+  const setB = new Map<string, number>();
+  for (const g of gb) setB.set(g, (setB.get(g) ?? 0) + 1);
+  let shared = 0;
+  for (const g of ga) {
+    const n = setB.get(g) ?? 0;
+    if (n > 0) {
+      shared++;
+      setB.set(g, n - 1);
+    }
+  }
+  return shared / Math.min(ga.length, gb.length);
+};
+
+/** ⚠️ 两条都短于这个长度就不配对：三四个字的两条批注碰巧重合太容易了，
+ *  而把两条**不相干**的批注说成「改写」，比分成两条报还糟。 */
+const REWRITE_MIN_CHARS = 6;
+/** ⚠️ 卡这么高是因为宁可漏判：漏判 = 退回原来那种「报两条」的样子（吵，但没说错），
+ *  误判 = 说了一句假话。 */
+const REWRITE_MIN_OVERLAP = 0.6;
+
+/** 把「丢了的批注」和「编出来的批注」配对，配得上的那些单列成改写。
+ *  ⚠️ 一对一，按相似度从高到低贪心 —— 一条原批注只可能被改写成一条。 */
+export const pairRewrites = (
+  missing: string[],
+  fabricated: string[],
+): { rewrites: NoteRewrite[]; missing: string[]; fabricated: string[] } => {
+  const scored: { i: number; j: number; score: number }[] = [];
+  missing.forEach((m, i) => {
+    fabricated.forEach((f, j) => {
+      if (normLoose(m).length < REWRITE_MIN_CHARS && normLoose(f).length < REWRITE_MIN_CHARS) return;
+      const score = overlapRatio(m, f);
+      if (score >= REWRITE_MIN_OVERLAP) scored.push({ i, j, score });
+    });
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const usedM = new Set<number>();
+  const usedF = new Set<number>();
+  const rewrites: NoteRewrite[] = [];
+  for (const { i, j } of scored) {
+    if (usedM.has(i) || usedF.has(j)) continue;
+    usedM.add(i);
+    usedF.add(j);
+    rewrites.push({ before: missing[i], after: fabricated[j] });
+  }
+  return {
+    rewrites,
+    missing: missing.filter((_, i) => !usedM.has(i)),
+    fabricated: fabricated.filter((_, j) => !usedF.has(j)),
+  };
+};
+
 /** 原文里有、压缩稿里再也找不到的数字。按块和整份用的是同一个判断。 */
 export const missingNumbersBetween = (original: string, compressed: string): string[] => {
   const hay = new Set(numberTokens(compressed));
@@ -296,26 +386,31 @@ export const auditCompression = (original_: string, compressed: string): Compres
     );
   const originalNotes = new Set(noteLines(original_));
   const fabricatedNotes = noteLines(compressed).filter((x) => !originalNotes.has(x));
+  // D4-b：配得上对的那些，从「丢了」和「编了」两边同时取出来，单列成改写。
+  const paired = pairRewrites(gone(notes), fabricatedNotes);
 
   return {
     entriesBefore: countPackEntries(original_),
     entriesAfter: countPackEntries(compressed),
     charsBefore: original_.length,
     charsAfter: compressed.length,
-    missingNotes: gone(notes),
+    missingNotes: paired.missing,
+    rewrittenNotes: paired.rewrites,
     missingHighlights: gone(highlights),
     missingPersonal: gone(personal),
     missingSections: gone(sections),
     missingRelations: gone(relations),
     missingNumbers,
     quoteRewrites: rewritten(notes) + rewritten(personal) + rewritten(highlights),
-    fabricatedNotes,
+    fabricatedNotes: paired.fabricated,
   };
 };
 
 /** 有没有踩到「必须一字不改」那条线。界面用它决定顶部是绿的还是红的。 */
 export const auditHasLosses = (a: CompressionAudit): boolean =>
   a.missingNotes.length > 0 ||
+  // ⛔ 改写照样是损失。D4-b 改的是「不报两遍」，不是「当没事」。
+  a.rewrittenNotes.length > 0 ||
   a.missingHighlights.length > 0 ||
   a.missingPersonal.length > 0 ||
   a.missingSections.length > 0 ||
@@ -475,6 +570,7 @@ export const measurementRecord = (args: {
   const losses = [
     a.missingSections.length && `少${a.missingSections.length}节`,
     a.missingNotes.length && `少${a.missingNotes.length}条批注`,
+    a.rewrittenNotes.length && `改写了${a.rewrittenNotes.length}条批注`,
     a.missingPersonal.length && `少${a.missingPersonal.length}条手写`,
     a.missingHighlights.length && `少${a.missingHighlights.length}处高亮`,
     a.missingRelations.length && `少${a.missingRelations.length}条引用/替代关系`,

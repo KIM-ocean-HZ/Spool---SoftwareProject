@@ -31,8 +31,10 @@ import {
   normLoose,
   packLines,
   PACK_SECTIONS,
+  pairRewrites,
   RENDERED_NOTE_RE,
   uniq,
+  type NoteRewrite,
 } from './compress';
 
 /** pack 里的一条。`raw` 是这一条的全部原文（头行 + 正文），核对用的就是它。 */
@@ -136,6 +138,8 @@ export interface EntryAudit {
   missingNumbers: string[];
   /** ⚠️ 「编」比「丢」更坏：一行编出来的批注穿的是用户自己的权威。见 compress.ts。 */
   fabricatedNotes: string[];
+  /** ⚠️ 第三类：被改写的批注（D4-b）。一条被改写 ≠ 丢了一条 + 编了一条。见 `pairRewrites`。 */
+  rewrittenNotes: NoteRewrite[];
 }
 
 const noteLines = (text: string): string[] =>
@@ -153,16 +157,21 @@ export const auditEntry = (before: PackEntry | null, after: PackEntry | null): E
   const hay = normLoose(dst);
   const gone = (xs: string[]): string[] => xs.filter((x) => !hay.includes(normLoose(x)));
   const originals = new Set(noteLines(src));
-  return {
-    // ⚠️ 查「丢」用窄的那条（只认 Spool 自己渲染出来的两种批注行），查「添」用宽的。
-    // 两个方向要的精度不一样 —— 理由写在 compress.ts 的 RENDERED_NOTE_RE 上面。
-    missingNotes: gone(
-      uniq(
-        packLines(src)
-          .map((l) => RENDERED_NOTE_RE.exec(l)?.[1])
-          .filter((x): x is string => !!x),
-      ),
+  // ⚠️ 查「丢」用窄的那条（只认 Spool 自己渲染出来的两种批注行），查「添」用宽的。
+  // 两个方向要的精度不一样 —— 理由写在 compress.ts 的 RENDERED_NOTE_RE 上面。
+  const missingNotes = gone(
+    uniq(
+      packLines(src)
+        .map((l) => RENDERED_NOTE_RE.exec(l)?.[1])
+        .filter((x): x is string => !!x),
     ),
+  );
+  // D4-b：同一条被改写，不是「丢了一条」加「编了一条」。⚠️ 按块配对比整份更准 ——
+  // 能配上的两条本来就该在同一块里，跨块配对只会把不相干的两条说成一对。
+  const paired = pairRewrites(missingNotes, noteLines(dst).filter((x) => !originals.has(x)));
+  return {
+    missingNotes: paired.missing,
+    rewrittenNotes: paired.rewrites,
     missingHighlights: gone(uniq([...src.matchAll(HIGHLIGHT_RE)].map((m) => m[1]))),
     missingNumbers: missingNumbersBetween(src, dst),
     missingRelations: gone(
@@ -172,12 +181,13 @@ export const auditEntry = (before: PackEntry | null, after: PackEntry | null): E
           .filter((x): x is string => !!x),
       ),
     ),
-    fabricatedNotes: noteLines(dst).filter((x) => !originals.has(x)),
+    fabricatedNotes: paired.fabricated,
   };
 };
 
 export const entryHasLosses = (a: EntryAudit): boolean =>
   a.missingNotes.length > 0 ||
+  a.rewrittenNotes.length > 0 ||
   a.missingHighlights.length > 0 ||
   a.missingRelations.length > 0 ||
   a.missingNumbers.length > 0 ||
