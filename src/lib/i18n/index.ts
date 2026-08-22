@@ -1235,7 +1235,19 @@ const EN: Record<string, string> = {
   '合计': 'Total',
   '正在按队列一个一个压…压完的会在这儿等你核对。':
     'Working through the queue one at a time — finished ones wait here for you.',
-  '《{name}》压好了，等你核对': '{name} is compressed and waiting for you',
+  // D2/D3（2026-08-22）：右栏分两段 —— 这个项目的结果不写项目名（就在它自己的栏里），
+  // 别的项目的写清楚点了会切过去。
+  '压好了，等你核对': 'Compressed — waiting for you to check it',
+  '别的项目里压好的（{n}）': 'Compressed in other projects ({n})',
+  '《{name}》—— 切过去核对': '{name} — switch over and check it',
+  '会先切到《{name}》，再打开它的核对桌': 'Switches to {name} first, then opens its check table',
+  '上一份还没核对完': 'The last one is not checked yet',
+  '这个项目上一份压缩稿还没核对完 —— 先看完那一份，或者把它划掉':
+    'The last compressed version of this project has not been checked — finish with it, or strike it off the list',
+  '点上面那行回到那一份。核对完了，或者不要了，把它划掉就能再压一次。':
+    'Click the line above to go back to it. Once it is checked — or you no longer want it — strike it off and you can compress again.',
+  '核对桌就开着。关掉它就等于不要这一份，然后可以再压一次。':
+    'Its check table is open. Closing it discards that version, and then you can compress again.',
   '《{name}》没压成：{why}': '{name} did not compress: {why}',
   '核对完了，从单子上去掉': 'Checked — take it off the list',
   '这个项目已经不在了': 'that project is gone',
