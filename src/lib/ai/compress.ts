@@ -469,6 +469,48 @@ export const diffLines = (original: string, compressed: string): DiffLine[] => {
   return out;
 };
 
+/** 铺回正文上的一段：连着的、同一种命运的几行。 */
+export interface DiffChunk {
+  op: DiffOp;
+  text: string;
+  /** 它和上一段之间本来隔着一个空行。⚠️ 段尾的空行剪掉之后就渲染不出间距了，靠这个补回来。 */
+  gap: boolean;
+}
+
+/** 把行级 diff 折成**一侧**的段落，好让划线和底色直接落在渲染后的正文上：
+ *  `before` 要 same+cut（划掉的那些还留在原文里），`after` 要 same+added。
+ *
+ *  ⚠️⚠️ **返回 null = 这一侧拼不回原样**，调用方必须退回不带标记的正文。
+ *  `diffLines` 超过行数上限时会退化成只报原文侧那一路，压缩稿侧的 added 行根本不生成 ——
+ *  ⛔ 那时候把重建出来的、缺了行的文本当正文显示，就是核对界面自己在丢内容。 */
+export const diffChunks = (
+  lines: DiffLine[],
+  side: 'before' | 'after',
+  text: string,
+): DiffChunk[] | null => {
+  const drop: DiffOp = side === 'before' ? 'added' : 'cut';
+  const rows = lines.filter((l) => l.op !== drop);
+  if (rows.map((r) => r.text).join('\n') !== text) return null;
+  const groups: DiffLine[] = [];
+  for (const r of rows) {
+    const blank = r.text.trim() === '';
+    const last = groups[groups.length - 1];
+    // 空行不自己成一段：它是段落之间那个间隔，跟着上一段走。
+    if (last && (blank || last.op === r.op)) {
+      last.text += '\n' + r.text;
+      continue;
+    }
+    groups.push({ op: blank ? 'same' : r.op, text: r.text });
+  }
+  return groups
+    .map((g, i) => ({
+      op: g.op,
+      text: g.text.replace(/\s+$/, ''),
+      gap: i > 0 && /\n[ \t]*$/.test(groups[i - 1].text),
+    }))
+    .filter((g) => g.text.length > 0);
+};
+
 // ---------------------------------------------------------------------------------------
 // 这一次花了多少钱
 // ---------------------------------------------------------------------------------------

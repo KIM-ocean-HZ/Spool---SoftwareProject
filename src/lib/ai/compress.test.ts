@@ -3,6 +3,7 @@ import {
   auditCompression,
   auditHasLosses,
   countPackEntries,
+  diffChunks,
   diffLines,
   estimateCost,
   formatYuan,
@@ -184,6 +185,41 @@ describe('行级 diff', () => {
   it('模型自己加的行标成 added', () => {
     const d = diffLines('a\nc', 'a\nb\nc');
     expect(d.find((x) => x.op === 'added')?.text).toBe('b');
+  });
+
+  // 铺回正文（2026-08-22，Ocean「直接在原文上去划线」）。
+  it('原文侧拿到 same+cut，压缩稿侧拿到 same+added', () => {
+    const d = diffLines('a\nb\nc', 'a\nx\nc');
+    expect(diffChunks(d, 'before', 'a\nb\nc')?.map((c) => [c.op, c.text])).toEqual([
+      ['same', 'a'],
+      ['cut', 'b'],
+      ['same', 'c'],
+    ]);
+    expect(diffChunks(d, 'after', 'a\nx\nc')?.map((c) => [c.op, c.text])).toEqual([
+      ['same', 'a'],
+      ['added', 'x'],
+      ['same', 'c'],
+    ]);
+  });
+
+  it('连着的同一种行折成一段', () => {
+    const d = diffLines('a\nb\nc\nd', 'a\nd');
+    expect(diffChunks(d, 'before', 'a\nb\nc\nd')?.map((c) => c.text)).toEqual(['a', 'b\nc', 'd']);
+  });
+
+  it('段之间的空行剪掉，换成下一段头上的 gap', () => {
+    const d = diffLines('a\n\nb', 'a');
+    const chunks = diffChunks(d, 'before', 'a\n\nb')!;
+    expect(chunks.map((c) => [c.text, c.gap])).toEqual([
+      ['a', false],
+      ['b', true],
+    ]);
+  });
+
+  it('拼不回原样就返回 null —— ⛔ 缺了行的正文绝不上屏', () => {
+    // diffLines 超行数上限时退化成只报原文侧，压缩稿侧的 added 行根本不存在。
+    const degraded = diffLines(Array.from({ length: 2600 }, (_, i) => `l${i}`).join('\n'), 'l0\nnew');
+    expect(diffChunks(degraded, 'after', 'l0\nnew')).toBeNull();
   });
 });
 

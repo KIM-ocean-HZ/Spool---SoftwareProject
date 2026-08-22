@@ -1213,6 +1213,8 @@ const EN: Record<string, string> = {
   '这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。':
     'This one cannot be compared block by block — the compressed version has no pack entry lines (the model did not keep the #number format). Falling back to whole-text comparison.',
   '原文': 'Original',
+  '（划掉的没进压缩稿）': '(struck-through text did not make it in)',
+  '（有底色的是它新写的）': '(shaded text is what it wrote)',
   '（原文里没有这一块）': '(the original has no such block)',
   '这一块在压缩稿里找不到': 'This block is nowhere in the compressed version',
   '原文里没有这一块 —— 它自己编了一个编号':
@@ -1227,7 +1229,6 @@ const EN: Record<string, string> = {
   '这一块里有 {n} 个数字/日期没了：{s}':
     '{n} number(s)/date(s) are gone from this block: {s}',
   '它写了一条你没写过的批注：{s}': 'It wrote an annotation you never wrote: {s}',
-  '压掉 {a} 句 · 它自己写了 {b} 句': '{a} line(s) cut · {b} line(s) it wrote itself',
 
   // §9.6.4 ⑥：睡前排队、起床核对。
   '今晚 {at} 一起压（还有 {n} 个）': 'Compress together at {at} tonight ({n} queued)',

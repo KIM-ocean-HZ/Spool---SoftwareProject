@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { useMemo } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { BAND_HINT, BAND_LABEL, BAND_MARK, bandOf } from '@/lib/blocks/band';
-import { diffLines } from '@/lib/ai/compress';
+import { diffChunks, diffLines, type DiffChunk } from '@/lib/ai/compress';
 import { entryHasLosses, entryPercent, type EntryPair } from '@/lib/ai/compressBlocks';
 import type { Block } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
@@ -16,8 +16,11 @@ import { useT } from '@/lib/i18n';
 //   2. **记号从原块取。** 💭 / 📖 / 🧩 / 🔄 查的是库里那一块的 `source`，不是压缩稿的头行。
 //      压缩稿是被审查的一方，让它自报家门没有意义。
 //   3. **正文用渲染后的样子**，和在项目里读到的一致。纯文本对比是在让用户读渲染器的中间产物。
-//      但 Ocean 说过「删除内容划线的可视化我认可」，所以那一半没有丢：它收进了下面
-//      「改了哪几句」那个折叠里，**按这一块**，不再是整份五万字的行对行。
+//      ⭐ 2026-08-22 Ocean：「我还是想直接在原文上去划线，直接在压缩稿显示新加的内容，
+//      压掉 XX 句 · 它自己写了 XX 句的对比去掉」。所以划线和底色**就长在这两栏正文上**：
+//      左栏原文里压掉的那几段划掉，右栏压缩稿里新写的那几段上底色。
+//      ⛔ 底下那个「压掉 X 句 · 它自己写了 Y 句」的折叠没了 —— 同一件事说两遍，
+//      而且它把改动挪到了离正文最远的地方，正是「看不懂删了什么」的来源。
 
 export default function EntryCard({
   pair,
@@ -28,22 +31,20 @@ export default function EntryCard({
   block: Block | null;
 }) {
   const t = useT();
-  // ⭐ D8（2026-08-22，Ocean 原话「不要折叠隐藏，不会有人点进去看的」）：默认展开。
-  // 核对界面存在的全部理由就是让人看见改了什么 —— 把改了什么折叠起来，等于做了这个功能
-  // 又把它关上。折叠钮留着，是为了看完了能收起来，不是为了一开始就藏着。
-  const [changesOpen, setChangesOpen] = useState(true);
-
   const band = block ? bandOf(block) : null;
   const pct = entryPercent(pair);
   const head = pair.before ?? pair.after!;
 
-  const diff = useMemo(
-    () =>
-      pair.before && pair.after ? diffLines(pair.before.raw, pair.after.raw) : [],
-    [pair],
-  );
-  const cut = diff.filter((l) => l.op === 'cut' && l.text.trim().length > 0);
-  const added = diff.filter((l) => l.op === 'added' && l.text.trim().length > 0);
+  // ⚠️ 比的是 body 不是 raw：栏里渲染的就是 body，头行（`#N [时间 · from 来源]`）另外印在
+  // 上面那一行。拿 raw 比，头行的差异会变成正文里的第一段划线，指的却是屏幕上没有的东西。
+  const marks = useMemo(() => {
+    if (!pair.before || !pair.after) return { before: null, after: null };
+    const d = diffLines(pair.before.body, pair.after.body);
+    return {
+      before: diffChunks(d, 'before', pair.before.body),
+      after: diffChunks(d, 'after', pair.after.body),
+    };
+  }, [pair]);
 
   const losses = entryHasLosses(pair.audit);
 
@@ -81,21 +82,27 @@ export default function EntryCard({
 
       <div className="grid grid-cols-2 divide-x divide-line">
         <div className="min-w-0 px-3 py-2">
-          <div className="mb-1 text-[11px] text-muted">{t('原文')}</div>
+          <div className="mb-1 text-[11px] text-muted">
+            {t('原文')}
+            {marks.before?.some((c) => c.op === 'cut') && (
+              <span className="ml-1.5">{t('（划掉的没进压缩稿）')}</span>
+            )}
+          </div>
           {pair.before ? (
-            <div className="text-[13px] leading-relaxed text-ink-2">
-              <MarkdownContent content={pair.before.body} />
-            </div>
+            <Body chunks={marks.before} text={pair.before.body} />
           ) : (
             <p className="text-[12px] text-muted">{t('（原文里没有这一块）')}</p>
           )}
         </div>
         <div className="min-w-0 px-3 py-2">
-          <div className="mb-1 text-[11px] text-muted">{t('压缩稿')}</div>
+          <div className="mb-1 text-[11px] text-muted">
+            {t('压缩稿')}
+            {marks.after?.some((c) => c.op === 'added') && (
+              <span className="ml-1.5">{t('（有底色的是它新写的）')}</span>
+            )}
+          </div>
           {pair.after ? (
-            <div className="text-[13px] leading-relaxed text-ink-2">
-              <MarkdownContent content={pair.after.body} />
-            </div>
+            <Body chunks={marks.after} text={pair.after.body} />
           ) : (
             <p className="text-[12px]" style={{ color: 'var(--urgent)' }}>
               {t('它把这一块整个删掉了，或者合并进了别的块。左边那些话现在没有出处 —— 自己确认一遍。')}
@@ -150,36 +157,44 @@ export default function EntryCard({
           </div>
         </div>
       )}
-
-      {/* 「删除内容划线」那一半 —— 收在这里，按这一块，不再是整份的行对行。 */}
-      {(cut.length > 0 || added.length > 0) && (
-        <div className="border-t border-line px-3 py-1.5">
-          <button
-            type="button"
-            onClick={() => setChangesOpen((v) => !v)}
-            className="flex items-center gap-1 text-[11px] text-muted transition-colors hover:text-accent"
-          >
-            {changesOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            {t('压掉 {a} 句 · 它自己写了 {b} 句', { a: cut.length, b: added.length })}
-          </button>
-          {changesOpen && (
-            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.55]">
-              {cut.map((l, i) => (
-                <span key={`c${i}`} className="line-through opacity-50" style={{ color: 'var(--urgent)' }}>
-                  {l.text}
-                  {'\n'}
-                </span>
-              ))}
-              {added.map((l, i) => (
-                <span key={`a${i}`} style={{ background: 'var(--accent-soft)' }}>
-                  {l.text}
-                  {'\n'}
-                </span>
-              ))}
-            </pre>
-          )}
-        </div>
-      )}
     </article>
+  );
+}
+
+// 一栏正文。`chunks` 有就按段铺记号，null 就原样渲染 —— ⛔ null 不是「没有改动」，
+// 是「这一侧铺不回去」（见 `diffChunks`），那时候宁可不标，也不能显示一份缺了行的正文。
+function Body({ chunks, text }: { chunks: DiffChunk[] | null; text: string }) {
+  const cls = 'text-[13px] leading-relaxed text-ink-2';
+  if (!chunks) {
+    return (
+      <div className={cls}>
+        <MarkdownContent content={text} />
+      </div>
+    );
+  }
+  return (
+    <div className={cls}>
+      {chunks.map((c, i) => (
+        <div
+          key={i}
+          className={[
+            c.gap ? 'mt-[0.9em]' : '',
+            c.op === 'cut' ? 'line-through opacity-55' : '',
+            c.op === 'added' ? '-mx-1 rounded-[3px] px-1' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={
+            c.op === 'cut'
+              ? { color: 'var(--urgent)' }
+              : c.op === 'added'
+                ? { background: 'var(--accent-soft)' }
+                : undefined
+          }
+        >
+          <MarkdownContent content={c.text} />
+        </div>
+      ))}
+    </div>
   );
 }
