@@ -843,8 +843,9 @@ reversed only by the owner, explicitly — never as a side effect of implementin
 From `docs/WORKPLAN-2026-08-22.md` (batch G). The 2026-08-19 list had five; two are done, and the environment-hygiene item turned out to be larger than described.
 
 1. **Environment hygiene** — the two artefacts named on 2026-08-19 are gone, but a recount on
-   2026-08-21 found **14 apps claiming `com.oceanjin.spool*`** on this machine (12 + `.verify` +
-   `.fr5`). Nothing has been deleted; which ones go is the owner's call. ⚠️ `mdfind` only answers
+   2026-08-22 found **15 apps claiming `com.oceanjin.spool*`** on this machine (13 + `.verify` +
+   `.fr5`) — the 08-21 count of 14 was already one behind, and the number grows by one on every
+   install swap (each leaves a copy in `~/Desktop/Spool/spool-pre-install/`). Nothing has been deleted; which ones go is the owner's call. ⚠️ `mdfind` only answers
    for bundle ids you already thought to ask about — scan the filesystem by prefix instead
    (command in `docs/WORKPLAN-2026-08-22.md` §4.3). ⚠️ `/Applications/Spool.app` is currently an
    **unnotarised dev build**, so any "release build check" done on this machine only checked a dev build.
