@@ -1,4 +1,4 @@
-import { ArrowUpDown, PenLine } from 'lucide-react';
+import { PenLine } from 'lucide-react';
 import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { isUserWritten } from '@/lib/blocks/annotationAuthor';
 import { formatAccelerator } from '@/lib/capture/shortcut';
@@ -49,22 +49,10 @@ const intersectsRect = (
 // trap that produced the Phase 3 "Maximum update depth exceeded" loop.
 const EMPTY: readonly Block[] = [];
 
-type SortMode = 'time' | 'source';
-
-// Source-grouped order: blocks sharing a source sit together (sources ordered
-// alphabetically), no-source blocks last; within a group chronological order is kept.
-// `blocks` already arrives created_at ASC so the within-group order comes for free.
-const sortBlocks = (blocks: readonly Block[], mode: SortMode): readonly Block[] => {
-  if (mode === 'time') return blocks;
-  return [...blocks].sort((a, b) => {
-    const sa = (a.source ?? '').trim();
-    const sb = (b.source ?? '').trim();
-    if (sa === sb) return a.createdAt - b.createdAt;
-    if (!sa) return 1;
-    if (!sb) return -1;
-    return sa.localeCompare(sb);
-  });
-};
+// ⛔ 2026-08-22（Ocean：「把项目中的 block 排序按钮删除，只能按时间顺序，这个按钮从来没用过，
+// 但是占位置了」）：这里原来有一个「按来源分组」的排序模式和一个切换它的图标。整条撤掉 ——
+// feed 永远是时间顺序（`blocks` 从库里出来就是 created_at ASC）。
+// ⚠️ 跟着撤掉的还有日期分隔线上那个 `sortMode === 'time'` 判断：现在恒真。
 
 // Two timestamps fall on the same local calendar day.
 const isSameDay = (a: number, b: number): boolean =>
@@ -144,7 +132,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     selectionAnchor.current = null;
   }, [threadId, clearSelection]);
 
-  const [sortMode, setSortMode] = useState<SortMode>('time');
   // §4.4 filter. Local state, and LogView is keyed by thread id, so switching projects
   // starts from "show everything" rather than a filter the user forgot they left on.
   const [mineOnly, setMineOnly] = useState(false);
@@ -169,12 +156,11 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       folded.size === 0
         ? blocks
         : blocks.filter((b) => !folded.has(b.id) || b.id === highlightBlockId);
-    const sorted = sortBlocks(shown, sortMode);
-    if (!mineOnly) return sorted;
+    if (!mineOnly) return shown;
     // ⚠️ The search destination survives the filter. 「跳到命中处」 must land somewhere, and a
     // jump into a feed that silently dropped the target is the one failure worth code here.
-    return sorted.filter((b) => isUserWritten(b) || b.id === highlightBlockId);
-  }, [blocks, sortMode, mineOnly, highlightBlockId]);
+    return shown.filter((b) => isUserWritten(b) || b.id === highlightBlockId);
+  }, [blocks, mineOnly, highlightBlockId]);
 
   // If a search result targets a block outside the current tail window, widen so it's
   // mounted before the scrollIntoView below runs. Runs before the highlight effect so
@@ -443,13 +429,9 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             scroll container, because Ocean asked for 「不要固定在顶部，需要可以跟随 blocks 滑动」
             — mounted a level up (in ThreadView) it sat outside the scrolling area and stuck. */}
         <DateNotices threadId={threadId} blocks={blocks} />
-        {/* 任务三 #4 (2026-07-12): the sort control is low-frequency — one icon that
-            cycles the two modes, current mode in the tooltip, instead of a labeled
-            pill row claiming a whole line. */}
         <div className="ml-auto flex flex-none items-center gap-0.5">
-          {/* §4.4 「只看我写的」 — same low-frequency treatment as the sort control next to it:
-              one icon, the state in the tooltip, and it colours in while it is on so a
-              half-empty feed always has a visible reason. */}
+          {/* §4.4 「只看我写的」 — one icon, the state in the tooltip, and it colours in while
+              it is on so a half-empty feed always has a visible reason. */}
           <button
             type="button"
             onClick={() => setMineOnly((v) => !v)}
@@ -469,23 +451,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             }`}
           >
             <PenLine size={13} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSortMode(sortMode === 'time' ? 'source' : 'time')}
-            title={
-              sortMode === 'time'
-                ? t('排序：按时间 — 点击改为按来源')
-                : t('排序：按来源 — 点击改为按时间')
-            }
-            aria-label={
-              sortMode === 'time'
-                ? t('排序：按时间 — 点击改为按来源')
-                : t('排序：按来源 — 点击改为按时间')
-            }
-            className="rounded p-1 text-muted transition-colors hover:text-accent"
-          >
-            <ArrowUpDown size={13} />
           </button>
         </div>
       </div>
@@ -508,14 +473,11 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       <div className="space-y-1 [&_article+article]:border-t [&_article+article]:border-line/40">
         {visible.map((b, i) => {
           // Date divider above any block that opens a new calendar day — the first
-          // visible block always gets one. Skipped in "by source" mode, where the feed
-          // is not time-ordered (§9.3). The previous-day comparison uses the full
+          // visible block always gets one. The previous-day comparison uses the full
           // `ordered` array via the absolute index so the boundary stays correct
           // across the tail-window cut.
           const absIdx = hiddenCount + i;
-          const showDivider =
-            sortMode === 'time' &&
-            (i === 0 || !isSameDay(ordered[absIdx - 1]!.createdAt, b.createdAt));
+          const showDivider = i === 0 || !isSameDay(ordered[absIdx - 1]!.createdAt, b.createdAt);
           return (
             <Fragment key={b.id}>
               {showDivider && <DateDivider ts={b.createdAt} />}

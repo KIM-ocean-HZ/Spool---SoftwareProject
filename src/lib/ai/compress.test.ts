@@ -12,7 +12,7 @@ import {
   measurementRecord,
   mergeOutcomes,
   numbersGateOpen,
-  pairLines,
+  hunkRuns,
   overlapRatio,
   pairRewrites,
   priceTier,
@@ -250,14 +250,40 @@ describe('按字对', () => {
     expect(charDiff(long, 'b').map((r) => r.op)).toEqual(['cut', 'added']);
   });
 
-  it('改写的行配上对，不相干的两行配不上', () => {
-    const r = pairLines(
-      ['现有成绩需按 Fall 2027 开学日复核', '完全不相干的另一句话'],
-      ['现有成绩需按开学日复核'],
+  // ⭐ 2026-08-22 第 5 次反馈（Ocean：「大部分的文本还是整段删除，整段更新」）。
+  // 病根是一对一配对：压缩最常干的是「把好几行并成一行」，一对一只标得动其中一行。
+  it('好几行并成一行 —— 每一行都按字标，不是只挑得动其中一行', () => {
+    const r = hunkRuns(
+      ['**已确认背景。**', '- TOEFL 104（2025-09-17），本人决定不重考。', '- GRE 正在准备。'],
+      ['**已确认背景。** TOEFL 104（2025-09-17），不重考。GRE 正在准备。'],
+    )!;
+    // 三行删行**全部**拿到按字记号 —— 旧的一对一只有一行拿得到。
+    expect(r.cut.map((x) => x !== null)).toEqual([true, true, true]);
+    expect(r.added.map((x) => x !== null)).toEqual([true]);
+    // 每一行拼回去还是它自己：same + cut = 原文那一行。
+    expect(r.cut[1]!.filter((x) => x.op !== 'added').map((x) => x.text).join('')).toBe(
+      '- TOEFL 104（2025-09-17），本人决定不重考。',
     );
-    expect(r.pairs).toEqual([[0, 0]]);
-    expect(r.cutOnly).toEqual([1]);
-    expect(r.addedOnly).toEqual([]);
+    // 真正没了的那几个字才带记号。
+    expect(r.cut[1]!.filter((x) => x.op === 'cut').map((x) => x.text).join('')).toContain('本人决定');
+    // ⚠️ 那个日期两边都有 —— 它必须是 same，不能被标成「删了」。
+    expect(r.cut[1]!.find((x) => x.text.includes('2025-09-17'))?.op).toBe('same');
+  });
+
+  it('真的删了一段又新写了一段 —— 整处不标，⛔ 不许凑出字符沙拉', () => {
+    expect(
+      hunkRuns(['# FLUX', 'Human–AI music co-creation built around one shared model.'], ['围绕单一共享模型的人机音乐共创。']),
+    ).toBeNull();
+  });
+
+  it('一行里没有一段连着够长的两边都有 —— 那一行退回整行标', () => {
+    const r = hunkRuns(
+      ['他说的的确是了不起的事情', '这一句和下面那句几乎一模一样只差三个字'],
+      ['这一句和下面那句几乎一模一样只差两个字'],
+    );
+    // 第二行配得上；第一行只有零星单字重合，不许按字标。
+    expect(r?.cut[0]).toBeNull();
+    expect(r?.cut[1]).not.toBeNull();
   });
 });
 

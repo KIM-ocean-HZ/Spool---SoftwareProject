@@ -324,6 +324,8 @@ export const entryPercent = (p: EntryPair): number | null => {
 //   3. **补不回去的必须报出来**（`failed`）。整块不见了、或者这一份根本切不出块的时候，
 //      没有落脚点 —— ⛔ 那时候假装"全补上了"，就是核对界面自己在撒谎。
 const RELATION_LINE = /^\s*↩/;
+/** `templates.ts::truncationMarker` 印出来的那一行。里面那个数是渲染器算的字数，不是内容。 */
+const TRUNCATION_LINE = /^\s*\[\.\.\. truncated, \d+ more chars not shown \.\.\.\]\s*$/;
 
 export interface AddBackResult {
   /** 补完之后的压缩稿全文。⚠️ 一处都没补的时候原样返回，不是空串。 */
@@ -335,6 +337,10 @@ export interface AddBackResult {
   lines: string[];
   /** ⛔ 没能补回去的。必须报给用户 —— 见上面第 3 条。 */
   failed: string[];
+  /** ⭐ 接在**小节末尾**、而不是接进某一块里的那几行（附件正文、整块不见了的那几行）。
+   *  ⚠️ 界面必须说出这个数：这几行不在任何一张块卡片上，右栏那个「你加回去的」标不到它们
+   *  —— 不说的话，用户按了一下、屏幕上却什么都没变，那正是 R2 第 3 条骂的那件事。 */
+  outsideBlocks: number;
 }
 
 /** 把压缩稿里丢掉的数字/日期，连着它在原文里的那一行一起补回去。纯本地，不问模型。
@@ -349,8 +355,21 @@ export const addBackNumbers = (
   const all = missingNumbersBetween(original, compressed);
   const missing = only ? all.filter((n) => only.includes(n)) : all;
   const cmp = missing.length > 0 ? compareByEntry(original, compressed) : null;
-  // 切不出块 = 没有落脚点。⛔ 这时候不许在整份文本上瞎猜位置，如实说补不回去。
-  if (!cmp) return { text: compressed, added: [], lines: [], failed: missing };
+  // 整份切不出块（模型没照 pack 的格式写）= 一个块级落脚点都没有。
+  // ⛔ 不许在整份文本上瞎猜位置，但**按小节更正回去**那一路仍然走得通 —— 走它。
+  if (!cmp) {
+    const added0: string[] = [];
+    const lines0: string[] = [];
+    const patch0 =
+      missing.length > 0 ? correctBySection(original, compressed, missing, added0, lines0) : null;
+    return {
+      text: patch0 ? applySectionPatch(compressed, patch0) : compressed,
+      added: added0,
+      lines: lines0,
+      failed: missing.filter((n) => !added0.includes(n)),
+      outsideBlocks: lines0.length,
+    };
+  }
 
   // key（小节 + 编号）→（after 正文的行下标 → 插在它后面的那几行）
   const plan = new Map<string, Map<number, string[]>>();
@@ -385,9 +404,161 @@ export const addBackNumbers = (
     if (perAnchor.size > 0) plan.set(p.key, perAnchor);
   }
 
+  // ⭐ 第二条路：**块里插不进去的，按小节更正回去**（2026-08-22，Ocean 原话「文本无法插回去了，
+  // 如果插不回去就添加一个文本更正，把原文更正回去」）。
+  //
+  // 上面那一路只认「原文和压缩稿里都还在的那一块」。真实语料上量过，剩下的两类都补不了：
+  //   ① 那一行**根本不属于任何一块** —— 附件抽出来的正文住在 `## Related Files & Links`，
+  //      那一节里没有 `#N`，所以一个落脚点都找不到；
+  //   ② 那一块**整块不见了** —— 块都没了，自然没有「它前面最后一个原样留下来的行」。
+  //
+  // ⛔ 那时候原来的做法是弹一句「补不回去，重压一次吧」——让用户再花一次钱、再等一分钟，
+  //    而那一行原文**就在手边**。现在改成：把那几行原文按**它原来所在的小节**接回去。
+  // ⚠️ 接在小节末尾，不往块里塞：塞进别的块就是把一句话安到了不属于它的出处上。
+  const stillMissing = missing.filter((n) => !added.includes(n));
+  const patch =
+    stillMissing.length > 0
+      ? correctBySection(original, compressed, stillMissing, added, lines)
+      : null;
+
   const failed = missing.filter((n) => !added.includes(n));
-  if (plan.size === 0) return { text: compressed, added, lines, failed };
-  return { text: spliceBack(compressed, plan), added, lines, failed };
+  // ⚠️ 只数**散行**：整条放回去的那些在核对面上就是一张块卡片，看得见，不用另外说。
+  const outsideBlocks = patch ? [...patch.loose.values()].reduce((n, at) => n + at.length, 0) : 0;
+  if (plan.size === 0 && !patch)
+    return { text: compressed, added, lines, failed, outsideBlocks: 0 };
+  const spliced = plan.size > 0 ? spliceBack(compressed, plan) : compressed;
+  return {
+    text: patch ? applySectionPatch(spliced, patch) : spliced,
+    added,
+    lines,
+    failed,
+    outsideBlocks,
+  };
+};
+
+/** 要接回压缩稿的东西，按小节收拢。⚠️ 键是小节名；`''` = 不属于任何小节。 */
+interface SectionPatch {
+  /** 整块不见了 → 把**那一整条原文**（头行 + 正文）放回去。⚠️ 按 `seq` 插回原来的位置。 */
+  entries: Map<string, PackEntry[]>;
+  /** 不属于任何一块的行（附件抽出来的正文那种）→ 接在这一节末尾。 */
+  loose: Map<string, string[]>;
+}
+
+/** 把补不进块里的那几行，按它们**在原文里所属的小节**收拢起来。
+ *
+ *  两类分开办，因为「放回去」的正确形状不一样：
+ *
+ *   - **整块不见了** → 放回**整条**（头行 + 正文），按 `seq` 插回原来的位置。
+ *     ⛔ 只放回带数字的那一行是不行的：一条裸行接在最后一块后面，`splitPackEntries` 会把它
+ *     算成**上一块的正文**，于是核对面上那一块凭空长出一句不属于它的话。
+ *   - **那一行根本不属于任何一块**（附件正文住在 `## Related Files & Links`，那一节里没有
+ *     `#N`）→ 接在这一节末尾就是对的位置。
+ *
+ *  ⚠️ 同时把补上的数字记进 `added`、把行记进 `lines` —— 界面靠 `lines` 标「你加回去的」。 */
+const correctBySection = (
+  original: string,
+  compressed: string,
+  wanted: readonly string[],
+  added: string[],
+  lines: string[],
+): SectionPatch | null => {
+  const key = (e: PackEntry): string => `${e.section}#${e.seq}`;
+  const present = new Set(splitPackEntries(compressed).map(key));
+  const patch: SectionPatch = { entries: new Map(), loose: new Map() };
+
+  // ① 整块不见了的那些。
+  for (const e of splitPackEntries(original)) {
+    if (present.has(key(e))) continue;
+    const hits = wanted.filter((n) => !added.includes(n) && lineHasNumber(e.raw, n));
+    if (hits.length === 0) continue;
+    const at = patch.entries.get(e.section) ?? [];
+    at.push(e);
+    patch.entries.set(e.section, at);
+    added.push(...hits);
+  }
+
+  // ② 剩下的：不属于任何一块的行。
+  const have = new Set(packLines(compressed).map((l) => l.trim()));
+  let section = '';
+  let inEntry = false;
+  for (const line of packLines(original)) {
+    const sec = SECTION_RE.exec(line);
+    if (sec && PACK_SECTIONS.has(sec[1])) {
+      section = sec[1];
+      inEntry = false;
+      continue;
+    }
+    if (ENTRY_RE.test(line)) {
+      inEntry = true;
+      continue;
+    }
+    // 属于某一块的正文行，上面那一路已经管过了（那一块要么还在，要么整条被放回去）。
+    if (inEntry) continue;
+    // ⛔ Spool 自己印的那两类行不补：`↩` 预览行是别的块开头的半截话，
+    // 截断标记里那个数是渲染器算出来的字数。两类都不是用户的字。
+    if (RELATION_LINE.test(line) || TRUNCATION_LINE.test(line)) continue;
+    const hits = wanted.filter((n) => !added.includes(n) && lineHasNumber(line, n));
+    if (hits.length === 0) continue;
+    // 这一行压缩稿里原样还在（只是那个数被别处的判断算成了丢）—— 不重复接一遍。
+    if (have.has(line.trim())) continue;
+    const at = patch.loose.get(section) ?? [];
+    at.push(line);
+    patch.loose.set(section, at);
+    if (!lines.includes(line)) lines.push(line);
+    added.push(...hits);
+  }
+
+  return patch.entries.size > 0 || patch.loose.size > 0 ? patch : null;
+};
+
+/** 把 `SectionPatch` 接进压缩稿。
+ *
+ *  整条放回去的按 `seq` 插回原来的位置（⚠️ 排在第一个编号比它大的同节条目前面）；
+ *  散行接在这一节的末尾（下一个 `## ` 之前）。
+ *
+ *  ⚠️ 压缩稿里没有这一节的时候，连小节标题一起补在整份末尾 —— ⛔ 不许把它们裸接在最后一块
+ *  后面：`splitPackEntries` 会把裸行算成最后那一块的正文，于是核对面上那一块凭空长出几行。 */
+const applySectionPatch = (compressed: string, patch: SectionPatch): string => {
+  const out: string[] = [];
+  const doneLoose = new Set<string>();
+  const pending = new Map<string, PackEntry[]>();
+  for (const [sec, list] of patch.entries) pending.set(sec, [...list].sort((a, b) => a.seq - b.seq));
+  let section = '';
+  const drainEntries = (upTo: number): void => {
+    const list = pending.get(section);
+    if (!list) return;
+    while (list.length > 0 && list[0].seq < upTo) out.push(...packLines(list.shift()!.raw));
+  };
+  const flush = (): void => {
+    drainEntries(Number.POSITIVE_INFINITY);
+    const at = patch.loose.get(section);
+    if (at && !doneLoose.has(section)) {
+      doneLoose.add(section);
+      out.push(...at);
+    }
+  };
+  for (const line of packLines(compressed)) {
+    const sec = SECTION_RE.exec(line);
+    if (sec && PACK_SECTIONS.has(sec[1])) {
+      flush();
+      section = sec[1];
+      out.push(line);
+      continue;
+    }
+    if (ENTRY_RE.test(line)) drainEntries(Number(/#(\d+)/.exec(line)?.[1] ?? 0));
+    out.push(line);
+  }
+  flush();
+  // 压缩稿里根本没有的小节：标题跟着一起补。
+  for (const sec of new Set([...patch.entries.keys(), ...patch.loose.keys()])) {
+    const left = pending.get(sec) ?? [];
+    const loose = doneLoose.has(sec) ? [] : patch.loose.get(sec) ?? [];
+    if (left.length === 0 && loose.length === 0) continue;
+    if (sec) out.push('', `## ${sec}`, '');
+    for (const e of left) out.push(...packLines(e.raw));
+    out.push(...loose);
+  }
+  return out.join('\n');
 };
 
 /** 照 `plan` 把几行插回压缩稿。⚠️ 走的是和 `splitPackEntries` 同一套切法（同样的头行、

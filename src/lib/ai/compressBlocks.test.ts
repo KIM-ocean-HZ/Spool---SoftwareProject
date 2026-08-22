@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffChunks, diffLines, missingNumbersBetween } from './compress';
+import { countPackEntries, diffChunks, diffLines, missingNumbersBetween } from './compress';
 import {
   addBackNumbers,
   worthRetrying,
@@ -225,19 +225,63 @@ describe('addBackNumbers', () => {
     expect(lines[at + 1]).toBe('第三行也没有数字。');
   });
 
-  it('整块不见了 = 没有落脚点，如实报 failed，正文一个字不动', () => {
+  // ⭐ 2026-08-22（Ocean：「文本无法插回去了，如果插不回去就添加一个文本更正，把原文更正回去」）。
+  // ⚠️ 这两条以前断言的是「一个字不动，如实报 failed」—— 那是**旧的**做法：让用户再花一次钱
+  // 重压一遍，而那一行原文就在手边。现在改成按小节更正回去。⛔ 别把它们改回去。
+  it('整块不见了 —— 把那一整条原文放回原来的位置，⛔ 不是接一条裸行', () => {
     const compressed = drop(APPLY, '#2 ');
     const r = addBackNumbers(APPLY, compressed);
-    expect(r.added).toEqual([]);
-    expect(r.failed).toContain('2026-12-15');
-    expect(r.text).toBe(compressed);
+    expect(r.added).toContain('2026-12-15');
+    expect(r.failed).toEqual([]);
+    // ⭐ 放回去的是**整条**，所以块数回到原文那个数（不是压缩稿那个数）。
+    // ⛔ 只接带数字的那一行的话，`splitPackEntries` 会把它算成**上一块的正文** ——
+    //    核对面上那一块会凭空长出一句不属于它的话。
+    expect(countPackEntries(r.text)).toBe(countPackEntries(APPLY));
+    expect(compareByEntry(APPLY, r.text)!.dropped).toBe(0);
+    // ⚠️ 它自己就是一张块卡片，看得见 —— 所以不算「不在块里的那几行」。
+    expect(r.outsideBlocks).toBe(0);
+    // 补完闸门就过得了 —— 补回去而闸门还关着，等于白补。
+    expect(missingNumbersBetween(APPLY, r.text)).toEqual([]);
   });
 
-  it('切不出块的时候不瞎猜位置，全部报 failed', () => {
+  it('不属于任何一块的行（附件正文那种）接在它那一节的末尾', () => {
+    const withFiles = APPLY.replace(
+      '## Output Language',
+      '## Related Files & Links\n\n- 方案.pdf (pdf)\n      第 1 页 · 目标分数 325–328\n\n## Output Language',
+    );
+    const compressed = drop(withFiles, '      第 1 页');
+    const r = addBackNumbers(withFiles, compressed);
+    expect(r.added).toContain('325');
+    expect(r.outsideBlocks).toBe(1);
+    // 接在它自己那一节里，⛔ 不许跑到 Output Language 后面去。
+    const at = r.text.split('\n');
+    expect(at.indexOf('      第 1 页 · 目标分数 325–328')).toBeGreaterThan(
+      at.indexOf('## Related Files & Links'),
+    );
+    expect(at.indexOf('      第 1 页 · 目标分数 325–328')).toBeLessThan(
+      at.indexOf('## Output Language'),
+    );
+    // 块数一个都不许多。
+    expect(countPackEntries(r.text)).toBe(countPackEntries(compressed));
+  });
+
+  it('整份切不出块 —— 连小节标题一起补在末尾，⛔ 不许裸接在最后一块后面', () => {
     const r = addBackNumbers(APPLY, '模型没照格式写，就一句话。');
-    expect(r.added).toEqual([]);
-    expect(r.failed.length).toBeGreaterThan(0);
-    expect(r.text).toBe('模型没照格式写，就一句话。');
+    expect(r.added.length).toBeGreaterThan(0);
+    expect(r.failed).toEqual([]);
+    // 压缩稿里根本没有这一节，所以标题跟着补上 —— 不补的话这几行会被算成上一块的正文。
+    expect(r.text).toContain('## Full Record (chronological)');
+    expect(r.text).toContain('GRE 最晚重考日是 2026-11-25，别错过。');
+  });
+
+  // ⛔ Spool 自己印上去的那两类行不算用户的字。截断标记里那个数是渲染器算出来的字数，
+  //    被算成「丢了一个数字」的话，数字硬闸门会把一份好稿子挡在库外，而且补不回来。
+  it('截断标记里的字数不算丢失的数字', () => {
+    const withMarker = APPLY.replace(
+      '第三行也没有数字。',
+      '第三行也没有数字。\n[... truncated, 8945 more chars not shown ...]',
+    );
+    expect(missingNumbersBetween(withMarker, APPLY)).toEqual([]);
   });
 
   // ⭐ 补回去的那一行**不许在核对界面上被说成「它新写的」** —— 那句话会把责任安到模型头上，

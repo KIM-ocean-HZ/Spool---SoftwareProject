@@ -368,12 +368,19 @@ export const pairRewrites = (
 };
 
 /** 原文里有、压缩稿里再也找不到的数字。按块和整份用的是同一个判断。 */
+/** ⚠️ **Spool 自己印上去的行，不是用户的字。** 两类都要排掉，理由不同：
+ *
+ *  - `↩ cites:` 那种预览行是**别的块的开头几十个字**，还被 `…` 从中间截断 ——
+ *    `（2026-0…` 会被抽成一个叫 `2026-0` 的假数字，而那一行本来就有 `missingRelations` 在管；
+ *  - `[... truncated, 8945 more chars not shown ...]` 里的 **8945 是渲染器算出来的字数**。
+ *    ⛔ 2026-08-22 在真实语料上抓到的：它被报成「丢了一个数字」，于是数字硬闸门把一份
+ *    好稿子挡在库外，而用户按「加回去」还补不回来 —— 那个数在原文里根本不是一个内容。
+ *    ⚠️ 这一条按形状认，不按具体数字认（`templates.ts::truncationMarker`）。 */
+const SPOOL_OWN_LINE = /^\s*(?:↩|\[\.\.\. truncated, \d+ more chars not shown \.\.\.\])/;
+
 export const missingNumbersBetween = (original: string, compressed: string): string[] => {
   const hay = new Set(numberTokens(compressed));
-  // ⚠️ `↩ cites:` 那种预览行不算数：它是**别的块的开头几十个字**，而且被 `…` 从中间截断
-  // ——`（2026-0…` 会被抽成一个叫 `2026-0` 的假数字，而那一行本来就有 `missingRelations`
-  // 在管。不排掉的话，每一份压缩稿都会挂着同一个不存在的「丢失数字」。
-  const body = packLines(original).filter((l) => !/^\s*↩/.test(l)).join('\n');
+  const body = packLines(original).filter((l) => !SPOOL_OWN_LINE.test(l)).join('\n');
   return numberTokens(body).filter((n) => !hay.has(n));
 };
 
@@ -517,11 +524,13 @@ export const diffLines = (original: string, compressed: string): DiffLine[] => {
 // 而真正丢掉的那个日期淹在里面。所以：
 //
 //   1. 先按行对齐（`diffLines`）；
-//   2. 删掉的行和新加的行**在同一处的**，按相似度配对（`pairLines`）—— 配上的是**同一句被改写**；
-//   3. 配上的那一对再按**字**对一遍（`charDiff`），只标真正变的那几个字。
+//   2. **同一处**的删行和加行**合起来**按字对一遍（`hunkRuns`），再把结果切回每一行。
 //
 // ⚠️ 中文没有词边界，所以是**按字**不是按词。二元组重合度那套（`overlapRatio`）在这个项目里
-// 已经被实测校准过一次（D4-b：真实例子的 Dice 只有 0.43，重合比 0.83），配对沿用它。
+// 已经被实测校准过一次（D4-b：真实例子的 Dice 只有 0.43，重合比 0.83），闸门沿用它。
+//
+// ⭐ 第 2 步**原来是一对一配对**，2026-08-22 第二轮第 5 次反馈把它换掉了 —— 理由和实测数字
+// 写在 `hunkRuns` 上面。一句话：压缩最常干的是「把七行并成一行」，而一对一只标得动其中一行。
 
 /** 一行里的一段：`same` 两边都有，`cut` 只在原文里，`added` 只在压缩稿里。 */
 export interface InlineRun {
@@ -576,33 +585,118 @@ export const charDiff = (before: string, after: string): InlineRun[] => {
   return out;
 };
 
-/** 删掉的行和新加的行配对：配得上的是**同一句被改写**，配不上的才是真的删了 / 真的新写的。
- *  ⚠️ 一对一，按相似度从高到低贪心 —— 和 `pairRewrites` 同一套规矩、同一个门槛。 */
-export const pairLines = (
-  cut: string[],
-  added: string[],
-): { pairs: [number, number][]; cutOnly: number[]; addedOnly: number[] } => {
-  const scored: { i: number; j: number; score: number }[] = [];
-  cut.forEach((c, i) => {
-    added.forEach((d, j) => {
-      const score = overlapRatio(c, d);
-      if (score >= REWRITE_MIN_OVERLAP) scored.push({ i, j, score });
-    });
+/** ⚠️ 太短的一段「两边都有」不算数：中文里「的」「了」「是」到处都是，LCS 会在两段
+ *  **不相干**的话之间挑出一堆一两个字的重合，屏幕上就成了字符沙拉 —— 那比整段划掉更难读。 */
+const MIN_SAME_RUN = 2;
+
+/** ⚠️ 一行里至少要有这么多字是「两边都有」的，才按字标。低于这个数说明它是**真的整行删了**
+ *  （或者真的整行新写的），那时候整行标一个记号反而一眼就懂。 */
+const LINE_SAME_MIN = 0.35;
+
+/** ⚠️ 而且这一行里至少要有**一段连着这么长**的字是两边都有的。
+ *  只看比例挡不住字符沙拉：一行里凑够 35% 的两字重合是很容易的事，而那样的一行读起来
+ *  是一堆碎记号。实测语料上加了这一条之后，「平均 same 段短于 3 个字」的行从 3 行变成 0 行。 */
+const MIN_SAME_ANCHOR = 4;
+
+/** ⚠️ 一整处的重合度低于这个数就整处不标 —— 那是真的删了一段、又新写了一段。
+ *
+ *  ⛔ 别把它调回 `REWRITE_MIN_OVERLAP`（0.6）：那是**批注配对**的门槛，一条对一条，
+ *  宁可漏判。这里是一整处对一整处，里面本来就混着「真删掉的」和「被并进去的」，
+ *  卡 0.6 会把整处一起挡掉。实测：0.6 → 0.4 多标出 11 行，再往下放一分不涨。
+ *  真正的把关在下面那两条**逐行**的闸上，这一条只是先把明显不相干的挡掉（LCS 是 O(n·m)）。 */
+const HUNK_MIN_OVERLAP = 0.4;
+
+/** 一处里每一行各自的按字记号。`null` = 这一行不按字标，整行标。 */
+export interface HunkRuns {
+  /** 和传进来的删行一一对应。 */
+  cut: (InlineRun[] | null)[];
+  /** 和传进来的加行一一对应。 */
+  added: (InlineRun[] | null)[];
+}
+
+/** 把一整处的删行和加行**合起来**按字对一遍，再把结果切回每一行。
+ *
+ *  ⭐⭐ 这是 2026-08-22 第二轮第 5 次反馈的正题（Ocean：「逐词核对被删除的和新加的目前还没有
+ *  做到，只有部分的文本做到了逐词可视化审核，大部分的文本还是整段删除，整段更新」）。
+ *
+ *  病根是**一对一配对**：压缩最常干的一件事是「把七行并成一行」，而一对一只能挑其中一行说
+ *  「这一句被改写了」，剩下六行整段划掉 —— 可它们的字大半就在那一行里。在真实语料上量过：
+ *  一对一时原文侧只有 **34%** 的删行拿得到按字记号。合起来对之后，那七行会一起落在同一次
+ *  LCS 上，谁的哪几个字进了压缩稿一目了然。
+ *
+ *  ⚠️ 三道闸，每一道都是为了不让「标得更细」变成「标得更假」：
+ *   1. **整处重合度**低于门槛就整处不标 —— 那是真的删了一段、又新写了一段；
+ *   2. **一两个字的 `same`** 掰回两侧各自的改动（`MIN_SAME_RUN`）；
+ *   3. **一行里 `same` 占比太低、或者没有一段连着够长的**，退回整行标
+ *      （`LINE_SAME_MIN` + `MIN_SAME_ANCHOR`）。
+ *
+ *  返回 `null` = 这一处整个不按字标。 */
+export const hunkRuns = (
+  cut: readonly string[],
+  added: readonly string[],
+): HunkRuns | null => {
+  if (cut.length === 0 || added.length === 0) return null;
+  const cutText = cut.join('\n');
+  const addText = added.join('\n');
+  // ⚠️ 和 `charDiff` 共用同一个上限 —— 两个数各写一个的话，超了之后 `charDiff` 会退化成
+  // 「整段删 + 整段加」，而这里会把那份退化结果当成真的按字结果去切行。一个数，不会打架。
+  if (cutText.length > CHAR_DIFF_CAP || addText.length > CHAR_DIFF_CAP) return null;
+  // ⛔ 闸 ①：整处配不上就整处不标。
+  if (overlapRatio(cutText, addText) < HUNK_MIN_OVERLAP) return null;
+
+  const runs = charDiff(cutText, addText);
+  // ⛔ 闸 ②：一两个字的「两边都有」掰回改动。⚠️ 带换行的那种不动 —— 它是行的边界，
+  //    掰开会让两侧的行号错位。
+  const cleaned: InlineRun[] = [];
+  runs.forEach((r, i) => {
+    const tiny =
+      r.op === 'same' &&
+      i > 0 &&
+      i < runs.length - 1 &&
+      !r.text.includes('\n') &&
+      [...r.text].length < MIN_SAME_RUN;
+    if (tiny) cleaned.push({ op: 'cut', text: r.text }, { op: 'added', text: r.text });
+    else cleaned.push(r);
   });
-  scored.sort((x, y) => y.score - x.score);
-  const usedC = new Set<number>();
-  const usedA = new Set<number>();
-  const pairs: [number, number][] = [];
-  for (const { i, j } of scored) {
-    if (usedC.has(i) || usedA.has(j)) continue;
-    usedC.add(i);
-    usedA.add(j);
-    pairs.push([i, j]);
+
+  // 切回行。⚠️ `same` 段里的换行两边同时换一行；`cut` 段里的只换原文那一侧，
+  // `added` 段里的只换压缩稿那一侧 —— 「七行并成一行」正是靠这一点对得上。
+  const cutOut: InlineRun[][] = cut.map(() => []);
+  const addOut: InlineRun[][] = added.map(() => []);
+  let ci = 0;
+  let ai = 0;
+  const push = (arr: InlineRun[][], idx: number, op: DiffOp, text: string): void => {
+    if (text.length === 0) return;
+    const row = arr[idx];
+    if (!row) return;
+    const last = row[row.length - 1];
+    if (last && last.op === op) last.text += text;
+    else row.push({ op, text });
+  };
+  for (const r of cleaned) {
+    const parts = r.text.split('\n');
+    parts.forEach((part, k) => {
+      if (k > 0) {
+        if (r.op !== 'added') ci++;
+        if (r.op !== 'cut') ai++;
+      }
+      if (r.op !== 'added') push(cutOut, ci, r.op === 'same' ? 'same' : 'cut', part);
+      if (r.op !== 'cut') push(addOut, ai, r.op === 'same' ? 'same' : 'added', part);
+    });
   }
+
+  // ⛔ 闸 ③：这一行几乎没有字是两边都有的 → 它是真的整行删了 / 真的整行新写的。
+  const keep = (line: string, row: InlineRun[]): InlineRun[] | null => {
+    if (line.trim() === '') return null;
+    const total = row.reduce((n, x) => n + x.text.length, 0);
+    if (total === 0) return null;
+    const same = row.reduce((n, x) => (x.op === 'same' ? n + x.text.length : n), 0);
+    const longest = row.reduce((n, x) => (x.op === 'same' ? Math.max(n, x.text.length) : n), 0);
+    return same / total >= LINE_SAME_MIN && longest >= MIN_SAME_ANCHOR ? row : null;
+  };
   return {
-    pairs,
-    cutOnly: cut.map((_, i) => i).filter((i) => !usedC.has(i)),
-    addedOnly: added.map((_, j) => j).filter((j) => !usedA.has(j)),
+    cut: cutOut.map((row, k) => keep(cut[k], row)),
+    added: addOut.map((row, k) => keep(added[k], row)),
   };
 };
 
@@ -641,7 +735,7 @@ export const diffChunks = (
   const rows = lines.filter((l) => l.op !== drop);
   if (rows.map((r) => r.text).join('\n') !== text) return null;
 
-  // ① 配对。⚠️ 只在**同一处**（两个 same 之间那一段）里配 —— 跨段配对会把不相干的两行
+  // ① 按字对。⚠️ 只在**同一处**（两个 same 之间那一段）里对 —— 跨处对齐会把不相干的两段
   //    说成「这一句被改写成了那一句」，而那是这个界面最不该说的一类话。
   const runsOf = new Map<DiffLine, InlineRun[]>();
   for (let i = 0; i < lines.length; ) {
@@ -654,13 +748,19 @@ export const diffChunks = (
     const hunk = lines.slice(i, j);
     const cut = hunk.filter((l) => l.op === 'cut');
     const added = hunk.filter((l) => l.op === 'added');
-    for (const [ci, ai] of pairLines(
+    const hr = hunkRuns(
       cut.map((l) => l.text),
       added.map((l) => l.text),
-    ).pairs) {
-      const runs = charDiff(cut[ci].text, added[ai].text);
-      runsOf.set(cut[ci], runs);
-      runsOf.set(added[ai], runs);
+    );
+    if (hr) {
+      cut.forEach((l, k) => {
+        const row = hr.cut[k];
+        if (row) runsOf.set(l, row);
+      });
+      added.forEach((l, k) => {
+        const row = hr.added[k];
+        if (row) runsOf.set(l, row);
+      });
     }
     i = j;
   }

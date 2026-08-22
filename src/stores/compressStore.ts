@@ -354,6 +354,14 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     const before = s.patched;
     const beforeLines = s.restoredLines;
     const r = addBackNumbers(s.source, s.patched ?? s.outcome.text, only);
+    // ⛔ 2026-08-22（Ocean：「这 0 个补不回去……什么意思」）：这里原来只看 `added === 0`，
+    // 于是**一处都不缺**的时候也走这一路，屏幕上印出「这 0 个补不回去」。
+    // 那句话是真的会出现的：点了同一行两次、或者那几个数字刚才已经跟着别的行补回去了。
+    // ⚠️ 两件事要分开说 —— 「没什么可补的」和「有东西补不回去」不是同一件事。
+    if (r.added.length === 0 && r.failed.length === 0) {
+      toast.notice(t('这几处已经在压缩稿里了，不用再加。'));
+      return;
+    }
     if (r.added.length === 0) {
       toast.error(
         t('这 {n} 个补不回去：在压缩稿里找不到该把它们插在哪儿。重压一次吧。', {
@@ -375,7 +383,14 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       results: st.results.map((x) => (x === s ? next : x)),
     }));
     toast.undo(
-      t('从原文加回去了 {n} 处数字/日期', { n: r.added.length }),
+      r.outsideBlocks > 0
+        ? // ⚠️ 这几行不在任何一张块卡片上（附件正文、或者整块不见了的那几行），
+          // 右栏那个「你加回去的」标不到它们 —— ⛔ 所以这里必须点名说清楚它们去哪儿了。
+          t('从原文加回去了 {n} 处数字/日期，其中 {m} 行接在了它原来所在的那一节末尾（不在块里）', {
+            n: r.added.length,
+            m: r.outsideBlocks,
+          })
+        : t('从原文加回去了 {n} 处数字/日期', { n: r.added.length }),
       t('撤销'),
       () => {
         const cur = get().sessions[threadId];

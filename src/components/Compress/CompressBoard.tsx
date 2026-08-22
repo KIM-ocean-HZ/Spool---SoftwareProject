@@ -109,36 +109,28 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
 
   if (!session) return null;
 
+  // 模型自己交代的那几条，一条一行。⚠️ null = **它没说**，不是「什么都没删」——
+  // 所以它没说的时候这一整块不出现，⛔ 不印一句「它没有说自己删掉了什么」占一行。
+  const cutLines = (outcome?.cuts ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
   const structureOk =
     !byEntry || (byEntry.dropped === 0 && byEntry.invented === 0 && byEntry.duplicated.length === 0);
   const pct = audit ? Math.round((audit.charsAfter / Math.max(1, audit.charsBefore)) * 100) : null;
 
-  // ⭐ D4-a（2026-08-22，Ocean 原话「写了一大堆文字，但是根本看不懂想表达什么……摩擦极大」）：
-  // 先回答唯一那个问题 ——「这一份能不能用？」下面那一堆行从此是**证据**，不是结论。
-  // ⛔ 挑最重的那一条说，不要把六条并列 —— 并列就是又一堵墙。
-  // 顺序就是严重程度：整份废掉的排前面，少一处小东西的排后面。
-  const blocker = ((): string | null => {
-    if (!audit) return null;
-    if (byEntry && byEntry.duplicated.length > 0) return t('它把同样的内容写了两遍');
-    if (audit.missingNumbers.length > 0)
-      return t('丢了 {n} 个数字或日期', { n: audit.missingNumbers.length });
-    if (byEntry && byEntry.dropped > 0) return t('有 {n} 块整块不见了', { n: byEntry.dropped });
-    if (audit.fabricatedNotes.length > 0)
-      return t('它写了 {n} 条你没写过的批注', { n: audit.fabricatedNotes.length });
-    if (audit.rewrittenNotes.length > 0)
-      return t('它改写了 {n} 条批注', { n: audit.rewrittenNotes.length });
-    if (audit.missingSections.length > 0) return t('少了整节');
-    if (audit.missingPersonal.length > 0)
-      return t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length });
-    if (audit.missingNotes.length > 0) return t('少了 {n} 条批注', { n: audit.missingNotes.length });
-    if (audit.missingHighlights.length > 0)
-      return t('少了 {n} 处你划的重点', { n: audit.missingHighlights.length });
-    if (audit.missingRelations.length > 0)
-      return t('少了 {n} 条引用或替代关系', { n: audit.missingRelations.length });
-    if (byEntry && byEntry.invented > 0)
-      return t('它编了 {n} 个原文里没有的编号', { n: byEntry.invented });
-    return null;
-  })();
+  // ⛔ 2026-08-22（Ocean 第 6 条）：这里原来还算出一句结论，印在顶上 ——
+  // 「⚠️ 这一份别用 —— 它改写了 1 条批注的信息」。**那一句撤掉了**，两个理由，他都说了：
+  //   ① 它和下面那几行警告**说的是同一件事**，读两遍；
+  //   ② 「用不用用户自己决定，Spool 不给建议」。
+  // ⚠️ 留下来的只是一个**布尔**：有没有损失。它只决定右边那一栏红不红，不再写成一句话。
+  // ⛔ 别顺手把那句话加回来 —— 「这一份可以复制走」同样是建议，同样不该出现。
+  const hasLoss =
+    !!audit &&
+    (auditHasLosses(audit) ||
+      (byEntry !== null &&
+        (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0)));
 
   const copy = async () => {
     if (result === null) return;
@@ -153,10 +145,16 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
           项目名就印在上面那个项目标题上，而**出口是页签**（切回「内容」），不是关掉一个窗口。
           ⛔ 那个 X 正是 Ocean 撞到的死路：「点击退出压缩工作区就无法回去」。 */}
       <header className="flex flex-none items-center justify-between gap-3 border-b border-line px-5 py-2">
+        {/* ⭐ 2026-08-22（Ocean 第 1 条）：「整理页签只在压缩功能打开时才出现，我同意，
+            但是需要在整理页面提示用户去右侧边栏操作」。⚠️ 这个页签里只有**这一个项目**这一次
+            整理；定时、排队一起压、别的项目压好的那张单子，全都在右边栏那一格 ——
+            不说一句，用户在这一页上找不到它们，也不知道它们存在。 */}
         <div className="min-w-0 text-[11px] text-muted">
           {session.target.kind === 'project'
             ? t('一块对一块地核对。库里一个字都不动。')
             : t('只压这一块（第 {n} 块）。库里一个字都不动。', { n: session.target.seq ?? '?' })}
+          {' '}
+          {t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}
         </div>
         {session.outcome && !running && (
           <button
@@ -205,28 +203,19 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
       )}
 
       {/* 顶部那条账。⚠️ 块数和字符数都是 Spool 自己数的，不问模型。
-          结构（D4-a）：**第一行是结论，其余全是证据。** 加新东西之前先想清楚它是哪一种。 */}
-      {/* 红不红跟着结论走。⚠️ 原来这里读的是 auditHasLosses —— 它只管「一字不改」那条线，
-          于是「有 3 块整块不见了」这种结构性的坏结果，整条账反而是正常颜色的。 */}
-      {audit && (
-        <div
-          className="flex flex-none flex-col gap-1 border-b border-line px-5 py-2 text-[11px]"
-          style={blocker ? { color: 'var(--urgent)' } : undefined}
-        >
-          {/* 结论。⚠️ D5-b：整块屏幕上只有这里能出现 ⚠️，而且只在「这一份别用」的时候 ——
-              一屏七八个 ⚠️ 之后，⚠️ 就不再是警告，是背景噪声。 */}
-          <div className="text-[13px] font-medium">
-            {blocker
-              ? t('⚠️ 这一份别用 —— {why}', { why: blocker })
-              : pct !== null && pct >= 100
-                ? t('这一份没压出什么来 —— 一个字都没短。')
-                : t('这一份可以复制走 —— 比原来短了 {d}%。', { d: 100 - (pct ?? 100) })}
-          </div>
 
-          {/* 四个数排成一行（Ocean 2026-08-22 第二轮第 6 条：「这些信息可以简略的直接显示
-              数字，不需要写成文字，像表格一样清晰列出来」）。⛔ 一个数一格，不写成句子。
+          ⭐ 2026-08-22（Ocean 第 6 条）**这一块整个重排过**，起因是他的原话：
+          「核对区域太窄，空间全被压缩的总结报告占用了，报告写简略一点」。
+          原来是**竖着一行叠一行**（结论 / 四个数 / 每一类警告各一行 / 模型自述一整段），
+          十来行顶在最上面，底下真正要核对的两栏正文只剩半屏。
+
+          现在是**左右两栏、一行**：左边四个数，右边警告。⛔ 加新东西之前先想清楚它是哪一种，
+          ⛔ 而且别再往这儿叠新的一行 —— 这块每长高一行，能核对的地方就矮一行。 */}
+      {audit && (
+        <div className="flex flex-none items-start gap-6 border-b border-line px-5 py-2 text-[11px]">
+          {/* 左：一个数一格（Ocean 2026-08-22 第二轮第 6 条）。⛔ 不写成句子。
               ⛔ D0 仍然管着这里：字符数、token、缓存命中都是内部量纲，一个都不许回来。 */}
-          <div className="flex flex-wrap gap-x-6 gap-y-1 pt-0.5">
+          <div className="flex flex-none flex-wrap gap-x-5 gap-y-1">
             <Stat label={t('块数')} value={`${byEntry?.before ?? audit.entriesBefore} → ${byEntry?.after ?? audit.entriesAfter}`} />
             <Stat
               label={t('长度')}
@@ -242,150 +231,148 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
             )}
           </div>
 
-          {/* D-c：重压过就必须说 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */}
-          {session.retry && (
-            <div className="text-muted">
-              {session.retry.secondOk
-                ? t('第一次压出来的不合格，自动重压了一次。这一份是第二次的，钱是两次加起来的。')
-                : t('第一次压出来的不合格，自动重压了一次，但第二次没跑成。这一份还是第一次的，钱是两次加起来的。')}
-            </div>
-          )}
-
-          {/* ⚠️ 补过就必须说：稿子里从此有几行不是模型写的，而是从原文抄回来的原话。 */}
-          {session.addedBack.length > 0 && (
-            <div className="text-muted">
-              {t('你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。', {
-                n: session.addedBack.length,
-              })}
-            </div>
-          )}
-
-          {byEntry && (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0) && (
-            <div className="flex items-start gap-1.5">
-              <AlertTriangle size={12} className="mt-0.5 flex-none" />
-              <div>
-                {byEntry.dropped > 0 &&
-                  t('有 {n} 块在压缩稿里找不到 —— 下面按块标了出来。', { n: byEntry.dropped })}
-                {byEntry.invented > 0 &&
-                  t('有 {n} 块是它自己编出来的编号。', { n: byEntry.invented })}
-                {/* ⚠️ 实测撞见过：它把整份 pack 原样写了两遍，压完剩 194%。 */}
-                {byEntry.duplicated.length > 0 &&
-                  t('有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍。', {
-                    n: byEntry.duplicated.length,
-                    s: byEntry.duplicated.join('、#'),
-                  })}
-              </div>
-            </div>
-          )}
-
-          {auditHasLosses(audit) ? (
-            <div className="flex items-start gap-1.5">
-              <AlertTriangle size={12} className="mt-0.5 flex-none" />
-              <div className="space-y-0.5">
-                <div>{t('有本来要求一字不改保留的东西不见了 —— 下面按块标了出来：')}</div>
-                {audit.missingSections.length > 0 && (
-                  <div>{t('少了整节：{s}', { s: audit.missingSections.join('、') })}</div>
-                )}
-                {audit.missingNotes.length > 0 && (
-                  <div>{t('少了 {n} 条批注', { n: audit.missingNotes.length })}</div>
-                )}
-                {/* D4-b：改写单列一类。⛔ 别把它并回上面那一行去 ——
-                    「丢了」和「改写了」要做的事不一样：丢了要找回来，改写了要对一眼改成了什么。 */}
-                {audit.rewrittenNotes.length > 0 && (
-                  <div>
-                    {t('有 {n} 条批注被改写了 —— 下面按块列出了改之前和改之后。', {
-                      n: audit.rewrittenNotes.length,
+          {/* 右：警告。⚠️ 红色跟着**有没有损失**走，不跟着一句结论走 —— 那句结论撤了。 */}
+          <div
+            className="min-w-0 flex-1 space-y-0.5"
+            style={hasLoss ? { color: 'var(--urgent)' } : undefined}
+          >
+            {byEntry && (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0) && (
+              <div className="flex items-start gap-1.5">
+                <AlertTriangle size={12} className="mt-0.5 flex-none" />
+                <div>
+                  {byEntry.dropped > 0 &&
+                    t('有 {n} 块在压缩稿里找不到 —— 下面按块标了出来。', { n: byEntry.dropped })}
+                  {byEntry.invented > 0 &&
+                    t('有 {n} 块是它自己编出来的编号。', { n: byEntry.invented })}
+                  {/* ⚠️ 实测撞见过：它把整份 pack 原样写了两遍，压完剩 194%。 */}
+                  {byEntry.duplicated.length > 0 &&
+                    t('有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍。', {
+                      n: byEntry.duplicated.length,
+                      s: byEntry.duplicated.join('、#'),
                     })}
-                  </div>
-                )}
-                {audit.missingPersonal.length > 0 && (
-                  <div>{t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length })}</div>
-                )}
-                {audit.missingHighlights.length > 0 && (
-                  <div>{t('少了 {n} 处你划的重点', { n: audit.missingHighlights.length })}</div>
-                )}
-                {/* ⚠️⚠️ 实测里最重的一条：它一旦真的开始压，就开始丢日期和数字 ——
-                    而这一档的名字就叫「保留结论和数字」。所以这一行放在最前面，并且列出来。 */}
-                {audit.missingNumbers.length > 0 && (
-                  <div className="font-medium">
-                    {/* ⭐ 具体是哪几句话丢了数字，**按块指在下面的卡片上**（Ocean 第 3 条：
-                        「根本看不到丢掉的数字是哪一块的……需要指到文字内容上去」）。
-                        这里只留一句结论和一个「全部加回去」。 */}
-                    {t('有 {n} 个数字/日期没了 —— 下面按块指出了是哪几句话。', {
-                      n: audit.missingNumbers.length,
-                    })}
-                    <button
-                      type="button"
-                      onClick={() => addBack()}
-                      className="ml-2 rounded border border-current px-1.5 py-0.5 font-normal hover:bg-paper-2"
-                    >
-                      {t('全部加回去')}
-                    </button>
-                  </div>
-                )}
-                {audit.missingRelations.length > 0 && (
-                  <div>
-                    {t('少了 {n} 条引用/替代关系 —— 这一块引的是哪一条、替代了哪一条，没了', {
-                      n: audit.missingRelations.length,
-                    })}
-                  </div>
-                )}
-                {audit.fabricatedNotes.length > 0 && (
-                  <div className="font-medium">
-                    {t('它凭空写了 {n} 条你没写过的批注：{s}', {
-                      n: audit.fabricatedNotes.length,
-                      s: audit.fabricatedNotes.join('、'),
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            // ⚠️ 只有**结构也没问题**的时候才说这句。少了一整块却在旁边写「一条都没少」，
-            // 比不写更糟 —— 那句话会把上面那行红字抵消掉。
-            structureOk && (
-              <div className="text-muted">
-                {t('你的批注、你自己写的内容、你划的重点，一条都没少，也没有多。')}
-              </div>
-            )
-          )}
-
-          {/* 「一字不改」被破了，但内容还在 —— 单独一句，不和上面那几条丢失混在一起。
-              ⛔ 别拿「编造」去喊这件事：喊一次假的，真的编造出现时用户已经学会忽略它了。 */}
-          {audit.quoteRewrites > 0 && (
-            <div className="text-muted">
-              {t('有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。', {
-                n: audit.quoteRewrites,
-              })}
-            </div>
-          )}
-
-          {/* ⚠️ 原来这里把换行全 `replace` 成空格，于是模型分条写的说明堆成一坨看不清
-              （Ocean 第 6 条）。现在一条一行。 */}
-          <div className="text-muted">
-            {outcome?.cuts ? (
-              <>
-                <div>{t('它说它删的是：')}</div>
-                <div className="mt-0.5 space-y-0.5 pl-3">
-                  {outcome.cuts
-                    .split('\n')
-                    .map((l) => l.trim())
-                    .filter((l) => l.length > 0)
-                    .map((l, i) => (
-                      <div key={i}>{l}</div>
-                    ))}
                 </div>
-              </>
+              </div>
+            )}
+
+            {auditHasLosses(audit) ? (
+              <div className="flex items-start gap-1.5">
+                <AlertTriangle size={12} className="mt-0.5 flex-none" />
+                <div className="space-y-0.5">
+                  <div>{t('有本来要求一字不改保留的东西不见了 —— 下面按块标了出来：')}</div>
+                  {audit.missingSections.length > 0 && (
+                    <div>{t('少了整节：{s}', { s: audit.missingSections.join('、') })}</div>
+                  )}
+                  {audit.missingNotes.length > 0 && (
+                    <div>{t('少了 {n} 条批注', { n: audit.missingNotes.length })}</div>
+                  )}
+                  {/* D4-b：改写单列一类。⛔ 别把它并回上面那一行去 ——
+                      「丢了」和「改写了」要做的事不一样：丢了要找回来，改写了要对一眼改成了什么。 */}
+                  {audit.rewrittenNotes.length > 0 && (
+                    <div>
+                      {t('有 {n} 条批注被改写了 —— 下面按块列出了改之前和改之后。', {
+                        n: audit.rewrittenNotes.length,
+                      })}
+                    </div>
+                  )}
+                  {audit.missingPersonal.length > 0 && (
+                    <div>{t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length })}</div>
+                  )}
+                  {audit.missingHighlights.length > 0 && (
+                    <div>{t('少了 {n} 处你划的重点', { n: audit.missingHighlights.length })}</div>
+                  )}
+                  {/* ⚠️⚠️ 实测里最重的一条：它一旦真的开始压，就开始丢日期和数字 ——
+                      而这一档的名字就叫「保留结论和数字」。所以这一行放在最前面，并且列出来。 */}
+                  {audit.missingNumbers.length > 0 && (
+                    <div className="font-medium">
+                      {/* ⭐ 具体是哪几句话丢了数字，**按块指在下面的卡片上**（Ocean 第 3 条：
+                          「根本看不到丢掉的数字是哪一块的……需要指到文字内容上去」）。
+                          这里只留一句结论和一个「全部加回去」。 */}
+                      {t('有 {n} 个数字/日期没了 —— 下面按块指出了是哪几句话。', {
+                        n: audit.missingNumbers.length,
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => addBack()}
+                        className="ml-2 rounded border border-current px-1.5 py-0.5 font-normal hover:bg-paper-2"
+                      >
+                        {t('全部加回去')}
+                      </button>
+                    </div>
+                  )}
+                  {audit.missingRelations.length > 0 && (
+                    <div>
+                      {t('少了 {n} 条引用/替代关系 —— 这一块引的是哪一条、替代了哪一条，没了', {
+                        n: audit.missingRelations.length,
+                      })}
+                    </div>
+                  )}
+                  {audit.fabricatedNotes.length > 0 && (
+                    <div className="font-medium">
+                      {t('它凭空写了 {n} 条你没写过的批注：{s}', {
+                        n: audit.fabricatedNotes.length,
+                        s: audit.fabricatedNotes.join('、'),
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             ) : (
-              t('它没有说自己删掉了什么。')
+              // ⚠️ 只有**结构也没问题**的时候才说这句。少了一整块却在旁边写「一条都没少」，
+              // 比不写更糟 —— 那句话会把上面那行红字抵消掉。
+              structureOk && (
+                <div className="text-muted">
+                  {t('你的批注、你自己写的内容、你划的重点，一条都没少，也没有多。')}
+                </div>
+              )
+            )}
+
+            {/* 下面这几句是**附注**，不是警告 —— 一律不带颜色，能短则短。 */}
+            {/* D-c：重压过就必须说 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */}
+            {session.retry && (
+              <div className="text-muted">
+                {session.retry.secondOk
+                  ? t('第一次不合格，自动重压了一次；这是第二次的，钱是两次加起来的。')
+                  : t('第一次不合格，重压那次没跑成；这还是第一次的，钱是两次加起来的。')}
+              </div>
+            )}
+            {/* ⚠️ 补过就必须说：稿子里从此有几行不是模型写的，而是从原文抄回来的原话。 */}
+            {session.addedBack.length > 0 && (
+              <div className="text-muted">
+                {t('你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。', {
+                  n: session.addedBack.length,
+                })}
+              </div>
+            )}
+            {/* 「一字不改」被破了，但内容还在 —— ⛔ 别拿「编造」去喊这件事：喊一次假的，
+                真的编造出现时用户已经学会忽略它了。 */}
+            {audit.quoteRewrites > 0 && (
+              <div className="text-muted">
+                {t('有 {n} 处成对引号被换成了直引号 —— 内容没变，「一字不改」这条破了。', {
+                  n: audit.quoteRewrites,
+                })}
+              </div>
+            )}
+            {/* ⚠️ 认不出价目的时候上面那格是「—」，这里才补一句为什么 —— ⛔ 不编一个价。 */}
+            {outcome?.ok && !cost && (
+              <div className="text-muted">{t('认不出这个模型的价目，算不出这次花了多少钱。')}</div>
+            )}
+
+            {/* ⭐ 模型自述**默认折起来**（Ocean:「报告在写简略一点」）。
+                ⚠️ 它是被审查的一方对自己的交代，四带模型里最不该占地方的一种 ——
+                真正算数的是左右两栏正文上的记号。⛔ 但不许删：它偶尔说出别处看不出的合并理由。 */}
+            {cutLines.length > 0 && (
+              <details className="text-muted">
+                <summary className="cursor-pointer select-none">
+                  {t('它说它删的是（{n} 条）', { n: cutLines.length })}
+                </summary>
+                <div className="mt-0.5 space-y-0.5 pl-3">
+                  {cutLines.map((l, i) => (
+                    <div key={i}>{l}</div>
+                  ))}
+                </div>
+              </details>
             )}
           </div>
-
-          {/* ⚠️ 认不出价目的时候上面那格是「—」，这里才补一句为什么 —— ⛔ 不编一个价。
-              这个钱不是估算：拿接口回报的真实用量乘官方价目算出来的。 */}
-          {outcome?.ok && !cost && (
-            <div className="text-muted">{t('认不出这个模型的价目，算不出这次花了多少钱。')}</div>
-          )}
         </div>
       )}
 
@@ -470,6 +457,7 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
             ) : (
               <div className="space-y-1">
                 <div>{t('点右下角开始。')}</div>
+                <div>{t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}</div>
                 {/* ⭐ D-a（2026-08-22）：**压之前**先在本地数一遍这个项目有多少重复。
                     实测四轮最要紧的一条是「压多少取决于这个项目里有多少重复，不取决于你选哪一档」——
                     那句话原来只是界面上的一行提示，等于把一个没解决的问题丢给用户：

@@ -388,8 +388,6 @@ const EN: Record<string, string> = {
     'Want copying in any app to save here? That step needs the Input Monitoring permission.',
   '设置截止日期': 'Set deadline',
   '截止日期': 'Deadline',
-  '排序：按时间 — 点击改为按来源': 'Sorted by time — click for by source',
-  '排序：按来源 — 点击改为按时间': 'Sorted by source — click for by time',
   '只看我写的：你自己写的块，加上你亲手批注过的':
     'Only what I wrote: the blocks you wrote yourself, plus any you annotated by hand',
   '只看我写的：开着 — 点击看全部': 'Only what I wrote: on — click to show everything',
@@ -1151,7 +1149,6 @@ const EN: Record<string, string> = {
     'Your annotations, the things you wrote and your highlights all survived — and nothing was invented.',
   '它凭空写了 {n} 条你没写过的批注：{s}':
     'It invented {n} annotation(s) you never wrote: {s}',
-  '它没有说自己删掉了什么。': 'It did not say what it cut.',
   '认不出这个模型的价目，算不出这次花了多少钱。':
     'The price list for this model is not known here, so this run’s cost cannot be worked out.',
 
@@ -1192,6 +1189,9 @@ const EN: Record<string, string> = {
   '内容': 'Blocks',
   '整理': 'Tidy up',
   '整理（在跑）': 'Tidy up (running)',
+  // 左侧边栏：正在压缩的那个项目（Ocean 2026-08-22）。
+  '整理中': 'Tidying up',
+  '这个项目正在压缩': 'This project is being compressed right now',
   '整理（1）': 'Tidy up (1)',
   '整理这个项目': 'Tidy up this project',
   '去看这个项目的整理稿': 'Open this project’s draft',
@@ -1206,12 +1206,16 @@ const EN: Record<string, string> = {
   '长度': 'Length',
   '用时': 'Time',
   '花费': 'Cost',
-  '它说它删的是：': 'What it says it cut:',
+  // Ocean 2026-08-22 第 6 条：模型自述折起来，「报告写简略一点」。
+  '它说它删的是（{n} 条）': 'What it says it cut ({n})',
+  // 同一天第 1 条：整理页上要指一句「去右边栏」。
+  '定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。':
+    'Scheduling, batching several projects, and drafts finished for other projects all live in the “Compress” box in the right rail.',
   // D-c：坏结果自动重跑一次 —— 重压过必须说，不然那个钱数会莫名其妙翻倍。
-  '第一次压出来的不合格，自动重压了一次。这一份是第二次的，钱是两次加起来的。':
-    'The first attempt came back unusable, so it was run once more. This is the second one; the cost above covers both.',
-  '第一次压出来的不合格，自动重压了一次，但第二次没跑成。这一份还是第一次的，钱是两次加起来的。':
-    'The first attempt came back unusable and the retry did not go through. This is still the first one; the cost above covers both.',
+  '第一次不合格，自动重压了一次；这是第二次的，钱是两次加起来的。':
+    'The first attempt was unusable, so it ran once more. This is the second; the cost covers both.',
+  '第一次不合格，重压那次没跑成；这还是第一次的，钱是两次加起来的。':
+    'The first attempt was unusable and the retry did not go through. This is still the first; the cost covers both.',
   // D-a：压之前先在本地数一遍这个项目有多少重复。
   '这个项目里没找到重复的内容。压缩干的主要活是合并重复 —— 这一次大概压不短多少，钱可以省下来。':
     'No repeated content found in this project. Merging repeats is what compression mainly does — this run would not make it much shorter, so you can keep the money.',
@@ -1220,6 +1224,9 @@ const EN: Record<string, string> = {
   '你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。':
     'You added back {n} number(s)/date(s) from the original — those lines are your own words, verbatim.',
   '从原文加回去了 {n} 处数字/日期': 'Added back {n} number(s)/date(s) from the original',
+  '从原文加回去了 {n} 处数字/日期，其中 {m} 行接在了它原来所在的那一节末尾（不在块里）':
+    'Added back {n} number(s)/date(s) from the original; {m} line(s) went to the end of the section they came from, not inside a block',
+  '这几处已经在压缩稿里了，不用再加。': 'These are already in the compressed version — nothing to add back.',
   '这 {n} 个补不回去：在压缩稿里找不到该把它们插在哪儿。重压一次吧。':
     'These {n} cannot be added back: there is nowhere in the compressed version to put them. Run the compression again.',
   '「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。':
@@ -1253,8 +1260,8 @@ const EN: Record<string, string> = {
   '少了 {n} 条批注': '{n} annotation(s) are gone',
   '少了 {n} 条引用/替代关系 —— 这一块引的是哪一条、替代了哪一条，没了':
     '{n} citation/supersession link(s) are gone — which block this one cites or replaces is no longer recorded',
-  '有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。':
-    'In {n} place(s) it swapped curly quotes for straight ones — the content is unchanged, but \u201ccopy word for word\u201d has been broken.',
+  '有 {n} 处成对引号被换成了直引号 —— 内容没变，「一字不改」这条破了。':
+    'Curly quotes swapped for straight ones in {n} place(s) — content unchanged, but \u201cword for word\u201d is broken.',
   '这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。':
     'This one cannot be compared block by block — the compressed version has no pack entry lines (the model did not keep the #number format). Falling back to whole-text comparison.',
   '原文': 'Original',

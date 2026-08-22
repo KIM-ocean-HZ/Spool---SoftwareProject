@@ -10,6 +10,7 @@ import { startRailDrag } from '@/lib/sidebar/railDrag';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { useCaptureStore } from '@/stores/captureStore';
+import { useCompressStore } from '@/stores/compressStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 
@@ -36,6 +37,10 @@ export default function ThreadListItem({
   const title = thread.title.trim() || t('无标题');
   const dimmed = thread.status === 'done';
   const flash = useCaptureStore((s) => s.flashThreadId === thread.id);
+  // ⭐ 2026-08-22（Ocean：「正在压缩的项目在左侧边栏的项目名也加一个整理中」）：
+  // 一次压缩要跑一两分钟，而它跑的时候人多半已经切到别的项目去了 —— 不在左栏说一句，
+  // 屏幕上就没有任何地方能告诉他「哪个项目正在跑」。⚠️ 和 `捕捉中` 一样只用字，不用图标。
+  const tidying = useCompressStore((s) => s.running && s.runningThreadId === thread.id);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const patchThread = useThreadsStore((s) => s.patch);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
@@ -211,6 +216,13 @@ export default function ThreadListItem({
               editable in the thread header. */}
           {thread.deadline != null && thread.status !== 'done' && (
             <CountdownBadge deadline={thread.deadline} />
+          )}
+          {/* 正在压缩的那个项目。⚠️ 只有**正在跑的那一个**说这句话 —— 排在队里等着的不说，
+              等着核对的也不说（那一份在项目里的「整理」页签上，页签自己会写）。 */}
+          {tidying && (
+            <span title={t('这个项目正在压缩')} className="flex-none text-[12px] text-accent">
+              {t('整理中')}
+            </span>
           )}
           {/* Capture-target marker (§9.2 / §10.2, #7 2026-07-13): the target row says
               捕捉中 in words — a bare pin icon meant nothing to first-time users. Other
