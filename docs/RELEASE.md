@@ -22,7 +22,7 @@ CGEventTap/私有 API/浏览器 AppleScript 硬冲突，见 PLAN_EN.md 及 2026-
 ### ⚠️ 当前 main / 工作区（2026-08-13 的快照 —— **早已过期，只留作格式示例**）
 
 > **最新发布是 v0.6.1（2026-08-19），已装机。** 当前状态看
-> `docs/HANDOFF-2026-08-19.md` §0，两次发布的完整回执看 `CASE_STUDY_LEDGER.md` §1.2。
+> `docs/archive/HANDOFF-2026-08-19.md` §0，两次发布的完整回执看 `CASE_STUDY_LEDGER.md` §1.2。
 > 下面这张 08-13 的表**每个数字都过期了**，别拿它当基线。
 
 | 项 | 值 |

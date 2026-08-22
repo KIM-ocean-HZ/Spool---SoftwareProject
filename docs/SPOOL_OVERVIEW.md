@@ -10,7 +10,7 @@
 > - Product definition and non-goals → `PLAN_EN.md` §2
 > - Publishable figures and incident records → `docs/CASE_STUDY_LEDGER.md`
 > - Per-feature design rationale → `docs/DESIGN_*.md`
-> - What to work on next → `docs/BACKLOG-2026-08-19.md` (open front) and `docs/HANDOFF-2026-08-19.md` §1 (remaining debt)
+> - What to work on next → `docs/HANDOFF-2026-08-22.md` (read this first) and `docs/WORKPLAN-2026-08-22.md` (every open task)
 >
 > Where this file and one of those disagree, the other one wins and this file is stale.
 >
@@ -840,20 +840,26 @@ reversed only by the owner, explicitly — never as a side effect of implementin
 
 ## 14. Open engineering debt
 
-Five items, from `docs/HANDOFF-2026-08-19.md` §1. Everything else in that document has shipped.
+From `docs/WORKPLAN-2026-08-22.md` (batch G). The 2026-08-19 list had five; two are done, and the environment-hygiene item turned out to be larger than described.
 
-1. **Environment hygiene** — two obsolete artefacts to delete (an unused marketplace directory
-   with zero code references, and an old 0.4.0 build).
+1. **Environment hygiene** — the two artefacts named on 2026-08-19 are gone, but a recount on
+   2026-08-21 found **14 apps claiming `com.oceanjin.spool*`** on this machine (12 + `.verify` +
+   `.fr5`). Nothing has been deleted; which ones go is the owner's call. ⚠️ `mdfind` only answers
+   for bundle ids you already thought to ask about — scan the filesystem by prefix instead
+   (command in `docs/WORKPLAN-2026-08-22.md` §4.3). ⚠️ `/Applications/Spool.app` is currently an
+   **unnotarised dev build**, so any "release build check" done on this machine only checked a dev build.
 2. **Multi-monitor `frontmost_window_owner_pid()`** — unverifiable on the current hardware (one
    display). Needs a second monitor and a documented probe.
 3. **`register_undo_shortcut()` on the AXFrontmost-denied path** — the denial itself is measured
    (`kAXErrorAPIDisabled`, -25211); the successful re-registration immediately after is not.
    Lowest priority; failure is logged, not silent.
-4. **Human verification of the three v0.6.1 changes** — cross-line highlight, correction folding,
-   file lock. Automation proves the logic, not the feel. ⚠️ Every MCP client must be fully quit
-   (⌘Q) and reopened to pick up a new binary.
-5. **Windows 0.6.1 installer** — published but not yet installed by a human. Procedure in
-   `docs/WINDOWS-CHECK.md`.
+4. **Break-reminder overlay has never been checked by a real finger** — logic, build and tests
+   pass; the sequence "card appears over another app → click → main window rises → card disappears"
+   has not been watched. ⛔ If it does not hold, the fix is to **withdraw the feature**, not to
+   loosen the focus criterion until it is always true.
+
+~~Human verification of the three v0.6.1 changes~~ and ~~the Windows 0.6.1 installer~~ were both
+completed by the owner on 2026-08-20.
 
 ---
 
@@ -861,7 +867,9 @@ Five items, from `docs/HANDOFF-2026-08-19.md` §1. Everything else in that docum
 
 **Current position**: free, all features, no account, no gate of any kind. The owner's stated
 assessment on 2026-08-19 is that the product has reached a commercially viable stage, and four
-work items were opened. The record is `docs/BACKLOG-2026-08-19.md`.
+work items were opened. ⚠️ **On 2026-08-20 pricing was deferred** — "no rush, finish the features
+first" — so it is filed, not scheduled (`docs/WORKPLAN-2026-08-22.md` batch G). The detailed record
+is `docs/archive/WORKPLAN-2026-08-20.md` §6.1.
 
 ⚠️ **Three of the four touch money or user data — two things this codebase has never touched.**
 Every red line in §13 was built on "zero egress + local SQLite + collect nothing." Challenging
@@ -1009,8 +1017,8 @@ Not "note-taking." Three things, in descending order of defensibility:
 
 | If you are… | Read |
 |---|---|
-| Deciding what to work on | `docs/BACKLOG-2026-08-19.md` (open front) then `docs/HANDOFF-2026-08-19.md` §1 (debt) |
-| About to touch code | `docs/HANDOFF-2026-08-19.md` §2 — the red-line quick reference. Every line there was once written backwards **and the tests still passed** |
+| Deciding what to work on | `docs/HANDOFF-2026-08-22.md` first — it is the only working surface. Task detail lives in `docs/WORKPLAN-2026-08-22.md` |
+| About to touch code | `docs/WORKPLAN-2026-08-22.md` §4 — the red-line quick reference. Every line there was once written backwards **and the tests still passed** |
 | Proposing a feature | `PLAN_EN.md` §2 — constitution, rejected list, the five-question filter |
 | Quoting a number publicly | `docs/CASE_STUDY_LEDGER.md` — the **only** authority for figures; append-only |
 | Writing for the public | `docs/CASE_STUDY_PAGE.md` (states) + the ledger (proves) |

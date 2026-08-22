@@ -4,10 +4,10 @@
 > `fix/tailwind-alpha`（`5cb3517`）**已经并进 `main`**（`git merge-base --is-ancestor` 复核过），
 > 并作为 **v0.6.0** 的「Fixed: translucent surfaces were not translucent」发布出去了。
 > ⚠️ Ocean 实机看过之后的判决是**两条边栏回退、其余保留**，判决记录在 `5cb3517`。
-> 当前开工面是 `docs/BACKLOG-2026-08-19.md`。
+> 当前开工面是 `docs/archive/BACKLOG-2026-08-19.md`。
 >
 > 【以下为当时的原始记录】**分支 `fix/tailwind-alpha`，从 `main`（`5189c7b`）开的，没推、没合。**
-> 起因当时写在 `docs/HANDOFF-2026-08-19.md §2`（那份已重排，现在没有这一节了），Ocean 的原话是
+> 起因当时写在 `docs/archive/HANDOFF-2026-08-19.md §2`（那份已重排，现在没有这一节了），Ocean 的原话是
 > 「那 100 处死类名，**建一个分支去实现，没问题再合并**」。这份是这条分支上做了什么、
 > 量到了什么、以及**合并前还欠什么**。
 >

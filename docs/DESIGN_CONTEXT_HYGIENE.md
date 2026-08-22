@@ -100,7 +100,7 @@
 
 1. **它是 golden 锁步的**(硬规则 5):`templates.ts` + `mcp.rs` 两侧一字不差,
    加 fixture 重生(`TZ=Europe/London`)。
-2. **它同时是 MCP 那一侧的契约** —— `HANDOFF.md` §6.4「两个受众」:
+2. **它同时是 MCP 那一侧的契约** —— `archive/HANDOFF.md` §6.4「两个受众」:
    给模型读的东西**任何 locale 下都保持英文**。所以它不是普通文案,不走 `t!`。
 3. ⚠️ **改措辞可以,改「四类」要非常慎重。** 那四类是整个授权体系的根,
    `DESIGN_FOLLOW_UP.md` §1.2 和 `DESIGN_MCP_WRITE_ROLE.md` §4.4-bis
@@ -112,11 +112,11 @@
 
 ⚠️ **成本提醒**:无论删还是做成开关,都要动 pack 渲染 =
 **golden 三侧锁步**(`assemble.ts` / `mcp.rs` / fixture 重生),
-而且重生前必须 `TZ=Europe/London`(`HANDOFF.md` §6.5)。
+而且重生前必须 `TZ=Europe/London`(`archive/HANDOFF.md` §6.5)。
 
 ⚠️ **还要顺带定一件事**:MCP 那一侧的 pack **保留**表头。
 它是给模型读的契约,和工具描述、`initialize` instructions 同一类
-(`HANDOFF.md` §6.4 的「两个受众」)。
+(`archive/HANDOFF.md` §6.4 的「两个受众」)。
 
 ### 1.2 ✅ L0(前 40 字当标签)不够 —— 他说对了,而且有硬证据
 
@@ -398,7 +398,7 @@ Spool 的层级(工作区 → 项目 → 块)**是用户自己维护的,所以�
 
 | 序 | 做什么 | 代价 | 为什么排这里 |
 |---|---|---|---|
-| **1** | **W7(批注当标题)** | 小,但**动块流渲染 = golden 三侧**(先读 `HANDOFF.md` §6.5) | 已采纳、零 token、权威最高。它是标签阶梯的第一级,**做完才知道第二级还缺多少** |
+| **1** | **W7(批注当标题)** | 小,但**动块流渲染 = golden 三侧**(先读 `archive/HANDOFF.md` §6.5) | 已采纳、零 token、权威最高。它是标签阶梯的第一级,**做完才知道第二级还缺多少** |
 | **2** | **取代关系** | schema v13 一列 + 一个动作 + pack 渲染(golden) | 唯一同时治两个病的;唯一填上业界四策略缺口的;append-only 零冲突 |
 | **3** | **剪贴板 pack 极简化** | golden 三侧 + i18n | Ocean 已拍板。⚠️ 建议做成默认关的开关而不是删掉(§1.1) |
 | **4** | **超预算目录降级** | 中,动预算阶梯 | 有现成的触发条件(`approx_pack_chars`),不需要新概念 |

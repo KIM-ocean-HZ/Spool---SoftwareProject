@@ -17,7 +17,7 @@ import { invoke } from '@tauri-apps/api/core';
 //
 // The table was three measurements deep, not a guess, and re-deriving it is the expensive
 // part. **Before anyone builds an addressing feature again, read those measurements rather
-// than re-running them** — `docs/HANDOFF.md §0-now.3-ter…septies` and
+// than re-running them** — `docs/archive/HANDOFF.md §0-now.3-ter…septies` and
 // `docs/CASE_STUDY_LEDGER.md §3.39–3.41`. The three that cost the most:
 //   ① A pasted `@spool` is inert in Codex — the client builds a mention when the user PICKS
 //      one, never from characters, so no clipboard can carry one.
