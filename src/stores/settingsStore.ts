@@ -1,4 +1,5 @@
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { Store } from '@tauri-apps/plugin-store';
 import { create } from 'zustand';
@@ -16,6 +17,7 @@ import { DEFAULT_THEME, themeOrDefault, type Theme } from '@/lib/theme';
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts).
 type PersistableKey =
   | 'captureShortcut'
+  | 'captureDisabled'
   | 'searchShortcut'
   | 'autoExtractAttachments'
   | 'mcpEnabled'
@@ -56,6 +58,12 @@ interface SettingsState {
   // Null = no capture shortcut bound (the default since 2026-07-07 — ⌘⇧C retired,
   // double-tap ⌥ captures). Non-null only when the user records one in Settings.
   captureShortcut: string | null;
+  /** 捕捉总开关（2026-08-22，Ocean 紧急加的）。true = 暂停 —— 双击 ⌥（Windows 上是双击
+   *  Ctrl）和上面那个自定义捕捉键一起停下，好让别的用 ⌥ 的软件把键拿回去。
+   *  ⛔ 停的只有这两样：MCP、主窗、休息提醒全部照常，它不是「退出 Spool」的近义词。
+   *  ⚠️ 真正在起作用的那份状态在 Rust（capture.rs 的 CAPTURE_DISABLED）——
+   *  这里是存进 settings.json 的那一份，Rust 启动时自己读它，用不着等 webview。 */
+  captureDisabled: boolean;
   searchShortcut: string;
   // v2.7: auto-extract text from file attachments on attach (§9.6). When false, the
   // three extraction columns stay NULL and pack output treats files as pointers only.
@@ -209,6 +217,7 @@ interface SettingsState {
   update: (patch: PersistablePatch) => Promise<void>;
   loadAutostart: () => Promise<void>;
   setLaunchAtLogin: (enabled: boolean) => Promise<void>;
+  setCaptureDisabled: (disabled: boolean) => Promise<void>;
   openPanel: () => void;
   closePanel: () => void;
 }
@@ -260,6 +269,7 @@ let legacyScrubDone = false;
 
 const KEYS: PersistableKey[] = [
   'captureShortcut',
+  'captureDisabled',
   'searchShortcut',
   'autoExtractAttachments',
   'mcpEnabled',
@@ -306,6 +316,7 @@ const LEGACY_AI_KEYS = [
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   captureShortcut: DEFAULT_CAPTURE_ACCEL,
+  captureDisabled: false,
   searchShortcut: DEFAULT_SEARCH_ACCEL,
   autoExtractAttachments: true,
   mcpEnabled: false,
@@ -434,6 +445,21 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     } catch (e) {
       console.warn('autostart toggle failed', e);
     }
+  },
+
+  // 设置页那个开关走这条：先让 Rust 当场生效（手势 + 全局键 + 菜单栏图标），再存下来。
+  // ⚠️ 菜单栏那一项不走这里 —— 它在 Rust 那侧点下去就已经生效了，回到 JS 的只是「存一下」
+  // （useTrayMenu 里的 update），再 invoke 一次是把同一件事做两遍。
+  setCaptureDisabled: async (disabled) => {
+    try {
+      await invoke('set_capture_disabled', { disabled });
+    } catch (e) {
+      // ⚠️ Rust 没接住就不要存 —— 存了会得到一个「写着已暂停、手却照样被抢」的开关，
+      // 而这个开关的全部价值就是屏幕上那句话是真的。开关弹回去，人还知道没生效。
+      console.warn('set_capture_disabled failed', e);
+      return;
+    }
+    await useSettingsStore.getState().update({ captureDisabled: disabled });
   },
 
   openPanel: () => set({ panelOpen: true }),

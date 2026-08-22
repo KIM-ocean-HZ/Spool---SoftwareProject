@@ -242,7 +242,9 @@ fn run<R: Runtime>(app: AppHandle<R>) {
         }
         if msg.message == WM_INPUT {
             if let Some((vk, is_break)) = read_keyboard_event(msg.lParam as HRAWINPUT) {
-                if state.on_key(vk, is_break) {
+                // 状态照喂(否则重新打开时手上是半截状态),只是不发出去。这边的 Raw Input 是
+                // INPUTSINK,本来就只看不删,所以「暂停」在 Windows 上是纯粹的不触发。
+                if state.on_key(vk, is_break) && !crate::capture::capture_disabled() {
                     eprintln!("[double-tap-win] TRIGGER (clean double-tap Ctrl)");
                     let _ = app.emit("capture-trigger", ());
                 }

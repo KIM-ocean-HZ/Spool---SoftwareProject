@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import Toggle from '@/components/ui/Toggle';
 import {
   eventToAccelerator,
   formatAccelerator,
@@ -20,6 +21,8 @@ export default function ShortcutConfig() {
   const t = useT();
   const captureShortcut = useSettingsStore((s) => s.captureShortcut);
   const searchShortcut = useSettingsStore((s) => s.searchShortcut);
+  const captureDisabled = useSettingsStore((s) => s.captureDisabled);
+  const setCaptureDisabled = useSettingsStore((s) => s.setCaptureDisabled);
   const update = useSettingsStore((s) => s.update);
 
   const [recording, setRecording] = useState<Field | null>(null);
@@ -175,10 +178,31 @@ export default function ShortcutConfig() {
           ? t('内置手势：⌘C 复制后 10 秒内双击 ⌥ 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。')
           : t('内置手势：复制后双击 Ctrl 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。')}
       </p>
+      {/* 一键暂停（2026-08-22，Ocean）。⭐ 这一份是配套 —— 真正管用的那个入口在菜单栏的
+          Spool 图标里，因为要关它的那个人此刻正在别的软件里。所以这行字要把那件事说出来。
+          ⛔ 关掉的只有捕捉：MCP、主窗、休息提醒照常，它不是「退出 Spool」。 */}
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{t('暂停捕捉手势')}</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-muted">
+            {IS_MAC
+              ? t('别的软件也要用 ⌥ 的时候，把它关掉，那个键就还给别人了。菜单栏的 Spool 图标里也有这个开关，人在别的软件里就能就地关。')
+              : t('别的软件也要用 Ctrl 的时候，把它关掉，那个键就还给别人了。菜单栏的 Spool 图标里也有这个开关，人在别的软件里就能就地关。')}
+          </div>
+        </div>
+        <Toggle checked={captureDisabled} onChange={(v) => void setCaptureDisabled(v)} />
+      </div>
+      <div className="border-t border-line" />
       {row(
         'capture',
         t('捕捉快捷键'),
-        IS_MAC ? t('可选 — 双击 ⌥ 之外的备用捕捉键') : t('备用 — 双击 Ctrl 之外的捕捉键'),
+        captureDisabled
+          ? // 总开关关着的时候这个键也是停的（Rust 那侧记着但没注册）。不说出来，
+            // 屏幕上就会剩一个写着键名、按下去却没反应的按钮。
+            t('已随上面的开关一起暂停')
+          : IS_MAC
+            ? t('可选 — 双击 ⌥ 之外的备用捕捉键')
+            : t('备用 — 双击 Ctrl 之外的捕捉键'),
         captureShortcut,
       )}
       <div className="border-t border-line" />

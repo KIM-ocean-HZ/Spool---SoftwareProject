@@ -380,6 +380,18 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             true
         }
         ET_FLAGS_CHANGED => {
+            // 用户把捕捉总开关关掉了(设置里,或者菜单栏那个 Spool 图标里)。
+            // ⚠️⚠️ 这里必须 `return true` —— true 是放行事件。`return false` 是把这一下 ⌥ 从
+            // 事件流里删掉,而「别的 app 的 ⌥ 快捷键被 Spool 吃掉」正是这个开关要禁的行为:
+            // 写成 false 会让功能变成它的反面。⛔ 这和 tap 被系统关掉那条自愈路径无关,
+            // 那条在上面 ET_TAP_DISABLED_* 里,它修的是「坏了」,不该来修一个人故意关的开关。
+            if crate::capture::capture_disabled() {
+                // 暂停期间攒下的半个手势不要留到重新打开之后:第一下按在暂停前、第二下按在
+                // 打开后,不算一次双击。同理,待删的那个 release 也一并作废(反正也不会删了)。
+                LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                SWALLOW_NEXT_OPT_RELEASE.store(false, Ordering::Relaxed);
+                return true;
+            }
             // Any clean event passing through means the tap is healthy again —
             // clear the latched disable flag so a future disable can re-arm the
             // self-heal notification path.

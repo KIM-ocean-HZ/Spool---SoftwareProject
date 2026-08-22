@@ -356,6 +356,7 @@ pub fn run() {
             capture::show_capture_notice,
             capture::set_shortcuts,
             capture::set_shortcut_recording,
+            capture::set_capture_disabled,
             capture::set_close_hint_pending,
             capture::hide_main_window,
             capture::probe_browser_automation,
@@ -536,28 +537,14 @@ pub fn run() {
                 use tauri::tray::TrayIconBuilder;
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+                // 捕捉总开关(2026-08-22)。⚠️ 顺序是死的:先把 settings.json 里那个值读回来,
+                // 再建菜单和图标 —— 菜单里的勾和图标的深浅都是照着它画的,而 webview 还要
+                // 一两秒才起得来。图标和菜单的两份说明搬进了 capture.rs(tray_image /
+                // build_tray_menu),因为暂停开关一变还要照同样的规则再画一次。
+                let capture_off = capture::load_capture_disabled();
                 let initial_menu =
                     capture::build_tray_menu(app.handle(), "", &[], &Default::default())?;
-                // 2026-07-13 (new logo): the app icon is now an opaque rounded square,
-                // whose alpha mask templates into a solid blob — the menu bar gets its
-                // own black-on-transparent thread mark (derived from the logo's small
-                // tier) instead of the window icon. Shipped as raw RGBA (tray.rgba,
-                // regenerate from tray.png) so no png-decode feature is pulled in.
-                let icon = tauri::image::Image::new(
-                    include_bytes!("../icons/tray.rgba"),
-                    44,
-                    44,
-                );
-                // ⚠️ Windows has no template images: `icon_as_template` is a macOS
-                // concept and is simply ignored there, so the mark above would be drawn
-                // literally — black on the Windows 11 tray, which is dark by default.
-                // An invisible tray icon is not cosmetic here: closing the window only
-                // hides it, so the tray is the way back to the app and the only way to
-                // quit it. The bundled app icon is coloured and Tauri has already decoded
-                // it for the window, so it costs no new image feature.
-                #[cfg(not(target_os = "macos"))]
-                let icon =
-                    app.default_window_icon().cloned().map(|i| i.to_owned()).unwrap_or(icon);
+                let icon = capture::tray_image(app.handle(), capture_off);
                 let tray = TrayIconBuilder::with_id("main")
                     .icon(icon)
                     .icon_as_template(cfg!(target_os = "macos"))

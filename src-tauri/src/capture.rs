@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::time::Instant;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, Runtime};
 
 // Short-lived cache for the frontmost-app query. Each rapid double-tap capture would
@@ -183,6 +183,10 @@ pub struct TrayLabels {
     pub current_prefix: String,
     pub switch_target: String,
     pub no_threads: String,
+    // 2026-08-22: 「暂停捕捉手势」那一项的字。⚠️ 兜底那份(下面 Default)不提按键名 ——
+    // 它是 webview 起来之前的菜单,而两个平台的手势不是同一个键(⌥ / Ctrl)。
+    // JS 那侧按平台把键名补进去(useTrayMenu)。
+    pub pause_capture: String,
     pub open: String,
     pub new_thread: String,
     pub settings: String,
@@ -196,6 +200,7 @@ impl Default for TrayLabels {
             current_prefix: "当前目标:  ".into(),
             switch_target: "切换捕捉目标".into(),
             no_threads: "（暂无项目）".into(),
+            pause_capture: "暂停捕捉手势".into(),
             open: "打开 Spool".into(),
             new_thread: "新建项目".into(),
             settings: "设置".into(),
@@ -254,6 +259,13 @@ pub fn build_tray_menu<R: Runtime>(
     }
     let switch_sub = switch.build()?;
 
+    // 「暂停捕捉手势」(2026-08-22)。勾是从 CAPTURE_DISABLED 现读的,不是 JS 推上来的一份
+    // 副本 —— 菜单上写着的就是手势此刻的处境,两边对不上是不可能的。状态变了以后菜单由
+    // JS 重推一次(useTrayMenu 的依赖里有它),和「切换捕捉目标」那个 ● 是同一条路。
+    let pause = CheckMenuItemBuilder::with_id("toggle_capture", &labels.pause_capture)
+        .checked(capture_disabled())
+        .build(app)?;
+
     let open = MenuItemBuilder::with_id("open", &labels.open).build(app)?;
     let new_thread = MenuItemBuilder::with_id("new_thread", &labels.new_thread).build(app)?;
     let settings = MenuItemBuilder::with_id("settings", &labels.settings).build(app)?;
@@ -263,6 +275,7 @@ pub fn build_tray_menu<R: Runtime>(
         .item(&current_item)
         .separator()
         .item(&switch_sub)
+        .item(&pause)
         .separator()
         .items(&[&open, &new_thread, &settings])
         .separator()
@@ -283,6 +296,18 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         return;
     }
     match id {
+        // ⭐ 这一项才是 D-k 的重点:真实场景是人正在别的 app 里被抢,让他先切回主窗翻设置
+        // 等于没做。所以和 set_target 一样 —— ⛔ 只翻状态,绝不把主窗拉到前面来。
+        "toggle_capture" => {
+            let next = !capture_disabled();
+            apply_capture_disabled(app, next);
+            // 新值由 Rust 算好带过去,JS 照单存下来。让 JS 自己 !current 会有一个真实的
+            // 错法:它手上那份可能还是上一次点击之前的。
+            let _ = app.emit(
+                "tray-action",
+                serde_json::json!({ "kind": "capture_disabled", "value": next }),
+            );
+        }
         "open" => show_main_window(app),
         "new_thread" => {
             show_main_window(app);
@@ -355,6 +380,8 @@ pub fn undo_fallback_accelerator() -> tauri_plugin_global_shortcut::Shortcut {
 
 #[cfg(desktop)]
 pub struct ShortcutConfig {
+    // ⚠️ 2026-08-22 起有一个例外:捕捉总开关(CAPTURE_DISABLED)关着的时候,这里记着用户绑的
+    // 那个键,但它没有被注册。再打开时由 apply_capture_disabled 照这份记录注册回去。
     pub capture: std::sync::Mutex<Option<tauri_plugin_global_shortcut::Shortcut>>,
     pub search: std::sync::Mutex<tauri_plugin_global_shortcut::Shortcut>,
     // §9.13: the undo accelerator currently registered (Some while the capture toast is
@@ -416,6 +443,134 @@ pub fn unregister_undo_shortcut<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+// =============================================================================
+// 捕捉总开关 —— 一键禁用 (2026-08-22, Ocean)
+// =============================================================================
+//
+// 他的原话:「禁用当前快捷键,放在设置里和系统顶部菜单栏的 Spool icon 里(方便在其他 app
+// 里禁用快捷键)。这样能够防止使用其他带有 option 快捷键的 app 被 spool 抢占。」
+//
+// 一个开关同时按住两样东西:
+//   ① 双击 ⌥ 手势(double_tap.rs;Windows 上是双击 Ctrl)。⭐ 被抢的感觉是从这来的:
+//      两个权限都拿到之后那个 tap 是 ACTIVE 的,会把第二下 ⌥ 从事件流里删掉。
+//   ② 用户自己在设置里绑的那个全局捕捉快捷键(默认没有 —— 2026-07-07 起 ⌘⇧C 就退休了,
+//      所以多数人身上这一样本来就是关的)。
+//
+// ⛔ 停的只有这两样。MCP、主窗、右侧栏、休息提醒全部照常 —— 它不是「退出 Spool」的近义词。
+// 一个因为别的 app 也要用 ⌥ 而来关它的人,不该为此把整个 Spool 关掉。
+//
+// ⚠️ 和「系统把 tap 关了」那条自愈路径(double_tap.rs 里的 capture-disabled 事件)不是一
+// 回事:那条是「坏了,修一下」,这条是「用户故意关的,别修」。⛔ 两条永远不要合并 —— 自愈
+// 去「修好」一个用户故意关掉的开关,是这块最容易犯的错。
+static CAPTURE_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// 手势侧唯一的判定点在 double_tap.rs 的 on_event 开头。
+// ⚠️⚠️ 那里暂停必须 `return true`(放行事件):`return false` 是把事件删掉,而那正是这个
+// 开关要禁掉的行为 —— 写反一个字,功能就变成它的反面。
+pub fn capture_disabled() -> bool {
+    CAPTURE_DISABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+// 落地一次状态变化:标志 → 全局快捷键 → 菜单栏图标。设置页和菜单栏两个入口都走这里,
+// 所以两边不可能各自实现出一半。
+//
+// 菜单里那个勾不在这儿改:它由 build_tray_menu 现读 CAPTURE_DISABLED,而状态一变 JS 那侧
+// 就会重推一次菜单(useTrayMenu 的依赖里有它)。和「切换捕捉目标」那个 ● 是同一条路。
+pub fn apply_capture_disabled<R: Runtime>(app: &AppHandle<R>, disabled: bool) {
+    CAPTURE_DISABLED.store(disabled, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(desktop)]
+    {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        if let Some(cfg) = app.try_state::<ShortcutConfig>() {
+            // 录制器开着的时候全局注册本来就全撤了(set_shortcut_recording),这里别去动 ——
+            // 一注册就又把录制器正等着读的那个键从 webview 手里抢走了。
+            if !cfg.recording.load(std::sync::atomic::Ordering::SeqCst) {
+                if let Some(acc) = *cfg.capture.lock().unwrap() {
+                    let gs = app.global_shortcut();
+                    let _ = gs.unregister(acc);
+                    if !disabled {
+                        let _ = gs.register(acc);
+                    }
+                }
+            }
+        }
+    }
+    update_tray_icon(app, disabled);
+}
+
+// 设置页那个开关走这条。菜单栏那一项不走 —— 它在 handle_menu_event 里直接调
+// apply_capture_disabled,那一下必须当场生效,不能等一个 webview 往返。
+#[tauri::command]
+pub fn set_capture_disabled<R: Runtime>(app: AppHandle<R>, disabled: bool) {
+    apply_capture_disabled(&app, disabled);
+}
+
+// 启动时读一次。⚠️ 不能等 webview 起来再推:关着的人重开 Spool,主窗渲染完之前有一两秒的
+// 空档,那段时间手势又是活的 —— 而这功能存在的理由正是「人在别的 app 里被抢」,那一两秒
+// 正好是最可能撞上的时候。读法和 mcp.rs 的两个开关一样,直接读 settings.json;读不到或者
+// 解析不了都算「没关」(手势照常,和这个键从来没写过是一个结果)。
+pub fn load_capture_disabled() -> bool {
+    let Some(dir) = crate::mcp::app_data_dir() else {
+        return false;
+    };
+    let Ok(raw) = std::fs::read_to_string(dir.join("settings.json")) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    let disabled = v
+        .get("captureDisabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    CAPTURE_DISABLED.store(disabled, std::sync::atomic::Ordering::Relaxed);
+    disabled
+}
+
+// 2026-07-13(新 logo):应用图标是一块不透明的圆角方块,它的 alpha 蒙版模板化之后是一坨
+// 实心 —— 菜单栏用的是另一张黑色透明底的线头标(从 logo 的小号那一档来的),不是窗口图标。
+// 直接存成原始 RGBA(tray.rgba,要改就从 tray.png 重新生成),省得为解 png 多拉一个 feature。
+const TRAY_RGBA: &[u8] = include_bytes!("../icons/tray.rgba");
+const TRAY_RGBA_SIDE: u32 = 44;
+
+// 关着的时候菜单栏图标要看得出来。
+// ⭐ 理由:这个开关会持久化,所以「关了之后忘了」是必然会发生的一件事;到那时候屏幕上唯一
+// 还能说话的就是这个图标。只在菜单里打个勾不算 —— 人得先点开菜单才看得见。
+//
+// 做法是把 alpha 整体压到 40%:mac 上它是模板图(alpha 就是笔画),压低就是变淡;
+// Windows 上那份是彩色应用图标,压低同样是变淡。⚠️ 这样就不用第二份图片资源,
+// 也不用为了解码 png 把 image feature 拉进来。
+pub fn tray_image<R: Runtime>(app: &AppHandle<R>, disabled: bool) -> tauri::image::Image<'static> {
+    let fallback = tauri::image::Image::new(TRAY_RGBA, TRAY_RGBA_SIDE, TRAY_RGBA_SIDE);
+    // ⚠️ Windows 没有模板图这回事:`icon_as_template` 是 macOS 的概念,在那边直接被忽略,
+    // 所以上面那张标会被原样画出来 —— 黑的,而 Windows 11 的托盘默认就是深色。托盘图标
+    // 看不见在这里不是好不好看的问题:关掉窗口只是把它藏起来,托盘是回到 app 的路,也是
+    // 退出它的唯一入口。打包的应用图标是彩色的,而且 Tauri 为了窗口已经解过一次了。
+    #[cfg(not(target_os = "macos"))]
+    let base = app.default_window_icon().cloned().map(|i| i.to_owned()).unwrap_or(fallback);
+    #[cfg(target_os = "macos")]
+    let base = {
+        let _ = app;
+        fallback
+    };
+    if !disabled {
+        return base;
+    }
+    let (w, h) = (base.width(), base.height());
+    let mut rgba = base.rgba().to_vec();
+    for px in rgba.chunks_exact_mut(4) {
+        px[3] = (u16::from(px[3]) * 2 / 5) as u8;
+    }
+    tauri::image::Image::new_owned(rgba, w, h)
+}
+
+fn update_tray_icon<R: Runtime>(app: &AppHandle<R>, disabled: bool) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    let _ = tray.set_icon(Some(tray_image(app, disabled)));
+}
+
 // Parse an accelerator in the frontend's grammar (see src/lib/capture/shortcut.ts):
 // `+`-joined lowercase modifier tokens then a W3C KeyboardEvent.code, e.g.
 // "meta+shift+KeyC". Kept deliberately small — we control both ends of this string.
@@ -473,6 +628,9 @@ pub fn set_shortcuts<R: Runtime>(
             return Ok(());
         }
         let gs = app.global_shortcut();
+        // 2026-08-22:捕捉总开关关着的时候,这个键只记进 cfg、不注册 —— 关着就是关着,
+        // 在设置里换一个捕捉键不该把它悄悄打开。再打开时 apply_capture_disabled 注册它。
+        let want_capture = !capture_disabled();
         // Drop both, then install both — handles the case where only one changed and
         // the case where the two were swapped, without a transient double-registration.
         if let Some(acc) = old_capture {
@@ -480,12 +638,12 @@ pub fn set_shortcuts<R: Runtime>(
         }
         let _ = gs.unregister(old_search);
         let restore = |gs: &tauri_plugin_global_shortcut::GlobalShortcut<R>| {
-            if let Some(acc) = old_capture {
+            if let Some(acc) = old_capture.filter(|_| want_capture) {
                 let _ = gs.register(acc);
             }
             let _ = gs.register(old_search);
         };
-        if let Some(acc) = new_capture {
+        if let Some(acc) = new_capture.filter(|_| want_capture) {
             if let Err(e) = gs.register(acc) {
                 restore(gs);
                 return Err(format!("无法注册捕捉快捷键：{e}"));
@@ -543,7 +701,10 @@ pub fn set_shortcut_recording<R: Runtime>(app: AppHandle<R>, active: bool) -> Re
         } else {
             if let Some(acc) = capture {
                 let _ = gs.unregister(acc);
-                let _ = gs.register(acc);
+                // 总开关关着就不还回去 —— 录制结束不是「恢复原状」的理由。
+                if !capture_disabled() {
+                    let _ = gs.register(acc);
+                }
             }
             let _ = gs.unregister(search);
             let _ = gs.register(search);

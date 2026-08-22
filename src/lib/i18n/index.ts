@@ -859,6 +859,10 @@ const EN: Record<string, string> = {
   '当前目标:  ': 'Current target:  ',
   '切换捕捉目标': 'Switch capture target',
   '（暂无项目）': '(no projects yet)',
+  // 2026-08-22 的一键暂停。菜单栏那一项带着按键名 —— 点开它的人正在别的软件里，
+  // 要一眼看出松开的是哪个键。
+  '暂停捕捉手势（双击 ⌥）': 'Pause capture (double-tap ⌥)',
+  '暂停捕捉手势（双击 Ctrl）': 'Pause capture (double-tap Ctrl)',
   '打开 Spool': 'Open Spool',
   '退出 Spool': 'Quit Spool',
 
@@ -902,6 +906,12 @@ const EN: Record<string, string> = {
   '内置手势：复制后双击 Ctrl 捕捉剪贴板，弹窗里可直接打字留一句想法。以下快捷键可自定义。':
     'Built-in gesture: copy something, then double-tap Ctrl to capture the clipboard — then just type in the popup to leave a note. The shortcuts below are customizable.',
   '备用 — 双击 Ctrl 之外的捕捉键': 'A fallback capture key besides double-tap Ctrl',
+  '暂停捕捉手势': 'Pause the capture gesture',
+  '别的软件也要用 ⌥ 的时候，把它关掉，那个键就还给别人了。菜单栏的 Spool 图标里也有这个开关，人在别的软件里就能就地关。':
+    'When another app needs ⌥ too, turn this off and the key goes back to it. The same switch is in the Spool icon in the menu bar, so you can do it without leaving that app.',
+  '别的软件也要用 Ctrl 的时候，把它关掉，那个键就还给别人了。菜单栏的 Spool 图标里也有这个开关，人在别的软件里就能就地关。':
+    'When another app needs Ctrl too, turn this off and the key goes back to it. The same switch is in the Spool icon in the notification area, so you can do it without leaving that app.',
+  '已随上面的开关一起暂停': 'Paused along with the switch above',
   '未设置': 'Not set',
   '清除捕捉快捷键': 'Clear the capture shortcut',
   '搜索快捷键': 'Search shortcut',
