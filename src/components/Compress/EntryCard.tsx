@@ -3,7 +3,12 @@ import { AlertTriangle } from 'lucide-react';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { BAND_HINT, BAND_LABEL, bandOf } from '@/lib/blocks/band';
 import { diffChunks, diffLines, type DiffChunk } from '@/lib/ai/compress';
-import { entryHasLosses, entryPercent, type EntryPair } from '@/lib/ai/compressBlocks';
+import {
+  entryHasLosses,
+  entryPercent,
+  missingNumberLines,
+  type EntryPair,
+} from '@/lib/ai/compressBlocks';
 import type { Block } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
 
@@ -25,10 +30,15 @@ import { useT } from '@/lib/i18n';
 export default function EntryCard({
   pair,
   block,
+  restoredLines,
+  onAddBack,
 }: {
   pair: EntryPair;
   /** 库里那一块。null = pack 里有这一条但块没传进来（单块压缩时只有一块）。 */
   block: Block | null;
+  /** 用户按「加回去」补回来的那几行。⭐ 右栏要把它们和「它新写的」分开标。 */
+  restoredLines: readonly string[];
+  onAddBack: (numbers: readonly string[]) => void;
 }) {
   const t = useT();
   const band = block ? bandOf(block) : null;
@@ -42,9 +52,20 @@ export default function EntryCard({
     const d = diffLines(pair.before.body, pair.after.body);
     return {
       before: diffChunks(d, 'before', pair.before.body),
-      after: diffChunks(d, 'after', pair.after.body),
+      after: diffChunks(d, 'after', pair.after.body, restoredLines),
     };
-  }, [pair]);
+  }, [pair, restoredLines]);
+
+  // ⭐ 丢掉的数字**住在原文的哪一行**（Ocean:「根本看不到丢掉的数字是哪一块的……
+  // 需要指到文字内容上去」）。⚠️ 和「加回去」用的是同一条判断，屏幕上给你看的那一行，
+  // 就是点下去会被插回压缩稿的那一行。
+  const lostLines = useMemo(
+    () =>
+      pair.before && pair.after && pair.audit.missingNumbers.length > 0
+        ? missingNumberLines(pair.before, pair.after, pair.audit.missingNumbers)
+        : [],
+    [pair],
+  );
 
   const losses = entryHasLosses(pair.audit);
 
@@ -85,12 +106,12 @@ export default function EntryCard({
         <div className="min-w-0 px-3 py-2">
           <div className="mb-1 text-[11px] text-muted">
             {t('原文')}
-            {marks.before?.some((c) => c.op === 'cut') && (
-              <span className="ml-1.5">{t('（划掉的没进压缩稿）')}</span>
+            {marks.before?.some((c) => c.op === 'cut' || c.runs) && (
+              <span className="ml-1.5">{t('（划掉的字没进压缩稿）')}</span>
             )}
           </div>
           {pair.before ? (
-            <Body chunks={marks.before} text={pair.before.body} />
+            <Body chunks={marks.before} text={pair.before.body} side="before" />
           ) : (
             <p className="text-[12px] text-muted">{t('（原文里没有这一块）')}</p>
           )}
@@ -98,12 +119,12 @@ export default function EntryCard({
         <div className="min-w-0 px-3 py-2">
           <div className="mb-1 text-[11px] text-muted">
             {t('压缩稿')}
-            {marks.after?.some((c) => c.op === 'added') && (
-              <span className="ml-1.5">{t('（有底色的是它新写的）')}</span>
+            {marks.after?.some((c) => c.op === 'added' || c.runs) && (
+              <span className="ml-1.5">{t('（有底色的字是它新写的）')}</span>
             )}
           </div>
           {pair.after ? (
-            <Body chunks={marks.after} text={pair.after.body} />
+            <Body chunks={marks.after} text={pair.after.body} side="after" />
           ) : (
             <p className="text-[12px]" style={{ color: 'var(--urgent)' }}>
               {t('它把这一块整个删掉了，或者合并进了别的块。左边那些话现在没有出处 —— 自己确认一遍。')}
@@ -137,12 +158,25 @@ export default function EntryCard({
             {pair.audit.missingHighlights.map((s) => (
               <div key={s}>{t('少了你划的重点：{s}', { s })}</div>
             ))}
-            {pair.audit.missingNumbers.length > 0 && (
-              <div className="font-medium">
-                {t('这一块里有 {n} 个数字/日期没了：{s}', {
-                  n: pair.audit.missingNumbers.length,
-                  s: pair.audit.missingNumbers.slice(0, 10).join('、'),
-                })}
+            {/* ⭐ 指到文字上，不报编号。每一行后面就是它自己的「加回去」——
+                点哪一行补哪一行，补完那一行会在右栏当场显出来（标着「你加回去的」）。 */}
+            {lostLines.length > 0 && (
+              <div className="space-y-1">
+                <div className="font-medium">
+                  {t('这几句话里的数字/日期，压缩稿里没有了：')}
+                </div>
+                {lostLines.map((x) => (
+                  <div key={x.line} className="flex items-start gap-2">
+                    <span className="min-w-0 flex-1">「{x.line}」</span>
+                    <button
+                      type="button"
+                      onClick={() => onAddBack(x.numbers)}
+                      className="flex-none rounded border border-current px-1.5 py-0.5 font-normal hover:bg-paper-2"
+                    >
+                      {t('加回去')}
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             {/* 连线掉了 = 这一块引的是哪一条、替代了哪一条，没了。实测撞见过整份 14 条只剩 2 条。 */}
@@ -164,7 +198,20 @@ export default function EntryCard({
 
 // 一栏正文。`chunks` 有就按段铺记号，null 就原样渲染 —— ⛔ null 不是「没有改动」，
 // 是「这一侧铺不回去」（见 `diffChunks`），那时候宁可不标，也不能显示一份缺了行的正文。
-function Body({ chunks, text }: { chunks: DiffChunk[] | null; text: string }) {
+//
+// ⚠️ **被改写的那一行不走 markdown 渲染，走纯文字 + 按字标记。**
+// 这是一次有意的取舍：那一行要回答的问题是「哪几个字没了 / 哪几个字是新的」，
+// 而渲染器会把 `**` `==` 这些吃掉，字和字就对不上了。没改的行照旧渲染。
+function Body({
+  chunks,
+  text,
+  side,
+}: {
+  chunks: DiffChunk[] | null;
+  text: string;
+  side: 'before' | 'after';
+}) {
+  const t = useT();
   const cls = 'text-[13px] leading-relaxed text-ink-2';
   if (!chunks) {
     return (
@@ -175,27 +222,65 @@ function Body({ chunks, text }: { chunks: DiffChunk[] | null; text: string }) {
   }
   return (
     <div className={cls}>
-      {chunks.map((c, i) => (
-        <div
-          key={i}
-          className={[
-            c.gap ? 'mt-[0.9em]' : '',
-            c.op === 'cut' ? 'line-through opacity-55' : '',
-            c.op === 'added' ? '-mx-1 rounded-[3px] px-1' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          style={
-            c.op === 'cut'
-              ? { color: 'var(--urgent)' }
-              : c.op === 'added'
-                ? { background: 'var(--accent-soft)' }
-                : undefined
-          }
-        >
-          <MarkdownContent content={c.text} />
-        </div>
-      ))}
+      {chunks.map((c, i) => {
+        const gap = c.gap ? 'mt-[0.9em] ' : '';
+        // ① 用户自己补回来的那一行 —— ⛔ 和「它新写的」分开说，责任不能安错人。
+        if (c.restored) {
+          return (
+            <div
+              key={i}
+              className={`${gap}-mx-1 rounded-[3px] border-l-2 border-accent px-1 py-0.5`}
+            >
+              <div className="whitespace-pre-wrap break-words">{c.text}</div>
+              <div className="mt-0.5 text-[10.5px] text-accent">{t('你加回去的')}</div>
+            </div>
+          );
+        }
+        // ② 被改写的那一行：按字标。
+        if (c.runs) {
+          return (
+            <div key={i} className={`${gap}whitespace-pre-wrap break-words`}>
+              {c.runs
+                .filter((r) => r.op === 'same' || r.op === (side === 'before' ? 'cut' : 'added'))
+                .map((r, j) =>
+                  r.op === 'same' ? (
+                    <span key={j}>{r.text}</span>
+                  ) : r.op === 'cut' ? (
+                    <span key={j} className="line-through" style={{ color: 'var(--urgent)' }}>
+                      {r.text}
+                    </span>
+                  ) : (
+                    <span key={j} style={{ background: 'var(--accent-soft)' }}>
+                      {r.text}
+                    </span>
+                  ),
+                )}
+            </div>
+          );
+        }
+        // ③ 整段没了 / 整段是新的。
+        return (
+          <div
+            key={i}
+            className={[
+              c.gap ? 'mt-[0.9em]' : '',
+              c.op === 'cut' ? 'line-through opacity-55' : '',
+              c.op === 'added' ? '-mx-1 rounded-[3px] px-1' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={
+              c.op === 'cut'
+                ? { color: 'var(--urgent)' }
+                : c.op === 'added'
+                  ? { background: 'var(--accent-soft)' }
+                  : undefined
+            }
+          >
+            <MarkdownContent content={c.text} />
+          </div>
+        );
+      })}
     </div>
   );
 }

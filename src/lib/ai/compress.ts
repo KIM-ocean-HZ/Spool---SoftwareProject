@@ -505,16 +505,128 @@ export const diffLines = (original: string, compressed: string): DiffLine[] => {
   return out;
 };
 
+// ---------------------------------------------------------------------------------------
+// 字级 diff：⭐ **要看的是真正变了的那几个字，不是变了的那一段**
+// ---------------------------------------------------------------------------------------
+//
+// Ocean 2026-08-22（第二轮反馈第 2 条）原话：「**删除和新加的文字大部分都是重复的，需要对比的
+// 是真正变化的文字，而不是变化的段落**，做到让用户一看就知道哪些文字在被压缩后的 block 中
+// 消失了，哪些文字是原来没有的」。
+//
+// 行级 diff 会把「改了三个字的一整段」报成「整段删掉 + 整段新加」—— 屏幕上一片红一片黄，
+// 而真正丢掉的那个日期淹在里面。所以：
+//
+//   1. 先按行对齐（`diffLines`）；
+//   2. 删掉的行和新加的行**在同一处的**，按相似度配对（`pairLines`）—— 配上的是**同一句被改写**；
+//   3. 配上的那一对再按**字**对一遍（`charDiff`），只标真正变的那几个字。
+//
+// ⚠️ 中文没有词边界，所以是**按字**不是按词。二元组重合度那套（`overlapRatio`）在这个项目里
+// 已经被实测校准过一次（D4-b：真实例子的 Dice 只有 0.43，重合比 0.83），配对沿用它。
+
+/** 一行里的一段：`same` 两边都有，`cut` 只在原文里，`added` 只在压缩稿里。 */
+export interface InlineRun {
+  op: DiffOp;
+  text: string;
+}
+
+/** 一行文字够长就不按字对了。⚠️ LCS 是 O(n·m)，两条 4000 字的行 = 一千六百万格，
+ *  而核对面上一屏可能有二十几块。超了就整行标 —— 粒度差一点，但不会把界面卡住。 */
+const CHAR_DIFF_CAP = 1500;
+
+/** 两行文字按**字**对一遍。返回的段落连起来：`same+cut` = 原文那一行，`same+added` = 新那一行。 */
+export const charDiff = (before: string, after: string): InlineRun[] => {
+  const a = [...before];
+  const b = [...after];
+  if (a.length > CHAR_DIFF_CAP || b.length > CHAR_DIFF_CAP) {
+    return [
+      { op: 'cut', text: before },
+      { op: 'added', text: after },
+    ];
+  }
+  const n = a.length;
+  const m = b.length;
+  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out: InlineRun[] = [];
+  // 相邻的同类段并成一段，免得逐字生成上千个 span。
+  const push = (op: DiffOp, ch: string): void => {
+    const last = out[out.length - 1];
+    if (last && last.op === op) last.text += ch;
+    else out.push({ op, text: ch });
+  };
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      push('same', a[i]);
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      push('cut', a[i++]);
+    } else {
+      push('added', b[j++]);
+    }
+  }
+  while (i < n) push('cut', a[i++]);
+  while (j < m) push('added', b[j++]);
+  return out;
+};
+
+/** 删掉的行和新加的行配对：配得上的是**同一句被改写**，配不上的才是真的删了 / 真的新写的。
+ *  ⚠️ 一对一，按相似度从高到低贪心 —— 和 `pairRewrites` 同一套规矩、同一个门槛。 */
+export const pairLines = (
+  cut: string[],
+  added: string[],
+): { pairs: [number, number][]; cutOnly: number[]; addedOnly: number[] } => {
+  const scored: { i: number; j: number; score: number }[] = [];
+  cut.forEach((c, i) => {
+    added.forEach((d, j) => {
+      const score = overlapRatio(c, d);
+      if (score >= REWRITE_MIN_OVERLAP) scored.push({ i, j, score });
+    });
+  });
+  scored.sort((x, y) => y.score - x.score);
+  const usedC = new Set<number>();
+  const usedA = new Set<number>();
+  const pairs: [number, number][] = [];
+  for (const { i, j } of scored) {
+    if (usedC.has(i) || usedA.has(j)) continue;
+    usedC.add(i);
+    usedA.add(j);
+    pairs.push([i, j]);
+  }
+  return {
+    pairs,
+    cutOnly: cut.map((_, i) => i).filter((i) => !usedC.has(i)),
+    addedOnly: added.map((_, j) => j).filter((j) => !usedA.has(j)),
+  };
+};
+
 /** 铺回正文上的一段：连着的、同一种命运的几行。 */
 export interface DiffChunk {
   op: DiffOp;
   text: string;
   /** 它和上一段之间本来隔着一个空行。⚠️ 段尾的空行剪掉之后就渲染不出间距了，靠这个补回来。 */
   gap: boolean;
+  /** ⭐ 这一段是**被改写的一行**时，里面哪几个字变了。有它就按字标，没有它才整段标。 */
+  runs?: InlineRun[];
+  /** ⭐ 这一行是用户自己按「加回去」补回来的 —— ⛔ 绝不能和「它新写的」混为一谈。 */
+  restored?: boolean;
 }
 
 /** 把行级 diff 折成**一侧**的段落，好让划线和底色直接落在渲染后的正文上：
  *  `before` 要 same+cut（划掉的那些还留在原文里），`after` 要 same+added。
+ *
+ *  ⭐ **被改写的那些行按字标**（Ocean 2026-08-22 第二轮第 2 条）：同一处的删行和加行先配对，
+ *  配上的按 `charDiff` 只标真正变的那几个字；配不上的才是真的整行删了 / 真的整行新写的。
+ *
+ *  ⭐ `restored` = 用户自己按「加回去」补回来的那几行。⛔ **必须单独认出来**：它们不是
+ *  「它新写的」，而且补回去之后 LCS 会把它们和原文对齐、当成 `same` —— 那样用户就
+ *  **看不见自己刚才那一下做了什么**（他原话：「加回去用户根本看不到这个动作」）。
  *
  *  ⚠️⚠️ **返回 null = 这一侧拼不回原样**，调用方必须退回不带标记的正文。
  *  `diffLines` 超过行数上限时会退化成只报原文侧那一路，压缩稿侧的 added 行根本不生成 ——
@@ -523,24 +635,62 @@ export const diffChunks = (
   lines: DiffLine[],
   side: 'before' | 'after',
   text: string,
+  restored: readonly string[] = [],
 ): DiffChunk[] | null => {
   const drop: DiffOp = side === 'before' ? 'added' : 'cut';
   const rows = lines.filter((l) => l.op !== drop);
   if (rows.map((r) => r.text).join('\n') !== text) return null;
-  const groups: DiffLine[] = [];
+
+  // ① 配对。⚠️ 只在**同一处**（两个 same 之间那一段）里配 —— 跨段配对会把不相干的两行
+  //    说成「这一句被改写成了那一句」，而那是这个界面最不该说的一类话。
+  const runsOf = new Map<DiffLine, InlineRun[]>();
+  for (let i = 0; i < lines.length; ) {
+    if (lines[i].op === 'same') {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < lines.length && lines[j].op !== 'same') j++;
+    const hunk = lines.slice(i, j);
+    const cut = hunk.filter((l) => l.op === 'cut');
+    const added = hunk.filter((l) => l.op === 'added');
+    for (const [ci, ai] of pairLines(
+      cut.map((l) => l.text),
+      added.map((l) => l.text),
+    ).pairs) {
+      const runs = charDiff(cut[ci].text, added[ai].text);
+      runsOf.set(cut[ci], runs);
+      runsOf.set(added[ai], runs);
+    }
+    i = j;
+  }
+
+  // ② 折段。带记号的行（按字标的、加回去的）各自成一段，不和别人并。
+  const groups: DiffChunk[] = [];
   for (const r of rows) {
     const blank = r.text.trim() === '';
+    const runs = runsOf.get(r);
+    const restoredHere = side === 'after' && !blank && restored.includes(r.text);
     const last = groups[groups.length - 1];
+    const plain = !runs && !restoredHere;
     // 空行不自己成一段：它是段落之间那个间隔，跟着上一段走。
-    if (last && (blank || last.op === r.op)) {
+    if (last && plain && !last.runs && !last.restored && (blank || last.op === r.op)) {
       last.text += '\n' + r.text;
       continue;
     }
-    groups.push({ op: blank ? 'same' : r.op, text: r.text });
+    groups.push({
+      op: blank ? 'same' : r.op,
+      text: r.text,
+      gap: false,
+      ...(runs ? { runs } : {}),
+      ...(restoredHere ? { restored: true } : {}),
+    });
   }
+
   return groups
     .map((g, i) => ({
-      op: g.op,
+      ...g,
+      // 段尾的空行要剪掉:它落在段里渲染不出间距,得换成下一段头上的 gap。
       text: g.text.replace(/\s+$/, ''),
       gap: i > 0 && /\n[ \t]*$/.test(groups[i - 1].text),
     }))

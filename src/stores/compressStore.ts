@@ -61,8 +61,11 @@ export interface CompressSession {
    *  ⚠️ 核对、按块比对、复制走，有它就用它 —— 但**报账那一行照旧读 `outcome`**：
    *  补一行字是纯本地动作，不花钱，把它算进这一次的账里就成了假话。 */
   patched: string | null;
-  /** 补回去了的那几个数字/日期。⚠️ **必须说出来**：稿子里从此有一行不是模型写的。 */
+  /** 补回去了的那几个数字/日期。⚠️ **必须说出来**：稿子里从此有几行不是模型写的。 */
   addedBack: string[];
+  /** ⭐ 真的插回去的那几**行**原文。核对面靠它把「你加回去的」当场标出来 ——
+   *  Ocean 2026-08-22:「加回去用户根本看不到这个动作，不知道到底加在哪里」。 */
+  restoredLines: string[];
   /** D-c：第一次的结果不合格、自动重压过一次的时候记在这儿。null = 没重压过。
    *  ⚠️ 屏幕上必须说出来 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */
   retry: { secondOk: boolean } | null;
@@ -98,8 +101,9 @@ interface CompressState {
   close: () => void;
   run: () => Promise<void>;
   cancel: () => Promise<void>;
-  /** D7 · 把这一份丢掉的数字/日期从原文补回去。纯本地，不出网、不花钱。 */
-  addBack: () => void;
+  /** D7 · 把丢掉的数字/日期从原文补回去。纯本地，不出网、不花钱。
+   *  `only` = 只补这几个（界面上一处一处地补）；不传 = 全补。 */
+  addBack: (only?: readonly string[]) => void;
 
   runQueue: () => Promise<void>;
   dropResult: (index: number) => void;
@@ -148,6 +152,7 @@ const freshSession = (target: CompressTarget, source: string, blocks: Block[]): 
     outcome: null,
     patched: null,
     addedBack: [],
+    restoredLines: [],
     retry: null,
     probe: null,
     startedAt: 0,
@@ -256,6 +261,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       // ⚠️ 重压一次，上一次补回去的那几行也跟着作废 —— 它们补的是**那一份**稿子。
       patched: null,
       addedBack: [],
+      restoredLines: [],
       startedAt: Date.now(),
     };
     set({ session: frozen, running: true, progress: { stage: 'starting' }, startError: null });
@@ -279,11 +285,12 @@ export const useCompressStore = create<CompressState>((set, get) => ({
   // ⭐ 它是**纯本地**的：那几行在原文里都还在，不问模型、不出网、不花钱。补完这一份就过得了
   // 数字硬闸门（`numbersGateOpen`）—— 见 compress.ts 上那段。
   // ⛔ 一处都补不回去的时候必须说出来：一个点了没反应的按钮是这个项目最怕的东西。
-  addBack: () => {
+  addBack: (only) => {
     const s = get().session;
     if (!s?.outcome?.ok) return;
     const before = s.patched;
-    const r = addBackNumbers(s.source, s.patched ?? s.outcome.text);
+    const beforeLines = s.restoredLines;
+    const r = addBackNumbers(s.source, s.patched ?? s.outcome.text, only);
     if (r.added.length === 0) {
       toast.error(
         t('这 {n} 个补不回去：在压缩稿里找不到该把它们插在哪儿。重压一次吧。', {
@@ -296,6 +303,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       ...s,
       patched: r.text,
       addedBack: [...s.addedBack, ...r.added],
+      restoredLines: [...s.restoredLines, ...r.lines],
     };
     // ⚠️ 夜里那一批的收件箱里躺的是**同一个对象**（`openResult` 直接把它设成 session），
     // 只换 session 的话，关掉桌子再从右栏点回来，补回去的那几行就没了。
@@ -306,7 +314,12 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       () => {
         const cur = get().session;
         if (!cur) return;
-        const back: CompressSession = { ...cur, patched: before, addedBack: s.addedBack };
+        const back: CompressSession = {
+          ...cur,
+          patched: before,
+          addedBack: s.addedBack,
+          restoredLines: beforeLines,
+        };
         set((st) => ({ session: back, results: st.results.map((x) => (x === cur ? back : x)) }));
       },
     );

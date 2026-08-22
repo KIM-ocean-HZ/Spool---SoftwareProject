@@ -6,6 +6,7 @@ import {
   auditEntry,
   compareByEntry,
   entryPercent,
+  missingNumberLines,
   splitPackEntries,
 } from './compressBlocks';
 
@@ -209,6 +210,8 @@ describe('addBackNumbers', () => {
     const r = addBackNumbers(APPLY, compressed);
     expect(r.added).toContain('2026-11-25');
     expect(r.failed).toEqual([]);
+    // ⭐ 插回去的那一行要报出来 —— 界面靠它标「你加回去的」。
+    expect(r.lines).toEqual(['GRE 最晚重考日是 2026-11-25，别错过。']);
     expect(r.text).toContain('GRE 最晚重考日是 2026-11-25，别错过。');
     // ⭐ 闸门要真的能过 —— 补回去而闸门还关着，等于白补。
     expect(missingNumbersBetween(APPLY, r.text)).toEqual([]);
@@ -283,5 +286,27 @@ describe('worthRetrying', () => {
       .replace('第一句话，没有数字。', '短。')
       .replace('第三行也没有数字。', '短。');
     expect(worthRetrying(APPLY, shorter)).toBe(false);
+  });
+});
+
+
+// ⭐ Ocean 2026-08-22 第二轮第 3 条:「根本看不到丢掉的数字是哪一块的,即使文字说 #2,
+// 我也不知道 #2 写了什么,需要指到文字内容上去」。
+describe('missingNumberLines', () => {
+  it('指到原文那一行，而且和「加回去」补的是同一行', () => {
+    const compressed = drop(APPLY, 'GRE');
+    const pair = compareByEntry(APPLY, compressed)!.pairs.find((p) => p.seq === 1)!;
+    const shown = missingNumberLines(pair.before!, pair.after!, pair.audit.missingNumbers);
+    expect(shown).toEqual([
+      { line: 'GRE 最晚重考日是 2026-11-25，别错过。', numbers: ['2026-11-25'] },
+    ]);
+    expect(addBackNumbers(APPLY, compressed).lines).toEqual([shown[0].line]);
+  });
+
+  it('只补点中的那一个，别的不动', () => {
+    const compressed = drop(drop(APPLY, 'GRE'), '#2 ');
+    const r = addBackNumbers(APPLY, compressed, ['2026-11-25']);
+    expect(r.added).toEqual(['2026-11-25']);
+    expect(r.lines).toHaveLength(1);
   });
 });

@@ -171,7 +171,7 @@ export default function CompressBoard() {
 
       {/* 档位。⚠️ 单块压缩时「只删重复」这一档基本无事可做 —— 见下面那句话。 */}
       <div className="flex flex-none flex-wrap items-center gap-2 border-b border-line bg-paper-2/30 px-5 py-2 text-[11px]">
-        <span className="text-muted">{t('压多狠?')}</span>
+        <span className="text-muted">{t('压缩强度')}</span>
         {(Object.keys(LEVEL_LABELS) as CompressLevel[]).map((k) => (
           <button
             key={k}
@@ -224,19 +224,22 @@ export default function CompressBoard() {
                 : t('这一份可以复制走 —— 比原来短了 {d}%。', { d: 100 - (pct ?? 100) })}
           </div>
 
-          {/* 下面全是证据。⛔ D0：原来这一行里印的是「28,189 → 23,687 字符（剩 84%）」，
-              字符数是内部量纲；旁边还有一句「这一档的目标是压到 50–75%，这次是 84% ——
-              没达标」（D10 撤掉：§9.5 已经写明那个目标是空话，拿一个已知不成立的目标去判
-              用户的稿子不合格，判的是我自己的提示词）。提示词里那个目标没动，只是不再上界面。 */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
-            <span>
-              {t('原始 {a} 块 → 压缩后 {b} 块', {
-                a: byEntry?.before ?? audit.entriesBefore,
-                b: byEntry?.after ?? audit.entriesAfter,
-              })}
-            </span>
+          {/* 四个数排成一行（Ocean 2026-08-22 第二轮第 6 条：「这些信息可以简略的直接显示
+              数字，不需要写成文字，像表格一样清晰列出来」）。⛔ 一个数一格，不写成句子。
+              ⛔ D0 仍然管着这里：字符数、token、缓存命中都是内部量纲，一个都不许回来。 */}
+          <div className="flex flex-wrap gap-x-6 gap-y-1 pt-0.5">
+            <Stat label={t('块数')} value={`${byEntry?.before ?? audit.entriesBefore} → ${byEntry?.after ?? audit.entriesAfter}`} />
+            <Stat
+              label={t('长度')}
+              value={pct === null ? '—' : pct >= 100 ? `+${pct - 100}%` : `−${100 - pct}%`}
+            />
+            {outcome?.ok && <Stat label={t('用时')} value={`${Math.round(outcome.ms / 1000)}s`} />}
             {outcome?.ok && (
-              <span>{t('用了 {n} 秒', { n: Math.round(outcome.ms / 1000) })}</span>
+              <Stat
+                label={t('花费')}
+                // ⚠️ 缓存命中没报的时候只知道上限，所以是「≤」，不是一个确数。
+                value={cost ? `${cost.cacheUnknown ? '≤ ' : ''}${formatYuan(cost.yuan)}` : '—'}
+              />
             )}
           </div>
 
@@ -306,18 +309,18 @@ export default function CompressBoard() {
                     而这一档的名字就叫「保留结论和数字」。所以这一行放在最前面，并且列出来。 */}
                 {audit.missingNumbers.length > 0 && (
                   <div className="font-medium">
-                    {t('有 {n} 个数字/日期在压缩稿里再也找不到了：{s}', {
+                    {/* ⭐ 具体是哪几句话丢了数字，**按块指在下面的卡片上**（Ocean 第 3 条：
+                        「根本看不到丢掉的数字是哪一块的……需要指到文字内容上去」）。
+                        这里只留一句结论和一个「全部加回去」。 */}
+                    {t('有 {n} 个数字/日期没了 —— 下面按块指出了是哪几句话。', {
                       n: audit.missingNumbers.length,
-                      s: audit.missingNumbers.slice(0, 12).join('、'),
                     })}
-                    {/* ⭐ D7：那几行在原文里都还在 —— 补回去是**纯本地**的，不问模型、不花钱。
-                        ⛔ 一处都补不回去的时候 store 会说出来（toast），不许点了没反应。 */}
                     <button
                       type="button"
-                      onClick={addBack}
+                      onClick={() => addBack()}
                       className="ml-2 rounded border border-current px-1.5 py-0.5 font-normal hover:bg-paper-2"
                     >
-                      {t('从原文加回去')}
+                      {t('全部加回去')}
                     </button>
                   </div>
                 )}
@@ -358,24 +361,31 @@ export default function CompressBoard() {
             </div>
           )}
 
+          {/* ⚠️ 原来这里把换行全 `replace` 成空格，于是模型分条写的说明堆成一坨看不清
+              （Ocean 第 6 条）。现在一条一行。 */}
           <div className="text-muted">
-            {outcome?.cuts
-              ? t('它说它删的是：{s}', { s: outcome.cuts.replace(/\s*\n\s*/g, ' ') })
-              : t('它没有说自己删掉了什么。')}
+            {outcome?.cuts ? (
+              <>
+                <div>{t('它说它删的是：')}</div>
+                <div className="mt-0.5 space-y-0.5 pl-3">
+                  {outcome.cuts
+                    .split('\n')
+                    .map((l) => l.trim())
+                    .filter((l) => l.length > 0)
+                    .map((l, i) => (
+                      <div key={i}>{l}</div>
+                    ))}
+                </div>
+              </>
+            ) : (
+              t('它没有说自己删掉了什么。')
+            )}
           </div>
 
-          {/* ⛔ D0：一个数就够。原来这一行是「输入 15,360 token，输出 13,336 token，其中 512
-              命中了缓存。按官方价目算大约 ¥0.1646」—— token 和缓存命中是我做实测要的数。
-              ⚠️ 这个钱不是估算：它是拿接口回报的真实用量乘官方价目算出来的。缓存命中没报的
-              时候按全部未命中算，所以那种情况写「最多」，不写「大约」。 */}
-          {outcome?.ok && (
-            <div className="text-muted">
-              {cost
-                ? cost.cacheUnknown
-                  ? t('这一次最多花了 {y}', { y: formatYuan(cost.yuan) })
-                  : t('这一次花了大约 {y}', { y: formatYuan(cost.yuan) })
-                : t('认不出这个模型的价目，算不出这次花了多少钱。')}
-            </div>
+          {/* ⚠️ 认不出价目的时候上面那格是「—」，这里才补一句为什么 —— ⛔ 不编一个价。
+              这个钱不是估算：拿接口回报的真实用量乘官方价目算出来的。 */}
+          {outcome?.ok && !cost && (
+            <div className="text-muted">{t('认不出这个模型的价目，算不出这次花了多少钱。')}</div>
           )}
         </div>
       )}
@@ -398,7 +408,13 @@ export default function CompressBoard() {
         {byEntry ? (
           <div className="space-y-3">
             {byEntry.pairs.map((p) => (
-              <EntryCard key={p.key} pair={p} block={blockBySeq.get(p.seq) ?? null} />
+              <EntryCard
+                key={p.key}
+                pair={p}
+                block={blockBySeq.get(p.seq) ?? null}
+                restoredLines={session.restoredLines}
+                onAddBack={addBack}
+              />
             ))}
           </div>
         ) : outcome?.ok ? (
@@ -518,6 +534,16 @@ export default function CompressBoard() {
           </button>
         </div>
       </footer>
+    </div>
+  );
+}
+
+// 一个数一格（Ocean 第 6 条）。⛔ 标题小、数大，不写成句子。
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="leading-tight">
+      <div className="text-[10px] uppercase tracking-wide text-muted/70">{label}</div>
+      <div className="font-mono text-[13px]">{value}</div>
     </div>
   );
 }

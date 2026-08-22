@@ -1088,7 +1088,7 @@ const EN: Record<string, string> = {
 
   // 并排核对
   // '压缩' / '停下' 上面已经有了（第 679 / 942 行），这里不重复。
-  '压多狠?': 'How hard?',
+  '压缩强度': 'How hard?',
   '只删重复': 'Only drop repeats',
   '保留结论和数字': 'Keep conclusions and numbers',
   '压到最短': 'As short as it goes',
@@ -1139,13 +1139,11 @@ const EN: Record<string, string> = {
   '改之后：{s}': 'After: {s}',
   // 「少了 {n} 条批注」/「少了 {n} 条你自己写的内容」/「少了 {n} 处你划的重点」下面证据那一段
   // 已经有了，同一个键复用，不重复写。
-  '原始 {a} 块 → 压缩后 {b} 块': '{a} blocks → {b} blocks',
   '比原来短了 {d}%': '{d}% shorter than the original',
   '反而比原来长了 {d}%': '{d}% LONGER than the original',
   '短了 {d}%': '{d}% shorter',
   '反而长了 {d}%': '{d}% longer',
   '没变短': 'no shorter',
-  '用了 {n} 秒': 'took {n}s',
   '少了整节：{s}': 'A whole section is gone: {s}',
   '少了 {n} 条你自己写的内容': '{n} things you wrote yourself are gone',
   '少了 {n} 处你划的重点': '{n} of your highlights are gone',
@@ -1153,10 +1151,7 @@ const EN: Record<string, string> = {
     'Your annotations, the things you wrote and your highlights all survived — and nothing was invented.',
   '它凭空写了 {n} 条你没写过的批注：{s}':
     'It invented {n} annotation(s) you never wrote: {s}',
-  '它说它删的是：{s}': 'It says it cut: {s}',
   '它没有说自己删掉了什么。': 'It did not say what it cut.',
-  '这一次花了大约 {y}': 'This run cost about {y}',
-  '这一次最多花了 {y}': 'This run cost at most {y}',
   '认不出这个模型的价目，算不出这次花了多少钱。':
     'The price list for this model is not known here, so this run’s cost cannot be worked out.',
 
@@ -1197,7 +1192,11 @@ const EN: Record<string, string> = {
   '这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。':
     'This one is stuck on exactly that — use “add back from the original” above first.',
   // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
-  '从原文加回去': 'Add back from the original',
+  '块数': 'Blocks',
+  '长度': 'Length',
+  '用时': 'Time',
+  '花费': 'Cost',
+  '它说它删的是：': 'What it says it cut:',
   // D-c：坏结果自动重跑一次 —— 重压过必须说，不然那个钱数会莫名其妙翻倍。
   '第一次压出来的不合格，自动重压了一次。这一份是第二次的，钱是两次加起来的。':
     'The first attempt came back unusable, so it was run once more. This is the second one; the cost above covers both.',
@@ -1249,8 +1248,9 @@ const EN: Record<string, string> = {
   '这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。':
     'This one cannot be compared block by block — the compressed version has no pack entry lines (the model did not keep the #number format). Falling back to whole-text comparison.',
   '原文': 'Original',
-  '（划掉的没进压缩稿）': '(struck-through text did not make it in)',
-  '（有底色的是它新写的）': '(shaded text is what it wrote)',
+  '（划掉的字没进压缩稿）': '(struck-through characters did not make it in)',
+  '（有底色的字是它新写的）': '(shaded characters are what it wrote)',
+  '你加回去的': 'you added this back',
   '（原文里没有这一块）': '(the original has no such block)',
   '这一块在压缩稿里找不到': 'This block is nowhere in the compressed version',
   '原文里没有这一块 —— 它自己编了一个编号':
@@ -1260,10 +1260,12 @@ const EN: Record<string, string> = {
   '少了一条批注：{s}': 'An annotation is gone: {s}',
   '少了你划的重点：{s}': 'A highlight of yours is gone: {s}',
   '少了一条引用/替代关系：{s}': 'A citation/supersession link is gone: {s}',
-  '有 {n} 个数字/日期在压缩稿里再也找不到了：{s}':
-    '{n} number(s)/date(s) are nowhere in the compressed version: {s}',
-  '这一块里有 {n} 个数字/日期没了：{s}':
-    '{n} number(s)/date(s) are gone from this block: {s}',
+  '有 {n} 个数字/日期没了 —— 下面按块指出了是哪几句话。':
+    '{n} number(s)/date(s) are gone — the sentences they were in are marked block by block below.',
+  '全部加回去': 'Add all back',
+  '这几句话里的数字/日期，压缩稿里没有了：':
+    'The numbers/dates in these sentences are gone from the compressed version:',
+  '加回去': 'Add back',
   '它写了一条你没写过的批注：{s}': 'It wrote an annotation you never wrote: {s}',
 
   // §9.6.4 ⑥：睡前排队、起床核对。

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   auditCompression,
   auditHasLosses,
+  charDiff,
   countPackEntries,
   diffChunks,
   diffLines,
@@ -11,6 +12,7 @@ import {
   measurementRecord,
   mergeOutcomes,
   numbersGateOpen,
+  pairLines,
   overlapRatio,
   pairRewrites,
   priceTier,
@@ -222,6 +224,69 @@ describe('行级 diff', () => {
     // diffLines 超行数上限时退化成只报原文侧，压缩稿侧的 added 行根本不存在。
     const degraded = diffLines(Array.from({ length: 2600 }, (_, i) => `l${i}`).join('\n'), 'l0\nnew');
     expect(diffChunks(degraded, 'after', 'l0\nnew')).toBeNull();
+  });
+});
+
+// ⭐ 2026-08-22 第二轮第 2 条（Ocean）：「删除和新加的文字大部分都是重复的，
+// 需要对比的是真正变化的文字，而不是变化的段落」。
+describe('按字对', () => {
+  it('只标真正变了的那几个字', () => {
+    const runs = charDiff('现有成绩需按 Fall 2027 开学日复核', '现有成绩需按开学日复核');
+    // 两边共有的字算 same，只有「Fall 2027」是删掉的。
+    // ⚠️ 那个空格落在删掉那一段的哪一头，两种对齐都是最短的，别钉死它。
+    expect(runs.filter((r) => r.op === 'cut').map((r) => r.text).join('').trim()).toBe('Fall 2027');
+    expect(runs.filter((r) => r.op === 'added')).toEqual([]);
+    // 拼回去：same+cut = 原文那一行，same+added = 新那一行。
+    expect(runs.filter((r) => r.op !== 'added').map((r) => r.text).join('')).toBe(
+      '现有成绩需按 Fall 2027 开学日复核',
+    );
+    expect(runs.filter((r) => r.op !== 'cut').map((r) => r.text).join('')).toBe(
+      '现有成绩需按开学日复核',
+    );
+  });
+
+  it('太长的行不按字对 —— ⛔ 宁可粒度粗一点，也不让界面卡住', () => {
+    const long = 'a'.repeat(1600);
+    expect(charDiff(long, 'b').map((r) => r.op)).toEqual(['cut', 'added']);
+  });
+
+  it('改写的行配上对，不相干的两行配不上', () => {
+    const r = pairLines(
+      ['现有成绩需按 Fall 2027 开学日复核', '完全不相干的另一句话'],
+      ['现有成绩需按开学日复核'],
+    );
+    expect(r.pairs).toEqual([[0, 0]]);
+    expect(r.cutOnly).toEqual([1]);
+    expect(r.addedOnly).toEqual([]);
+  });
+});
+
+describe('按字标铺回正文', () => {
+  const before = '第一行没变。\n现有成绩需按 Fall 2027 开学日复核。\n第三行没变。';
+  const after = '第一行没变。\n现有成绩需按开学日复核。\n第三行没变。';
+
+  it('改写的那一行带 runs，不是整段删了又整段加', () => {
+    const d = diffLines(before, after);
+    const left = diffChunks(d, 'before', before)!;
+    const changed = left.filter((c) => c.runs);
+    expect(changed).toHaveLength(1);
+    expect(
+      changed[0].runs!.filter((r) => r.op === 'cut').map((r) => r.text).join('').trim(),
+    ).toBe('Fall 2027');
+    // 没变的两行照旧是 same，不带 runs。
+    expect(left.filter((c) => !c.runs).every((c) => c.op === 'same')).toBe(true);
+  });
+
+  // ⭐ Ocean:「加回去用户根本看不到这个动作，不知道到底加在哪里」。
+  it('用户加回去的那一行单独认出来 —— ⛔ 不许混进「它新写的」', () => {
+    const restoredLine = '截止 2026-12-15。';
+    const patched = `${after}\n${restoredLine}`;
+    const d = diffLines(before, patched);
+    const right = diffChunks(d, 'after', patched, [restoredLine])!;
+    const mine = right.filter((c) => c.restored);
+    expect(mine.map((c) => c.text)).toEqual([restoredLine]);
+    // 而且它不能同时被说成「它新写的」。
+    expect(mine[0].op === 'added' && !mine[0].restored).toBe(false);
   });
 });
 

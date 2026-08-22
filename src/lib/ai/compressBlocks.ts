@@ -330,20 +330,32 @@ export interface AddBackResult {
   text: string;
   /** 真的补回去了的那些数字/日期。 */
   added: string[];
+  /** ⭐ 真的插回去的那几**行**原文。界面靠它把「你加回去的」标出来 ——
+   *  ⛔ 不标的话用户看不见自己刚才那一下做了什么，也不知道它落在了哪儿。 */
+  lines: string[];
   /** ⛔ 没能补回去的。必须报给用户 —— 见上面第 3 条。 */
   failed: string[];
 }
 
-/** 把压缩稿里丢掉的数字/日期，连着它在原文里的那一行一起补回去。纯本地，不问模型。 */
-export const addBackNumbers = (original: string, compressed: string): AddBackResult => {
-  const missing = missingNumbersBetween(original, compressed);
+/** 把压缩稿里丢掉的数字/日期，连着它在原文里的那一行一起补回去。纯本地，不问模型。
+ *
+ *  `only` = 只补这几个数字（界面上一块一块地补、一处一处地补，走的就是它）。
+ *  不传 = 这一份里丢掉的全补。 */
+export const addBackNumbers = (
+  original: string,
+  compressed: string,
+  only?: readonly string[],
+): AddBackResult => {
+  const all = missingNumbersBetween(original, compressed);
+  const missing = only ? all.filter((n) => only.includes(n)) : all;
   const cmp = missing.length > 0 ? compareByEntry(original, compressed) : null;
   // 切不出块 = 没有落脚点。⛔ 这时候不许在整份文本上瞎猜位置，如实说补不回去。
-  if (!cmp) return { text: compressed, added: [], failed: missing };
+  if (!cmp) return { text: compressed, added: [], lines: [], failed: missing };
 
   // key（小节 + 编号）→（after 正文的行下标 → 插在它后面的那几行）
   const plan = new Map<string, Map<number, string[]>>();
   const added: string[] = [];
+  const lines: string[] = [];
   for (const p of cmp.pairs) {
     if (!p.before || !p.after) continue;
     const here = missing.filter((n) => p.audit.missingNumbers.includes(n));
@@ -367,14 +379,15 @@ export const addBackNumbers = (original: string, compressed: string): AddBackRes
       const at = perAnchor.get(anchor) ?? [];
       if (!at.includes(l.text)) at.push(l.text);
       perAnchor.set(anchor, at);
+      if (!lines.includes(l.text)) lines.push(l.text);
       added.push(...hits);
     }
     if (perAnchor.size > 0) plan.set(p.key, perAnchor);
   }
 
   const failed = missing.filter((n) => !added.includes(n));
-  if (plan.size === 0) return { text: compressed, added, failed };
-  return { text: spliceBack(compressed, plan), added, failed };
+  if (plan.size === 0) return { text: compressed, added, lines, failed };
+  return { text: spliceBack(compressed, plan), added, lines, failed };
 };
 
 /** 照 `plan` 把几行插回压缩稿。⚠️ 走的是和 `splitPackEntries` 同一套切法（同样的头行、
@@ -432,4 +445,27 @@ export const worthRetrying = (original: string, compressed: string): boolean => 
   if (!c) return true;
   if (c.duplicated.length > 0 || c.dropped > 0 || c.invented > 0) return true;
   return compressed.length > original.length * 0.95;
+};
+
+
+/** 这几个丢掉的数字，各自住在原文的哪一行（⭐ 界面要指到文字上，不能只报一个编号）。
+ *
+ *  ⚠️⚠️ **和 `addBackNumbers` 必须是同一条判断** —— 屏幕上让用户看的那一行，
+ *  就是点下去会被插回压缩稿的那一行。两边各算各的，用户看到 A、补进去 B，
+ *  而这个界面存在的全部理由就是让人**看见**会发生什么。 */
+export const missingNumberLines = (
+  before: PackEntry,
+  after: PackEntry,
+  numbers: readonly string[],
+): { line: string; numbers: string[] }[] => {
+  const out: { line: string; numbers: string[] }[] = [];
+  const taken = new Set<string>();
+  for (const l of diffLines(before.body, after.body)) {
+    if (l.op !== 'cut' || RELATION_LINE.test(l.text)) continue;
+    const hits = numbers.filter((n) => !taken.has(n) && lineHasNumber(l.text, n));
+    if (hits.length === 0) continue;
+    for (const n of hits) taken.add(n);
+    out.push({ line: l.text.trim(), numbers: hits });
+  }
+  return out;
 };
