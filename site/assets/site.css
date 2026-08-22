@@ -1898,3 +1898,20 @@ footer a { color: var(--ink-2); }
 .fb-form button { margin-top: 1.25rem; align-self: flex-start; }
 .fb-note { margin-top: 0.9rem; }
 .fb-alt { margin-top: 2rem; }
+
+/* The survey is the section's primary action (2026-08-22): Ocean's read of the first
+   version was 「放的有点隐蔽了，感觉不会有人去做」, and he was right — it sat as the
+   fourth link of a fineprint line, under a long mail form, in a section headed 「出问题
+   的时候」. A person who liked Spool had no reason to read any of that. Answering eight
+   questions asks far less of someone than composing an email, so it goes first and the
+   mail form drops to btn-ghost behind it. ⚠️ The honest note about the third party moved
+   up here with the link: it has to be readable BEFORE the click, which is the whole
+   reason this is a link and not an embedded form. */
+.fb-survey { margin: 2.25rem auto 0; max-width: 34rem; }
+.fb-survey .fb-q-cta { margin: 0; }
+.fb-survey .fb-q-note { margin-top: 0.9rem; }
+.fb-or {
+  margin: 2.25rem auto 0;
+  font-size: 0.95rem;
+  color: var(--ink-2);
+}

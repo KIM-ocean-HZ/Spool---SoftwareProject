@@ -233,18 +233,23 @@ export const ZH = {
   'cta-h': '项目背景，不必再解释第二次。',
   'cta-p': '免费、可离线使用、无需账号。',
   'cta-fine': 'Apple 芯片 Mac（arm64），已签名并公证 · Windows x64，未签名 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a>',
-  'fb-k': '出问题的时候',
-  'fb-h': '四条路都能找到我。',
-  'fb-p': 'Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你报告问题。要是它坏了，或者你想要的事情它做不了，下面任意一条都能找到我。',
+  'fb-k': '用过一阵之后',
+  'fb-h': '告诉我用得怎么样。',
+  'fb-p': 'Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你告诉我任何事。好用也好，坏了也好，你不说我就不知道。',
+  'fb-q-cta': `<a class="btn btn-primary" href="${ZH_FORM_URL}" rel="noopener noreferrer" target="_blank">回答八个问题</a>`,
+  'fb-q-note':
+    '两分钟。只有第一题必答，其余都可以跳过。' +
+    '这个页面本身没有服务器，也不收集任何东西；但问卷不是这个页面——那是问卷星的页面，' +
+    '你在那儿写的内容存在他们的服务器上，不经过这里。想让内容只在你和我之间，就用下面的邮件。',
+  'fb-or': '或者，给我写封信',
   'fb-l-what': '发生了什么，或者你希望它能做什么',
   'fb-l-where': '版本和系统——可不填',
   'fb-l-reply': '你的邮箱，想要回复的话——可不填',
   'fb-send': '写这封邮件',
   'fb-note':
-    '这个页面本身没有服务器，也不收集任何东西：按钮只是打开你自己的邮件应用，信已经写好了，' +
-    '发不发由你决定。填问卷是另一回事——那是问卷星的页面，你在那儿写的内容存在他们的服务器上，' +
-    '不经过这里。想让内容只在你和我之间，就走邮件那条。',
-  'fb-alt': `不想用表格也行：<a href="${ZH_FORM_URL}" rel="noopener noreferrer" target="_blank">回答几个问题</a>（第三方，见上面那句） · <a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。`,
+    '按钮只是打开你自己的邮件应用，信已经写好了，发不发由你决定——' +
+    '不会有任何东西自己从这个页面发出去。',
+  'fb-alt': `两条都不想走也行：<a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。`,
 
   'foot-copy': 'Spool 思簿 · © 2026 · 保留所有权利',
   'foot-home': '首页',

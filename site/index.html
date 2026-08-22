@@ -698,12 +698,22 @@ the user's feelings at the cost of correctness.</span>
 <section class="alt" id="feedback">
   <div class="wrap">
     <div class="center reveal">
-      <div class="kicker" data-i18n="fb-k">When it goes wrong</div>
-      <h2 data-i18n="fb-h">Four ways to tell me.</h2>
+      <div class="kicker" data-i18n="fb-k">After you have used it</div>
+      <h2 data-i18n="fb-h">Tell me how it went.</h2>
       <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool has no
-      account and never sends anything anywhere, which also means it cannot report a problem for you.
-      If something broke, or it will not do a thing you needed it to do, one of these reaches me.</p>
+      account and never sends anything anywhere — which also means it cannot tell me anything either.
+      Whether it worked or it broke, I only find out if you say so.</p>
     </div>
+
+    <div class="fb-survey center reveal">
+      <p class="fb-q-cta" data-i18n="fb-q-cta"><a class="btn btn-primary" href="https://surveymars.com/q/eXk1aRDgW" rel="noopener noreferrer" target="_blank">Answer eight questions</a></p>
+      <p class="fineprint fb-q-note" data-i18n="fb-q-note">Two minutes. Only the first one is required
+      and you can skip the rest. This page has no server and collects nothing itself, but the survey is
+      not this page: it is hosted by SurveyMars, and what you write there is stored on their servers. To
+      keep it between the two of us, use the email below instead.</p>
+    </div>
+
+    <p class="center fb-or" data-i18n="fb-or">Or write to me instead</p>
 
     <form class="fb-form reveal" id="feedback-form">
       <label for="fb-what" data-i18n="fb-l-what">What happened, or what you wish it did</label>
@@ -715,15 +725,12 @@ the user's feelings at the cost of correctness.</span>
       <label for="fb-reply" data-i18n="fb-l-reply">Your email, if you would like a reply — optional</label>
       <input id="fb-reply" name="reply" type="email" autocomplete="email">
 
-      <button class="btn btn-primary" type="submit" data-i18n="fb-send">Write the email</button>
-      <p class="fineprint fb-note" data-i18n="fb-note">This page has no server and collects nothing
-      itself: the button opens your own mail app with the message already written, and you decide
-      whether to send it. The survey is not this page — it is hosted by SurveyMars, and what you write
-      there is stored on their servers. Email keeps it between the two of us.</p>
+      <button class="btn btn-ghost" type="submit" data-i18n="fb-send">Write the email</button>
+      <p class="fineprint fb-note" data-i18n="fb-note">The button opens your own mail app with the message
+      already written, and you decide whether to send it — nothing leaves this page on its own.</p>
     </form>
 
-    <p class="center fineprint fb-alt" data-i18n="fb-alt">Or skip the form:
-      <a href="https://surveymars.com/q/eXk1aRDgW" rel="noopener noreferrer" target="_blank">answer a few questions</a> (third party — see the note above) ·
+    <p class="center fineprint fb-alt" data-i18n="fb-alt">Or skip both:
       <a href="mailto:jinhz0531@gmail.com?subject=Spool">email me directly</a> ·
       <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">open an issue on GitHub</a> ·
       <a href="https://github.com/KIM-ocean-HZ/spool/releases">watch the releases page</a> to hear about new versions.</p>

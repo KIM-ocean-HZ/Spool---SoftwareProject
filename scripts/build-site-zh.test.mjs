@@ -46,7 +46,7 @@ describe('site/zh is in sync with the English pages', () => {
     const english = flat(readFileSync(new URL('../site/index.html', import.meta.url), 'utf8'));
     const pairs = [
       ['site/index.html', english, 'surveymars.com', 'collects nothing itself', 'stored on their servers'],
-      ['site/zh/index.html', flat(pages['index.html']), 'v.wjx.cn', '也不收集任何东西：', '存在他们的服务器上'],
+      ['site/zh/index.html', flat(pages['index.html']), 'v.wjx.cn', '这个页面本身没有服务器，也不收集任何东西', '存在他们的服务器上'],
     ];
     for (const [name, html, host, hedged, whereItGoes] of pairs) {
       expect(html, `${name} lost its form link`).toContain(host);
