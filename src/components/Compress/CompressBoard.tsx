@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Loader2 } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import EntryCard from './EntryCard';
 import {
@@ -28,16 +28,19 @@ import { useSettingsStore } from '@/stores/settingsStore';
 //
 // ⛔ **这一步只看，不写。** §6.4.1 的 `supersedes` 写入那一段仍然锁着，所以这张桌子上
 //    **没有「用这一份」**，只有「复制走」。质量不认可的话，后面那半段一行都不用写。
-export default function CompressBoard() {
+export default function CompressBoard({ threadId }: { threadId: string }) {
   const t = useT();
-  const session = useCompressStore((s) => s.session);
-  const running = useCompressStore((s) => s.running);
+  const session = useCompressStore((s) => s.sessions[threadId] ?? null);
+  // ⚠️ 只有**正在跑的那个项目**该显示进度条 —— 别的项目的整理页不该跟着转圈。
+  const running = useCompressStore((s) => s.running && s.runningThreadId === threadId);
+  const busy = useCompressStore((s) => s.running || s.batchRunning);
   const progress = useCompressStore((s) => s.progress);
-  const startError = useCompressStore((s) => s.startError);
-  const run = useCompressStore((s) => s.run);
+  const startError = useCompressStore((s) => s.startErrors[threadId] ?? null);
+  const runIt = useCompressStore((s) => s.run);
   const cancel = useCompressStore((s) => s.cancel);
-  const close = useCompressStore((s) => s.close);
-  const addBack = useCompressStore((s) => s.addBack);
+  const clearSession = useCompressStore((s) => s.clearSession);
+  const addBackRaw = useCompressStore((s) => s.addBack);
+  const addBack = (only?: readonly string[]) => addBackRaw(threadId, only);
 
   const level = useSettingsStore((s) => s.apiCompressLevel);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
@@ -146,27 +149,23 @@ export default function CompressBoard() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-none items-start justify-between gap-3 border-b border-line px-5 py-3">
-        <div className="min-w-0">
-          <div className="font-serif text-lg text-ink">
-            {session.target.kind === 'project'
-              ? t('压缩《{name}》', { name: session.target.title })
-              : t('压缩《{name}》的第 {n} 块', {
-                  name: session.target.title,
-                  n: session.target.seq ?? '?',
-                })}
-          </div>
-          {/* D9：为什么这里没有「用这一份」,说在底下那一行(用户去找那个按钮的地方)。
-              这里就不再重复一遍「不会改动你的库」了 —— 同一句话说两遍也是一堵墙的一部分。 */}
-          <div className="mt-0.5 text-[11px] text-muted">{t('一块对一块地核对。')}</div>
+      {/* R4：这里原来是「压缩《项目名》」+ 一个 X。两样都撤了 ——
+          项目名就印在上面那个项目标题上，而**出口是页签**（切回「内容」），不是关掉一个窗口。
+          ⛔ 那个 X 正是 Ocean 撞到的死路：「点击退出压缩工作区就无法回去」。 */}
+      <header className="flex flex-none items-center justify-between gap-3 border-b border-line px-5 py-2">
+        <div className="min-w-0 text-[11px] text-muted">
+          {session.target.kind === 'project'
+            ? t('一块对一块地核对。库里一个字都不动。')
+            : t('只压这一块（第 {n} 块）。库里一个字都不动。', { n: session.target.seq ?? '?' })}
         </div>
-        <button
-          onClick={close}
-          className="flex-none rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
-          aria-label={t('关闭')}
-        >
-          <X size={14} />
-        </button>
+        {session.outcome && !running && (
+          <button
+            onClick={() => clearSession(threadId)}
+            className="flex-none rounded px-2 py-0.5 text-[11px] text-muted transition-colors hover:bg-paper-2 hover:text-ink"
+          >
+            {t('不要这一份')}
+          </button>
+        )}
       </header>
 
       {/* 档位。⚠️ 单块压缩时「只删重复」这一档基本无事可做 —— 见下面那句话。 */}
@@ -413,7 +412,7 @@ export default function CompressBoard() {
                 pair={p}
                 block={blockBySeq.get(p.seq) ?? null}
                 restoredLines={session.restoredLines}
-                onAddBack={addBack}
+                onAddBack={(numbers) => addBack(numbers)}
               />
             ))}
           </div>
@@ -525,7 +524,8 @@ export default function CompressBoard() {
             </button>
           )}
           <button
-            onClick={() => (running ? void cancel() : void run())}
+            onClick={() => (running ? void cancel() : void runIt(threadId))}
+            disabled={!running && busy}
             autoFocus
             className="flex items-center gap-1.5 rounded-md border border-line-strong bg-paper px-3 py-1.5 text-ink transition-colors hover:border-accent hover:text-accent"
           >

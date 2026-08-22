@@ -38,6 +38,15 @@ import { useThreadsStore } from './threadsStore';
 //
 // ⛔ **一个字都不往库里写。** §6.4.1 的 `supersedes` 写入那一段仍然锁着，条件没变。
 //    所以这里没有「用这一份」，只有「复制走」。
+//    ⚠️ 2026-08-22 晚 Ocean 明说要解这条锁（R2 文档 §1），但那一条（写回库 + 原文跟着块走）
+//    还没做 —— **在做完之前这里仍然一个字都不写**。
+//
+// ⭐ **R4（2026-08-22 晚）：整理状态按项目存。**
+// 原来这里是**全局一个 `session`**，于是 Ocean 撞到两件事：「点击退出压缩工作区就无法回去」、
+// 「进入一个项目的压缩面板之后，就无法访问其他项目的 block 内容」。根子是同一个：
+// 一份整理稿占着整个中间区，而它又不属于任何一个项目。
+// 现在每个项目自己拿着自己的那一份（`sessions[threadId]`），页签在项目里切 ——
+// **互不干扰，而且永远回得去**。
 
 export type CompressTarget =
   | { kind: 'project'; threadId: string; title: string }
@@ -76,13 +85,21 @@ export interface CompressSession {
   startedAt: number;
 }
 
+/** 项目里的两个页签。⚠️ 「整理」是那个面的名字，「压缩」是里面的一个动作 ——
+ *  ⛔ 界面上别把两个词混着用（Ocean:「统一一个名字」）。 */
+export type ProjectTab = 'content' | 'tidy';
+
 interface CompressState {
-  /** 核对桌开着的那一份。null = 桌子没开。 */
-  session: CompressSession | null;
+  /** 每个项目自己那一份整理稿。⚠️ 键是 threadId。 */
+  sessions: Record<string, CompressSession>;
+  /** 每个项目停在哪个页签。没记过 = `content`。 */
+  tabs: Record<string, ProjectTab>;
   running: boolean;
+  /** 正在跑的是哪个项目 —— ⚠️ 只有它那个页签该显示进度，别的项目不该跟着转圈。 */
+  runningThreadId: string | null;
   progress: CompressProgress | null;
-  /** 跑之前就失败了的（比如没填 key），和信封里的失败分开 —— 那个在 outcome 里。 */
-  startError: string | null;
+  /** 跑之前就失败了的（比如没填 key），按项目记。和信封里的失败分开 —— 那个在 outcome 里。 */
+  startErrors: Record<string, string>;
 
   /** ⑥ 夜里跑完、等着早上核对的那些。⚠️ **只在内存里**，见文件末尾那段。 */
   results: CompressSession[];
@@ -95,15 +112,17 @@ interface CompressState {
   sizes: Record<string, number>;
   measureQueue: () => Promise<void>;
 
+  setTab: (threadId: string, tab: ProjectTab) => void;
   openProject: (thread: Thread) => Promise<void>;
   openBlock: (thread: Thread, block: Block) => Promise<void>;
   openResult: (index: number) => void;
-  close: () => void;
-  run: () => Promise<void>;
+  /** 「不要这一份了」。⚠️ 页签不会因此消失 —— 它是项目的一部分，不是一个会关掉的窗口。 */
+  clearSession: (threadId: string) => void;
+  run: (threadId: string) => Promise<void>;
   cancel: () => Promise<void>;
   /** D7 · 把丢掉的数字/日期从原文补回去。纯本地，不出网、不花钱。
    *  `only` = 只补这几个（界面上一处一处地补）；不传 = 全补。 */
-  addBack: (only?: readonly string[]) => void;
+  addBack: (threadId: string, only?: readonly string[]) => void;
 
   runQueue: () => Promise<void>;
   dropResult: (index: number) => void;
@@ -139,6 +158,13 @@ export const nightlyDue = (at: string, lastRunDay: string, now: Date): boolean =
   if (lastRunDay === localDay(now)) return false;
   const minutes = now.getHours() * 60 + now.getMinutes();
   return minutes >= Number(m[1]) * 60 + Number(m[2]);
+};
+
+/** 去掉一个键，返回新对象。⚠️ zustand 的状态是不可变的，`delete` 改不动它。 */
+const omit = <T,>(m: Record<string, T>, key: string): Record<string, T> => {
+  if (!(key in m)) return m;
+  const { [key]: _gone, ...rest } = m;
+  return rest;
 };
 
 const freshSession = (target: CompressTarget, source: string, blocks: Block[]): CompressSession => {
@@ -193,14 +219,18 @@ const runCompress = async (
 };
 
 export const useCompressStore = create<CompressState>((set, get) => ({
-  session: null,
+  sessions: {},
+  tabs: {},
   running: false,
+  runningThreadId: null,
   progress: null,
-  startError: null,
+  startErrors: {},
   results: [],
   failures: [],
   batchRunning: false,
   sizes: {},
+
+  setTab: (threadId, tab) => set((st) => ({ tabs: { ...st.tabs, [threadId]: tab } })),
 
   openProject: async (thread) => {
     try {
@@ -210,46 +240,66 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         text,
         blocks,
       );
-      set({ session: fresh, startError: null });
+      set((st) => ({
+        sessions: { ...st.sessions, [thread.id]: fresh },
+        tabs: { ...st.tabs, [thread.id]: 'tidy' },
+        startErrors: omit(st.startErrors, thread.id),
+      }));
       // D-a：压之前先在本地数一遍这个项目有多少重复（只读、不出网、不花钱）。
       // ⚠️ **不挡开桌子**：桌子先开，数出来了再填上去。
       // ⛔ 数不出来就什么都不显示 —— 界面上宁可少一行，也不编一个数。
       try {
         const probe = await duplicateProbe(thread.id);
-        // ⚠️ 比对象身份，不比 threadId：这中间用户可能已经开了别的桌子，
-        // 甚至开了同一个项目的第二张 —— 填错一张桌子比不填更糟。
-        set((st) => (st.session === fresh ? { session: { ...fresh, probe } } : {}));
+        // ⚠️ 比对象身份，不比 threadId：这中间用户可能已经重开了一份，
+        // 填错一份比不填更糟。
+        set((st) =>
+          st.sessions[thread.id] === fresh
+            ? { sessions: { ...st.sessions, [thread.id]: { ...fresh, probe } } }
+            : {},
+        );
       } catch {
         // 见上。
       }
     } catch (e) {
       // 组 pack 要读库。⛔ 读失败也要说出来 —— 一个点了没反应的按钮是这个项目最怕的东西。
-      // ⚠️ 走 toast 而不是 `startError`：这一步失败的话核对桌**根本没开**，
-      // 而 `startError` 只在桌子上显示 —— 那就等于没说。
       toast.error(t('这个项目的上下文组不出来：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
     }
   },
 
   openBlock: async (thread, block) => {
-    set({
-      session: freshSession(
-        { kind: 'block', threadId: thread.id, title: thread.title, blockId: block.id, seq: block.seq },
-        buildBlockPack(thread, block),
-        [block],
-      ),
-      startError: null,
-    });
+    set((st) => ({
+      sessions: {
+        ...st.sessions,
+        [thread.id]: freshSession(
+          { kind: 'block', threadId: thread.id, title: thread.title, blockId: block.id, seq: block.seq },
+          buildBlockPack(thread, block),
+          [block],
+        ),
+      },
+      tabs: { ...st.tabs, [thread.id]: 'tidy' },
+      startErrors: omit(st.startErrors, thread.id),
+    }));
   },
 
+  /** 夜里那一批的收件箱：点一条 → **先切到它自己的项目**，再把它摆到那个项目的整理页签上。
+   *  ⛔ 绝不把别人的整理稿摆在你现在这个项目里（D2 那条，R4 之后仍然成立）。 */
   openResult: (index) => {
     const r = get().results[index];
-    if (r) set({ session: r, startError: null });
+    if (!r) return;
+    const id = r.target.threadId;
+    set((st) => ({
+      sessions: { ...st.sessions, [id]: r },
+      tabs: { ...st.tabs, [id]: 'tidy' },
+      startErrors: omit(st.startErrors, id),
+    }));
+    useThreadsStore.getState().select(id);
   },
 
-  close: () => set({ session: null, progress: null, startError: null }),
+  clearSession: (threadId) =>
+    set((st) => ({ sessions: omit(st.sessions, threadId), startErrors: omit(st.startErrors, threadId) })),
 
-  run: async () => {
-    const session = get().session;
+  run: async (threadId) => {
+    const session = get().sessions[threadId];
     if (!session || get().running) return;
     const s = useSettingsStore.getState();
     // 定格：这一次用的是**现在**设置里的值，之后改设置不再影响这一次的记录。
@@ -262,17 +312,30 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       patched: null,
       addedBack: [],
       restoredLines: [],
+      retry: null,
       startedAt: Date.now(),
     };
-    set({ session: frozen, running: true, progress: { stage: 'starting' }, startError: null });
+    set((st) => ({
+      sessions: { ...st.sessions, [threadId]: frozen },
+      running: true,
+      runningThreadId: threadId,
+      progress: { stage: 'starting' },
+      startErrors: omit(st.startErrors, threadId),
+    }));
     try {
       const { outcome, retry } = await runCompress(frozen.source, frozen.level, frozen.reasoning);
-      set((st) => (st.session ? { session: { ...st.session, outcome, retry } } : {}));
+      set((st) =>
+        st.sessions[threadId]
+          ? { sessions: { ...st.sessions, [threadId]: { ...st.sessions[threadId], outcome, retry } } }
+          : {},
+      );
     } catch (e) {
       // invoke 自己抛（比如那道「已经在跑了」的闸）。⛔ 也要说出来，不能静默。
-      set({ startError: e instanceof Error ? e.message : String(e) });
+      set((st) => ({
+        startErrors: { ...st.startErrors, [threadId]: e instanceof Error ? e.message : String(e) },
+      }));
     } finally {
-      set({ running: false, progress: null });
+      set({ running: false, runningThreadId: null, progress: null });
     }
   },
 
@@ -285,8 +348,8 @@ export const useCompressStore = create<CompressState>((set, get) => ({
   // ⭐ 它是**纯本地**的：那几行在原文里都还在，不问模型、不出网、不花钱。补完这一份就过得了
   // 数字硬闸门（`numbersGateOpen`）—— 见 compress.ts 上那段。
   // ⛔ 一处都补不回去的时候必须说出来：一个点了没反应的按钮是这个项目最怕的东西。
-  addBack: (only) => {
-    const s = get().session;
+  addBack: (threadId, only) => {
+    const s = get().sessions[threadId];
     if (!s?.outcome?.ok) return;
     const before = s.patched;
     const beforeLines = s.restoredLines;
@@ -305,14 +368,17 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       addedBack: [...s.addedBack, ...r.added],
       restoredLines: [...s.restoredLines, ...r.lines],
     };
-    // ⚠️ 夜里那一批的收件箱里躺的是**同一个对象**（`openResult` 直接把它设成 session），
-    // 只换 session 的话，关掉桌子再从右栏点回来，补回去的那几行就没了。
-    set((st) => ({ session: next, results: st.results.map((x) => (x === s ? next : x)) }));
+    // ⚠️ 夜里那一批的收件箱里躺的是**同一个对象**（`openResult` 直接把它摆上去），
+    // 只换 sessions 的话，从右栏点回来那几行就没了。
+    set((st) => ({
+      sessions: { ...st.sessions, [threadId]: next },
+      results: st.results.map((x) => (x === s ? next : x)),
+    }));
     toast.undo(
       t('从原文加回去了 {n} 处数字/日期', { n: r.added.length }),
       t('撤销'),
       () => {
-        const cur = get().session;
+        const cur = get().sessions[threadId];
         if (!cur) return;
         const back: CompressSession = {
           ...cur,
@@ -320,7 +386,10 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           addedBack: s.addedBack,
           restoredLines: beforeLines,
         };
-        set((st) => ({ session: back, results: st.results.map((x) => (x === cur ? back : x)) }));
+        set((st) => ({
+          sessions: { ...st.sessions, [threadId]: back },
+          results: st.results.map((x) => (x === cur ? back : x)),
+        }));
       },
     );
   },
@@ -361,7 +430,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           ...freshSession({ kind: 'project', threadId: thread.id, title: thread.title }, text, blocks),
           startedAt: Date.now(),
         };
-        set({ running: true, progress: { stage: 'starting' } });
+        set({ running: true, runningThreadId: thread.id, progress: { stage: 'starting' } });
         // 夜里那一批也走同一条路（坏了自动重跑一次）——⛔ 早上起来看到一份结构性的坏结果，
         // 那一趟等于白跑，而重跑的钱和现在这一笔是同一个量级。
         const { outcome, retry } = await runCompress(text, s.apiCompressLevel, s.apiReasoning);
@@ -380,7 +449,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           ],
         }));
       } finally {
-        set({ running: false, progress: null });
+        set({ running: false, runningThreadId: null, progress: null });
       }
     }
     // 跑完清空队列，并记下今天已经跑过 —— 补跑判断只看这一个数（一天只跑一次）。

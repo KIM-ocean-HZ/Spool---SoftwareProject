@@ -22,7 +22,8 @@ export default function CompressRail({ thread }: { thread: Thread }) {
   const t = useT();
   const enabled = useSettingsStore((s) => s.apiEngineEnabled);
   const openProject = useCompressStore((s) => s.openProject);
-  const session = useCompressStore((s) => s.session);
+  const setTab = useCompressStore((s) => s.setTab);
+  const sessions = useCompressStore((s) => s.sessions);
   const running = useCompressStore((s) => s.running);
   const batchRunning = useCompressStore((s) => s.batchRunning);
   const results = useCompressStore((s) => s.results);
@@ -70,7 +71,8 @@ export default function CompressRail({ thread }: { thread: Thread }) {
   // 同一个项目同时存在两份互不知道对方的压缩稿，而屏幕上只有一张桌子 —— 那是「沉默的失败」。
   // 两种「还没核对完」都要挡：夜里跑完躺在单子上的，和现在正开着桌子的那一份。
   const pending = mine[0] ?? null;
-  const sessionPending = session?.target.threadId === thread.id && session.outcome?.ok === true;
+  // ⭐ R4：整理稿现在按项目存，所以这里问的是**这个项目自己那一份**。
+  const sessionPending = sessions[thread.id]?.outcome?.ok === true;
 
   const queued = queue.includes(thread.id);
   const toggle = () =>
@@ -81,13 +83,21 @@ export default function CompressRail({ thread }: { thread: Thread }) {
   return (
     <RailSection title={t('压缩')}>
       <div className="space-y-1.5 px-3">
+        {/* ⭐ R4：这个按钮现在只做一件事 —— **把你送到这个项目的整理页签**。
+            ⛔ 它不再「开一张盖住一切的桌子」：那张桌子关掉就找不回来，而找不回来的东西
+            用户只会以为自己弄丢了。已经有一份在等的时候，按钮说的也是同一句「去整理」，
+            不是一句让人不知道该点哪儿的「上一份还没核对完」。 */}
         <button
           type="button"
-          disabled={running || batchRunning || sessionPending}
-          onClick={() => (pending ? openResult(pending.i) : void openProject(thread))}
+          disabled={running || batchRunning}
+          onClick={() => {
+            if (pending) openResult(pending.i);
+            else if (sessionPending) setTab(thread.id, 'tidy');
+            else void openProject(thread);
+          }}
           title={
             pending || sessionPending
-              ? t('这个项目上一份压缩稿还没核对完 —— 先看完那一份，或者把它划掉')
+              ? t('这个项目有一份整理稿还没核对完 —— 点这儿回去看')
               : t('把这个项目的上下文压短一点，压完一块一块给你核对')
           }
           className="flex items-center gap-1.5 rounded border border-line bg-paper px-2 py-1 text-[13px] text-ink-2 transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:text-muted disabled:opacity-60"
@@ -97,15 +107,8 @@ export default function CompressRail({ thread }: { thread: Thread }) {
           ) : (
             <Shrink size={12} className="flex-none" />
           )}
-          {pending || sessionPending ? t('上一份还没核对完') : t('压缩这个项目')}
+          {pending || sessionPending ? t('去看这个项目的整理稿') : t('整理这个项目')}
         </button>
-        {(pending || sessionPending) && (
-          <p className="text-[12px] leading-relaxed text-muted">
-            {pending
-              ? t('点上面那行回到那一份。核对完了，或者不要了，把它划掉就能再压一次。')
-              : t('核对桌就开着。关掉它就等于不要这一份，然后可以再压一次。')}
-          </p>
-        )}
 
         {/* ⑥ 睡前排队（§9.6.4）。⭐ 授权发生在花钱之前，核对仍然在你手上 ——
             这不是无人值守，是排队。 */}

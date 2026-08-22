@@ -69,39 +69,58 @@ const outcome = (text: string): CompressOutcome => ({
   model: 'deepseek-flash',
 });
 
-describe('addBack', () => {
-  const session = (): CompressSession => ({
+const session = (): CompressSession => ({
     target: { kind: 'project', threadId: 'x', title: '申请规划' },
     source: PACK,
     blocks: [],
     level: 'balanced',
     reasoning: 'medium',
-    outcome: outcome(PACK.split('\n').filter((l) => !l.startsWith('GRE')).join('\n')),
-    patched: null,
-    addedBack: [],
-    restoredLines: [],
-    retry: null,
-    probe: null,
-    startedAt: 0,
-  });
+  outcome: outcome(PACK.split('\n').filter((l) => !l.startsWith('GRE')).join('\n')),
+  patched: null,
+  addedBack: [],
+  restoredLines: [],
+  retry: null,
+  probe: null,
+  startedAt: 0,
+});
 
+describe('addBack', () => {
   it('补回去的落在 patched 上，原始 outcome 一个字不动（报账那一行读的是它）', () => {
     const s = session();
-    useCompressStore.setState({ session: s, results: [] });
-    useCompressStore.getState().addBack();
+    useCompressStore.setState({ sessions: { x: s }, results: [] });
+    useCompressStore.getState().addBack('x');
     const st = useCompressStore.getState();
-    expect(st.session!.patched).toContain('2026-11-25');
-    expect(st.session!.addedBack).toEqual(['2026-11-25']);
-    expect(st.session!.outcome!.text).not.toContain('2026-11-25');
+    expect(st.sessions.x.patched).toContain('2026-11-25');
+    expect(st.sessions.x.addedBack).toEqual(['2026-11-25']);
+    expect(st.sessions.x.outcome!.text).not.toContain('2026-11-25');
   });
 
   // ⚠️ 夜里那一批的收件箱里躺的是同一个对象。只换 session 的话，关掉桌子再从右栏点回来，
   // 补回去的那几行就没了 —— 而屏幕上不会有任何东西告诉你它没了。
+  // ⚠️ R4 之后整理稿按项目存，这条更要紧了：收件箱里躺的仍然是同一个对象。
   it('右栏收件箱里那一份跟着一起换', () => {
     const s = session();
-    useCompressStore.setState({ session: s, results: [s] });
-    useCompressStore.getState().addBack();
+    useCompressStore.setState({ sessions: { x: s }, results: [s] });
+    useCompressStore.getState().addBack('x');
     const st = useCompressStore.getState();
-    expect(st.results[0]).toBe(st.session);
+    expect(st.results[0]).toBe(st.sessions.x);
+  });
+});
+
+
+// ⭐ R4（2026-08-22 晚）：整理状态按项目存 —— 两个项目各自那一份互不干扰。
+describe('每个项目自己那一份', () => {
+  it('切页签不影响别的项目，清掉一个也不碰另一个', () => {
+    const a = session();
+    const b = { ...session(), source: '别的项目' };
+    useCompressStore.setState({ sessions: { A: a, B: b }, tabs: {}, results: [] });
+    useCompressStore.getState().setTab('A', 'tidy');
+    expect(useCompressStore.getState().tabs).toEqual({ A: 'tidy' });
+    useCompressStore.getState().clearSession('A');
+    const st = useCompressStore.getState();
+    expect(st.sessions.A).toBeUndefined();
+    expect(st.sessions.B).toBe(b);
+    // ⛔ 页签不因为「不要这一份」而消失 —— 它是项目的一部分，不是一个窗口。
+    expect(st.tabs.A).toBe('tidy');
   });
 });

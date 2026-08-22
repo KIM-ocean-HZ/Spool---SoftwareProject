@@ -13,9 +13,7 @@ import Settings from '@/components/Settings';
 import Sidebar from '@/components/Sidebar';
 import ProjectBoard from '@/components/ProjectBoard';
 import ReviewBoard from '@/components/ReviewBoard';
-import CompressBoard from '@/components/Compress/CompressBoard';
 import NightlyRunner from '@/components/Compress/NightlyRunner';
-import { useCompressStore } from '@/stores/compressStore';
 import ThreadView from '@/components/ThreadView';
 import CompleteThreadPanel from '@/components/ThreadView/CompleteThreadPanel';
 import FollowUpPanel from '@/components/ThreadView/FollowUpPanel';
@@ -85,7 +83,6 @@ export default function App() {
   // addressed by thread id.
   const pinnedView = useThreadsStore((s) => s.pinnedView);
   // WORKPLAN §9.6.2：压缩的核对桌开在中间区域。
-  const compressOpen = useCompressStore((s) => s.session !== null);
   const completingId = useThreadsStore((s) => s.completingId);
   const completingThread = useThreadsStore(selectThreadById(completingId));
   const setCompleting = useThreadsStore((s) => s.setCompleting);
@@ -353,15 +350,11 @@ export default function App() {
               takes the centre column the way a project does. Selecting any project leaves
               whichever one was open (threadsStore.select). */}
           <main className="min-w-0 flex-1 overflow-hidden">
-            {/* WORKPLAN-2026-08-20 §9.6.2 — 压缩的核对桌，和 ProjectBoard / ReviewBoard 同级。
-                ⚠️ It takes the centre column rather than opening in the rail: `railWidth` is
-                ~300px and a block-by-block side-by-side comparison does not fit in it. The rail
-                keeps the action and the status; this is where you read the result.
-                ⚠️ It wins over the pinned views on purpose — you opened it from the rail of the
-                project you are looking at, and it closes back to whatever was underneath. */}
-            {compressOpen ? (
-              <CompressBoard />
-            ) : pinnedView === 'board' ? (
+            {/* ⭐ R4（2026-08-22 晚）：整理面**不再抢中间区**。它现在是项目里的一个页签
+                （见 ThreadView），所以这里只剩三个同级的面。
+                ⛔ 原来那句「它故意盖过 pinned 视图」连同那个行为一起撤了 —— 那正是
+                Ocean 撞到的死路：整理面盖住一切，关掉才回得去，而关掉就等于扔掉那一份。 */}
+            {pinnedView === 'board' ? (
               <ProjectBoard />
             ) : pinnedView === 'review' ? (
               <ReviewBoard />

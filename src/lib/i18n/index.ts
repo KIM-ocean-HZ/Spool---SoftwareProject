@@ -1176,14 +1176,10 @@ const EN: Record<string, string> = {
   'Spool 自己出错了。': 'Spool itself hit an error.',
 
   // WORKPLAN-2026-08-20 §9.6 —— 压缩搬进右侧栏 + 按块核对（2026-08-21）。
-  '压缩这个项目': 'Compress this project',
   '把这个项目的上下文压短一点，压完一块一块给你核对':
     'Shorten this project\u2019s context, then check it block by block',
   '把这一块压短（压完给你核对，不改库）':
     'Shorten this one block (you check the result; nothing is written)',
-  '压缩《{name}》': 'Compressing {name}',
-  '压缩《{name}》的第 {n} 块': 'Compressing block #{n} of {name}',
-  '一块对一块地核对。': 'Checked block by block.',
   // D9：为什么没有「用这一份」——把沉默的缺口写出来。D-b：数字硬闸门也写在这儿。
   '这里没有「用这一份」：这一步只给你复制走，库里一个字都不动。':
     'There is no “use this version” here: this step is yours to copy, and your library is left untouched.',
@@ -1192,6 +1188,20 @@ const EN: Record<string, string> = {
   '这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。':
     'This one is stuck on exactly that — use “add back from the original” above first.',
   // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
+  // R4：整理是项目里的一个页签，不是一个会盖住一切的窗口。
+  '内容': 'Blocks',
+  '整理': 'Tidy up',
+  '整理（在跑）': 'Tidy up (running)',
+  '整理（1）': 'Tidy up (1)',
+  '整理这个项目': 'Tidy up this project',
+  '去看这个项目的整理稿': 'Open this project’s draft',
+  '这个项目有一份整理稿还没核对完 —— 点这儿回去看':
+    'This project has a draft you have not finished checking — this takes you back to it',
+  '一块对一块地核对。库里一个字都不动。':
+    'Checked block by block. Nothing in your library is touched.',
+  '只压这一块（第 {n} 块）。库里一个字都不动。':
+    'Compressing block #{n} only. Nothing in your library is touched.',
+  '不要这一份': 'Discard this draft',
   '块数': 'Blocks',
   '长度': 'Length',
   '用时': 'Time',
