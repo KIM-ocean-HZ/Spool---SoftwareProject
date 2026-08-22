@@ -1198,6 +1198,11 @@ const EN: Record<string, string> = {
     'This one is stuck on exactly that — use “add back from the original” above first.',
   // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
   '从原文加回去': 'Add back from the original',
+  // D-a：压之前先在本地数一遍这个项目有多少重复。
+  '这个项目里没找到重复的内容。压缩干的主要活是合并重复 —— 这一次大概压不短多少，钱可以省下来。':
+    'No repeated content found in this project. Merging repeats is what compression mainly does — this run would not make it much shorter, so you can keep the money.',
+  '这个项目里有 {n} 组内容重复，{b} 块可以并掉 —— 压缩合并的就是这些。':
+    '{n} group(s) of repeated content here, {b} block(s) that could be merged away — that is what compression merges.',
   '你从原文加回去了 {n} 处数字/日期 —— 那几行是你原文里的原话。':
     'You added back {n} number(s)/date(s) from the original — those lines are your own words, verbatim.',
   '从原文加回去了 {n} 处数字/日期': 'Added back {n} number(s)/date(s) from the original',

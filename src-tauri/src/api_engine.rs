@@ -426,6 +426,55 @@ pub fn compress_sidecar_present() -> bool {
 }
 
 // ---------------------------------------------------------------------------------------
+// D-a · 重复度探针（2026-08-22，Ocean）
+// ---------------------------------------------------------------------------------------
+//
+// 实测四轮之后最要紧的一条：**压多少主要取决于这个项目里有多少重复，不取决于你选哪一档。**
+// （同一组设置换个项目差 33 个百分点；三个档位在同一个项目上的中位数统计上分不开。）
+// 那句话原来只是写在界面上的一行提示 —— 它是对的，但它把一个没解决的问题丢给了用户：
+// **他没法在花钱之前知道自己这个项目有没有重复。**
+//
+// 这个探针就是那句提示的解药：**压之前先在本地算一遍。** 只读、纯本地、不出网、不花钱。
+//
+// ⚠️⚠️ **走的是 `find_similar_blocks` 那一套**（字符三元组 Jaccard ≥ 0.6）。
+// ⛔ **绝不另立第二套口径**：用户在界面上看到的「有几组重复」和别的 AI 通过 MCP 看到的
+// 必须是同一个数。两套口径各自都对、各自都能自洽，唯一的症状是两边开始悄悄说不一样的话。
+
+#[derive(Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateProbe {
+    /// 近重复的组数。
+    pub groups: u64,
+    /// 这些组里**可以并掉**的块数（每组保留一块）—— 用户要的是这个数，不是组数。
+    pub extra_blocks: u64,
+    /// 真的看过多少块。⚠️ 撞上 `SIMILAR_SCAN_CAP` 的时候老块没被看过。
+    pub scanned_blocks: u64,
+}
+
+fn probe_from(v: &serde_json::Value) -> DuplicateProbe {
+    let extra_blocks = v["groups"].as_array().map_or(0, |gs| {
+        gs.iter()
+            .map(|g| g["blocks"].as_array().map_or(0, |b| b.len().saturating_sub(1)) as u64)
+            .sum()
+    });
+    DuplicateProbe {
+        groups: v["total_groups"].as_u64().unwrap_or(0),
+        extra_blocks,
+        scanned_blocks: v["scanned_blocks"].as_u64().unwrap_or(0),
+    }
+}
+
+/// 这个项目里有多少重复。⚠️ 算不出来就返回 Err —— 界面于是**不显示这一行**，⛔ 不编一个数。
+#[tauri::command]
+pub fn compress_duplicate_probe(thread_id: String) -> Result<DuplicateProbe, String> {
+    let dir = crate::mcp::app_data_dir().ok_or_else(|| "no app data dir".to_string())?;
+    let conn = crate::mcp::open_db(&dir)?;
+    let raw = crate::mcp::find_similar_blocks_json(&conn, Some(&thread_id), None, Some(30))?;
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    Ok(probe_from(&v))
+}
+
+// ---------------------------------------------------------------------------------------
 // API key 存哪儿
 //
 // ⛔ **不存 settings.json，这一条是硬的。** 两个理由，任何一个单独都成立：
@@ -606,6 +655,30 @@ mod tests {
         assert!(!out.ok);
         assert_eq!(out.kind.as_deref(), Some("auth"), "expected the endpoint to reject a bogus key");
         assert_eq!(out.status, Some(401));
+    }
+
+    // D-a：探针读的是 `find_similar_blocks` 的输出。⚠️ 用户要的是「能并掉几块」——
+    // 每组保留一块，所以是 members - 1，不是 members。写成 members 界面上那个数会虚高。
+    #[test]
+    fn probe_counts_blocks_that_can_be_merged_away() {
+        let v = serde_json::json!({
+            "scanned_blocks": 45,
+            "total_groups": 2,
+            "groups": [
+                { "blocks": [{}, {}, {}] },
+                { "blocks": [{}, {}] },
+            ],
+        });
+        assert_eq!(
+            probe_from(&v),
+            DuplicateProbe { groups: 2, extra_blocks: 3, scanned_blocks: 45 }
+        );
+    }
+
+    #[test]
+    fn probe_reads_zero_when_nothing_repeats() {
+        let v = serde_json::json!({ "scanned_blocks": 12, "total_groups": 0, "groups": [] });
+        assert_eq!(probe_from(&v).extra_blocks, 0);
     }
 
     #[test]

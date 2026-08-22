@@ -372,6 +372,7 @@ pub fn run() {
             api_engine::compress_pack_via_api,
             api_engine::compress_cancel,
             api_engine::compress_sidecar_present,
+            api_engine::compress_duplicate_probe,
             api_engine::api_key_save,
             api_engine::api_key_load,
             api_engine::api_key_present,

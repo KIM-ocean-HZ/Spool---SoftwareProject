@@ -691,6 +691,20 @@ export const cancelCompress = (): Promise<boolean> => invoke<boolean>('compress_
 
 export const sidecarPresent = (): Promise<boolean> => invoke<boolean>('compress_sidecar_present');
 
+/** D-a · 这个项目里有多少重复。⚠️ 走的是 Rust 那一套（`find_similar_blocks`，字符三元组
+ *  Jaccard ≥ 0.6）—— ⛔ 别在 TS 这边另写一套判断，用户看到的和别的 AI 通过 MCP 看到的
+ *  必须是同一个数。纯本地、只读、不出网、不花钱。 */
+export interface DuplicateProbe {
+  /** 近重复的组数。 */
+  groups: number;
+  /** 这些组里可以并掉的块数（每组留一块）—— ⭐ 用户要的是这个数，不是组数。 */
+  extraBlocks: number;
+  scannedBlocks: number;
+}
+
+export const duplicateProbe = (threadId: string): Promise<DuplicateProbe> =>
+  invoke<DuplicateProbe>('compress_duplicate_probe', { threadId });
+
 export const saveApiKey = (key: string): Promise<void> => invoke('api_key_save', { key });
 export const loadApiKey = (): Promise<string> => invoke<string>('api_key_load');
 export const apiKeyPresent = (): Promise<boolean> => invoke<boolean>('api_key_present');

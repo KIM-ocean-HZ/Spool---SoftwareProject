@@ -444,7 +444,27 @@ export default function CompressBoard() {
                 <div>{t('已经等了 {n} 秒（最长等 {max} 秒）', { n: elapsed, max: timeoutSecs })}</div>
               </div>
             ) : (
-              t('点右下角开始。')
+              <div className="space-y-1">
+                <div>{t('点右下角开始。')}</div>
+                {/* ⭐ D-a（2026-08-22）：**压之前**先在本地数一遍这个项目有多少重复。
+                    实测四轮最要紧的一条是「压多少取决于这个项目里有多少重复，不取决于你选哪一档」——
+                    那句话原来只是界面上的一行提示，等于把一个没解决的问题丢给用户：
+                    他没法在花钱之前知道自己这个项目有没有重复。这一行就是那句提示的解药。
+                    ⛔ 数不出来就什么都不说（`probe` 是 null）—— 不编一个数。 */}
+                {session.probe &&
+                  (session.probe.groups === 0 ? (
+                    <div>
+                      {t('这个项目里没找到重复的内容。压缩干的主要活是合并重复 —— 这一次大概压不短多少，钱可以省下来。')}
+                    </div>
+                  ) : (
+                    <div>
+                      {t('这个项目里有 {n} 组内容重复，{b} 块可以并掉 —— 压缩合并的就是这些。', {
+                        n: session.probe.groups,
+                        b: session.probe.extraBlocks,
+                      })}
+                    </div>
+                  ))}
+              </div>
             )}
           </div>
         )}

@@ -1213,7 +1213,7 @@ fn mcp_write_enabled(dir: &std::path::Path) -> bool {
 // Queries (read-only connection per call — freshness by construction, §20.12 Q4)
 // ---------------------------------------------------------------------------------------
 
-fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
+pub(crate) fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
     let path = dir.join("spool.db");
     if !path.exists() {
         return Err(t!("Spool 数据库不存在 — 请先启动一次 Spool 应用。", "No Spool database found — launch the Spool app once first."));
@@ -1916,7 +1916,7 @@ fn jaccard(a: &HashSet<[char; 3]>, b: &HashSet<[char; 3]>) -> f64 {
     inter as f64 / (a.len() + b.len() - inter) as f64
 }
 
-fn find_similar_blocks_json(
+pub(crate) fn find_similar_blocks_json(
     conn: &Connection,
     thread_id: Option<&str>,
     workspace_title: Option<&str>,

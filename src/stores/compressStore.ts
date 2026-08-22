@@ -3,11 +3,13 @@ import { listen } from '@tauri-apps/api/event';
 import {
   cancelCompress,
   compressPack,
+  duplicateProbe,
   loadApiKey,
   PROGRESS_EVENT,
   type CompressLevel,
   type CompressOutcome,
   type CompressProgress,
+  type DuplicateProbe,
 } from '@/lib/ai/compress';
 import { addBackNumbers } from '@/lib/ai/compressBlocks';
 import type { Block } from '@/lib/db/blocks';
@@ -60,6 +62,10 @@ export interface CompressSession {
   patched: string | null;
   /** 补回去了的那几个数字/日期。⚠️ **必须说出来**：稿子里从此有一行不是模型写的。 */
   addedBack: string[];
+  /** D-a：这个项目里有多少重复，**压之前**就算好。null = 还没算出来（或者算不出来 ——
+   *  ⛔ 那时候界面上什么都不说，不编一个数）。⚠️ 只有整项目压缩有它：重复是跨块的，
+   *  单独压一块本来就看不见别的块。 */
+  probe: DuplicateProbe | null;
   startedAt: number;
 }
 
@@ -138,6 +144,7 @@ const freshSession = (target: CompressTarget, source: string, blocks: Block[]): 
     outcome: null,
     patched: null,
     addedBack: [],
+    probe: null,
     startedAt: 0,
   };
 };
@@ -155,10 +162,23 @@ export const useCompressStore = create<CompressState>((set, get) => ({
   openProject: async (thread) => {
     try {
       const { text, blocks } = await buildThreadPack(thread);
-      set({
-        session: freshSession({ kind: 'project', threadId: thread.id, title: thread.title }, text, blocks),
-        startError: null,
-      });
+      const fresh = freshSession(
+        { kind: 'project', threadId: thread.id, title: thread.title },
+        text,
+        blocks,
+      );
+      set({ session: fresh, startError: null });
+      // D-a：压之前先在本地数一遍这个项目有多少重复（只读、不出网、不花钱）。
+      // ⚠️ **不挡开桌子**：桌子先开，数出来了再填上去。
+      // ⛔ 数不出来就什么都不显示 —— 界面上宁可少一行，也不编一个数。
+      try {
+        const probe = await duplicateProbe(thread.id);
+        // ⚠️ 比对象身份，不比 threadId：这中间用户可能已经开了别的桌子，
+        // 甚至开了同一个项目的第二张 —— 填错一张桌子比不填更糟。
+        set((st) => (st.session === fresh ? { session: { ...fresh, probe } } : {}));
+      } catch {
+        // 见上。
+      }
     } catch (e) {
       // 组 pack 要读库。⛔ 读失败也要说出来 —— 一个点了没反应的按钮是这个项目最怕的东西。
       // ⚠️ 走 toast 而不是 `startError`：这一步失败的话核对桌**根本没开**，
