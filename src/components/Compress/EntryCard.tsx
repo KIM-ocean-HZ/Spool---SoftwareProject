@@ -28,7 +28,10 @@ export default function EntryCard({
   block: Block | null;
 }) {
   const t = useT();
-  const [changesOpen, setChangesOpen] = useState(false);
+  // ⭐ D8（2026-08-22，Ocean 原话「不要折叠隐藏，不会有人点进去看的」）：默认展开。
+  // 核对界面存在的全部理由就是让人看见改了什么 —— 把改了什么折叠起来，等于做了这个功能
+  // 又把它关上。折叠钮留着，是为了看完了能收起来，不是为了一开始就藏着。
+  const [changesOpen, setChangesOpen] = useState(true);
 
   const band = block ? bandOf(block) : null;
   const pct = entryPercent(pair);
@@ -58,19 +61,20 @@ export default function EntryCard({
           {head.time}
           {head.source ? ` · ${head.source}` : ''}
         </span>
+        {/* ⛔ D0：字符数是内部量纲。这一块短了多少，说一句就够。 */}
         {pct !== null ? (
           <span className="flex-none text-muted">
-            {t('{a} → {b} 字符（剩 {p}%）', {
-              a: pair.before!.raw.length.toLocaleString(),
-              b: pair.after!.raw.length.toLocaleString(),
-              p: pct,
-            })}
+            {pct > 100
+              ? t('反而长了 {d}%', { d: pct - 100 })
+              : pct === 100
+                ? t('没变短')
+                : t('短了 {d}%', { d: 100 - pct })}
           </span>
         ) : (
           <span className="flex-none font-medium" style={{ color: 'var(--urgent)' }}>
             {pair.before
-              ? t('⚠️ 这一块在压缩稿里找不到')
-              : t('⚠️ 原文里没有这一块 —— 它自己编了一个编号')}
+              ? t('这一块在压缩稿里找不到')
+              : t('原文里没有这一块 —— 它自己编了一个编号')}
           </span>
         )}
       </header>
@@ -122,7 +126,7 @@ export default function EntryCard({
             ))}
             {pair.audit.missingNumbers.length > 0 && (
               <div className="font-medium">
-                {t('⚠️ 这一块里有 {n} 个数字/日期没了：{s}', {
+                {t('这一块里有 {n} 个数字/日期没了：{s}', {
                   n: pair.audit.missingNumbers.length,
                   s: pair.audit.missingNumbers.slice(0, 10).join('、'),
                 })}
@@ -135,7 +139,7 @@ export default function EntryCard({
             {/* ⚠️ 「编」比「丢」更坏：一行编出来的批注穿的是你自己的权威。 */}
             {pair.audit.fabricatedNotes.map((s) => (
               <div key={s} className="font-medium">
-                {t('⚠️ 它写了一条你没写过的批注：{s}', { s })}
+                {t('它写了一条你没写过的批注：{s}', { s })}
               </div>
             ))}
           </div>

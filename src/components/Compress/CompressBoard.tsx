@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ClipboardList, Copy, Loader2, X } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Loader2, X } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import EntryCard from './EntryCard';
 import {
@@ -11,7 +11,6 @@ import {
   formatYuan,
   LEVEL_HINTS,
   LEVEL_LABELS,
-  LEVEL_TARGET,
   measurementRecord,
   type CompressLevel,
 } from '@/lib/ai/compress';
@@ -43,7 +42,6 @@ export default function CompressBoard() {
   const update = useSettingsStore((s) => s.update);
 
   const [copied, setCopied] = useState(false);
-  const [recorded, setRecorded] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
 
@@ -74,6 +72,24 @@ export default function CompressBoard() {
   );
   const cost = useMemo(() => (outcome?.ok ? estimateCost(outcome) : null), [outcome]);
 
+  // ⛔ 2026-08-22（D0，新红线「用户不能看到一个测试环境的 Spool」）：token 数、缓存命中、
+  // 估算金额是**我做实测要的数**，不是用户要的数 —— 屏幕上那一行和底部那个「复制这次的
+  // 数据」按钮都撤了。⭐ 但这些数还得取得到，所以它落到这条不在正常路径上的线上：
+  // devtools 的 Console。要往 `Deepseek-API-compress-test.md` 追一条，就在那儿拷。
+  useEffect(() => {
+    if (!outcome?.ok || !audit || !session) return;
+    console.info(
+      measurementRecord({
+        project: session.target.title,
+        // 定格的那一份，不是现在设置里的那一份。
+        level: session.level,
+        reasoning: session.reasoning,
+        outcome,
+        audit,
+      }),
+    );
+  }, [outcome, audit, session]);
+
   // 四带记号要查库里那一块（⛔ 从原块取，不从压缩稿猜）。按 seq 索引，因为 pack 里印的就是它。
   const blockBySeq = useMemo(() => {
     const m = new Map<number, Block>();
@@ -86,30 +102,37 @@ export default function CompressBoard() {
   const structureOk =
     !byEntry || (byEntry.dropped === 0 && byEntry.invented === 0 && byEntry.duplicated.length === 0);
   const pct = audit ? Math.round((audit.charsAfter / Math.max(1, audit.charsBefore)) * 100) : null;
-  const [lo, hi] = LEVEL_TARGET[session.level as CompressLevel] ?? LEVEL_TARGET.balanced;
-  const missedTarget = pct !== null && pct > hi;
+
+  // ⭐ D4-a（2026-08-22，Ocean 原话「写了一大堆文字，但是根本看不懂想表达什么……摩擦极大」）：
+  // 先回答唯一那个问题 ——「这一份能不能用？」下面那一堆行从此是**证据**，不是结论。
+  // ⛔ 挑最重的那一条说，不要把六条并列 —— 并列就是又一堵墙。
+  // 顺序就是严重程度：整份废掉的排前面，少一处小东西的排后面。
+  const blocker = ((): string | null => {
+    if (!audit) return null;
+    if (byEntry && byEntry.duplicated.length > 0) return t('它把同样的内容写了两遍');
+    if (audit.missingNumbers.length > 0)
+      return t('丢了 {n} 个数字或日期', { n: audit.missingNumbers.length });
+    if (byEntry && byEntry.dropped > 0) return t('有 {n} 块整块不见了', { n: byEntry.dropped });
+    if (audit.fabricatedNotes.length > 0)
+      return t('它写了 {n} 条你没写过的批注', { n: audit.fabricatedNotes.length });
+    if (audit.missingSections.length > 0) return t('少了整节');
+    if (audit.missingPersonal.length > 0)
+      return t('少了 {n} 条你自己写的内容', { n: audit.missingPersonal.length });
+    if (audit.missingNotes.length > 0) return t('少了 {n} 条批注', { n: audit.missingNotes.length });
+    if (audit.missingHighlights.length > 0)
+      return t('少了 {n} 处你划的重点', { n: audit.missingHighlights.length });
+    if (audit.missingRelations.length > 0)
+      return t('少了 {n} 条引用或替代关系', { n: audit.missingRelations.length });
+    if (byEntry && byEntry.invented > 0)
+      return t('它编了 {n} 个原文里没有的编号', { n: byEntry.invented });
+    return null;
+  })();
 
   const copy = async () => {
     if (!outcome?.ok) return;
     await writeText(outcome.text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  };
-
-  const copyRecord = async () => {
-    if (!outcome?.ok || !audit) return;
-    await writeText(
-      measurementRecord({
-        project: session.target.title,
-        // 定格的那一份，不是现在设置里的那一份。
-        level: session.level,
-        reasoning: session.reasoning,
-        outcome,
-        audit,
-      }),
-    );
-    setRecorded(true);
-    setTimeout(() => setRecorded(false), 1500);
   };
 
   return (
@@ -156,55 +179,55 @@ export default function CompressBoard() {
             {t(LEVEL_LABELS[k])}
           </button>
         ))}
+        {/* ⛔ D5（2026-08-22，Ocean 原话「这个提示自相矛盾，又说不取决于你选哪一档，又给出
+            选择按键」）：这里原来还单挂一行「⚠️ 实测：压多少主要取决于这个项目里有多少重复，
+            不取决于你选哪一档」。那句话是对的，但它和它上面那三个按钮直接打架 —— 等于把一个
+            没解决的问题丢给用户。现在它并回档位说明里（「看这个项目里有多少重复」），
+            ⭐ 真正的解药是 D-a：压之前先本地算一遍这个项目有多少重复，接近 0 就直说别花这个钱。 */}
         <span className="text-muted/70">{t(LEVEL_HINTS[level])}</span>
-        {/* ⭐ 实测里最要紧的一条，放在选档位的地方 —— 因为它说的正是「这个旋钮没你想的管用」。 */}
-        <span className="w-full text-muted/70">
-          {t('⚠️ 实测：压多少主要取决于这个项目里有多少重复，不取决于你选哪一档。')}
-        </span>
       </div>
 
       {/* ⚠️⚠️ §9.6.6 点名要在界面上说清的那句话：单块压缩不是「项目压缩缩小版」。 */}
       {session.target.kind === 'block' && (
         <p className="flex-none border-b border-line px-5 py-2 text-[11px] leading-relaxed text-muted">
           {level === 'conservative'
-            ? t('⚠️ 「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。')
+            ? t('「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。')
             : t('单独压一块，它只能把这一块自己的话说短，看不见别的块，也就删不掉跨块的重复。一块特别长（比如一整篇网页正文）的时候最划算。')}
         </p>
       )}
 
-      {/* 顶部那条账。⚠️ 块数和字符数都是 Spool 自己数的，不问模型。 */}
+      {/* 顶部那条账。⚠️ 块数和字符数都是 Spool 自己数的，不问模型。
+          结构（D4-a）：**第一行是结论，其余全是证据。** 加新东西之前先想清楚它是哪一种。 */}
+      {/* 红不红跟着结论走。⚠️ 原来这里读的是 auditHasLosses —— 它只管「一字不改」那条线，
+          于是「有 3 块整块不见了」这种结构性的坏结果，整条账反而是正常颜色的。 */}
       {audit && (
         <div
           className="flex flex-none flex-col gap-1 border-b border-line px-5 py-2 text-[11px]"
-          style={auditHasLosses(audit) ? { color: 'var(--urgent)' } : undefined}
+          style={blocker ? { color: 'var(--urgent)' } : undefined}
         >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* 结论。⚠️ D5-b：整块屏幕上只有这里能出现 ⚠️，而且只在「这一份别用」的时候 ——
+              一屏七八个 ⚠️ 之后，⚠️ 就不再是警告，是背景噪声。 */}
+          <div className="text-[13px] font-medium">
+            {blocker
+              ? t('⚠️ 这一份别用 —— {why}', { why: blocker })
+              : pct !== null && pct >= 100
+                ? t('这一份没压出什么来 —— 一个字都没短。')
+                : t('这一份可以复制走 —— 比原来短了 {d}%。', { d: 100 - (pct ?? 100) })}
+          </div>
+
+          {/* 下面全是证据。⛔ D0：原来这一行里印的是「28,189 → 23,687 字符（剩 84%）」，
+              字符数是内部量纲；旁边还有一句「这一档的目标是压到 50–75%，这次是 84% ——
+              没达标」（D10 撤掉：§9.5 已经写明那个目标是空话，拿一个已知不成立的目标去判
+              用户的稿子不合格，判的是我自己的提示词）。提示词里那个目标没动，只是不再上界面。 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
             <span>
               {t('原始 {a} 块 → 压缩后 {b} 块', {
                 a: byEntry?.before ?? audit.entriesBefore,
                 b: byEntry?.after ?? audit.entriesAfter,
               })}
             </span>
-            <span className="text-muted">
-              {t('{a} → {b} 字符（剩 {p}%）', {
-                a: audit.charsBefore.toLocaleString(),
-                b: audit.charsAfter.toLocaleString(),
-                p: pct ?? 0,
-              })}
-            </span>
-            {/* §9.6.1 ②：目标从一句空话变成一个读数。达不达标由你看着办，
-                但它不再被悄悄忽略。⛔ 提示词里那个目标**没有**跟着改成实测值。 */}
-            <span
-              className="text-muted"
-              style={missedTarget ? { color: 'var(--urgent)' } : undefined}
-              title={t('这个目标是发给模型的提示词里写着的那一个，不是事后编的')}
-            >
-              {missedTarget
-                ? t('⚠️ 这一档的目标是压到 {lo}–{hi}%，这次是 {p}% —— 没达标', { lo, hi, p: pct ?? 0 })
-                : t('这一档的目标是压到 {lo}–{hi}%，这次是 {p}%', { lo, hi, p: pct ?? 0 })}
-            </span>
             {outcome?.ok && (
-              <span className="text-muted">{t('用了 {n} 秒', { n: Math.round(outcome.ms / 1000) })}</span>
+              <span>{t('用了 {n} 秒', { n: Math.round(outcome.ms / 1000) })}</span>
             )}
           </div>
 
@@ -218,7 +241,7 @@ export default function CompressBoard() {
                   t('有 {n} 块是它自己编出来的编号。', { n: byEntry.invented })}
                 {/* ⚠️ 实测撞见过：它把整份 pack 原样写了两遍，压完剩 194%。 */}
                 {byEntry.duplicated.length > 0 &&
-                  t('⚠️ 有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍，这一份不能用。', {
+                  t('有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍。', {
                     n: byEntry.duplicated.length,
                     s: byEntry.duplicated.join('、#'),
                   })}
@@ -247,7 +270,7 @@ export default function CompressBoard() {
                     而这一档的名字就叫「保留结论和数字」。所以这一行放在最前面，并且列出来。 */}
                 {audit.missingNumbers.length > 0 && (
                   <div className="font-medium">
-                    {t('⚠️ 有 {n} 个数字/日期在压缩稿里再也找不到了：{s}', {
+                    {t('有 {n} 个数字/日期在压缩稿里再也找不到了：{s}', {
                       n: audit.missingNumbers.length,
                       s: audit.missingNumbers.slice(0, 12).join('、'),
                     })}
@@ -262,7 +285,7 @@ export default function CompressBoard() {
                 )}
                 {audit.fabricatedNotes.length > 0 && (
                   <div className="font-medium">
-                    {t('⚠️ 它凭空写了 {n} 条你没写过的批注：{s}', {
+                    {t('它凭空写了 {n} 条你没写过的批注：{s}', {
                       n: audit.fabricatedNotes.length,
                       s: audit.fabricatedNotes.join('、'),
                     })}
@@ -284,7 +307,7 @@ export default function CompressBoard() {
               ⛔ 别拿「编造」去喊这件事：喊一次假的，真的编造出现时用户已经学会忽略它了。 */}
           {audit.quoteRewrites > 0 && (
             <div className="text-muted">
-              {t('⚠️ 有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。', {
+              {t('有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。', {
                 n: audit.quoteRewrites,
               })}
             </div>
@@ -293,24 +316,20 @@ export default function CompressBoard() {
           <div className="text-muted">
             {outcome?.cuts
               ? t('它说它删的是：{s}', { s: outcome.cuts.replace(/\s*\n\s*/g, ' ') })
-              : t('⚠️ 它没有说自己删掉了什么。')}
+              : t('它没有说自己删掉了什么。')}
           </div>
 
+          {/* ⛔ D0：一个数就够。原来这一行是「输入 15,360 token，输出 13,336 token，其中 512
+              命中了缓存。按官方价目算大约 ¥0.1646」—— token 和缓存命中是我做实测要的数。
+              ⚠️ 这个钱不是估算：它是拿接口回报的真实用量乘官方价目算出来的。缓存命中没报的
+              时候按全部未命中算，所以那种情况写「最多」，不写「大约」。 */}
           {outcome?.ok && (
             <div className="text-muted">
-              {t('这一次：输入 {i} token，输出 {o} token', {
-                i: outcome.inputTokens.toLocaleString(),
-                o: outcome.outputTokens.toLocaleString(),
-              })}
-              {outcome.cachedInputTokens !== null
-                ? t('，其中 {c} 命中了缓存', { c: outcome.cachedInputTokens.toLocaleString() })
-                : t('，这家接口没有报缓存命中')}
               {cost
-                ? t('。按官方价目算大约 {y}{u}', {
-                    y: formatYuan(cost.yuan),
-                    u: cost.cacheUnknown ? t('（按全部未命中算，这是上限）') : '',
-                  })
-                : t('。认不出这个模型的价目，所以不报价。')}
+                ? cost.cacheUnknown
+                  ? t('这一次最多花了 {y}', { y: formatYuan(cost.yuan) })
+                  : t('这一次花了大约 {y}', { y: formatYuan(cost.yuan) })
+                : t('认不出这个模型的价目，算不出这次花了多少钱。')}
             </div>
           )}
         </div>
@@ -341,7 +360,7 @@ export default function CompressBoard() {
           <>
             {/* ⚠️ 退回整份对照，**并且说出来为什么** —— 解析失败必须是一个看得见的结果。 */}
             <p className="mb-2 text-[11px]" style={{ color: 'var(--urgent)' }}>
-              {t('⚠️ 这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。')}
+              {t('这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。')}
             </p>
             <div className="grid grid-cols-2 gap-4">
               <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[1.55] text-ink-2">
@@ -399,20 +418,6 @@ export default function CompressBoard() {
         {/* ⛔ 这句话必须在。这一步不写库，用户不该以为点了什么就生效了。 */}
         <span className="text-muted">{t('这一步不会改动你的库 —— 压缩稿只在这个界面里。')}</span>
         <div className="flex items-center gap-2">
-          {outcome?.ok && (
-            <button
-              onClick={() => void copyRecord()}
-              title={t('把这一次的 token 数、缓存命中、耗时、估算金额拷走')}
-              className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
-                recorded
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
-              }`}
-            >
-              {recorded ? <Check size={12} /> : <ClipboardList size={12} />}
-              <span>{recorded ? t('已复制') : t('复制这次的数据')}</span>
-            </button>
-          )}
           {outcome?.ok && (
             <button
               onClick={() => void copy()}

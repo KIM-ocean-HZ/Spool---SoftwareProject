@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Loader2, Moon, Shrink, X } from 'lucide-react';
 import RailSection from '@/components/RightRail/RailSection';
-import { estimateYuanForChars, formatYuan } from '@/lib/ai/compress';
 import type { Thread } from '@/lib/db/threads';
 import { useT } from '@/lib/i18n';
 import { useCompressStore } from '@/stores/compressStore';
@@ -22,7 +21,6 @@ import { useThreadsStore } from '@/stores/threadsStore';
 export default function CompressRail({ thread }: { thread: Thread }) {
   const t = useT();
   const enabled = useSettingsStore((s) => s.apiEngineEnabled);
-  const model = useSettingsStore((s) => s.apiModel);
   const openProject = useCompressStore((s) => s.openProject);
   const running = useCompressStore((s) => s.running);
   const batchRunning = useCompressStore((s) => s.batchRunning);
@@ -52,9 +50,9 @@ export default function CompressRail({ thread }: { thread: Thread }) {
   }
   // 合计只把**量出来的**那几行加进去 —— ⛔ 少量出一个就不显示合计，不拿半份数字当全份。
   const measured = queue.map((id) => sizes[id]).filter((n): n is number => n !== undefined);
-  const totalYuan =
+  const totalChars =
     measured.length === queue.length && queue.length > 0
-      ? measured.reduce((sum, c) => sum + (estimateYuanForChars(c, model) ?? 0), 0)
+      ? measured.reduce((sum, c) => sum + c, 0)
       : null;
 
   const queued = queue.includes(thread.id);
@@ -129,33 +127,34 @@ export default function CompressRail({ thread }: { thread: Thread }) {
           </div>
         )}
 
-        {/* 睡前那张单子：每一行多大、大概多少钱，底下一个合计。
-            ⚠️⚠️ **这是估算，不是账单。** 跑完之后每一份自己那条账里写的才是真实数字。 */}
+        {/* 睡前那张单子：每一行多大，底下一个合计。
+            ⛔ D10（2026-08-22，Ocean 原话「价格预估准确度没有保证……不然就不显示」）：
+            这里原来每行还印一个「约 ¥X」和一个「合计（估算）」。那个估算只按输入字符线性
+            外推，而 08-22 那次实测证明**输出 token 可以和输入一样多**、输出单价还是未命中
+            输入的三倍 —— 它是系统性偏低的。
+            ⚠️ 代价说明白：睡前勾项目的时候不再看得见「今晚大概多少钱」。字数仍然给出量级，
+            真实花销在每一份跑完之后的核对桌上（那个数是按接口回报的真实用量算的）。 */}
         {queue.length > 0 && (
           <ul className="space-y-0.5 text-[12px] text-muted">
             {queue.map((id) => {
               const title = titles.get(id) ?? id;
               const chars = sizes[id];
-              const yuan = chars === undefined ? null : estimateYuanForChars(chars, model);
               return (
                 <li key={id} className="flex items-baseline gap-1.5">
                   <span className="min-w-0 flex-1 truncate">{title}</span>
                   <span className="flex-none">
                     {chars === undefined
                       ? t('量一下…')
-                      : yuan === null
-                        ? t('{k} 千字', { k: Math.round(chars / 100) / 10 })
-                        : t('{k} 千字 · 约 {y}', {
-                            k: Math.round(chars / 100) / 10,
-                            y: formatYuan(yuan),
-                          })}
+                      : t('{k} 千字', { k: Math.round(chars / 100) / 10 })}
                   </span>
                 </li>
               );
             })}
             <li className="flex items-baseline gap-1.5 border-t border-line pt-0.5">
-              <span className="min-w-0 flex-1 truncate">{t('合计（估算）')}</span>
-              <span className="flex-none">{totalYuan === null ? '—' : t('约 {y}', { y: formatYuan(totalYuan) })}</span>
+              <span className="min-w-0 flex-1 truncate">{t('合计')}</span>
+              <span className="flex-none">
+                {totalChars === null ? '—' : t('{k} 千字', { k: Math.round(totalChars / 100) / 10 })}
+              </span>
             </li>
           </ul>
         )}

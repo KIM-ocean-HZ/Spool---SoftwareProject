@@ -1075,8 +1075,8 @@ const EN: Record<string, string> = {
   '思考力度': 'How hard it thinks',
   // '默认' 上面第 930 行已经有了，不重复。
   '关掉': 'Off',
-  '实测下来，一次压缩里大约九成的钱和九成的时间花在「思考」上。调低它能省多少、质量掉不掉，这几个值都试一次就知道。不认的值会被接口顶回来，那一次不收费。':
-    'Measured: about nine tenths of both the bill and the wait goes on thinking rather than on compressing. Whether turning it down saves that — and what it costs in quality — is one run per value away. A value the endpoint rejects is not billed.',
+  '模型下笔之前会先想一会儿，这一段也按字数收费。默认 low：想得短一点，压出来的东西不比想得久的差，钱和时间都省下大半。不认的值会被接口顶回来，那一次不收费。':
+    'The model thinks before it writes, and that thinking is billed by the word like everything else. The default is low: thinking briefly compresses just as well as thinking at length, for well under half the money and the time. A value the endpoint rejects is not billed.',
   '模型': 'Model',
   '单次最长等待（秒）': 'Longest wait per run (seconds)',
   '必须是 https 开头 —— 用普通 http 的话，你的 key 会明文发出去。':
@@ -1092,14 +1092,12 @@ const EN: Record<string, string> = {
   '只删重复': 'Only drop repeats',
   '保留结论和数字': 'Keep conclusions and numbers',
   '压到最短': 'As short as it goes',
-  '同一件事在别处说过了才合并。实测压完剩 73–100% —— 项目里没有重复的话，它几乎不会变短。':
-    'Merges a thing only once it has been said elsewhere. Measured: 73–100% left — with no repeats in the project, it barely shortens anything.',
-  '去冗余，但结论、日期、数字、金额、人名一字不改。实测压完剩 60–100%，看这个项目里有多少重复。':
-    'Removes redundancy, but conclusions, dates, numbers, sums and names stay word for word. Measured: 60–100% left, depending on how much this project repeats itself.',
-  '只留结论、数字和你自己写的东西。实测压完剩 68–81%（5 次，只在一个项目上跑过）—— 并不比上一档更短。':
-    'Keeps conclusions, numbers and what you wrote yourself. Measured: 68–81% left (5 runs, one project only) — no shorter than the level above.',
-  '⚠️ 实测：压多少主要取决于这个项目里有多少重复，不取决于你选哪一档。':
-    '⚠️ Measured: how much comes off depends mostly on how much this project repeats itself, not on which level you pick.',
+  '同一件事在别处说过了才合并。一般压完剩 73–100% —— 项目里没有重复的话，它几乎不会变短。':
+    'Merges a thing only once it has been said elsewhere. Usually 73–100% is left — with no repeats in the project, it barely shortens anything.',
+  '去冗余，但结论、日期、数字、金额、人名一字不改。一般压完剩 60–100%，看这个项目里有多少重复。':
+    'Removes redundancy, but conclusions, dates, numbers, sums and names stay word for word. Usually 60–100% is left, depending on how much this project repeats itself.',
+  '只留结论、数字和你自己写的东西。一般压完剩 68–81%，并不比上一档更短。':
+    'Keeps conclusions, numbers and what you wrote yourself. Usually 68–81% is left — no shorter than the level above.',
   '开始压缩': 'Compress',
   '再压一次': 'Compress again',
   '正在启动联网的那个小程序…': 'Starting the program that does the networking…',
@@ -1121,28 +1119,39 @@ const EN: Record<string, string> = {
   '点右下角开始。': 'Press the button at the bottom right to start.',
   '压缩稿': 'Compressed',
   '复制压缩稿': 'Copy the compressed version',
-  '复制这次的数据': 'Copy this run\u2019s numbers',
-  '把这一次的 token 数、缓存命中、耗时、估算金额拷走':
-    'Copy this run\u2019s token counts, cache hits, duration and estimated cost',
+  // D4-a：结论行。⚠️ D5-b：整块屏幕上只有这一句里允许出现 ⚠️。
+  '⚠️ 这一份别用 —— {why}': '⚠️ Do not use this one — {why}',
+  '这一份没压出什么来 —— 一个字都没短。': 'Nothing came off this one — it is no shorter.',
+  '这一份可以复制走 —— 比原来短了 {d}%。': 'This one is good to copy — {d}% shorter than the original.',
+  '它把同样的内容写了两遍': 'it wrote the same content twice',
+  '丢了 {n} 个数字或日期': '{n} number(s) or date(s) are gone',
+  '有 {n} 块整块不见了': '{n} whole block(s) are missing',
+  '它写了 {n} 条你没写过的批注': 'it wrote {n} annotation(s) you never wrote',
+  '少了整节': 'a whole section is gone',
+  '少了 {n} 条引用或替代关系': '{n} citation/supersede link(s) are gone',
+  '它编了 {n} 个原文里没有的编号': 'it invented {n} block number(s) the original never had',
+  // 「少了 {n} 条批注」/「少了 {n} 条你自己写的内容」/「少了 {n} 处你划的重点」下面证据那一段
+  // 已经有了，同一个键复用，不重复写。
   '原始 {a} 块 → 压缩后 {b} 块': '{a} blocks → {b} blocks',
-  '{a} → {b} 字符（剩 {p}%）': '{a} → {b} characters ({p}% left)',
+  '比原来短了 {d}%': '{d}% shorter than the original',
+  '反而比原来长了 {d}%': '{d}% LONGER than the original',
+  '短了 {d}%': '{d}% shorter',
+  '反而长了 {d}%': '{d}% longer',
+  '没变短': 'no shorter',
   '用了 {n} 秒': 'took {n}s',
   '少了整节：{s}': 'A whole section is gone: {s}',
   '少了 {n} 条你自己写的内容': '{n} things you wrote yourself are gone',
   '少了 {n} 处你划的重点': '{n} of your highlights are gone',
   '你的批注、你自己写的内容、你划的重点，一条都没少，也没有多。':
     'Your annotations, the things you wrote and your highlights all survived — and nothing was invented.',
-  '⚠️ 它凭空写了 {n} 条你没写过的批注：{s}':
-    '⚠️ It invented {n} annotation(s) you never wrote: {s}',
+  '它凭空写了 {n} 条你没写过的批注：{s}':
+    'It invented {n} annotation(s) you never wrote: {s}',
   '它说它删的是：{s}': 'It says it cut: {s}',
-  '⚠️ 它没有说自己删掉了什么。': '⚠️ It did not say what it cut.',
-  '这一次：输入 {i} token，输出 {o} token': 'This run: {i} tokens in, {o} tokens out',
-  '，其中 {c} 命中了缓存': ', {c} of them cache hits',
-  '，这家接口没有报缓存命中': ', and this endpoint does not report cache hits',
-  '。按官方价目算大约 {y}{u}': '. At the published prices that is about {y}{u}',
-  '（按全部未命中算，这是上限）': ' (counted as all misses, so this is an upper bound)',
-  '。认不出这个模型的价目，所以不报价。':
-    '. The price list for this model is not known here, so no cost is shown.',
+  '它没有说自己删掉了什么。': 'It did not say what it cut.',
+  '这一次花了大约 {y}': 'This run cost about {y}',
+  '这一次最多花了 {y}': 'This run cost at most {y}',
+  '认不出这个模型的价目，算不出这次花了多少钱。':
+    'The price list for this model is not known here, so this run’s cost cannot be worked out.',
 
   // 失败的每一类各说各的（§6.2 约束 4）。⛔ 不许塌成一句 "It failed."
   '这个 key 被拒绝了。检查一下是不是复制少了字符，或者已经被吊销。':
@@ -1176,39 +1185,31 @@ const EN: Record<string, string> = {
     'Checked block by block. Nothing here touches your library — the compressed version lives only on this screen.',
   '这一步不会改动你的库 —— 压缩稿只在这个界面里。':
     'Nothing here touches your library — the compressed version lives only on this screen.',
-  '⚠️ 「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。':
-    '⚠️ \u201cOnly drop repeats\u201d has almost nothing to do on a single block: merging repeats is the main job, and repeats live ACROSS blocks — one block on its own cannot see the others. To drop repeats, compress the whole project.',
+  '「只删重复」这一档在单块上基本无事可做：压缩干的主要活是合并重复，而重复是跨块的 —— 单独压一块，它看不见别的块。要删重复，压整个项目。':
+    '\u201cOnly drop repeats\u201d has almost nothing to do on a single block: merging repeats is the main job, and repeats live ACROSS blocks — one block on its own cannot see the others. To drop repeats, compress the whole project.',
   '单独压一块，它只能把这一块自己的话说短，看不见别的块，也就删不掉跨块的重复。一块特别长（比如一整篇网页正文）的时候最划算。':
     'On its own, a block can only be said more briefly — it cannot see the other blocks, so it cannot drop repeats across them. Worth it when one block is very long (a whole web page, say).',
-
-  // §9.6.1 ②：目标从一句空话变成一个读数。
-  '这个目标是发给模型的提示词里写着的那一个，不是事后编的':
-    'That target is the one written into the prompt the model was sent — not one invented afterwards',
-  '这一档的目标是压到 {lo}–{hi}%，这次是 {p}%':
-    'This level aims for {lo}–{hi}%; this run came out at {p}%',
-  '⚠️ 这一档的目标是压到 {lo}–{hi}%，这次是 {p}% —— 没达标':
-    '⚠️ This level aims for {lo}–{hi}%; this run came out at {p}% — target missed',
 
   // §9.6.5 ④：按块配对，配不上要明说。
   '有 {n} 块在压缩稿里找不到 —— 下面按块标了出来。':
     '{n} block(s) are nowhere in the compressed version — marked block by block below.',
   '有 {n} 块是它自己编出来的编号。': '{n} block(s) carry numbers the original never had.',
-  '⚠️ 有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍，这一份不能用。':
-    '⚠️ {n} block(s) appear more than once (#{s}) — it wrote the same content twice, so this version is unusable.',
+  '有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍。':
+    '{n} block(s) appear more than once (#{s}) — it wrote the same content twice.',
   '有本来要求一字不改保留的东西不见了 —— 下面按块标了出来：':
     'Something that had to survive word for word did not — marked block by block below:',
   '少了 {n} 条批注': '{n} annotation(s) are gone',
   '少了 {n} 条引用/替代关系 —— 这一块引的是哪一条、替代了哪一条，没了':
     '{n} citation/supersession link(s) are gone — which block this one cites or replaces is no longer recorded',
-  '⚠️ 有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。':
-    '⚠️ In {n} place(s) it swapped curly quotes for straight ones — the content is unchanged, but \u201ccopy word for word\u201d has been broken.',
-  '⚠️ 这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。':
-    '⚠️ This one cannot be compared block by block — the compressed version has no pack entry lines (the model did not keep the #number format). Falling back to whole-text comparison.',
+  '有 {n} 处它把成对引号「“”」换成了直引号 —— 内容没变，但「一字不改照抄」这条已经破了。':
+    'In {n} place(s) it swapped curly quotes for straight ones — the content is unchanged, but \u201ccopy word for word\u201d has been broken.',
+  '这一份没法按块对照 —— 压缩稿里切不出 pack 的条目格式（模型没照 #编号 那一行写）。退回整份文本对照。':
+    'This one cannot be compared block by block — the compressed version has no pack entry lines (the model did not keep the #number format). Falling back to whole-text comparison.',
   '原文': 'Original',
   '（原文里没有这一块）': '(the original has no such block)',
-  '⚠️ 这一块在压缩稿里找不到': '⚠️ This block is nowhere in the compressed version',
-  '⚠️ 原文里没有这一块 —— 它自己编了一个编号':
-    '⚠️ The original has no such block — it invented this number',
+  '这一块在压缩稿里找不到': 'This block is nowhere in the compressed version',
+  '原文里没有这一块 —— 它自己编了一个编号':
+    'The original has no such block — it invented this number',
   '它把这一块整个删掉了，或者合并进了别的块。左边那些话现在没有出处 —— 自己确认一遍。':
     'It dropped this block entirely, or merged it into another one. Nothing on the left has a home any more — check for yourself.',
   '少了一条批注：{s}': 'An annotation is gone: {s}',
@@ -1216,11 +1217,11 @@ const EN: Record<string, string> = {
     'It rewrote this block\u2019s annotation — before and after:',
   '少了你划的重点：{s}': 'A highlight of yours is gone: {s}',
   '少了一条引用/替代关系：{s}': 'A citation/supersession link is gone: {s}',
-  '⚠️ 有 {n} 个数字/日期在压缩稿里再也找不到了：{s}':
-    '⚠️ {n} number(s)/date(s) are nowhere in the compressed version: {s}',
-  '⚠️ 这一块里有 {n} 个数字/日期没了：{s}':
-    '⚠️ {n} number(s)/date(s) are gone from this block: {s}',
-  '⚠️ 它写了一条你没写过的批注：{s}': '⚠️ It wrote an annotation you never wrote: {s}',
+  '有 {n} 个数字/日期在压缩稿里再也找不到了：{s}':
+    '{n} number(s)/date(s) are nowhere in the compressed version: {s}',
+  '这一块里有 {n} 个数字/日期没了：{s}':
+    '{n} number(s)/date(s) are gone from this block: {s}',
+  '它写了一条你没写过的批注：{s}': 'It wrote an annotation you never wrote: {s}',
   '压掉 {a} 句 · 它自己写了 {b} 句': '{a} line(s) cut · {b} line(s) it wrote itself',
 
   // §9.6.4 ⑥：睡前排队、起床核对。
@@ -1231,9 +1232,7 @@ const EN: Record<string, string> = {
   '现在就跑': 'Run now',
   '量一下…': 'measuring…',
   '{k} 千字': '{k}k characters',
-  '{k} 千字 · 约 {y}': '{k}k characters · about {y}',
-  '合计（估算）': 'Total (estimated)',
-  '约 {y}': 'about {y}',
+  '合计': 'Total',
   '正在按队列一个一个压…压完的会在这儿等你核对。':
     'Working through the queue one at a time — finished ones wait here for you.',
   '《{name}》压好了，等你核对': '{name} is compressed and waiting for you',
