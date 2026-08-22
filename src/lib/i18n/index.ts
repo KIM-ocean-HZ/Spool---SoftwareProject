@@ -1198,6 +1198,11 @@ const EN: Record<string, string> = {
     'This one is stuck on exactly that — use “add back from the original” above first.',
   // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
   '从原文加回去': 'Add back from the original',
+  // D-c：坏结果自动重跑一次 —— 重压过必须说，不然那个钱数会莫名其妙翻倍。
+  '第一次压出来的不合格，自动重压了一次。这一份是第二次的，钱是两次加起来的。':
+    'The first attempt came back unusable, so it was run once more. This is the second one; the cost above covers both.',
+  '第一次压出来的不合格，自动重压了一次，但第二次没跑成。这一份还是第一次的，钱是两次加起来的。':
+    'The first attempt came back unusable and the retry did not go through. This is still the first one; the cost above covers both.',
   // D-a：压之前先在本地数一遍这个项目有多少重复。
   '这个项目里没找到重复的内容。压缩干的主要活是合并重复 —— 这一次大概压不短多少，钱可以省下来。':
     'No repeated content found in this project. Merging repeats is what compression mainly does — this run would not make it much shorter, so you can keep the money.',

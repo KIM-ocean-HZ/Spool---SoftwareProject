@@ -54,6 +54,28 @@ export const LEVEL_HINTS: Record<CompressLevel, string> = {
  *  ⚠️ **提示词里那几个目标没有动**（`mcp.rs::ratio_rule`）：给模型一个能被核对的长度目标
  *  仍然是对的，改的只是「不拿它去判用户」。要再把目标搬回界面，先在那边取数。 */
 
+/** D-c · 两次调用合成一笔账（2026-08-22）。
+ *
+ *  ⚠️⚠️ **只报第二次那笔，界面上「这一次花了多少」就成了假话** —— 两次的钱都花了。
+ *  正文取 `keep` 那一份（重跑成功就是第二份，重跑没跑成就还是第一份）。
+ *
+ *  ⚠️ 缓存命中只要有一次是「没报」，合起来也算没报 —— `estimateCost` 那时候按全部未命中
+ *  算并写「最多」。⛔ 宁可把上限说出来，也不要报一个偏低的数。 */
+export const mergeOutcomes = (other: CompressOutcome, keep: CompressOutcome): CompressOutcome => ({
+  ...keep,
+  inputTokens: other.inputTokens + keep.inputTokens,
+  outputTokens: other.outputTokens + keep.outputTokens,
+  cachedInputTokens:
+    other.cachedInputTokens === null || keep.cachedInputTokens === null
+      ? null
+      : other.cachedInputTokens + keep.cachedInputTokens,
+  reasoningTokens:
+    other.reasoningTokens === null && keep.reasoningTokens === null
+      ? null
+      : (other.reasoningTokens ?? 0) + (keep.reasoningTokens ?? 0),
+  ms: other.ms + keep.ms,
+});
+
 /** 子进程回来的信封，原样透到前端（`api_engine.rs` 的 CompressOutcome）。 */
 export interface CompressOutcome {
   ok: boolean;

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { diffChunks, diffLines, missingNumbersBetween } from './compress';
 import {
   addBackNumbers,
+  worthRetrying,
   auditEntry,
   compareByEntry,
   entryPercent,
@@ -257,5 +258,30 @@ describe('addBackNumbers', () => {
     );
     const r = addBackNumbers(withRel, drop(withRel, '↩'));
     expect(r.text).not.toContain('↩ cites:');
+  });
+});
+
+
+// D-c（2026-08-22）：坏结果自动重跑一次。⚠️ 判据必须是结构性的 ——
+// 「质量不够好」那种要人判断的话不能进这里，否则它会替用户花第二笔钱。
+describe('worthRetrying', () => {
+  it('一模一样地压回来（剩 100%）算坏结果 —— 钱花了，什么也没发生', () => {
+    expect(worthRetrying(APPLY, APPLY)).toBe(true);
+  });
+
+  it('切不出块算坏结果', () => {
+    expect(worthRetrying(APPLY, '模型没照格式写。')).toBe(true);
+  });
+
+  it('块数对不上算坏结果', () => {
+    expect(worthRetrying(APPLY, drop(APPLY, '#2 '))).toBe(true);
+  });
+
+  // ⛔ 丢数字**不在**判据里：那一类有「从原文加回去」补，不该再花第二笔钱。
+  it('只是丢了个数字不算 —— 那一类是补，不是重跑', () => {
+    const shorter = APPLY.replace('GRE 最晚重考日是 2026-11-25，别错过。', '短。')
+      .replace('第一句话，没有数字。', '短。')
+      .replace('第三行也没有数字。', '短。');
+    expect(worthRetrying(APPLY, shorter)).toBe(false);
   });
 });

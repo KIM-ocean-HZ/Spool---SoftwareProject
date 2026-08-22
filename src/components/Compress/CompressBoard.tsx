@@ -240,6 +240,15 @@ export default function CompressBoard() {
             )}
           </div>
 
+          {/* D-c：重压过就必须说 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */}
+          {session.retry && (
+            <div className="text-muted">
+              {session.retry.secondOk
+                ? t('第一次压出来的不合格，自动重压了一次。这一份是第二次的，钱是两次加起来的。')
+                : t('第一次压出来的不合格，自动重压了一次，但第二次没跑成。这一份还是第一次的，钱是两次加起来的。')}
+            </div>
+          )}
+
           {/* ⚠️ 补过就必须说：稿子里从此有几行不是模型写的，而是从原文抄回来的原话。 */}
           {session.addedBack.length > 0 && (
             <div className="text-muted">

@@ -5,13 +5,14 @@ import {
   compressPack,
   duplicateProbe,
   loadApiKey,
+  mergeOutcomes,
   PROGRESS_EVENT,
   type CompressLevel,
   type CompressOutcome,
   type CompressProgress,
   type DuplicateProbe,
 } from '@/lib/ai/compress';
-import { addBackNumbers } from '@/lib/ai/compressBlocks';
+import { addBackNumbers, worthRetrying } from '@/lib/ai/compressBlocks';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { assemble } from '@/lib/pack/assemble';
@@ -62,6 +63,9 @@ export interface CompressSession {
   patched: string | null;
   /** 补回去了的那几个数字/日期。⚠️ **必须说出来**：稿子里从此有一行不是模型写的。 */
   addedBack: string[];
+  /** D-c：第一次的结果不合格、自动重压过一次的时候记在这儿。null = 没重压过。
+   *  ⚠️ 屏幕上必须说出来 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */
+  retry: { secondOk: boolean } | null;
   /** D-a：这个项目里有多少重复，**压之前**就算好。null = 还没算出来（或者算不出来 ——
    *  ⛔ 那时候界面上什么都不说，不编一个数）。⚠️ 只有整项目压缩有它：重复是跨块的，
    *  单独压一块本来就看不见别的块。 */
@@ -144,8 +148,42 @@ const freshSession = (target: CompressTarget, source: string, blocks: Block[]): 
     outcome: null,
     patched: null,
     addedBack: [],
+    retry: null,
     probe: null,
     startedAt: 0,
+  };
+};
+
+// D-c（2026-08-22）：**坏结果自动重跑一次，不拿给用户看。**
+//
+// 十次里有三四次是结构性的坏结果（切不出块 / 重复编号 / 块数对不上 / 压完还剩 95% 以上），
+// 而这几种用户看一眼就知道要重来 —— 中间那一步纯属摩擦。判据见 `worthRetrying`。
+//
+// ⚠️⚠️ **两次的账要加起来报**（`mergeOutcomes`）。只报第二次那笔，界面上那句
+// 「这一次花了多少」就成了假话 —— 钱是两次都花了的。
+// ⛔ **只重跑一次。** 再坏也就这一次，剩下的交给用户按「再压一次」。
+const runCompress = async (
+  source: string,
+  level: CompressLevel,
+  reasoning: string,
+): Promise<{ outcome: CompressOutcome; retry: { secondOk: boolean } | null }> => {
+  const s = useSettingsStore.getState();
+  const req = {
+    packText: source,
+    level,
+    baseUrl: s.apiBaseUrl,
+    apiKey: await loadApiKey(),
+    model: s.apiModel,
+    reasoning,
+    timeoutSecs: s.apiTimeoutSecs,
+  };
+  const first = await compressPack(req);
+  if (!first.ok || !worthRetrying(source, first.text)) return { outcome: first, retry: null };
+  const second = await compressPack(req);
+  return {
+    // 第二次没跑成就还是拿第一次那份给用户 —— 手里有一份坏的，总好过只剩一句报错。
+    outcome: second.ok ? mergeOutcomes(first, second) : mergeOutcomes(second, first),
+    retry: { secondOk: second.ok },
   };
 };
 
@@ -222,16 +260,8 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     };
     set({ session: frozen, running: true, progress: { stage: 'starting' }, startError: null });
     try {
-      const outcome = await compressPack({
-        packText: frozen.source,
-        level: frozen.level,
-        baseUrl: s.apiBaseUrl,
-        apiKey: await loadApiKey(),
-        model: s.apiModel,
-        reasoning: frozen.reasoning,
-        timeoutSecs: s.apiTimeoutSecs,
-      });
-      set((st) => (st.session ? { session: { ...st.session, outcome } } : {}));
+      const { outcome, retry } = await runCompress(frozen.source, frozen.level, frozen.reasoning);
+      set((st) => (st.session ? { session: { ...st.session, outcome, retry } } : {}));
     } catch (e) {
       // invoke 自己抛（比如那道「已经在跑了」的闸）。⛔ 也要说出来，不能静默。
       set({ startError: e instanceof Error ? e.message : String(e) });
@@ -319,17 +349,11 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           startedAt: Date.now(),
         };
         set({ running: true, progress: { stage: 'starting' } });
-        const outcome = await compressPack({
-          packText: text,
-          level: s.apiCompressLevel,
-          baseUrl: s.apiBaseUrl,
-          apiKey: await loadApiKey(),
-          model: s.apiModel,
-          reasoning: s.apiReasoning,
-          timeoutSecs: s.apiTimeoutSecs,
-        });
+        // 夜里那一批也走同一条路（坏了自动重跑一次）——⛔ 早上起来看到一份结构性的坏结果，
+        // 那一趟等于白跑，而重跑的钱和现在这一笔是同一个量级。
+        const { outcome, retry } = await runCompress(text, s.apiCompressLevel, s.apiReasoning);
         if (outcome.ok) {
-          set((st) => ({ results: [...st.results, { ...session, outcome }] }));
+          set((st) => ({ results: [...st.results, { ...session, outcome, retry }] }));
         } else {
           set((st) => ({
             failures: [...st.failures, { title: thread.title, why: outcome.kind ?? 'http' }],

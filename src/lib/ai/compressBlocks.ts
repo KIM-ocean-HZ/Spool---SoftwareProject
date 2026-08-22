@@ -414,3 +414,22 @@ const spliceBack = (compressed: string, plan: Map<string, Map<number, string[]>>
   }
   return out.join('\n');
 };
+
+/** D-c · 这一份坏到「不该拿给用户看」的程度吗（2026-08-22）。
+ *
+ *  ⭐ 十次里有三四次属于这一类，而它们的共同点是：**用户看一眼就知道要重来**，
+ *  中间那一步（看懂坏在哪、找到按钮、再点一次、再等一分钟）纯属摩擦。
+ *
+ *  ⚠️ 四条判据都是**结构性的**，不是「质量不够好」这种要人判断的话：
+ *   - 整份切不出块（模型没照 pack 的格式写）；
+ *   - 同一个编号出现不止一次（实测撞见过整份原样写两遍，压完剩 194%）；
+ *   - 块数对不上（有块整块不见了，或者它编了原文没有的编号）；
+ *   - 压完还剩 95% 以上 —— 钱花了，等了一分钟，拿到一份和原文差不多长的东西。
+ *
+ *  ⛔ **丢数字不在这四条里**，那一类现在有 `addBackNumbers` 补，不该再花第二笔钱。 */
+export const worthRetrying = (original: string, compressed: string): boolean => {
+  const c = compareByEntry(original, compressed);
+  if (!c) return true;
+  if (c.duplicated.length > 0 || c.dropped > 0 || c.invented > 0) return true;
+  return compressed.length > original.length * 0.95;
+};

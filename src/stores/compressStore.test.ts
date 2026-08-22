@@ -79,6 +79,7 @@ describe('addBack', () => {
     outcome: outcome(PACK.split('\n').filter((l) => !l.startsWith('GRE')).join('\n')),
     patched: null,
     addedBack: [],
+    retry: null,
     probe: null,
     startedAt: 0,
   });

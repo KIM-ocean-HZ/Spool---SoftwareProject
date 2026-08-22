@@ -9,6 +9,7 @@ import {
   formatYuan,
   isPeakBeijing,
   measurementRecord,
+  mergeOutcomes,
   numbersGateOpen,
   overlapRatio,
   pairRewrites,
@@ -221,6 +222,47 @@ describe('行级 diff', () => {
     // diffLines 超行数上限时退化成只报原文侧，压缩稿侧的 added 行根本不存在。
     const degraded = diffLines(Array.from({ length: 2600 }, (_, i) => `l${i}`).join('\n'), 'l0\nnew');
     expect(diffChunks(degraded, 'after', 'l0\nnew')).toBeNull();
+  });
+});
+
+// D-c（2026-08-22）：重跑之后两次的账要加起来。⚠️ 只报第二次那笔，
+// 界面上「这一次花了多少」就成了假话 —— 钱是两次都花了的。
+describe('两次调用合成一笔账', () => {
+  const env = (over: Partial<CompressOutcome>): CompressOutcome => ({
+    ok: true,
+    text: 'x',
+    cuts: null,
+    kind: null,
+    message: null,
+    status: 200,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: null,
+    reasoningTokens: null,
+    ms: 0,
+    model: 'deepseek-flash',
+    ...over,
+  });
+
+  it('token 和耗时相加，正文取留下来的那一份', () => {
+    const m = mergeOutcomes(
+      env({ text: '第一次', inputTokens: 100, outputTokens: 50, ms: 1000 }),
+      env({ text: '第二次', inputTokens: 120, outputTokens: 70, ms: 1500 }),
+    );
+    expect(m.text).toBe('第二次');
+    expect(m.inputTokens).toBe(220);
+    expect(m.outputTokens).toBe(120);
+    expect(m.ms).toBe(2500);
+  });
+
+  // ⛔ 有一次没报缓存命中，合起来也算没报 —— 那时候界面写「最多花了」。
+  // 编一个偏低的数比说上限更糟。
+  it('一次没报缓存命中，合起来就是没报', () => {
+    const m = mergeOutcomes(
+      env({ cachedInputTokens: 512 }),
+      env({ cachedInputTokens: null }),
+    );
+    expect(m.cachedInputTokens).toBeNull();
   });
 });
 
