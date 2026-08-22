@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
-import { BAND_HINT, BAND_LABEL, BAND_MARK, bandOf } from '@/lib/blocks/band';
+import { BAND_HINT, BAND_LABEL, bandOf } from '@/lib/blocks/band';
 import { diffChunks, diffLines, type DiffChunk } from '@/lib/ai/compress';
 import { entryHasLosses, entryPercent, type EntryPair } from '@/lib/ai/compressBlocks';
 import type { Block } from '@/lib/db/blocks';
@@ -52,9 +52,10 @@ export default function EntryCard({
     <article className="rounded-md border border-line bg-paper">
       {/* 头一行：四带记号 + #N + 时间 + 来源 + 这一块压完剩多少。 */}
       <header className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-line px-3 py-2 text-[11px]">
+        {/* D6：只留名字，不印记号 —— pack 里那份记号没动，那是给收件 AI 读的记法。 */}
         {band && (
-          <span title={t(BAND_HINT[band])} className="flex-none">
-            {BAND_MARK[band]} <span className="text-muted">{t(BAND_LABEL[band])}</span>
+          <span title={t(BAND_HINT[band])} className="flex-none text-muted">
+            {t(BAND_LABEL[band])}
           </span>
         )}
         <span className="flex-none font-mono text-muted">#{pair.seq}</span>

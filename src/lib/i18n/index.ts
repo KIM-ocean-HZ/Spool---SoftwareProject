@@ -1218,6 +1218,21 @@ const EN: Record<string, string> = {
   '单独压一块，它只能把这一块自己的话说短，看不见别的块，也就删不掉跨块的重复。一块特别长（比如一整篇网页正文）的时候最划算。':
     'On its own, a block can only be said more briefly — it cannot see the other blocks, so it cannot drop repeats across them. Worth it when one block is very long (a whole web page, say).',
 
+  // 四带的名字和悬停说明（band.ts）。⚠️ 以前这八条根本没进过 EN —— 英文界面上显示的是中文。
+  // D6（2026-08-22）改名字的时候一起补上。
+  '你自己写的': 'Written by you',
+  '来源材料': 'Source material',
+  'AI 写的整理稿': 'Write-up by an AI',
+  '和 AI 的对话': 'A conversation with an AI',
+  '没有来源标注 = 你自己敲进 Spool 的。pack 里权威最高的一带。':
+    'No source label = you typed it into Spool yourself. The most authoritative band in a pack.',
+  '来自邮件、机构页面、文件这类材料。pack 把它当作事实基准。':
+    'From email, an institutional page, a file. A pack treats these as ground truth.',
+  '另一个 AI 写的成篇解释。可以拿来当框架，不能当事实。':
+    "Another AI's written-up explanation. Useful as framing, not as fact.",
+  '和另一个 AI 的一问一答。里面的答案不可靠，可靠的是你反复在问什么。':
+    'A back-and-forth with another AI. The answers in it are not reliable; what you kept asking is.',
+
   // §9.6.5 ④：按块配对，配不上要明说。
   '有 {n} 块在压缩稿里找不到 —— 下面按块标了出来。':
     '{n} block(s) are nowhere in the compressed version — marked block by block below.',
