@@ -188,3 +188,30 @@ pub fn focus_window(hwnd: isize) -> bool {
 pub fn holds_foreground() -> bool {
     foreground_window().is_some_and(|(_, pid)| pid == std::process::id())
 }
+
+/// Milliseconds since the last keyboard or mouse input anywhere on this machine.
+///
+/// The Windows half of `capture::system_idle_ms` — see that function for what the value is
+/// for and why it is queried rather than listened for.
+///
+/// ⚠️ `GetLastInputInfo` reports a tick count, and `GetTickCount64` is the clock it is on.
+/// The 32-bit `dwTime` wraps every 49.7 days, so the subtraction is done in `u32` and then
+/// widened: a wrapped tick handled in 64-bit arithmetic yields a "last input 49 days ago"
+/// that is off by the whole wrap. ⛔ Do not "simplify" the cast away.
+///
+/// A failed call returns None, not zero — zero would read as "the user just typed", and the
+/// caller treats that as a person at the desk.
+pub fn system_idle_ms() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+
+    let mut info = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        dwTime: 0,
+    };
+    if unsafe { GetLastInputInfo(&mut info) } == 0 {
+        return None;
+    }
+    let now = unsafe { GetTickCount64() } as u32;
+    Some(now.wrapping_sub(info.dwTime) as u64)
+}

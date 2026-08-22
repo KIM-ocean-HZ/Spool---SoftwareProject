@@ -49,6 +49,9 @@ pub const WINDOW_LABEL: &str = "overlay";
 
 // Event names shared with the frontend — keep in step with src/lib/capture/overlayProtocol.ts.
 const ACTION_EVENT: &str = "overlay:action";
+/// 休息提醒 (2026-08-22): the main process's pid, learned from the break card's payload and
+/// spent on `AllowSetForegroundWindow` when that card is clicked. 0 = never told.
+static MAIN_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const DB_REQUEST_EVENT: &str = "overlay:db-request";
 const LANGUAGE_EVENT: &str = "overlay:language";
 const THEME_EVENT: &str = "overlay:theme";
@@ -265,6 +268,18 @@ pub fn run_helper(mut ctx: tauri::Context<tauri::Wry>) {
             app.listen(ACTION_EVENT, |event| {
                 let payload = serde_json::from_str::<serde_json::Value>(event.payload())
                     .unwrap_or(serde_json::Value::Null);
+                // 休息提醒 (2026-08-22): the click that asks for the main window is the one
+                // moment this process is allowed to hand the foreground over — Windows only
+                // honours the grant from whoever currently holds it, and after a click on
+                // this card that is us. Spent here, before the action is relayed, so the
+                // main process's `raise_main_window` lands on an already-granted request.
+                #[cfg(target_os = "windows")]
+                if payload.get("kind").and_then(serde_json::Value::as_str) == Some("break-open") {
+                    let pid = MAIN_PID.load(std::sync::atomic::Ordering::SeqCst);
+                    if pid != 0 {
+                        crate::win32::allow_foreground(pid);
+                    }
+                }
                 out(&serde_json::json!({ "t": "action", "payload": payload }));
             });
 
@@ -307,7 +322,7 @@ fn on_main_message(app: &AppHandle, msg: &serde_json::Value) {
     match kind {
         // Sizing/positioning is decided by the main process (it also arms the
         // click-outside watch against that exact frame), so this just applies it.
-        "show" | "notice" | "undo" => {
+        "show" | "notice" | "undo" | "break" => {
             let Some(win) = app.get_webview_window(WINDOW_LABEL) else {
                 return;
             };
@@ -333,9 +348,23 @@ fn on_main_message(app: &AppHandle, msg: &serde_json::Value) {
             if let Some(theme) = ui_theme(app) {
                 let _ = app.emit_to(WINDOW_LABEL, THEME_EVENT, theme);
             }
+            // 休息提醒 (2026-08-22): remember who to let in front when the card is
+            // clicked. ⚠️ Stored on the SHOW rather than read at click time, because by then
+            // the only process that can make the grant is this one and the only process that
+            // knows the pid is the other one. See capture.rs OverlayBreakPayload.
+            if kind == "break" {
+                if let Some(pid) = msg
+                    .get("payload")
+                    .and_then(|p| p.get("mainPid"))
+                    .and_then(serde_json::Value::as_u64)
+                {
+                    MAIN_PID.store(pid as u32, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
             let event = match kind {
                 "show" => "overlay:show",
                 "notice" => "overlay:notice",
+                "break" => "overlay:break",
                 _ => "overlay:undo",
             };
             let payload = msg.get("payload").cloned().unwrap_or(serde_json::Value::Null);

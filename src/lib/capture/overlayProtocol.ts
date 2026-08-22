@@ -36,6 +36,10 @@ export const OVERLAY_LANGUAGE_EVENT = 'overlay:language';
 // to, because capabilities/overlay.json grants it no `store:` permission. That is exactly how
 // this shipped broken: the theme was wired to a mechanism that stopped existing.
 export const OVERLAY_THEME_EVENT = 'overlay:theme';
+// 休息提醒 (Ocean 2026-08-22) — 「跳弹窗…不跳主窗」. The break card floats over whatever the
+// user is actually in, because since the 2026-08-21 criterion rewrite a sitting no longer has
+// to be spent inside Spool to count. Carries OverlayBreakPayload.
+export const OVERLAY_BREAK_EVENT = 'overlay:break';
 
 export const SHOW_OVERLAY_COMMAND = 'show_capture_overlay';
 export const HIDE_OVERLAY_COMMAND = 'hide_capture_overlay';
@@ -43,6 +47,10 @@ export const RESIZE_OVERLAY_COMMAND = 'resize_capture_overlay';
 export const UPDATE_OVERLAY_SOURCE_COMMAND = 'update_overlay_source';
 export const SHOW_OVERLAY_NOTICE_COMMAND = 'show_capture_notice';
 export const SHOW_UNDO_OVERLAY_COMMAND = 'show_undo_overlay';
+export const SHOW_BREAK_OVERLAY_COMMAND = 'show_break_reminder';
+// The main window comes up because the user clicked the break card — never on its own.
+// ⛔ See capture.rs raise_main_window for the two routes to this that are measured dead.
+export const RAISE_MAIN_WINDOW_COMMAND = 'raise_main_window';
 // Disarms the click-outside dismiss watch when the user starts dragging the toast (so the
 // relocated toast isn't dismissed by a click on its new position).
 export const DISARM_DISMISS_COMMAND = 'disarm_capture_dismiss';
@@ -121,6 +129,12 @@ export interface OverlaySourceUpdate {
 // Failure feedback shown in the overlay (so the user sees it even when the main
 // window is hidden). 'empty' = clipboard was empty after retries; 'no-target' = no
 // capture-target thread set; 'error' = unexpected failure with a human message.
+// 休息提醒 (2026-08-22). `workMinutes` is the interval that just elapsed, so the card can
+// name the real number instead of a hard-coded hour — Settings owns that value.
+export interface OverlayBreak {
+  workMinutes: number;
+}
+
 export interface OverlayNotice {
   kind: 'empty' | 'no-target' | 'error';
   msg?: string;
@@ -164,4 +178,11 @@ export type OverlayAction =
       blockId: string;
       threadId: string;
       annotation: string | null;
-    };
+    }
+  // 休息提醒 (2026-08-22): the user clicked the break card. Main brings its window up and
+  // puts the lock on — in that order, so the five minutes start where the user can see them.
+  | { kind: 'break-open' }
+  // …or dismissed it. ⚠️ The streak resets either way and nothing is re-shown: the product's
+  // 「quiet」 rule says a thing once. A reminder that keeps coming back is a reminder people
+  // learn to close without reading, and then it is worth less than not sending it.
+  | { kind: 'break-skip' };

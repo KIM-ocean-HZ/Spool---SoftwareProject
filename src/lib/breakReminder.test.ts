@@ -3,7 +3,7 @@ import {
   BREAK_MS,
   DEFAULT_WORK_MINUTES,
   formatCountdown,
-  IDLE_GRACE_MS,
+  PRESENCE_WINDOW_MS,
   MAX_TICK_CREDIT_MS,
   TICK_MS,
   WORK_MINUTE_OPTIONS,
@@ -48,35 +48,62 @@ const run = (
   return { state: s, fired, lastNow: now - TICK_MS };
 };
 
-/** Frontmost, and touched a moment ago — the ordinary working tick. */
-const busy = (_i: number, now: number) => ({ focused: true, lastInputAt: now - 1000 });
+/** Frontmost, machine not idle — the ordinary working tick. */
+const busy = () => ({ focused: true, systemIdleMs: 1000, lastCaptureAt: null });
+
+/** The sitting the new criterion exists for: Spool is in the BACKGROUND, the person is typing
+ *  in some other application, and captures keep landing. */
+const busyElsewhere = (lastCaptureAt: number) => () => ({
+  focused: false,
+  systemIdleMs: 1000,
+  lastCaptureAt,
+});
+
+/** Nobody at the machine at all. */
+const away = () => ({ focused: false, systemIdleMs: PRESENCE_WINDOW_MS * 2, lastCaptureAt: null });
 
 describe('isWorking', () => {
-  it('needs BOTH frontmost and recent input — the correction to Ocean\'s OR', () => {
-    // This is the whole reason the rule was changed. A window left in front while its owner is
-    // at lunch satisfies 「放在最前端窗口」 for an hour, and firing there would put a number in the
-    // dialog («专注一个小时») that nothing measured.
-    expect(isWorking({ now: T0, workMs: HOUR, focused: true, lastInputAt: T0 - 1000 })).toBe(true);
-    expect(isWorking({ now: T0, workMs: HOUR, focused: false, lastInputAt: T0 - 1000 })).toBe(false);
-    expect(isWorking({ now: T0, workMs: HOUR, focused: true, lastInputAt: T0 - IDLE_GRACE_MS * 2 })).toBe(
-      false,
-    );
+  const at = (o: Partial<TickInput>): boolean =>
+    isWorking({ now: T0, workMs: HOUR, focused: false, systemIdleMs: 1000, lastCaptureAt: null, ...o });
+
+  it('needs the machine not idle AND a reason to call it a SPOOL sitting', () => {
+    // Frontmost and someone at the keyboard: the plain case.
+    expect(at({ focused: true })).toBe(true);
+    // ⚠️ Frontmost alone is not work. A window left in front while its owner is at lunch
+    // satisfies 「放在最前端窗口」 for an hour, and firing there would put a number in the dialog
+    // («专注一个小时») that nothing measured.
+    expect(at({ focused: true, systemIdleMs: PRESENCE_WINDOW_MS * 2 })).toBe(false);
+    // Someone at the keyboard, but nothing says they are working WITH Spool.
+    expect(at({ focused: false })).toBe(false);
   });
 
-  it('counts a window that has never been touched as not working', () => {
-    // Launched at login, frontmost, nobody home.
-    expect(isWorking({ now: T0, workMs: HOUR, focused: true, lastInputAt: null })).toBe(false);
+  it('counts a sitting spent in another application, on the strength of a capture', () => {
+    // ⚠️⚠️ The whole reason the criterion was rewritten (2026-08-21). Spool's design premise is
+    // that the user works in some OTHER app and captures into Spool from there — under the old
+    // 「Spool frontmost AND touched」 rule, that hour measured as zero work.
+    expect(at({ focused: false, lastCaptureAt: T0 - 60_000 })).toBe(true);
+    // But a capture is not a licence that never expires: N minutes after the last one, nothing
+    // in the background says this is still a Spool sitting.
+    expect(at({ focused: false, lastCaptureAt: T0 - PRESENCE_WINDOW_MS })).toBe(true);
+    expect(at({ focused: false, lastCaptureAt: T0 - PRESENCE_WINDOW_MS - 1 })).toBe(false);
   });
 
-  it('forgives stillness right up to five minutes — reading is work', () => {
-    // Ocean's 「中间间隔不超过五分钟」, at the boundary. Inclusive on purpose: someone reading a
-    // long block without moving the mouse has not stopped working.
-    expect(isWorking({ now: T0, workMs: HOUR, focused: true, lastInputAt: T0 - IDLE_GRACE_MS })).toBe(
-      true,
-    );
-    expect(
-      isWorking({ now: T0, workMs: HOUR, focused: true, lastInputAt: T0 - IDLE_GRACE_MS - 1 }),
-    ).toBe(false);
+  it('treats an unavailable idle reading as not working, never as working', () => {
+    // ⚠️ The direction matters more than the case. This feature LOCKS the window for five
+    // minutes; a lock earned by a measurement that never happened is worse than a feature that
+    // quietly stops firing, because only one of the two is recoverable.
+    expect(at({ focused: true, systemIdleMs: null })).toBe(false);
+    expect(at({ focused: false, lastCaptureAt: T0 - 1000, systemIdleMs: null })).toBe(false);
+  });
+
+  it('forgives stillness right up to N — reading is work', () => {
+    // 验收③: Spool frontmost, reading a long block for 14 minutes without touching anything.
+    // ⚠️ This is why N had to grow from Ocean's five: the signal is machine-wide HID now, and
+    // reading a screen produces no HID events at all. At five minutes a person quietly reading
+    // scored as absent.
+    expect(at({ focused: true, systemIdleMs: 14 * 60_000 })).toBe(true);
+    expect(at({ focused: true, systemIdleMs: PRESENCE_WINDOW_MS })).toBe(true);
+    expect(at({ focused: true, systemIdleMs: PRESENCE_WINDOW_MS + 1 })).toBe(false);
   });
 });
 
@@ -107,9 +134,9 @@ describe('tickBreakState', () => {
     // in another app and coming back IS Spool's main loop — a rule that zeroed the streak on
     // blur would never reach an hour on a day of heavy capture.
     const half = run(initialBreakState(), 60, busy); // 29.5 min
-    const away = run(half.state, 4, () => ({ focused: false, lastInputAt: null }), half.lastNow + TICK_MS);
-    expect(away.state.activeMs).toBe(half.state.activeMs); // kept
-    expect(away.fired).toBe(0);
+    const gone = run(half.state, 4, away, half.lastNow + TICK_MS);
+    expect(gone.state.activeMs).toBe(half.state.activeMs); // kept
+    expect(gone.fired).toBe(0);
   });
 
   it('does not COUNT the time spent away, only forgives it', () => {
@@ -117,19 +144,18 @@ describe('tickBreakState', () => {
     // the desk, so that is what is measured.
     const a = run(initialBreakState(), 10, busy);
     const gap = 4 * 60 * 1000;
-    const b = run(a.state, 1, () => ({ focused: true, lastInputAt: a.lastNow + gap - 500 }), a.lastNow + gap);
+    const b = run(a.state, 1, busy, a.lastNow + gap);
     // One tick's worth credited at most, never the four-minute gap.
     expect(b.state.activeMs - a.state.activeMs).toBeLessThanOrEqual(MAX_TICK_CREDIT_MS);
   });
 
-  it('drops the streak once the gap passes five minutes', () => {
+  it('drops the streak once the gap passes N', () => {
     const half = run(initialBreakState(), 60, busy);
-    const longGap = IDLE_GRACE_MS + TICK_MS;
+    const longGap = PRESENCE_WINDOW_MS + TICK_MS;
     const r = tickBreakState(half.state, {
       now: half.lastNow + longGap,
       workMs: HOUR,
-      focused: false,
-      lastInputAt: half.lastNow,
+      ...away(),
     });
     expect(r.state).toEqual(initialBreakState());
     expect(r.due).toBe(false);
@@ -144,8 +170,7 @@ describe('tickBreakState', () => {
     const wake = tickBreakState(worked.state, {
       now: worked.lastNow + sleep,
       workMs: HOUR,
-      focused: true,
-      lastInputAt: worked.lastNow + sleep - 1000,
+      ...busy(),
     });
     expect(wake.due).toBe(false);
     expect(wake.state.activeMs - worked.state.activeMs).toBeLessThanOrEqual(MAX_TICK_CREDIT_MS);
@@ -155,24 +180,75 @@ describe('tickBreakState', () => {
     // The first tick of a sitting starts the clock at zero credit; otherwise every arrival would
     // be billed a free tick, and a user who alternated app-switching with single ticks could
     // accumulate an hour without ever working one.
-    const first = tickBreakState(initialBreakState(), {
-      now: T0,
-      workMs: HOUR,
-      focused: true,
-      lastInputAt: T0,
-    });
+    const first = tickBreakState(initialBreakState(), { now: T0, workMs: HOUR, ...busy() });
     expect(first.state.activeMs).toBe(0);
     expect(first.state.lastTickAt).toBe(T0);
   });
 
   it('leaves a never-started streak alone while nobody is there', () => {
-    const idle = tickBreakState(initialBreakState(), {
-      now: T0,
-      workMs: HOUR,
-      focused: false,
-      lastInputAt: null,
-    });
+    const idle = tickBreakState(initialBreakState(), { now: T0, workMs: HOUR, ...away() });
     expect(idle.state).toEqual(initialBreakState());
+  });
+});
+
+// —— 2026-08-21: the three acceptance cases WORKPLAN §9 施工细节 A wrote for this change ——————
+//
+// They are copied here rather than paraphrased, because two of them are exactly the behaviours
+// the OLD rule got wrong and the third is the one it got right and must keep getting right.
+describe('the rewritten criterion, against its own acceptance list', () => {
+  it('① an hour in another application, capturing at least once every N, fires', () => {
+    // A capture every ten minutes — inside N the whole way.
+    const ticks = HOUR / TICK_MS + 1;
+    const r = run(initialBreakState(), ticks, (_i, now) => busyElsewhere(now - 10 * 60_000)());
+    expect(r.fired).toBe(1);
+  });
+
+  it('①-bis one capture and then nothing does NOT keep the streak alive', () => {
+    // ⚠️ The acceptance wording says 「每 15 分钟内至少有一次捕获」 and the frequency is the point:
+    // capture once at minute 0 and sit in another app for an hour, and the streak dies at N.
+    // That is correct behaviour, not a gap — Spool must not bill time it has no evidence for.
+    const r = run(initialBreakState(), HOUR / TICK_MS + 1, () => busyElsewhere(T0)());
+    expect(r.fired).toBe(0);
+    expect(r.state).toEqual(initialBreakState());
+  });
+
+  it('② an hour of an untouched machine with Spool in front does not fire', () => {
+    const r = run(initialBreakState(), HOUR / TICK_MS + 1, (_i, now) => ({
+      focused: true,
+      // Idle grows with the wall clock: nobody has touched anything since T0.
+      systemIdleMs: now - T0,
+      lastCaptureAt: null,
+    }));
+    expect(r.fired).toBe(0);
+    expect(r.state.activeMs).toBe(0);
+  });
+
+  // 休息提醒的浮窗 (Ocean 2026-08-22). The reducer does not know about windows — it only ever
+  // says `due`. What this pins is the FACT the split in useBreakReminder depends on: `due` can
+  // now arrive on a tick where Spool is not frontmost, which was impossible under the old rule
+  // and is the entire reason the overlay card had to exist. ⛔ If this ever goes back to false,
+  // the popup path is dead code and the lock is covering other people's windows again.
+  it('can come due while Spool is in the background — the popup exists for this tick', () => {
+    const r = run(initialBreakState(), HOUR / TICK_MS + 1, (_i, now) =>
+      busyElsewhere(now - 10 * 60_000)(),
+    );
+    expect(r.fired).toBe(1);
+    // …and the tick it fired on had `focused: false`.
+    expect(busyElsewhere(T0)().focused).toBe(false);
+  });
+
+  it('③ reading a long block in Spool for 14 minutes does not break the count', () => {
+    // Frontmost, no input at all for fourteen minutes. The streak keeps accumulating, so the
+    // clock in the sidebar does not jump backwards while someone reads.
+    const started = run(initialBreakState(), 2, busy);
+    const reading = run(
+      started.state,
+      28, // 14 minutes of ticks
+      (_i, now) => ({ focused: true, systemIdleMs: now - started.lastNow, lastCaptureAt: null }),
+      started.lastNow + TICK_MS,
+    );
+    expect(reading.state.activeMs).toBeGreaterThan(started.state.activeMs);
+    expect(reading.state.activeMs).toBeGreaterThanOrEqual(14 * 60_000 - TICK_MS);
   });
 });
 
@@ -197,8 +273,7 @@ describe('a settable work interval', () => {
     const r = tickBreakState(worked.state, {
       now: worked.lastNow + TICK_MS,
       workMs: msForMinutes(30),
-      focused: true,
-      lastInputAt: worked.lastNow + TICK_MS - 1000,
+      ...busy(),
     });
     expect(r.due).toBe(true);
     expect(r.state.activeMs).toBe(0);

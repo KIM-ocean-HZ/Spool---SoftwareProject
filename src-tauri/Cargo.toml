@@ -65,5 +65,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     "Win32_Graphics_Gdi",
     "Win32_UI_Input",
+    # GetLastInputInfo — the machine-wide idle clock the break-reminder criterion runs on
+    # (capture::system_idle_ms). GetTickCount64 is the clock it reports against.
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_SystemInformation",
     "Win32_UI_WindowsAndMessaging",
 ] }

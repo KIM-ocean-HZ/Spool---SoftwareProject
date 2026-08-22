@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Forward, Pin, RotateCcw, RotateCw, X } from 'lucide-react';
+import { Coffee, Forward, Pin, RotateCcw, RotateCw, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Block } from '@/lib/db/blocks';
 // 🚨 Not @/lib/db — this process never opens SQLite (DESIGN_CAPTURE_HELPER_PROCESS §3.3).
@@ -18,6 +18,7 @@ import {
   DISARM_DISMISS_COMMAND,
   HIDE_OVERLAY_COMMAND,
   OVERLAY_ACTION_EVENT,
+  OVERLAY_BREAK_EVENT,
   OVERLAY_DISMISS_EVENT,
   OVERLAY_LANGUAGE_EVENT,
   OVERLAY_THEME_EVENT,
@@ -28,6 +29,7 @@ import {
   RESIZE_OVERLAY_COMMAND,
   type CaptureOverlayPayload,
   type OverlayAction,
+  type OverlayBreak,
   type OverlayNotice,
   type OverlaySourceUpdate,
   type OverlayUndoPayload,
@@ -50,6 +52,14 @@ const TOAST_AUTO_DISMISS_MS = 8000;
 const NOTICE_AUTO_DISMISS_MS = 2200;
 // v2.9 §9.13: undo/redo confirmation dwell — short, paused on hover so the user can click 重做.
 const UNDO_AUTO_DISMISS_MS = 2500;
+// 休息提醒 (2026-08-22). Much longer than the others, and the two directions are both real:
+// under about half a minute a person typing in another application never looks at the corner
+// in time, and the reminder is spent for nothing. Much over a minute and an always-on-top card
+// stops being a message and becomes furniture on someone's screen. ⚠️ Timing out is treated
+// exactly like ✕ — the streak was already zeroed when it fired, so nothing re-prompts. Saying
+// it once is the 「quiet」 rule; a health card that keeps coming back is one people learn to
+// close without reading, which is worth less than not sending it.
+const BREAK_AUTO_DISMISS_MS = 60_000;
 
 const UNDO_OP_LABEL: Record<OverlayUndoPayload['op'], string> = {
   capture: '捕获',
@@ -108,6 +118,7 @@ type OverlayContent =
   | { kind: 'toast'; data: CaptureOverlayPayload }
   | { kind: 'notice'; data: OverlayNotice }
   | { kind: 'undo'; data: OverlayUndoPayload }
+  | { kind: 'break'; data: OverlayBreak }
   | null;
 
 const noticeText = (n: OverlayNotice): string => {
@@ -277,6 +288,31 @@ export default function CaptureOverlay() {
     };
   }, []);
 
+  // 休息提醒 (Ocean 2026-08-22) — 「跳弹窗，提示需要休息了，不跳主窗」.
+  //
+  // ⚠️ It arrives here rather than in the main window for the reason the criterion rewrite
+  // created: since 2026-08-21 a sitting can be spent entirely in another application, so by
+  // the time the hour is up the main window may be behind three others or hidden altogether.
+  // The overlay is the only surface in this product that can say something over the app the
+  // user is genuinely in without taking the keyboard away from it.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen<OverlayBreak>(OVERLAY_BREAK_EVENT, (e) => {
+        setContent({ kind: 'break', data: e.payload });
+        setHover(false);
+        setPickerOpen(false);
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // v2.9 §9.13: undo/redo confirmation pushed from the main window after a reversal.
   // Shown here so it floats over the user's current app, replacing any capture toast.
   useEffect(() => {
@@ -341,7 +377,9 @@ export default function CaptureOverlay() {
         ? NOTICE_AUTO_DISMISS_MS
         : content.kind === 'undo'
           ? UNDO_AUTO_DISMISS_MS
-          : TOAST_AUTO_DISMISS_MS;
+          : content.kind === 'break'
+            ? BREAK_AUTO_DISMISS_MS
+            : TOAST_AUTO_DISMISS_MS;
     const t = setTimeout(() => {
       setContent(null);
       hideOverlay();
@@ -430,6 +468,56 @@ export default function CaptureOverlay() {
   }, [expanded, content]);
 
   if (!content) return null;
+
+  if (content.kind === 'break') {
+    const mins = content.data.workMinutes;
+    return (
+      <div
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        className="overlay-in flex w-full items-center gap-2.5 rounded-lg border border-line-strong bg-paper px-3.5 py-2.5"
+        style={{ boxShadow: 'var(--shadow-toast)' }}
+        role="status"
+      >
+        {/* The whole card is the button, not a 「去休息」 control beside the text: the card is
+            ~360px of a person's screen and asking them to hit a small target inside it is the
+            kind of friction this product spends its budget avoiding. The ✕ is the only thing
+            that has to be aimed at, because it is the choice with a consequence. */}
+        {/* ⛔ No hideOverlay() here, unlike every other card in this file. The main process
+            puts this one away itself, at the end of raise_main_window — see the ⚠️⚠️ note
+            there: hiding from this side runs the ordinary focus-restore path, whose job is
+            to hand the foreground BACK to the app the user came from, against the raise that
+            is happening at the same moment. The card stays up for the few ms it takes. */}
+        <button
+          type="button"
+          onClick={() => emitAction({ kind: 'break-open' })}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
+          <Coffee size={14} className="shrink-0 text-muted" />
+          <div className="flex min-w-0 flex-col">
+            <span className="font-ui text-[13px] text-ink">
+              {t('已经专注 {n} 分钟了，起来动一动', { n: mins })}
+            </span>
+            <span className="font-ui text-[11px] text-muted">
+              {t('点一下回到 Spool 开始休息')}
+            </span>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            emitAction({ kind: 'break-skip' });
+            hideOverlay();
+          }}
+          aria-label={t('这次不休息')}
+          title={t('这次不休息')}
+          className="shrink-0 rounded p-1 text-muted hover:text-ink"
+        >
+          <X size={13} />
+        </button>
+      </div>
+    );
+  }
 
   if (content.kind === 'notice') {
     return (

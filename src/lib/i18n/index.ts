@@ -600,6 +600,12 @@ const EN: Record<string, string> = {
   '结束休息，继续工作': 'End the break, back to work',
   '倒计时走完，它会自己解开': 'It unlocks itself when the countdown runs out',
   '已连续专注 {n} 分钟': 'Focused for {n} min',
+  // 休息提醒的浮窗 (Ocean 2026-08-22) — it floats over whatever app the user is in, so it
+  // says the number rather than 「时间到了」: a card that interrupts has to be worth the
+  // interruption in its first line.
+  '已经专注 {n} 分钟了，起来动一动': "That's {n} minutes straight — get up and move",
+  '点一下回到 Spool 开始休息': 'Click to go back to Spool and start the break',
+  '这次不休息': 'Skip this one',
   '{n} 分钟后歇一会儿': 'Break in {n} min',
   '休息提醒': 'Break reminder',
   '连续工作到点，窗口会锁上 5 分钟，提醒你站起来活动一下。两种外观都有。':

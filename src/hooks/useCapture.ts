@@ -7,8 +7,10 @@ import {
   type ForegroundApp,
 } from '@/lib/capture/clipboard';
 import { ingestCapture } from '@/lib/capture/ingest';
+import { BREAK_MS } from '@/lib/breakReminder';
 import {
   OVERLAY_ACTION_EVENT,
+  RAISE_MAIN_WINDOW_COMMAND,
   SHOW_OVERLAY_COMMAND,
   SHOW_OVERLAY_NOTICE_COMMAND,
   UPDATE_OVERLAY_SOURCE_COMMAND,
@@ -18,6 +20,7 @@ import {
 } from '@/lib/capture/overlayProtocol';
 import { updateBlockSource } from '@/lib/db/blocks';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useBreakStore } from '@/stores/breakStore';
 import { buildPreview, useCaptureStore } from '@/stores/captureStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { toast } from '@/stores/toastStore';
@@ -64,6 +67,32 @@ const showNoticeInOverlay = (payload: OverlayNotice): void => {
 };
 
 const applyOverlayAction = (action: OverlayAction): void => {
+  // 休息提醒 (Ocean 2026-08-22): the user clicked the break card floating over whatever they
+  // were in. Two steps, in this order — the window first, the lock second, so the five
+  // minutes begin on a screen the user is already looking at rather than behind it.
+  //
+  // ⚠️ This is the ONE place the main window comes forward on its own initiative, and it is
+  // not its own initiative: it is one click behind a card that says 「点一下回到 Spool」.
+  // ⛔ Do not reuse `raise_main_window` anywhere else without re-reading capture-note-first —
+  // 「主窗永不跳前」 is a standing rule and this is an exception the user performs, not one the
+  // product takes.
+  if (action.kind === 'break-open') {
+    void invoke(RAISE_MAIN_WINDOW_COMMAND).catch((e) => {
+      // The lock still goes up: a break the user asked for should happen even if the window
+      // could not be raised, and they can find it themselves. Failing silently would leave
+      // the click doing nothing at all, which reads as a broken card.
+      console.warn('[break] raise_main_window failed', e);
+    });
+    useBreakStore.getState().lock(Date.now() + BREAK_MS);
+    return;
+  }
+  // Declined. The streak is already zero (the reducer reset it when it fired), so there is
+  // nothing to do but let it be — no re-prompt, no snooze queue. Saying it once is the whole
+  // of the 「quiet」 rule; a card that comes back is one people learn to close unread.
+  if (action.kind === 'break-skip') {
+    useBreakStore.getState().unlock();
+    return;
+  }
   if (action.kind === 'undo') {
     // §9.13: the capture toast's Undo and Cmd+Z hit the SAME machinery. The overlay no
     // longer deletes the block itself — it asks the main window to run undoStore.undo(),

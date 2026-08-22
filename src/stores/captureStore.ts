@@ -13,6 +13,11 @@ interface CaptureState {
   // enough to pack now" line under it. Runtime-only — the "already seen" bit lives in
   // settings.json (`firstCaptureHintPending`), never in the database.
   packHintBlockId: string | null;
+  // 连续专注判据 (WORKPLAN §9 第 2 步): when the last capture landed. The break reminder's
+  // criterion needs it — a capture is the one sign of「有人在」that arrives while Spool is in
+  // the BACKGROUND, which is where the product expects the user to be. Runtime-only: it is
+  // about the current sitting and means nothing after a restart.
+  lastCaptureAt: number | null;
   setFlash: (threadId: string, blockId: string) => void;
   clearFlash: () => void;
   noteCapture: (blockId: string) => void;
@@ -39,6 +44,7 @@ export const useCaptureStore = create<CaptureState>((set) => ({
   flashThreadId: null,
   flashBlockId: null,
   packHintBlockId: null,
+  lastCaptureAt: null,
   setFlash: (threadId, blockId) => set({ flashThreadId: threadId, flashBlockId: blockId }),
   clearFlash: () => set({ flashThreadId: null, flashBlockId: null }),
 
@@ -50,6 +56,9 @@ export const useCaptureStore = create<CaptureState>((set) => ({
   // The flag is checked BEFORE the count so an armed-flag library is the only one that ever
   // pays for the query — everyone else returns on a synchronous read of settings.
   noteCapture: (blockId) => {
+    // ⚠️ Before the hint's early return, and that ordering is the point: the hint fires once
+    // in a library's lifetime, while the focus streak needs this on EVERY capture.
+    set({ lastCaptureAt: Date.now() });
     if (!useSettingsStore.getState().firstCaptureHintPending) return;
     void (async () => {
       if ((await countCaptures()) < PACK_HINT_AFTER) return;

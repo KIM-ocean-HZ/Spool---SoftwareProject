@@ -1429,6 +1429,133 @@ pub fn show_capture_notice<R: Runtime>(
     Ok(())
 }
 
+// ── 休息提醒的浮窗 (Ocean 2026-08-22) ────────────────────────────────────────────────────
+//
+// 「跳弹窗，提示需要休息了，不跳主窗（点击弹窗再回到主窗，然后弹窗自动消失）」.
+//
+// ⚠️⚠️ **This is what makes the rewritten focus criterion shippable.** The criterion now
+// measures sittings spent in OTHER applications (§9 第 2 步) — which is the point of it — so
+// the five-minute window lock could no longer be justified by 「Spool was frontmost anyway」.
+// The choice was between a lock that covers whatever the person is actually doing (breaks
+// 「主窗永不跳前」) and a reminder that waits for them to look at Spool (arrives late, possibly
+// never). Ocean's answer is neither: the OVERLAY says it, on time, over whatever they are in,
+// and the main window moves only when they click — which makes it their action, not Spool's.
+//
+// ⛔ It goes out as a `notice`-class show, NOT a `show`-class one: `show` is the only kind
+// that takes the foreground, and a break card has nothing to type into. See overlay.rs.
+/// `work_minutes` is the interval that just elapsed, so the card can name it
+/// («已经专注 60 分钟了») instead of hard-coding an hour — Settings owns that number.
+///
+/// ⚠️ `mainPid` rides along and is filled in HERE, not by the caller: this command runs in the
+/// main process, so the pid is simply ours. It has to travel at all because of the direction
+/// the Windows grant runs in — `AllowSetForegroundWindow` may only be called by the process
+/// that HOLDS the foreground, and after the click that is the overlay, while the window that
+/// needs to come up belongs to this process. So we say who to let in, and the overlay spends
+/// the grant at the moment of the click (overlay.rs).
+#[tauri::command]
+pub fn show_break_reminder<R: Runtime>(app: AppHandle<R>, work_minutes: u32) -> Result<(), String> {
+    let payload = serde_json::json!({
+        "workMinutes": work_minutes,
+        "mainPid": std::process::id(),
+    });
+    send_overlay_show(&app, "break", payload, false)?;
+    Ok(())
+}
+
+/// Bring the main window up, because the user asked for it by clicking the break card.
+///
+/// ⚠️⚠️ **Read `capture-note-first` before touching this.** 「主窗永不跳前」 is a standing rule
+/// and this does not bend it: the rule is about Spool raising itself, and every call here is
+/// downstream of a click on a card that says what it will do. What the rule DOES still forbid
+/// is the two routes that were measured dead in 2026-08-01:
+///
+///   ⛔ `activateIgnoringOtherApps:` / a bare `set_focus()` from the background — not refused,
+///      SUSPENDED, and cashed in later at the worst moment (the main window darted forward as
+///      the overlay closed). It is called below only AFTER the app is already active.
+///   ⛔ Waking Spool by NAME (`tell application "Spool" to activate`) — LaunchServices starts a
+///      SECOND instance against the same database, which is the 2026-05-29 wipe pattern.
+///
+/// The route that works is `AXFrontmost` on a pid: immediate, never queued, and never refused
+/// on your OWN pid (measured, zero refusals). This runs in the main process, so the pid is
+/// ours and that is exactly the safe case.
+///
+/// ⚠️⚠️ **It also puts the card away, and that is not tidiness — it is the fix for a race.**
+/// The obvious shape (card calls `hideOverlay()` on click, main raises its window when the
+/// action arrives) sets two focus operations running against each other: the ordinary hide
+/// path is `on_overlay_hide`, whose whole job is handing the foreground BACK — to a stashed
+/// pid if there is one, and otherwise by stepping the helper down so macOS gives it to the
+/// next app in order, i.e. the app the user was in. That is right for a capture toast and
+/// exactly wrong here, where the user just asked to go to Spool. So the click does not hide
+/// anything; this does, after the foreground is already ours, with `release_foreground:
+/// false` — nothing to hand back, because nothing is being taken away from anyone.
+/// ⛔ Do not "simplify" this by calling `hideOverlay()` from the card as the other cards do.
+#[tauri::command]
+pub fn raise_main_window<R: Runtime>(app: AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    {
+        // Order matters: make the APP active first, then order the window up inside it.
+        // macOS hands the keyboard to the active application, not to a window, so a window
+        // raised inside an inactive app is a window nobody can type into.
+        ax_set_frontmost(std::process::id() as i32);
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    hide_overlay_now(false);
+}
+
+// ── 系统空闲 (WORKPLAN-2026-08-20 §9 第 2 步 / 施工细节 A) ────────────────────────────────
+//
+// How long the MACHINE has gone without a HID event, in milliseconds. This is the input the
+// break-reminder criterion was missing: the old rule measured input inside Spool's own
+// window, and Spool's whole design premise is that the user is working in some OTHER app —
+// the criterion and the product premise were pointing opposite ways.
+//
+// ⚠️ It is a QUERY, deliberately, not a listener. The reducer in lib/breakReminder.ts is a
+// pure function with no timers and no I/O; the tick asks for this value and hands it in, so
+// every awkward case (the machine slept, the value is unavailable) stays testable without a
+// machine to sit at.
+//
+// ⚠️ `None` means "could not tell", and the caller must treat that as NOT working rather
+// than as working. The reminder locks the window for five minutes; a lock earned by a
+// measurement that never happened is the one failure this feature cannot afford.
+//
+// ⛔ Not a privacy surface, and worth stating because it looks like one: both APIs return a
+// duration since the last event. Neither says which key, which app, or where the pointer is.
+#[tauri::command(async)]
+pub fn system_idle_ms() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        // CombinedSessionState = HID hardware plus events posted into this login session,
+        // which is what "the person is here" means. HIDSystemState alone misses a user
+        // driving the machine through, say, an accessibility tool.
+        const COMBINED_SESSION_STATE: u32 = 0;
+        // kCGAnyInputEventType — the sentinel that means "any of them", not a real type.
+        const ANY_INPUT_EVENT: u32 = !0;
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventSourceSecondsSinceLastEventType(state: u32, event_type: u32) -> f64;
+        }
+        let secs = unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION_STATE, ANY_INPUT_EVENT) };
+        // A negative or non-finite answer is the API saying it does not know. Rounding that
+        // to 0 would read as "the user just typed", which is the wrong direction to guess.
+        if !secs.is_finite() || secs < 0.0 {
+            return None;
+        }
+        return Some((secs * 1000.0) as u64);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return crate::win32::system_idle_ms();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        None
+    }
+}
+
 #[cfg(all(test, desktop))]
 mod tests {
     use super::*;
@@ -1446,6 +1573,20 @@ mod tests {
             parse_shortcut("control+alt+Space").unwrap(),
             Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space)
         );
+    }
+
+    // 连续专注判据 (WORKPLAN §9 第 2 步). Not a behaviour test — the value depends on whoever is
+    // at the machine — but it does catch the two ways this call fails silently: a wrong
+    // event-source constant (which returns a plausible-looking number that never moves) and a
+    // wrong unit (seconds reported as milliseconds would read as a machine idle for hours).
+    //
+    // ⚠️ Tolerant of None on purpose: a headless runner has no window server to ask. What it
+    // will not tolerate is an answer that is not a duration a person could have produced.
+    #[test]
+    fn the_system_idle_clock_answers_in_milliseconds_or_not_at_all() {
+        if let Some(ms) = system_idle_ms() {
+            assert!(ms < 30 * 24 * 60 * 60 * 1000, "idle of {ms}ms is not a plausible duration");
+        }
     }
 
     // Same for the search default, which Rust ALSO builds itself (search_accelerator) —

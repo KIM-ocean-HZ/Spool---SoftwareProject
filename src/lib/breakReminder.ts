@@ -11,10 +11,23 @@
 //   ⚠️ **Frontmost alone is not work.** A window left in front while its owner is at lunch is
 //   frontmost for an hour, and the reminder would fire at an empty desk — then again an hour
 //   later. Worse, it would fire having measured nothing, which makes the one number in the
-//   dialog («你已经专注一个小时了») false. So the two clauses are ANDed here: the window has to be
-//   frontmost **and** have been touched inside the last five minutes. His five-minute grace is
-//   what makes that fair — reading a long block without moving the mouse still counts, because
-//   five minutes of stillness is reading, not absence.
+//   dialog («你已经专注一个小时了») false. So presence is a separate, ANDed clause.
+//
+//   ── 2026-08-21 (WORKPLAN §9 第 2 步 / 施工细节 A) ──────────────────────────────────────────
+//
+//   ⚠️⚠️ **And the first version of that clause measured the wrong thing.** It asked whether
+//   SPOOL had been touched — while the product's own premise is that the user is working in
+//   another application and capturing into Spool from there. An hour in Word with captures
+//   every few minutes scored as no work at all. The criterion is now:
+//
+//       the machine is not idle  AND  (Spool is frontmost  OR  something was captured
+//       within the last N minutes)                                    — N = 15, see below
+//
+//   Machine-wide idleness is what 「有人在」 actually means; frontmost-or-recent-capture is
+//   what makes it a SPOOL sitting rather than any hour spent at this computer. ⚠️ The idle
+//   value is handed IN as a tick input (capture::system_idle_ms) — this file stays a pure
+//   function with no timers and no I/O, which is the only reason the awkward cases below can
+//   be pinned by tests instead of waited for at a desk.
 //
 //   ⚠️ **Blur does not reset, it pauses.** The five-minute grace has to cover leaving Spool as
 //   well as sitting still in it, or every glance at a browser would zero an hour of real work.
@@ -40,12 +53,27 @@
 //     entirely the hook's and the component's business: this reducer still only answers 「has
 //     this person worked long enough」, and the lock is what the caller does about it.
 
-/** How long a gap in activity is forgiven before the streak is considered broken.
+/** How long ago a sign of this person still counts as this person being here. N.
  *
- *  ⚠️ Ocean's number (「中间间隔不超过五分钟」), kept exactly. It does double duty — the longest
- *  stillness that still counts as reading, and the longest visit to another app that still
- *  counts as the same sitting. */
-export const IDLE_GRACE_MS = 5 * 60 * 1000;
+ *  ── 2026-08-21 (WORKPLAN §9 第 2 步 / 施工细节 A): 5 → 15, and it is now machine-wide ──
+ *
+ *  ⚠️ **The old rule was wrong, not merely coarse.** It read 「Spool is frontmost AND was
+ *  touched inside five minutes」 — and Spool's design premise is that the user works in some
+ *  OTHER application and captures into Spool from there. The criterion and the premise were
+ *  pointing opposite ways: a person spending an hour in Word, capturing as they went, was
+ *  measured as not working at all, while nothing about that hour was less of a sitting.
+ *
+ *  ⚠️ Ocean's 「五分钟」 was written against the old signal (stillness inside Spool's own
+ *  window). The new signal is machine-wide idle time, and 15 is his number for it
+ *  (2026-08-20, said outright rather than changed in passing — §7's rule). It has to be
+ *  larger: reading a long block on screen produces no HID events at all, so at 5 minutes a
+ *  person quietly reading would be scored as absent.
+ *
+ *  It carries all three of N's jobs, which are the same job seen from three sides:
+ *    - the longest machine-wide silence that still counts as someone at the desk;
+ *    - how recent a capture has to be to vouch for a sitting spent in another app;
+ *    - how long a broken streak is held before it is dropped. */
+export const PRESENCE_WINDOW_MS = 15 * 60 * 1000;
 
 /** The work intervals the Settings picker offers, in minutes.
  *
@@ -105,8 +133,18 @@ export interface TickInput {
   now: number;
   /** Is the Spool window frontmost right now (document.hasFocus()). */
   focused: boolean;
-  /** When the user last typed / clicked / scrolled / moved inside Spool. Null = never. */
-  lastInputAt: number | null;
+  /** How long the MACHINE has gone without keyboard or mouse input, in ms — the answer from
+   *  capture::system_idle_ms, handed in rather than looked up (see the header).
+   *
+   *  ⚠️ Null means the platform could not answer, NOT zero. Zero would read as 「the user just
+   *  typed」, which is the wrong way to guess. */
+  systemIdleMs: number | null;
+  /** When the last capture landed, from captureStore. Null = none since launch.
+   *
+   *  This is the half that lets a sitting spent in another application count: Spool is not
+   *  frontmost, but something arrived in it, so the person is working with Spool open beside
+   *  them — which is the way it is designed to be used. */
+  lastCaptureAt: number | null;
   /** How much active time earns a reminder — Settings → 休息提醒 → 连续工作时长, in ms.
    *
    *  ⚠️ Passed in on every tick rather than read from a constant, so a user who changes the
@@ -124,12 +162,18 @@ export interface TickResult {
   due: boolean;
 }
 
-/** Is this moment part of a sitting at all?
+/** Is this moment part of a sitting at all? 「系统没空闲 且（Spool 在前台 或 最近 N 分钟内有过
+ *  捕获）」 — see the header for why each half is there.
  *
- *  Both clauses, ANDed — see the header. `lastInputAt === null` is a window that has been open
- *  since launch and never touched, which is not work no matter how long it lasts. */
-export const isWorking = ({ now, focused, lastInputAt }: TickInput): boolean =>
-  focused && lastInputAt !== null && now - lastInputAt <= IDLE_GRACE_MS;
+ *  ⚠️ `systemIdleMs === null` is 「could not tell」 and returns false, never true. The reminder
+ *  locks the window for five minutes; a lock earned by a measurement that never happened is
+ *  the one failure this feature cannot afford, and a feature that quietly stops firing is
+ *  recoverable in a way a feature that interrupts people for no reason is not. */
+export const isWorking = ({ now, focused, systemIdleMs, lastCaptureAt }: TickInput): boolean => {
+  if (systemIdleMs === null || systemIdleMs > PRESENCE_WINDOW_MS) return false;
+  if (focused) return true;
+  return lastCaptureAt !== null && now - lastCaptureAt <= PRESENCE_WINDOW_MS;
+};
 
 /** One tick of the clock.
  *
@@ -139,12 +183,12 @@ export const tickBreakState = (state: BreakState, input: TickInput): TickResult 
   const { now } = input;
   const working = isWorking(input);
 
-  // Not working. The streak survives a gap up to the grace window and dies past it. ⚠️ Measured
-  // from the last CREDITED tick and not from `lastInputAt`, so a blurred window is treated the
-  // same way an idle one is — one rule for 「away」, whichever way the user went away.
+  // Not working. The streak survives a gap up to N and dies past it. ⚠️ Measured from the last
+  // CREDITED tick and not from any one signal, so every way of being away — machine idle, Spool
+  // in the background with no captures — is one rule, not three.
   if (!working) {
     if (state.lastTickAt === null) return { state, due: false };
-    if (now - state.lastTickAt > IDLE_GRACE_MS) {
+    if (now - state.lastTickAt > PRESENCE_WINDOW_MS) {
       return { state: initialBreakState(), due: false };
     }
     return { state, due: false };
