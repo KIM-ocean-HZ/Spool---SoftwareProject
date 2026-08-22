@@ -10,6 +10,26 @@
    retire/correction 作废/更正; Input Monitoring 输入监控;
    Accessibility 辅助功能; Automation 浏览器自动化. */
 
+/* 问卷星 (wjx.cn) — the hosted feedback form on the CHINESE page
+   (WORKPLAN-2026-08-20 §6.4.2, Ocean 拍板: 大陆可用 · 免费 · 使用量最多).
+   ⚠️ The English page has its OWN form, on SurveyMars (问卷星's international arm),
+   hard-coded in site/index.html. Two forms rather than one shared link, because 问卷星
+   is a Chinese-language site on mainland servers: a reader arriving from HN gets a slow
+   page they cannot read.
+   ⭐ The questions, and the reasoning behind every one of them (including the ones
+   deliberately left out): docs/FEEDBACK-FORM-2026-08-22.md.
+
+   ⛔ **A LINK, deliberately, not an embedded iframe.** An embed would load the form
+   service's scripts for every visitor who merely scrolls past — contacting a third party
+   from a page whose whole claim is that it contacts nobody. A link moves that moment to
+   the click, where the visitor can be told what it means first. That is the difference
+   between the note below being true and being spin.
+
+   ⛔ **The link and the honest note ship together or not at all.** 「什么都不收集」 stops
+   being true the second a hosted form sits beside it, and the two live in different files,
+   so build-site-zh.test.mjs asserts the pairing instead of trusting whoever edits next. */
+const ZH_FORM_URL = 'https://v.wjx.cn/vm/hy3KvuB.aspx';
+
 /* <head> per page: the English HTML's title/description/OG text has no
    data-i18n hook, so it is listed here per page instead. */
 export const HEAD = {
@@ -214,14 +234,17 @@ export const ZH = {
   'cta-p': '免费、可离线使用、无需账号。',
   'cta-fine': 'Apple 芯片 Mac（arm64），已签名并公证 · Windows x64，未签名 · 无需账号 · 不追踪使用情况 · <a href="https://github.com/KIM-ocean-HZ/spool/releases">在 GitHub 查看全部版本</a>',
   'fb-k': '出问题的时候',
-  'fb-h': '三条路都能找到我。',
+  'fb-h': '四条路都能找到我。',
   'fb-p': 'Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你报告问题。要是它坏了，或者你想要的事情它做不了，下面任意一条都能找到我。',
   'fb-l-what': '发生了什么，或者你希望它能做什么',
   'fb-l-where': '版本和系统——可不填',
   'fb-l-reply': '你的邮箱，想要回复的话——可不填',
   'fb-send': '写这封邮件',
-  'fb-note': '这个页面没有服务器，什么都不收集。按钮只是打开你自己的邮件应用，信已经写好了，发不发由你决定——不会有任何东西自己从这个页面发出去。',
-  'fb-alt': '不想用表格也行：<a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。',
+  'fb-note':
+    '这个页面本身没有服务器，也不收集任何东西：按钮只是打开你自己的邮件应用，信已经写好了，' +
+    '发不发由你决定。填问卷是另一回事——那是问卷星的页面，你在那儿写的内容存在他们的服务器上，' +
+    '不经过这里。想让内容只在你和我之间，就走邮件那条。',
+  'fb-alt': `不想用表格也行：<a href="${ZH_FORM_URL}" rel="noopener noreferrer" target="_blank">回答几个问题</a>（第三方，见上面那句） · <a href="mailto:jinhz0531@gmail.com?subject=Spool">直接给我发邮件</a> · <a href="https://github.com/KIM-ocean-HZ/spool/issues/new/choose">在 GitHub 提一个 issue</a> · 想知道有没有新版本，<a href="https://github.com/KIM-ocean-HZ/spool/releases">盯着发布页</a>就行。`,
 
   'foot-copy': 'Spool 思簿 · © 2026 · 保留所有权利',
   'foot-home': '首页',

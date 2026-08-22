@@ -29,6 +29,49 @@ describe('site/zh is in sync with the English pages', () => {
     });
   }
 
+  /* 问卷星 / SurveyMars (WORKPLAN-2026-08-20 §6.4.2; forms live 2026-08-22).
+     ⛔ What this guards is the ⛔ Ocean put on the whole change: **a hosted form and the
+     sentence 「什么都不收集」 must never ship together.** The failure is not a crash and not
+     a broken link — it is the site telling a plausible lie to exactly the people whose only
+     reason to trust it is that it does not. It cannot be caught by reading a diff either,
+     because the link and the claim live in different files and only one of them looks
+     urgent. Both languages, because the two pages are edited through different paths: the
+     English one by hand, the Chinese one through site-zh-strings.mjs. */
+  it('never offers a hosted form beside a claim that nothing is collected', () => {
+    /* ⚠️ Whitespace-collapsed before matching. The English page is hand-wrapped at ~100
+       columns, so any sentence long enough to be worth asserting on is split across lines —
+       a literal .toContain() would fail on the wrap rather than on the meaning, and the
+       obvious "fix" is to weaken the assertion until it passes. */
+    const flat = (h) => h.replace(/\s+/g, ' ');
+    const english = flat(readFileSync(new URL('../site/index.html', import.meta.url), 'utf8'));
+    const pairs = [
+      ['site/index.html', english, 'surveymars.com', 'collects nothing itself', 'stored on their servers'],
+      ['site/zh/index.html', flat(pages['index.html']), 'v.wjx.cn', '也不收集任何东西：', '存在他们的服务器上'],
+    ];
+    for (const [name, html, host, hedged, whereItGoes] of pairs) {
+      expect(html, `${name} lost its form link`).toContain(host);
+      // The unqualified claim is gone…
+      expect(html, `${name} still makes the bare no-collection claim`).not.toContain(
+        'This page has no server and collects nothing. The',
+      );
+      expect(html, `${name} still makes the bare no-collection claim`).not.toContain(
+        '这个页面没有服务器，什么都不收集。',
+      );
+      // …replaced by one that says what the page does and what the form does.
+      expect(html, `${name} lost the hedged claim`).toContain(hedged);
+      expect(html, `${name} does not say where the answers go`).toContain(whereItGoes);
+    }
+    // ⭐ And the route that needs no third party at all stays, on both pages — §6.4.2 落地
+    // 第 3 件. A form service being down, blocked or unreadable must not cost the only way
+    // a person can reach a human.
+    expect(english).toContain('mailto:jinhz0531@gmail.com');
+    expect(pages['index.html']).toContain('mailto:jinhz0531@gmail.com');
+    // The privacy pages carry the same admission — 落地第 2 件: 别只改表单不改说明.
+    const enPrivacy = readFileSync(new URL('../site/privacy.html', import.meta.url), 'utf8');
+    expect(enPrivacy).toContain('SurveyMars');
+    expect(pages['privacy.html']).toContain('问卷星');
+  });
+
   it('has no Chinese strings left over from copy that was removed', () => {
     expect(unused).toEqual([]);
   });
