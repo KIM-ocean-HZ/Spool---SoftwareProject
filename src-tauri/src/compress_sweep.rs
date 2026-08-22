@@ -88,13 +88,18 @@ fn run_the_sweep() {
     )
     .expect("the plan is not valid JSON");
 
-    // key 从磁盘读，和 app 用的是同一个文件。⛔ 不打印它，任何情况下都不。
-    let key_path = crate::mcp::app_data_dir().expect("no app data dir").join("api-key");
-    let api_key = std::fs::read_to_string(&key_path)
-        .expect("no api-key file — fill it in Spool's settings first")
-        .trim()
-        .to_string();
-    assert!(!api_key.is_empty(), "the api-key file is empty");
+    // key 和 app 读的是同一把 —— **钥匙串优先，回落到老那个 0600 文件**。
+    // ⛔ 不打印它，任何情况下都不。
+    //
+    // ⚠️⚠️ 这里原来直接读 `app_data_dir()/api-key`。2026-08-23 key 挪进钥匙串之后，
+    // 产品第一次读 key 会**把那个文件删掉** —— 于是「Ocean 打开过一次设置页」就会让
+    // 这个实测台再也起不来，⛔ 而且失败发生在他睡着以后。走 `read_api_key()` 之后
+    // 两种状态都跑得起来。
+    let api_key = crate::api_engine::read_api_key();
+    assert!(
+        !api_key.is_empty(),
+        "找不到 API key（钥匙串和 app-config 目录里都没有）—— 先在 Spool 的设置里填一次"
+    );
 
     // 端点和模型从 settings.json 读，同样是 app 在用的那一份 —— 实测要跟着产品的默认走。
     let settings: serde_json::Value = std::fs::read_to_string(

@@ -602,12 +602,35 @@ pub fn api_key_save(app: tauri::AppHandle, key: String) -> Result<(), String> {
     }
 }
 
+/// 读 key —— **钥匙串优先，读不到再回落到老那个 0600 文件**。
+///
+/// ⭐⭐ **拆出来不需要 `AppHandle`，是为了让实测台和产品读的是同一把钥匙。**
+/// ⚠️⚠️ 2026-08-23 装机的时候当场撞到的：实测台原来直接读
+/// `app_data_dir()/api-key`，而 key 挪进钥匙串那一步会**把那个文件删掉** ——
+/// 于是「Ocean 打开一次设置页」和「连夜实测还跑不跑得起来」被绑在了一起，
+/// ⛔ 而且失败会发生在他睡着以后。
+///
+/// ⚠️ macOS 上 `app_config_dir()` 和 `app_data_dir()` 都是
+/// `~/Library/Application Support/<identifier>`，所以两边指的是同一个文件。
+pub(crate) fn read_api_key() -> String {
+    #[cfg(target_os = "macos")]
+    if let Some(k) = keychain::load() {
+        return k;
+    }
+    let Some(dir) = crate::mcp::app_data_dir() else {
+        return String::new();
+    };
+    std::fs::read_to_string(dir.join("api-key")).unwrap_or_default().trim().to_string()
+}
+
 #[tauri::command]
 pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         migrate_key_into_keychain(&app);
-        Ok(keychain::load().unwrap_or_default())
+        // ⚠️ 走 `read_api_key()`（钥匙串优先、回落到文件）而不是只读钥匙串：
+        // 万一钥匙串那一下写失败了，老文件是**故意没删**的，产品照样该能用。
+        Ok(read_api_key())
     }
     #[cfg(not(target_os = "macos"))]
     {
