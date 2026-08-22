@@ -80,6 +80,7 @@ const session = (): CompressSession => ({
   addedBack: [],
   restoredLines: [],
   retry: null,
+  shield: null,
   probe: null,
   startedAt: 0,
 });

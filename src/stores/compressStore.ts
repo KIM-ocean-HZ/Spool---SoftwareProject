@@ -13,6 +13,7 @@ import {
   type DuplicateProbe,
 } from '@/lib/ai/compress';
 import { addBackNumbers, worthRetrying } from '@/lib/ai/compressBlocks';
+import { isEmptyHeld, shieldPack, unshieldPack, type Unshielded } from '@/lib/ai/shield';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
 import { assemble } from '@/lib/pack/assemble';
@@ -78,6 +79,12 @@ export interface CompressSession {
   /** D-c：第一次的结果不合格、自动重压过一次的时候记在这儿。null = 没重压过。
    *  ⚠️ 屏幕上必须说出来 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */
   retry: { secondOk: boolean } | null;
+  /** R5：摘下来的批注/高亮**没能原样放回去**的那些。null = 这一份没走摘除那条路
+   *  （里面本来就没有批注、关系行、高亮）。
+   *
+   *  ⚠️⚠️ **放回失败必须报出来，不能静默**（R2 文档 §5a 明写）：静默丢掉一条批注，
+   *  正是「不发给 AI」这一整条改动本来要根除的那件事换了个地方发生。 */
+  shield: { orphaned: number; lostSpans: string[] } | null;
   /** D-a：这个项目里有多少重复，**压之前**就算好。null = 还没算出来（或者算不出来 ——
    *  ⛔ 那时候界面上什么都不说，不编一个数）。⚠️ 只有整项目压缩有它：重复是跨块的，
    *  单独压一块本来就看不见别的块。 */
@@ -180,6 +187,7 @@ const freshSession = (target: CompressTarget, source: string, blocks: Block[]): 
     addedBack: [],
     restoredLines: [],
     retry: null,
+    shield: null,
     probe: null,
     startedAt: 0,
   };
@@ -197,10 +205,20 @@ const runCompress = async (
   source: string,
   level: CompressLevel,
   reasoning: string,
-): Promise<{ outcome: CompressOutcome; retry: { secondOk: boolean } | null }> => {
+): Promise<{
+  outcome: CompressOutcome;
+  retry: { secondOk: boolean } | null;
+  shield: { orphaned: number; lostSpans: string[] } | null;
+}> => {
   const s = useSettingsStore.getState();
+  // ⭐⭐ R5（2026-08-22，Ocean：「禁止批注被 AI 修改，直接不发送批注就行」）：
+  // **送出去的是摘掉批注/关系行/高亮之后的那一份**，回来之后按映射原样放回。
+  // ⚠️ `source` 一个字都没变 —— 核对、按块比对、算比例，用的仍然是没摘之前那份原文。
+  // 摘的是「让它不可能被改」，⛔ 不是「不再核对」（`auditCompression` 一条检查都没删）。
+  const shielded = shieldPack(source);
+  const bare = isEmptyHeld(shielded.held);
   const req = {
-    packText: source,
+    packText: shielded.text,
     level,
     baseUrl: s.apiBaseUrl,
     apiKey: await loadApiKey(),
@@ -208,13 +226,32 @@ const runCompress = async (
     reasoning,
     timeoutSecs: s.apiTimeoutSecs,
   };
-  const first = await compressPack(req);
-  if (!first.ok || !worthRetrying(source, first.text)) return { outcome: first, retry: null };
-  const second = await compressPack(req);
+  // 回来一份就当场放回去一份 —— ⚠️ 后面所有判断（值不值得重跑、核对、按块比对）
+  // 看到的都必须是**放回去之后**那一份，否则它们会以为批注真的没了。
+  let lost: Unshielded | null = null;
+  const put = (o: CompressOutcome): CompressOutcome => {
+    if (!o.ok || bare) return o;
+    const back = unshieldPack(o.text, shielded.held);
+    lost = back;
+    return { ...o, text: back.text };
+  };
+  const report = () =>
+    lost === null
+      ? null
+      : {
+          orphaned: (lost as Unshielded).orphaned.reduce((n, h) => n + h.lines.length, 0),
+          lostSpans: (lost as Unshielded).lostSpans,
+        };
+
+  const first = put(await compressPack(req));
+  if (!first.ok || !worthRetrying(source, first.text))
+    return { outcome: first, retry: null, shield: report() };
+  const second = put(await compressPack(req));
   return {
     // 第二次没跑成就还是拿第一次那份给用户 —— 手里有一份坏的，总好过只剩一句报错。
     outcome: second.ok ? mergeOutcomes(first, second) : mergeOutcomes(second, first),
     retry: { secondOk: second.ok },
+    shield: report(),
   };
 };
 
@@ -313,6 +350,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       addedBack: [],
       restoredLines: [],
       retry: null,
+      shield: null,
       startedAt: Date.now(),
     };
     set((st) => ({
@@ -323,10 +361,19 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       startErrors: omit(st.startErrors, threadId),
     }));
     try {
-      const { outcome, retry } = await runCompress(frozen.source, frozen.level, frozen.reasoning);
+      const { outcome, retry, shield } = await runCompress(
+        frozen.source,
+        frozen.level,
+        frozen.reasoning,
+      );
       set((st) =>
         st.sessions[threadId]
-          ? { sessions: { ...st.sessions, [threadId]: { ...st.sessions[threadId], outcome, retry } } }
+          ? {
+              sessions: {
+                ...st.sessions,
+                [threadId]: { ...st.sessions[threadId], outcome, retry, shield },
+              },
+            }
           : {},
       );
     } catch (e) {
@@ -448,9 +495,13 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         set({ running: true, runningThreadId: thread.id, progress: { stage: 'starting' } });
         // 夜里那一批也走同一条路（坏了自动重跑一次）——⛔ 早上起来看到一份结构性的坏结果，
         // 那一趟等于白跑，而重跑的钱和现在这一笔是同一个量级。
-        const { outcome, retry } = await runCompress(text, s.apiCompressLevel, s.apiReasoning);
+        const { outcome, retry, shield } = await runCompress(
+          text,
+          s.apiCompressLevel,
+          s.apiReasoning,
+        );
         if (outcome.ok) {
-          set((st) => ({ results: [...st.results, { ...session, outcome, retry }] }));
+          set((st) => ({ results: [...st.results, { ...session, outcome, retry, shield }] }));
         } else {
           set((st) => ({
             failures: [...st.failures, { title: thread.title, why: outcome.kind ?? 'http' }],

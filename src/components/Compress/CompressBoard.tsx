@@ -130,7 +130,10 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
     !!audit &&
     (auditHasLosses(audit) ||
       (byEntry !== null &&
-        (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0)));
+        (byEntry.dropped > 0 || byEntry.invented > 0 || byEntry.duplicated.length > 0)) ||
+      // R5：放回失败也算损失 —— 它和「丢了一条批注」对用户来说是同一件事。
+      (session.shield !== null &&
+        (session.shield.orphaned > 0 || session.shield.lostSpans.length > 0)));
 
   const copy = async () => {
     if (result === null) return;
@@ -326,6 +329,26 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
               )
             )}
 
+            {/* ⛔⛔ R5：摘下来的批注/高亮**没能原样放回去**。这一句必须在，而且必须显眼 ——
+                「不发给 AI」这条改动把五类警告变成结构上不可能发生，代价是多了一个新的
+                失败点（放回去这一步）。静默吞掉它，就是把同一件事换个地方重演一遍。 */}
+            {session.shield &&
+              (session.shield.orphaned > 0 || session.shield.lostSpans.length > 0) && (
+                <div className="flex items-start gap-1.5">
+                  <AlertTriangle size={12} className="mt-0.5 flex-none" />
+                  <div>
+                    {session.shield.orphaned > 0 &&
+                      t('有 {n} 条批注/关系行没能放回去 —— 它们原来那一块在压缩稿里找不到了。', {
+                        n: session.shield.orphaned,
+                      })}
+                    {session.shield.lostSpans.length > 0 &&
+                      t('有 {n} 处你划的重点没能放回去 —— 它所在那句话被改写了。', {
+                        n: session.shield.lostSpans.length,
+                      })}
+                  </div>
+                </div>
+              )}
+
             {/* 下面这几句是**附注**，不是警告 —— 一律不带颜色，能短则短。 */}
             {/* D-c：重压过就必须说 —— 不然「这一次花了多少」那个数会莫名其妙翻倍。 */}
             {session.retry && (
@@ -458,6 +481,11 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
               <div className="space-y-1">
                 <div>{t('点右下角开始。')}</div>
                 <div>{t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}</div>
+                {/* ⭐ R5：这句话说的是一件**结构上的事**，不是一句承诺 —— 那几行根本不进请求
+                    （`shield.ts`）。⚠️ 值得让用户看见：他上一轮的原话是「禁止批注被 AI 修改」。 */}
+                <div>
+                  {t('你的批注、你划的重点、引用关系不会发给 AI —— 压完由 Spool 原样放回。')}
+                </div>
                 {/* ⭐ D-a（2026-08-22）：**压之前**先在本地数一遍这个项目有多少重复。
                     实测四轮最要紧的一条是「压多少取决于这个项目里有多少重复，不取决于你选哪一档」——
                     那句话原来只是界面上的一行提示，等于把一个没解决的问题丢给用户：

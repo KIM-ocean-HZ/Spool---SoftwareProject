@@ -1255,6 +1255,13 @@ const EN: Record<string, string> = {
   '有 {n} 块是它自己编出来的编号。': '{n} block(s) carry numbers the original never had.',
   '有 {n} 块在压缩稿里出现了不止一次（#{s}）—— 它把同样的内容写了两遍。':
     '{n} block(s) appear more than once (#{s}) — it wrote the same content twice.',
+  '你的批注、你划的重点、引用关系不会发给 AI —— 压完由 Spool 原样放回。':
+    'Your annotations, highlights and citation links are never sent to the AI — Spool puts them back verbatim afterwards.',
+  // R5（2026-08-22）：摘下来的批注/高亮没能原样放回去。⛔ 必须报，不能静默。
+  '有 {n} 条批注/关系行没能放回去 —— 它们原来那一块在压缩稿里找不到了。':
+    '{n} annotation/relation line(s) could not be put back — the block they belong to is nowhere in the compressed version.',
+  '有 {n} 处你划的重点没能放回去 —— 它所在那句话被改写了。':
+    '{n} highlight(s) could not be put back — the sentence holding them was rewritten.',
   '有本来要求一字不改保留的东西不见了 —— 下面按块标了出来：':
     'Something that had to survive word for word did not — marked block by block below:',
   '少了 {n} 条批注': '{n} annotation(s) are gone',

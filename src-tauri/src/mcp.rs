@@ -7368,10 +7368,11 @@ pub fn compress_messages_for_api(pack_text: &str, level: CompressLevel) -> (Stri
          2. 只压缩 \"## Full Record\" 一节:合并重复信息,压缩冗长的引用和文件提取内容,保留每条的 [时间戳 · from 来源] 格式\n\
          3. \"## Full Record\" 里以下内容一字不改地保留:所有 note: 行(用户批注)、所有不带来源标注的条目(用户手写内容)、所有 ==...== 高亮片段、所有以 「↩ cites:」「↩ replaces (that block no longer holds):」「↩ corrects one point in:」 开头的关系行、以及所有 「[... truncated, N more chars not shown ...]」 截断标记\n\
          4. 绝对不要添加原始简报里没有的信息,不要评论,不要总结陈词\n\
-         5. {ratio}\n\
-         6. 先直接输出压缩后的完整简报——不要前言、解释或代码块标记,也不要把 ⟦SPOOL:MATERIAL⟧ 这两行界标抄进去,它们不是简报的一部分\n\
-         7. 简报输出完之后,另起一行写 {CUTS_OPEN},在下面用几条短句说清楚**你这一次删掉/合并了哪几类东西**(例如「合并了三处重复的报名日期」「把两段网页引文缩成一句」),再另起一行写 {CUTS_CLOSE}。这一段不是简报的一部分,Spool 会把它切下来单独显示;不要在这一段里重复简报的内容\n\
-         8. {rule}",
+         5. 简报里可能出现 ⟦H0⟧ ⟦H1⟧ 这样的方括号记号。**原样照抄**:不要改动、不要删除、不要展开、不要合并、不要解释,也不要自己造新的。它们是 Spool 摘下来暂存的用户原话,压完之后由 Spool 放回原位\n\
+         6. {ratio}\n\
+         7. 先直接输出压缩后的完整简报——不要前言、解释或代码块标记,也不要把 ⟦SPOOL:MATERIAL⟧ 这两行界标抄进去,它们不是简报的一部分\n\
+         8. 简报输出完之后,另起一行写 {CUTS_OPEN},在下面用几条短句说清楚**你这一次删掉/合并了哪几类东西**(例如「合并了三处重复的报名日期」「把两段网页引文缩成一句」),再另起一行写 {CUTS_CLOSE}。这一段不是简报的一部分,Spool 会把它切下来单独显示;不要在这一段里重复简报的内容\n\
+         9. {rule}",
         "You are a context compressor. The user's next message holds a project context briefing Spool \
          generated; it is too long. Compress it into a shorter version that loses no information, ready \
          to paste to another AI.\n\n\
@@ -7380,10 +7381,11 @@ pub fn compress_messages_for_api(pack_text: &str, level: CompressLevel) -> (Stri
          2. Compress ONLY the \"## Full Record\" section: merge repeated information, shorten long quotations and extracted file text, and keep each entry's [timestamp · from source] format\n\
          3. Inside \"## Full Record\", keep these verbatim: every note: line (the user's annotations), every entry with no source label (things the user wrote), every ==...== highlighted span, every relation line starting with \"↩ cites:\", \"↩ replaces (that block no longer holds):\" or \"↩ corrects one point in:\", and every \"[... truncated, N more chars not shown ...]\" marker\n\
          4. Never add information the original does not contain. No commentary, no closing summary\n\
-         5. {ratio}\n\
-         6. First output the compressed briefing directly — no preamble, no explanation, no code fences, and do not copy the two \u{27e6}SPOOL:MATERIAL\u{27e7} marker lines: they are not part of the briefing\n\
-         7. After the briefing is finished, on a new line write {CUTS_OPEN}, then a few short lines saying WHAT KINDS OF THING you cut or merged this time (for example \"merged three repeats of the application deadline\", \"shortened two web quotations into one sentence\"), then on a new line write {CUTS_CLOSE}. That part is not part of the briefing — Spool cuts it off and shows it separately — so do not restate the briefing's content in it\n\
-         8. {rule}"
+         5. The briefing may contain bracket markers like \u{27e6}H0\u{27e7} or \u{27e6}H1\u{27e7}. **Copy them verbatim**: do not alter, drop, expand, merge or explain them, and never invent new ones. They stand in for the user's own words, which Spool held back and puts in place again after the compression\n\
+         6. {ratio}\n\
+         7. First output the compressed briefing directly — no preamble, no explanation, no code fences, and do not copy the two \u{27e6}SPOOL:MATERIAL\u{27e7} marker lines: they are not part of the briefing\n\
+         8. After the briefing is finished, on a new line write {CUTS_OPEN}, then a few short lines saying WHAT KINDS OF THING you cut or merged this time (for example \"merged three repeats of the application deadline\", \"shortened two web quotations into one sentence\"), then on a new line write {CUTS_CLOSE}. That part is not part of the briefing — Spool cuts it off and shows it separately — so do not restate the briefing's content in it\n\
+         9. {rule}"
     );
     (system, fenced_material(pack_text))
 }
@@ -7413,6 +7415,22 @@ mod compress_prompt_tests {
             assert!(mcp.contains(fragment), "MCP prompt lost: {fragment}");
             assert!(api.contains(fragment), "API prompt lost: {fragment}");
         }
+    }
+
+    // ⭐⭐ R5（2026-08-22）：Spool 自己那条路**送出去之前会把批注/关系行摘掉、把高亮换成
+    // ⟦H0⟧ 这样的占位符**（`src/lib/ai/shield.ts`），压完再按映射放回去。
+    // 提示词里必须有一条告诉模型「这种记号原样照抄」—— 没有这一条，它会把一个看不懂的
+    // 记号当成噪声删掉，而删掉的后果是**用户划的那句原话再也放不回去**。
+    // ⛔ 这一条只属于 API 那条路：MCP 那条路把完整 pack 交给别人家的 AI，从来不摘。
+    #[test]
+    fn the_api_prompt_tells_the_model_to_copy_placeholders_verbatim() {
+        let (api, _) = compress_messages_for_api("PACK", CompressLevel::Balanced);
+        assert!(api.contains("\u{27e6}H0\u{27e7}"), "the placeholder rule is gone");
+        let mcp = compress_prompt_text("PACK");
+        assert!(
+            !mcp.contains("\u{27e6}H0\u{27e7}"),
+            "MCP 那条路不摘东西，不该提占位符"
+        );
     }
 
     // 摆放位置就是钱：规则（每次一样）必须整个在 system 里，简报（每次不同）在 user 里。
