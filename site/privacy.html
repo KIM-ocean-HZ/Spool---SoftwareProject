@@ -33,16 +33,19 @@
 <main class="wrap article measure" style="margin: 0 auto;" data-zh-body="privacy">
 
 <h1>Privacy Policy</h1>
-<p class="lede">Last updated: 2026-08-13 (Spool v0.4.0). This English translation is provided for convenience;
+<p class="lede">Last updated: 2026-08-23 (Spool v0.6.2). This English translation is provided for convenience;
 the <a href="zh/privacy.html" hreflang="zh-Hans" lang="zh">Chinese original</a> is authoritative.</p>
 
 <h2>The one-sentence version</h2>
-<p><strong>Spool keeps your data on your computer and never uploads it on its own.</strong>
-Capture, filing, packing, and search all happen on your machine. No account, no telemetry.
-Spool ships with <strong>no built-in cloud AI</strong> and never contacts any server; the app's
-content-security policy (CSP) structurally forbids all external network connections from the
-webview. Content reaches another program only when you deliberately hand it over, as described
-below.</p>
+<p><strong>Spool keeps your data on your computer, and Spool's own process never opens a network
+connection.</strong> Capture, filing, packing, and search all happen on your machine. No account,
+no telemetry. The app's content-security policy (CSP) structurally forbids all external network
+connections from the webview, and the Spool binary contains no HTTP client at all.</p>
+<p><strong>One route does reach a model provider, and Spool is the one that starts it.</strong> If
+you switch the <strong>API engine</strong> on (Settings → Engine — it is off until you do), Spool
+runs a small bundled subprocess that makes the request, using a key you gave it and your own quota.
+That route and the three hand-offs you perform yourself are all listed below; nothing else leaves
+this machine.</p>
 
 <h2>What we collect</h2>
 <p><strong>Nothing.</strong> Spool has no server. There is no account system, no usage
@@ -60,8 +63,10 @@ GitHub remain available if you would rather not involve a third party at all.</p
 <ul>
   <li>All content (workspaces, projects, blocks, annotations, attachment index) lives in a local
       SQLite database: <code>~/Library/Application Support/com.oceanjin.spool/spool.db</code></li>
-  <li>Interface settings live in <code>settings.json</code> in the same directory (it contains
-      no secrets — Spool needs none).</li>
+  <li>Interface settings live in <code>settings.json</code> in the same directory. Your API-engine
+      key is <strong>not</strong> in it: on macOS it is stored in the system Keychain, on Windows in
+      a separate <code>0600</code> file in the same directory. It is never written to a log or an
+      error message.</li>
   <li>Attachments are never copied or uploaded — Spool stores only the path to the original
       file, plus (optionally) text extracted locally. PDF/Word text extraction happens entirely
       on your machine.</li>
@@ -72,9 +77,10 @@ GitHub remain available if you would rather not involve a third party at all.</p
 inside the app does the same.</p>
 
 <h2>When data can leave your computer</h2>
-<p><strong>Spool itself never goes online.</strong> Content can reach another program in three
-ways. In every case, you initiate the hand-off, and that receiving program — not Spool — controls
-whether the content then reaches a network service:</p>
+<p>Content can reach another program in <strong>four</strong> ways, and every one of them is off
+until you turn it on. In the first three you hand the content over, and the receiving program — not
+Spool — decides whether it then reaches a network service. The fourth is the API engine: there the
+request is made on your behalf, by a subprocess Spool starts:</p>
 <table>
   <tr><th>Feature</th><th>Where data goes</th><th>Notes</th></tr>
   <tr>
@@ -99,7 +105,21 @@ whether the content then reaches a network service:</p>
         Gemini CLI; Gemini does not run Follow Up)</td>
     <td>Spool starts that CLI as a local subprocess and hands it the relevant project content.
         <strong>The network request happens inside that subprocess</strong>, on your own account's
-        quota — Spool stores no API key and makes no HTTP request of its own.</td>
+        quota — on this route Spool stores no API key, and its own process makes no HTTP
+        request.</td>
+  </tr>
+  <tr>
+    <td>Compress a project, or run the out-of-date check (Settings → Engine → <strong>API
+        engine</strong>, off by default; requires a key you supply)</td>
+    <td>The model provider whose endpoint you configured (DeepSeek by default; any
+        OpenAI-compatible HTTPS endpoint)</td>
+    <td><strong>This is the one route Spool runs itself.</strong> The project content being
+        compressed or checked is sent to that provider, and the run is billed to your own key —
+        including a run you cancel partway, because the provider still charges for what it already
+        produced. The request is made by a bundled subprocess (<code>spool-ai</code>) that Spool
+        starts and that exits when the run ends; Spool's own process still makes no HTTP request.
+        Plain <code>http://</code> endpoints are refused. Nothing is written into your library
+        until you approve it on screen.</td>
   </tr>
 </table>
 <p>⚠️ <strong>Follow up is the one action that deliberately searches the web.</strong> It takes
@@ -107,9 +127,10 @@ the lines you wrote yourself describing what to watch for, and asks that CLI to 
 news — so those lines and the context it needs reach the CLI's provider. Weekly Review and
 drafting follow-up goals do not receive web-search tools, but the project content they need is
 still handed to the CLI and may reach its provider.</p>
-<p>In other words: Spool never sends data anywhere on its own. The only way content leaves this
-machine is through a hand-off you chose: a manual paste, an MCP client you enabled, or a CLI
-action you ran.</p>
+<p>In other words: content leaves this machine only along a route you switched on — a manual
+paste, an MCP client you enabled, a CLI action you ran, or the API engine you gave a key to. With
+the API engine off, Spool makes no network request at all; with it on, the request comes from a
+separate subprocess, on your own key and quota, to the provider you picked.</p>
 <p>The other direction — an AI writing into your library — only arises once you have turned the
 MCP server on. The “allow AI writes” switch underneath it is <strong>on by default and can be
 turned off at any time</strong>; what an AI writes can only be <strong>added, never edited over

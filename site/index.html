@@ -564,12 +564,15 @@ the user's feelings at the cost of correctness.</span>
          not "is it signed". So the hand-off boundary comes first and the signature third. -->
     <div class="grid-3 reveal-stagger">
       <div class="card">
-        <h3 data-i18n="t3-h">Nothing is tracked, and Spool sends nothing on its own</h3>
-        <p data-i18n="t3-p">No analytics, no telemetry, no crash reporting, and Spool itself cannot make a
-        network request — it is built without the ability. Content may leave your machine only when you hand
-        it to another program: paste a Pack into a service, enable an MCP client, or ask a command-line
-        AI you installed to draft follow-up goals, run Follow Up, or write a Weekly Review. The receiving program controls what
-        happens next. Your clipboard is read at the moment you use the capture shortcut and not otherwise.</p>
+        <h3 data-i18n="t3-h">Nothing is tracked, and nothing leaves unless you switch it on</h3>
+        <p data-i18n="t3-p">No analytics, no telemetry, no crash reporting, and Spool's own process cannot
+        make a network request — it is built without an HTTP client. Content leaves your machine only along a
+        route you switched on: paste a Pack into a service, enable an MCP client, ask a command-line AI you
+        installed to draft follow-up goals, run Follow Up, or write a Weekly Review, or turn on the API engine
+        so Spool can compress a project for you. On the first three the receiving program controls what happens
+        next; on the API engine the request comes from a separate bundled subprocess, with a key you supplied
+        and on your own quota. Your clipboard is read at the moment you use the capture shortcut and not
+        otherwise.</p>
       </div>
       <div class="card">
         <h3 data-i18n="t2-h">One file, on your own machine</h3>
@@ -635,9 +638,11 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q10">Do I need an API key or a paid AI plan?</summary>
-        <p data-i18n="a10">No key — there is nowhere in Spool to put one. Reading through an AI app uses
-        whatever plan you already have in that app. The watching runs a command-line AI you have already
-        installed and logged into, on that subscription's quota.</p>
+        <p data-i18n="a10">Not for the everyday use of it. Reading through an AI app uses whatever plan you
+        already have in that app, and the watching runs a command-line AI you have already installed and
+        logged into, on that subscription's quota. One optional feature does take a key: the <b>API engine</b>,
+        which lets Spool compress a project, or check it for notes a later note has overtaken. It is off until
+        you switch it on and paste a key, and each run spends your own credit.</p>
       </details>
       <details>
         <summary data-i18n="q3">Why is it free?</summary>
@@ -701,8 +706,8 @@ the user's feelings at the cost of correctness.</span>
       <div class="kicker" data-i18n="fb-k">After you have used it</div>
       <h2 data-i18n="fb-h">Tell me how it went.</h2>
       <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool has no
-      account and never sends anything anywhere — which also means it cannot tell me anything either.
-      Whether it worked or it broke, I only find out if you say so.</p>
+      account and no telemetry — nothing about how you use it ever reaches me, which also means it cannot
+      tell me anything either. Whether it worked or it broke, I only find out if you say so.</p>
     </div>
 
     <div class="fb-survey center reveal">

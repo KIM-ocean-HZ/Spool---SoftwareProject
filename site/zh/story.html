@@ -101,11 +101,11 @@
   <div class="arch-scroll" tabindex="0" role="region"
        data-i18n-aria="story-arch-scroll-aria"
        aria-label="架构图；屏幕窄时可以左右滑动，逐个查看组件和网络路径">
-    <svg class="arch-svg" viewBox="0 0 1160 610" role="img"
+    <svg class="arch-svg" viewBox="0 0 1160 706" role="img"
          data-i18n-aria="story-arch-svg-aria"
-         aria-label="Spool 架构：图形界面和捕捉浮窗在本机连到 Rust 与 Tauri 内核以及一个 SQLite 数据库。spool --mcp 模式通过 stdio 与外部 MCP 客户端通信。内核会把 Claude Code、Codex CLI 或 Gemini CLI 作为子进程启动。只有外部 MCP 客户端和命令行子进程会通过两条各自独立的网络路径联系自己的服务商；Spool 自身不发出任何 HTTP 请求。">
-      <title data-i18n="story-arch-svg-title">Spool 的本地架构，以及两条对外的路径</title>
-      <desc data-i18n="story-arch-svg-desc">Spool 进程里装着桌面图形界面、捕捉浮窗、Rust 与 Tauri 内核、spool --mcp 的 stdio 服务器，以及一个 SQLite 数据库。外部 MCP 客户端通过 stdio 连进来。内核可以把 Claude Code、Codex CLI 或 Gemini CLI 作为独立子进程启动。外部 MCP 客户端和命令行子进程分别通过两条不同的网络路径联系各自的服务商。没有任何一条箭头从 Spool 自身指向网络。</desc>
+         aria-label="Spool 架构：图形界面和捕捉浮窗在本机连到 Rust 与 Tauri 内核以及一个 SQLite 数据库。spool --mcp 模式通过 stdio 与外部 MCP 客户端通信。内核会把 Claude Code、Codex CLI 或 Gemini CLI 作为子进程启动；打开 API 引擎之后，还会启动随包的 spool-ai 子进程。离开这台机器的网络路径一共三条，分别来自这两个子进程和那个 MCP 客户端；Spool 主进程自己不发出任何 HTTP 请求。">
+      <title data-i18n="story-arch-svg-title">Spool 的本地架构，以及三条对外的路径</title>
+      <desc data-i18n="story-arch-svg-desc">Spool 进程里装着桌面图形界面、捕捉浮窗、Rust 与 Tauri 内核、spool --mcp 的 stdio 服务器，以及一个 SQLite 数据库。外部 MCP 客户端通过 stdio 连进来。内核可以把 Claude Code、Codex CLI 或 Gemini CLI 作为独立子进程启动；打开 API 引擎之后，还会启动随包的 spool-ai 子进程。这三个程序分别通过三条不同的网络路径联系各自的服务商。没有任何一条箭头从 Spool 主进程自身指向网络。</desc>
       <defs>
         <marker id="story-arrow" viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -117,7 +117,7 @@
         </marker>
       </defs>
 
-      <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
+      <rect class="arch-boundary" x="18" y="18" width="1124" height="528" rx="18"/>
       <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">你的电脑</text>
 
       <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
@@ -155,19 +155,29 @@
       <text class="sub" x="792" y="166" data-i18n="story-arch-client-sub">ChatGPT 桌面版里的 Codex</text>
       <text class="mono" x="792" y="183" data-i18n="story-arch-client-mono">与服务商的连接归客户端所有</text>
 
-      <rect class="box box-external" x="770" y="270" width="300" height="100" rx="8"/>
-      <text class="lbl" x="792" y="303" data-i18n="story-arch-cli">命令行引擎子进程</text>
-      <text class="sub" x="792" y="325">Claude Code · Codex CLI</text>
-      <text class="sub" x="792" y="344" data-i18n="story-arch-cli-sub">Gemini CLI · 没有“跟进”</text>
-      <text class="mono" x="792" y="362" data-i18n="story-arch-cli-mono">用户自己安装 · 用户自己登录</text>
+      <rect class="box box-external" x="770" y="250" width="300" height="100" rx="8"/>
+      <text class="lbl" x="792" y="283" data-i18n="story-arch-cli">命令行引擎子进程</text>
+      <text class="sub" x="792" y="307">Claude Code · Codex CLI</text>
+      <text class="sub" x="792" y="326" data-i18n="story-arch-cli-sub">Gemini CLI · 没有“跟进”</text>
+      <text class="mono" x="792" y="343" data-i18n="story-arch-cli-mono">用户自己安装 · 用户自己登录</text>
 
-      <rect class="provider-box" x="144" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="294" y="531" text-anchor="middle" data-i18n="story-arch-provider-1">MCP 客户端的服务商</text>
-      <text class="sub" x="294" y="554" text-anchor="middle" data-i18n="story-arch-provider-1-sub">网络路径 1 · 在 Spool 之外</text>
+      <rect class="box box-external" x="800" y="410" width="270" height="100" rx="8"/>
+      <text class="lbl" x="822" y="443" data-i18n="story-arch-api">API 引擎子进程</text>
+      <text class="sub" x="822" y="467">spool-ai · bundled binary</text>
+      <text class="sub" x="822" y="486" data-i18n="story-arch-api-sub">默认关闭 · 用你自己的 key</text>
+      <text class="mono" x="822" y="503" data-i18n="story-arch-api-mono">整个 app 里唯一开 socket 的</text>
 
-      <rect class="provider-box" x="716" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="866" y="531" text-anchor="middle" data-i18n="story-arch-provider-2">命令行 AI 的服务商</text>
-      <text class="sub" x="866" y="554" text-anchor="middle" data-i18n="story-arch-provider-2-sub">网络路径 2 · 在 Spool 之外</text>
+      <rect class="provider-box" x="40" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="190" y="633" text-anchor="middle" data-i18n="story-arch-provider-1">MCP 客户端的服务商</text>
+      <text class="sub" x="190" y="656" text-anchor="middle" data-i18n="story-arch-provider-1-sub">网络路径 1 · 在 Spool 之外</text>
+
+      <rect class="provider-box" x="430" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="580" y="633" text-anchor="middle" data-i18n="story-arch-provider-2">命令行 AI 的服务商</text>
+      <text class="sub" x="580" y="656" text-anchor="middle" data-i18n="story-arch-provider-2-sub">网络路径 2 · 在 Spool 之外</text>
+
+      <rect class="provider-box" x="785" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="935" y="633" text-anchor="middle" data-i18n="story-arch-provider-3">你自己填的那个端点</text>
+      <text class="sub" x="935" y="656" text-anchor="middle" data-i18n="story-arch-provider-3-sub">网络路径 3 · 用你自己的 key</text>
 
       <path class="flow" d="M 264 152 L 322 152"/>
       <text class="flow-label" x="293" y="141" text-anchor="middle">IPC</text>
@@ -178,22 +188,26 @@
       <path class="flow" d="M 414 296 L 414 320"/>
       <path class="flow flow-accent" d="M 770 140 C 686 140, 606 346, 506 346"/>
       <text class="flow-label accent-label" x="649" y="265">stdio · MCP</text>
-      <path class="flow flow-accent" d="M 506 272 C 606 272, 654 320, 770 320"/>
-      <text class="flow-label accent-label" x="637" y="304" data-i18n="story-arch-flow-spawn">启动 + stdio</text>
+      <path class="flow flow-accent" d="M 506 280 C 606 290, 654 300, 770 300"/>
+      <text class="flow-label accent-label" x="637" y="318" data-i18n="story-arch-flow-spawn">启动 + stdio</text>
+      <path class="flow flow-accent" d="M 506 300 C 640 360, 700 460, 800 460"/>
+      <text class="flow-label accent-label" x="556" y="402" data-i18n="story-arch-flow-spawn">启动 + stdio</text>
 
-      <path class="network-line" d="M 860 190 C 840 438, 430 438, 350 498"/>
-      <text class="network-label" x="565" y="449" data-i18n="story-arch-path-1">网络路径 1</text>
-      <path class="network-line" d="M 920 370 C 920 430, 866 445, 866 498"/>
-      <text class="network-label" x="928" y="449" data-i18n="story-arch-path-2">网络路径 2</text>
+      <path class="network-line" d="M 800 190 C 748 260, 730 340, 730 430 C 730 500, 480 530, 190 600"/>
+      <text class="network-label" x="300" y="528" data-i18n="story-arch-path-1">网络路径 1</text>
+      <path class="network-line" d="M 830 350 C 782 390, 762 415, 762 455 C 762 515, 660 535, 580 600"/>
+      <text class="network-label" x="610" y="538" data-i18n="story-arch-path-2">网络路径 2</text>
+      <path class="network-line" d="M 935 510 C 935 545, 935 570, 935 600"/>
+      <text class="network-label" x="952" y="530" data-i18n="story-arch-path-3">网络路径 3</text>
 
-      <text class="arch-no-http" x="66" y="381" data-i18n="story-arch-no-http">Spool 自身不发出任何 HTTP 请求。</text>
-      <text class="arch-network-boundary" x="42" y="462" data-i18n="story-arch-boundary">网络边界 —— 只有那两条高亮路径会穿过它</text>
+      <text class="arch-no-http" x="66" y="381" data-i18n="story-arch-no-http">Spool 主进程自己不发出任何 HTTP 请求。</text>
+      <text class="arch-network-boundary" x="42" y="578" data-i18n="story-arch-boundary">网络边界 —— 只有那三条高亮路径会穿过它</text>
     </svg>
   </div>
-  <figcaption class="shot-caption" data-i18n="story-cap-arch">这条网络边界是字面意义上的：外部 MCP 客户端，以及你自己登录过的命令行子进程，可以联系各自的服务商。Spool 自身不发出 HTTP 请求，不保存任何服务商密钥，也不监听任何网络端口。</figcaption>
+  <figcaption class="shot-caption" data-i18n="story-cap-arch">这条网络边界是字面意义上的，而且它画在进程的边上，不是一句承诺：外部 MCP 客户端、你自己登录过的命令行，以及打开 API 引擎之后随包启动的 <code>spool-ai</code> 子进程，各自去联系一家服务商。Spool 主进程自己不发 HTTP 请求，也不监听任何网络端口——它里面根本没编进 HTTP 客户端。三条路里只有 API 引擎那一条要拿 key，它默认是关的，而且 key 存在系统钥匙串里，不在 Spool 的设置文件里。</figcaption>
 </figure>
 
-<p data-i18n="story-arch-p2">图形界面和捕捉浮窗在本机与 Rust/Tauri 内核通信。内核拥有唯一的那个 SQLite 数据库。运行 <code>spool --mcp</code> 会把同一个库通过 stdio 交给 AI 客户端读取；命令行引擎位走的是另一条路——把 Claude Code、Codex CLI 或 Gemini CLI 作为独立进程启动。Gemini 支持“周回顾”和起草跟进目标，但不支持“跟进”。两条路都保住了同一个区分：哪些是 Spool 在本机做的事，哪些是另一个程序在联网做的事。</p>
+<p data-i18n="story-arch-p2">图形界面和捕捉浮窗在本机与 Rust/Tauri 内核通信。内核拥有唯一的那个 SQLite 数据库。运行 <code>spool --mcp</code> 会把同一个库通过 stdio 交给 AI 客户端读取；命令行引擎位走的是另一条路——把 Claude Code、Codex CLI 或 Gemini CLI 作为独立进程启动。Gemini 支持“周回顾”和起草跟进目标，但不支持“跟进”。API 引擎是第三条，也是最新的一条：它启动 <code>spool-ai</code>，一个装在包里的小程序，从 stdin 收一个 JSON 请求，发一次 HTTPS，再把一个 JSON 信封写回来。它不接受明文 <code>http://</code>，而 key 只从 stdin 进去——绝不走命令行，那里同机器上任何程序都读得到。三条路保住的是同一个区分：哪些是 Spool 在本机做的事，哪些是另一个进程在联网做的事。</p>
 
 <figure class="story-shot-proof story-shot-current">
   <div class="story-shot-scroll story-shot-project" tabindex="0" role="region"

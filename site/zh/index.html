@@ -462,8 +462,8 @@ the user's feelings at the cost of correctness.</span>
          not "is it signed". So the hand-off boundary comes first and the signature third. -->
     <div class="grid-3 reveal-stagger">
       <div class="card">
-        <h3 data-i18n="t3-h">不追踪使用情况，也不自行上传</h3>
-        <p data-i18n="t3-p">Spool 没有分析统计、遥测或崩溃上报，而且自身不能发起网络请求。内容只有在你主动交给其他程序时才可能离开这台电脑：把 Pack 粘贴到某个服务、允许 MCP 客户端读取，或运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”。后续如何处理由接收内容的程序决定。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。</p>
+        <h3 data-i18n="t3-h">不追踪使用情况；你不打开的通路，什么都不会出去</h3>
+        <p data-i18n="t3-p">Spool 没有分析统计、遥测或崩溃上报，主程序本身也发不出网络请求——它里面根本没装 HTTP 客户端。内容只会顺着你自己打开的那条路离开这台电脑：把 Pack 粘贴到某个服务、允许 MCP 客户端读取、运行命令行 AI 的起草跟进目标、“跟进”和“周回顾”，或者打开 API 引擎让 Spool 替你压缩项目。前三条由接收内容的程序决定后续；API 引擎这一条，请求由一个单独的随包小程序发出，用你自己的 key 和额度。剪贴板只在触发捕捉时读取一次，不会在后台持续监控。</p>
       </div>
       <div class="card">
         <h3 data-i18n="t2-h">数据保存在你自己电脑上的一个文件中</h3>
@@ -512,7 +512,7 @@ the user's feelings at the cost of correctness.</span>
       </details>
       <details>
         <summary data-i18n="q10">需要 API key 或付费 AI 套餐吗？</summary>
-        <p data-i18n="a10">Spool 不需要 API key，也没有填写 key 的位置。AI 客户端读取项目时，使用的是你在该客户端已有的账号与额度；命令行 AI 执行“跟进”等动作时，也使用对应 CLI 已登录账号的额度。</p>
+        <p data-i18n="a10">日常用不需要。AI 客户端读取项目时，使用的是你在该客户端已有的账号与额度；命令行 AI 执行“跟进”等动作时，也使用对应 CLI 已登录账号的额度。有一个可选功能确实要 key：<b>API 引擎</b>，它负责压缩项目和过期检测。它默认是关的，要你自己打开、自己填 key，每跑一次花的是你自己的额度。</p>
       </details>
       <details>
         <summary data-i18n="q3">为什么免费？</summary>
@@ -564,7 +564,7 @@ the user's feelings at the cost of correctness.</span>
     <div class="center reveal">
       <div class="kicker" data-i18n="fb-k">用过一阵之后</div>
       <h2 data-i18n="fb-h">告诉我用得怎么样。</h2>
-      <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool 不需要账号，也从不往外发任何东西——这也意味着它没法替你告诉我任何事。好用也好，坏了也好，你不说我就不知道。</p>
+      <p class="measure muted" style="margin-left:auto;margin-right:auto" data-i18n="fb-p">Spool 不需要账号，也没有任何遥测——你怎么用它，没有一个字会传到我这里，这也意味着它没法替你告诉我任何事。好用也好，坏了也好，你不说我就不知道。</p>
     </div>
 
     <div class="fb-survey center reveal">

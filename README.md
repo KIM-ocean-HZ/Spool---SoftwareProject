@@ -62,9 +62,9 @@ Linux is not implemented.
 
 ### New in v0.4.0
 
-The optional external-AI routes below add no keys or accounts to Spool and no network egress from Spool itself.
+The optional external-AI routes below add no keys or accounts to Spool: they drive a CLI you installed and logged into yourself. (Spool's own API engine, added in v0.6.2, is the one route that does hold a key — see [The API engine](#the-api-engine-optional-off-by-default).)
 
-- **A CLI engine slot.** If you already have Claude Code, the Codex CLI, or the Gemini CLI installed and logged in, Spool can run it as a local subprocess to **follow up** on things you asked it to watch, write a cross-project **weekly review**, or help draft the lines worth following. The network request happens inside that CLI, on your own account's quota — Spool stores no API key and makes no HTTP request of its own. Gemini does not run Follow Up.
+- **A CLI engine slot.** If you already have Claude Code, the Codex CLI, or the Gemini CLI installed and logged in, Spool can run it as a local subprocess to **follow up** on things you asked it to watch, write a cross-project **weekly review**, or help draft the lines worth following. The network request happens inside that CLI, on your own account's quota — for this route Spool stores no API key, and its own process makes no HTTP request. Gemini does not run Follow Up.
 - **Visible runs and honest records.** Follow Up runs in the right-hand rail; Weekly Review has its own screen, and completed runs for those two actions leave a record. A follow-up-goal draft stays only in its editor until you save or discard it. Intermediate progress appears when the CLI exposes it, and nothing that would change your existing notes is applied silently.
 - **Follow up.** You write a few plain lines describing what to watch for; the engine searches the web against exactly those lines and files what it finds for your review. It stays quiet when there is no news — the one action that deliberately reaches the open web, and the only one whose web tools are switched on.
 - **Retirement and correction, instead of overwriting.** You can mark a block as no longer valid, or point at the one sentence in an older block that a newer one corrects. Retired blocks leave the pack but stay in the library and stay searchable, and the pack says out loud that they were left out. An append-only log must never silently overwrite a fact.
@@ -92,7 +92,7 @@ All twelve phases of the original implementation roadmap were landed in v0.3.0:
 ## Design principles (non-negotiable)
 
 1. Capture must be zero-friction — one keypress, no decisions.
-2. Local-first, private by default — Spool itself makes no network request, ever, and its CSP forbids one structurally. Content reaches another program only through a hand-off you choose: paste a Pack, enable an MCP client, or run a CLI action. MCP is opt-in, and its write side is a separate switch.
+2. Local-first, private by default — **Spool's own process makes no network request**, and its CSP forbids one structurally. Content reaches another program only through a hand-off you choose: paste a Pack, enable an MCP client, run a CLI action, or switch on the API engine. Every one of those is off until you turn it on; MCP's write side is a separate switch again. When the API engine is on, the request is made by a **local subprocess Spool starts** (`spool-ai`), with your own key and quota — the boundary is the process, not a promise.
 3. A project is a log, not a chat — append-only, time-ordered, quiet.
 4. Retrieval is deterministic — pack and search never call AI or the network.
 5. AI is a librarian, not an author — anything an AI files through MCP is attributed, append-only, and can never overwrite what you wrote by hand.
@@ -127,7 +127,7 @@ npm test              # vitest
 
 ## AI via MCP (optional, no keys, no accounts)
 
-Spool ships **zero built-in AI** — no API keys, no local models, nothing to configure, and the app's CSP structurally forbids any external network request. Instead, Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Codex — including a Codex conversation inside the ChatGPT desktop app — Cursor, or another MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly. An ordinary ChatGPT conversation runs remotely and cannot reach a local stdio server.
+This route ships **no built-in AI** — nothing to configure, and no key: your client brings its own. (Spool does have one route of its own that takes a key, and it is off until you turn it on — see [The API engine](#the-api-engine-optional-off-by-default).) Spool speaks the [Model Context Protocol](https://modelcontextprotocol.io): your own AI client (Claude Desktop, Codex — including a Codex conversation inside the ChatGPT desktop app — Cursor, or another MCP-capable tool) connects to `spool --mcp` over stdio and works with your projects directly. An ordinary ChatGPT conversation runs remotely and cannot reach a local stdio server.
 
 **You do not need any of this to use Spool with an AI.** ⌘⇧P (Ctrl+Shift+P) packs a project into Markdown you paste into a browser tab — nothing to install, nothing to connect, and no feature is withheld from you for skipping it. MCP buys exactly one thing: your AI fetches the context itself instead of waiting for you to paste it, and can file conclusions back with its name on them.
 
@@ -143,7 +143,7 @@ up. The server states its own rules and the phrasings you are likely to use in t
 instructions it sends every client, so a freshly connected AI opens by naming what it can do with
 your actual projects. That copy arrives whether or not anyone remembered to hand it over.
 
-## Maintenance by your own CLI (v0.4.0, optional, still no keys)
+## Maintenance by your own CLI (v0.4.0, optional, no keys)
 
 Reading through a chat client is one half. The other half is checking what changed while you were
 away — and for that Spool can drive a coding CLI you already own. If `claude` (Claude Code),
@@ -158,8 +158,9 @@ and offers these actions:
 
 Three things make this safe to leave switched on, and all three are deliberate:
 
-- **Spool never becomes a network client.** It spawns the CLI as a local subprocess; the request
-  leaves from there, under your own login and quota. No API key is stored, entered, or needed.
+- **Spool's own process never becomes a network client.** It spawns the CLI as a local subprocess; the
+  request leaves from there, under your own login and quota. On this route no API key is stored,
+  entered, or needed.
 - **You can see where it ran.** Follow Up lives in the right-hand rail; Weekly Review has a dedicated
   screen, and completed runs for those two actions stay recorded. A goal draft stays only in its editor
   until you save or discard it; progress appears when the selected CLI exposes it. Anything that would
@@ -173,6 +174,38 @@ logged in, and a per-run time limit you set. If several CLIs are available, you 
 Codex has one honest limitation Spool states in the UI rather than hiding: its
 built-in shell tool cannot be removed the way Claude Code's can, so Spool runs it read-only
 sandboxed instead. Gemini can run Weekly Review and draft goals, but not Follow Up.
+
+## The API engine (optional, off by default)
+
+The two routes above borrow someone else's connection — your MCP client's, or a CLI you logged
+into. The API engine is the one route where **Spool holds the key itself**. It is off until you
+switch it on in **Settings → Engine**, and with it off nothing here runs and nothing is stored.
+
+| Action | What it does |
+|---|---|
+| **Compress** | Rewrites a project's pack shorter, and shows you a side-by-side check of what changed before anything is saved |
+| **Out-of-date check** | Looks for older blocks a newer block has replaced, and asks you what to do about each one — merge, let the new one stand, or nothing |
+
+What is worth knowing before you turn it on:
+
+- **Your own key, your own bill.** You paste a key for an OpenAI-compatible endpoint (DeepSeek by
+  default; any HTTPS endpoint works). Every run spends your money, including a run you cancel
+  partway — the provider still charges for what it already produced.
+- **The request comes from a subprocess, not from Spool.** Spool's own process still has no HTTP
+  client in it, and you can check that rather than take our word for it:
+
+  ```bash
+  cd src-tauri && cargo tree -e normal | grep -iE "ureq|rustls|reqwest|hyper|openssl"   # prints nothing
+  ```
+
+  The network call is made by a small bundled binary, `spool-ai`, which Spool starts, talks to over
+  stdin/stdout, and which exits when the run ends. It refuses plain `http://`, and the key reaches it
+  only through stdin — never through the command line, where any process on the machine could read it.
+- **Where the key lives.** macOS: the system Keychain. Windows: a `0600` file in Spool's own data
+  directory. It is never written to `settings.json`, and never printed to a log or an error message.
+- **Nothing is written to your library without you.** Compression shows the check screen first;
+  the out-of-date check hands you one decision per pair. A block's pre-compression wording stays in
+  the library and can be read back at any time.
 
 ## Keyboard shortcuts
 

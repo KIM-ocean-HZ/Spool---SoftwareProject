@@ -116,15 +116,16 @@ the network claim can be inspected rather than inferred.</p>
   <div class="arch-scroll" tabindex="0" role="region"
        data-i18n-aria="story-arch-scroll-aria"
        aria-label="Architecture diagram; on a narrow screen, scroll sideways to inspect every component and network path">
-    <svg class="arch-svg" viewBox="0 0 1160 610" role="img"
+    <svg class="arch-svg" viewBox="0 0 1160 706" role="img"
          data-i18n-aria="story-arch-svg-aria"
-         aria-label="Spool architecture: the GUI and capture overlay connect locally to the Rust and Tauri core and one SQLite database. The spool --mcp mode uses stdio with an external MCP client. The core spawns Claude Code, Codex CLI, or Gemini CLI as a subprocess. Only the external MCP client and CLI subprocess contact their own providers over two separate network paths; Spool itself sends no HTTP requests.">
-      <title data-i18n="story-arch-svg-title">Spool’s local architecture and two outbound paths</title>
+         aria-label="Spool architecture: the GUI and capture overlay connect locally to the Rust and Tauri core and one SQLite database. The spool --mcp mode uses stdio with an external MCP client. The core spawns Claude Code, Codex CLI, or Gemini CLI as a subprocess, and spawns the bundled spool-ai subprocess when the API engine is switched on. Three separate network paths leave the machine, one from each of those subprocesses and one from the MCP client; Spool's own process sends no HTTP requests.">
+      <title data-i18n="story-arch-svg-title">Spool’s local architecture and three outbound paths</title>
       <desc data-i18n="story-arch-svg-desc">The Spool process contains its desktop GUI, capture overlay, Rust and Tauri core,
       spool --mcp stdio server, and one SQLite database. An external MCP client connects over
-      stdio. The core can spawn Claude Code, Codex CLI, or Gemini CLI as a separate subprocess. The external
-      MCP client and the CLI subprocess contact their respective providers over two distinct
-      network paths. No arrow crosses from Spool itself to the network.</desc>
+      stdio. The core can spawn Claude Code, Codex CLI, or Gemini CLI as a separate subprocess, and
+      when the API engine is switched on it spawns the bundled spool-ai subprocess as well. Those
+      three programs contact their respective providers over three distinct network paths. No arrow
+      crosses from the Spool process itself to the network.</desc>
       <defs>
         <marker id="story-arrow" viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -136,7 +137,7 @@ the network claim can be inspected rather than inferred.</p>
         </marker>
       </defs>
 
-      <rect class="arch-boundary" x="18" y="18" width="1124" height="402" rx="18"/>
+      <rect class="arch-boundary" x="18" y="18" width="1124" height="528" rx="18"/>
       <text class="arch-kicker" x="42" y="47" data-i18n="story-arch-your-mac">YOUR MACHINE</text>
 
       <rect class="arch-spool-boundary" x="42" y="62" width="668" height="330" rx="14"/>
@@ -174,19 +175,29 @@ the network claim can be inspected rather than inferred.</p>
       <text class="sub" x="792" y="166" data-i18n="story-arch-client-sub">Codex in ChatGPT desktop</text>
       <text class="mono" x="792" y="183" data-i18n="story-arch-client-mono">client owns provider connection</text>
 
-      <rect class="box box-external" x="770" y="270" width="300" height="100" rx="8"/>
-      <text class="lbl" x="792" y="303" data-i18n="story-arch-cli">CLI engine subprocess</text>
-      <text class="sub" x="792" y="325">Claude Code · Codex CLI</text>
-      <text class="sub" x="792" y="344" data-i18n="story-arch-cli-sub">Gemini CLI · no Follow Up</text>
-      <text class="mono" x="792" y="362" data-i18n="story-arch-cli-mono">user-installed · user-authenticated</text>
+      <rect class="box box-external" x="770" y="250" width="300" height="100" rx="8"/>
+      <text class="lbl" x="792" y="283" data-i18n="story-arch-cli">CLI engine subprocess</text>
+      <text class="sub" x="792" y="307">Claude Code · Codex CLI</text>
+      <text class="sub" x="792" y="326" data-i18n="story-arch-cli-sub">Gemini CLI · no Follow Up</text>
+      <text class="mono" x="792" y="343" data-i18n="story-arch-cli-mono">user-installed · user-authenticated</text>
 
-      <rect class="provider-box" x="144" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="294" y="531" text-anchor="middle" data-i18n="story-arch-provider-1">MCP client’s provider</text>
-      <text class="sub" x="294" y="554" text-anchor="middle" data-i18n="story-arch-provider-1-sub">network path 1 · outside Spool</text>
+      <rect class="box box-external" x="800" y="410" width="270" height="100" rx="8"/>
+      <text class="lbl" x="822" y="443" data-i18n="story-arch-api">API engine subprocess</text>
+      <text class="sub" x="822" y="467">spool-ai · bundled binary</text>
+      <text class="sub" x="822" y="486" data-i18n="story-arch-api-sub">off by default · your own key</text>
+      <text class="mono" x="822" y="503" data-i18n="story-arch-api-mono">the only socket in the app</text>
 
-      <rect class="provider-box" x="716" y="498" width="300" height="82" rx="41"/>
-      <text class="lbl" x="866" y="531" text-anchor="middle" data-i18n="story-arch-provider-2">CLI’s provider</text>
-      <text class="sub" x="866" y="554" text-anchor="middle" data-i18n="story-arch-provider-2-sub">network path 2 · outside Spool</text>
+      <rect class="provider-box" x="40" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="190" y="633" text-anchor="middle" data-i18n="story-arch-provider-1">MCP client’s provider</text>
+      <text class="sub" x="190" y="656" text-anchor="middle" data-i18n="story-arch-provider-1-sub">network path 1 · outside Spool</text>
+
+      <rect class="provider-box" x="430" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="580" y="633" text-anchor="middle" data-i18n="story-arch-provider-2">CLI’s provider</text>
+      <text class="sub" x="580" y="656" text-anchor="middle" data-i18n="story-arch-provider-2-sub">network path 2 · outside Spool</text>
+
+      <rect class="provider-box" x="785" y="600" width="300" height="82" rx="41"/>
+      <text class="lbl" x="935" y="633" text-anchor="middle" data-i18n="story-arch-provider-3">The endpoint you chose</text>
+      <text class="sub" x="935" y="656" text-anchor="middle" data-i18n="story-arch-provider-3-sub">network path 3 · your own key</text>
 
       <path class="flow" d="M 264 152 L 322 152"/>
       <text class="flow-label" x="293" y="141" text-anchor="middle">IPC</text>
@@ -197,28 +208,39 @@ the network claim can be inspected rather than inferred.</p>
       <path class="flow" d="M 414 296 L 414 320"/>
       <path class="flow flow-accent" d="M 770 140 C 686 140, 606 346, 506 346"/>
       <text class="flow-label accent-label" x="649" y="265">stdio · MCP</text>
-      <path class="flow flow-accent" d="M 506 272 C 606 272, 654 320, 770 320"/>
-      <text class="flow-label accent-label" x="637" y="304" data-i18n="story-arch-flow-spawn">spawn + stdio</text>
+      <path class="flow flow-accent" d="M 506 280 C 606 290, 654 300, 770 300"/>
+      <text class="flow-label accent-label" x="637" y="318" data-i18n="story-arch-flow-spawn">spawn + stdio</text>
+      <path class="flow flow-accent" d="M 506 300 C 640 360, 700 460, 800 460"/>
+      <text class="flow-label accent-label" x="556" y="402" data-i18n="story-arch-flow-spawn">spawn + stdio</text>
 
-      <path class="network-line" d="M 860 190 C 840 438, 430 438, 350 498"/>
-      <text class="network-label" x="565" y="449" data-i18n="story-arch-path-1">NETWORK PATH 1</text>
-      <path class="network-line" d="M 920 370 C 920 430, 866 445, 866 498"/>
-      <text class="network-label" x="928" y="449" data-i18n="story-arch-path-2">NETWORK PATH 2</text>
+      <path class="network-line" d="M 800 190 C 748 260, 730 340, 730 430 C 730 500, 480 530, 190 600"/>
+      <text class="network-label" x="300" y="528" data-i18n="story-arch-path-1">NETWORK PATH 1</text>
+      <path class="network-line" d="M 830 350 C 782 390, 762 415, 762 455 C 762 515, 660 535, 580 600"/>
+      <text class="network-label" x="610" y="538" data-i18n="story-arch-path-2">NETWORK PATH 2</text>
+      <path class="network-line" d="M 935 510 C 935 545, 935 570, 935 600"/>
+      <text class="network-label" x="952" y="530" data-i18n="story-arch-path-3">NETWORK PATH 3</text>
 
-      <text class="arch-no-http" x="66" y="381" data-i18n="story-arch-no-http">Spool itself sends no HTTP requests.</text>
-      <text class="arch-network-boundary" x="42" y="462" data-i18n="story-arch-boundary">NETWORK BOUNDARY — ONLY THE TWO ACCENT PATHS CROSS IT</text>
+      <text class="arch-no-http" x="66" y="381" data-i18n="story-arch-no-http">Spool’s own process sends no HTTP requests.</text>
+      <text class="arch-network-boundary" x="42" y="578" data-i18n="story-arch-boundary">NETWORK BOUNDARY — ONLY THE THREE ACCENT PATHS CROSS IT</text>
     </svg>
   </div>
-  <figcaption class="shot-caption" data-i18n="story-cap-arch">The network boundary is literal: the external MCP client and
-  the user-authenticated CLI subprocess can contact their own providers. Spool itself makes no
-  HTTP request, stores no provider key, and listens on no network port.</figcaption>
+  <figcaption class="shot-caption" data-i18n="story-cap-arch">The network boundary is literal, and it is drawn at the process
+  edge rather than promised: the external MCP client, the CLI you logged into, and — once you switch the
+  API engine on — the bundled <code>spool-ai</code> subprocess each contact a provider. Spool’s own process
+  makes no HTTP request and listens on no network port; it has no HTTP client compiled into it at all. The
+  API engine is the one route that holds a key, it is off until you turn it on, and the key lives in the
+  system Keychain rather than in Spool’s settings file.</figcaption>
 </figure>
 
 <p data-i18n="story-arch-p2">The GUI and capture overlay communicate with the Rust/Tauri core locally. That core owns one
 SQLite database. Running <code>spool --mcp</code> exposes the same library over stdio to an AI
 client; the CLI engine slot instead starts Claude Code, Codex CLI, or Gemini CLI as a separate
-process. Gemini supports Weekly Review and draft goals, but not Follow Up. Both routes preserve
-the distinction between Spool’s local work and another program’s network work.</p>
+process. Gemini supports Weekly Review and draft goals, but not Follow Up. The API engine is the
+third route and the newest: it starts <code>spool-ai</code>, a small binary shipped inside the app that
+takes one JSON request on stdin, makes one HTTPS call, and writes one JSON envelope back. It refuses
+plain <code>http://</code>, and the key reaches it only through stdin — never through the command line,
+where any process on the machine could read it. All three routes preserve the same distinction:
+what Spool does locally, and what another process does on the network.</p>
 
 <figure class="story-shot-proof story-shot-current">
   <div class="story-shot-scroll story-shot-project" tabindex="0" role="region"
