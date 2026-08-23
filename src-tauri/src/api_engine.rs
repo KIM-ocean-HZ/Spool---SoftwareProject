@@ -1024,6 +1024,13 @@ fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
     (kept, dropped)
 }
 
+/// 实测台用的口子：⛔ 只是把 `gate_proposals` 原样露出来，**不是另一份实现**。
+/// 阶段 4 的复算必须过产品这一道闸，抄一份出来量到的就不是产品了。
+#[cfg(test)]
+pub(crate) fn gate_proposals_for_test(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
+    gate_proposals(raw, pack)
+}
+
 /// 查一遍这份 pack 里有没有被后面的块整条取代的旧块。
 ///
 /// ⚠️ 和压缩共用同一把「正在跑」的锁：两件事都要起 `spool-ai`，而这台机器上同时跑两个

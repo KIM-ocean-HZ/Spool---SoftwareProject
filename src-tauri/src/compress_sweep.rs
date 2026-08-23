@@ -256,6 +256,55 @@ fn sanitize(s: &str) -> String {
     s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
 }
 
+/// 阶段 4 的引文闸复算：拿归档下来的 30 份输出，**过产品那一道闸**。
+///
+/// ⚠️⚠️ **必须走 `api_engine::gate_proposals`，⛔ 不许在别处抄一份「差不多的」比对**。
+/// 那道闸的全部意义就是「只折叠标点的全角/半角，数字和日期一个都不折叠」——
+/// 抄一份出来，量到的是抄的人怎么想，不是用户按下按钮时会发生什么。
+///
+/// ```text
+/// SPOOL_SWEEP_OUT=/path/s4 cargo test --lib compress_sweep::gate_round5 -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "reads an archived round; run with --ignored"]
+fn gate_round5() {
+    let out_dir = env_path("SPOOL_SWEEP_OUT");
+    let packs_dir = out_dir.parent().unwrap().join("texts");
+    let mut total = 0usize;
+    let mut kept_n = 0usize;
+    let mut dropped_n = 0usize;
+    for line in std::fs::read_to_string(out_dir.join("runs.jsonl"))
+        .expect("no runs.jsonl")
+        .lines()
+    {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        let Some(tf) = row.get("text_file").and_then(|v| v.as_str()) else { continue };
+        let label = row.get("label").and_then(|v| v.as_str()).unwrap_or("");
+        let tag = label.strip_prefix("4-").unwrap_or(label);
+        let raw = std::fs::read_to_string(out_dir.join(tf)).unwrap_or_default();
+        let pack = std::fs::read_to_string(packs_dir.join(format!("pack-{tag}.txt")))
+            .unwrap_or_else(|e| panic!("pack-{tag}.txt: {e}"));
+        let (kept, dropped) = crate::api_engine::gate_proposals_for_test(&raw, &pack);
+        total += kept.len() + dropped;
+        kept_n += kept.len();
+        dropped_n += dropped;
+        for p in &kept {
+            eprintln!(
+                "  ✅ 过闸 {tag} #{} → #{}{}  {}",
+                p.stale_seq,
+                p.by_seq,
+                if p.retyped { "（引文是重打的，闸折叠了标点）" } else { "" },
+                p.why
+            );
+        }
+        if dropped > 0 {
+            eprintln!("  ⛔ {tag} 第 {} 次：丢掉 {dropped} 条", row.get("rep").and_then(|v| v.as_i64()).unwrap_or(0));
+            eprintln!("     原样输出：{}", raw.replace('\n', " ").chars().take(300).collect::<String>());
+        }
+    }
+    eprintln!("\n  30 次合计：模型提了 {total} 条 · 过闸 {kept_n} 条 · ⛔ 引文对不上被丢掉 {dropped_n} 条");
+}
+
 /// 不花钱的一步：把这一轮要用的几份 pack 有多大打出来。
 ///
 /// ⚠️ 口径校准的第一半就在这里 —— 第一轮是界面跑的（**TS 渲染器**），这一轮是 Rust 那套，

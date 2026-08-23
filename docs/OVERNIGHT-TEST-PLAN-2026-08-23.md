@@ -1,28 +1,12 @@
 # 连夜实测计划 —— 2026-08-23（交给下一窗执行）
 
-> ## ⛔ 2026-08-23 02:10 —— 这一份**还没作废**，API 那半卡住了
+> ## ✅ 2026-08-23 13:10 —— **跑完了，这一份作废**
 >
-> 跑之前的第 4 件（读得到 key）**当场撞死**：key 现在只在钥匙串里，老那个 0600 文件
-> 已经被迁移删掉了，而 `cargo test` 出来的二进制签名身份和 Spool.app 不是一个 ——
-> `SecItemCopyMatching` 停在授权框上不动。**245 次调用一次没发。**
+> 217 次调用、1 次失败、实付 ¥12.17（闲时口径 ¥6.81）。
+> 结论在 `Deepseek-API-compress-test.md` **§7**，产品要改哪几处在 **§7.13**。
 >
-> **要接着跑，先手动跑一次下面这条，弹框出来点「始终允许」**（阶段 1 的 `plan.json`
-> 和输入 pack 都已经写好冻结了，点完直接跑）：
->
-> ```
-> cd src-tauri && SPOOL_SWEEP_PLAN="$HOME/Library/Application Support/spool-compress-sweep/2026-08-23-round5/s1/plan.json" \
->   SPOOL_SWEEP_OUT="$HOME/Library/Application Support/spool-compress-sweep/2026-08-23-round5/s1" \
->   cargo test --lib compress_sweep::run_the_sweep -- --ignored --nocapture
-> ```
->
-> **离线那半跑完了**，连同一样计划里没有的东西（〈申请规划〉2026-08-22 17:26 被产品
-> 真的压过一次，原文全在）—— 结论在 `Deepseek-API-compress-test.md` **§7**。
->
-> ⚠️ **跑之前先读 §7.2**：计划里「申请规划 pack 约 26.6k」那个输入**已经不存在了**，
-> 库里现在装的是压缩稿。阶段 1 要用 `original_content` 把它倒回压缩之前。
->
-> ⚠️ **还有一处要改**：实测台喂的是**没摘批注**的 pack，而 R5 之后产品送出去的是摘过的。
-> 冻结好的 `packS-*.txt` 就是摘过的那一份，`plan.json` 已经指向它了。
+> ⚠️ 阶段 6 **不适用**（阶段 5 没有答错的题，没有可诊断的东西），不是没时间。
+> ⚠️ 阶段 1 撞在北京高峰跑，钱要除以二才能和第二/三轮比。
 
 
 > **这一份是给下一窗的执行清单，不是结论。** 跑完之后结论写回
