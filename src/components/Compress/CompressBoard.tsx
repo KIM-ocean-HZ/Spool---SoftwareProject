@@ -40,8 +40,12 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
   const t = useT();
   const thread = useThreadsStore(selectThreadById(threadId));
   const session = useCompressStore((s) => s.sessions[threadId] ?? null);
-  // ⚠️ 只有**正在跑的那个项目**该显示进度条 —— 别的项目的整理页不该跟着转圈。
-  const running = useCompressStore((s) => s.running && s.runningThreadId === threadId);
+  // ⚠️ 只有**正在跑的那个项目、而且跑的是压缩**才显示进度条。
+  // ⛔ 2026-08-23（Ocean）：少问后半句的后果是他撞到的那一条 —— 点「过期检测」，
+  // 这一页跟着转圈、跟着显示「正在写压缩稿…」、按钮变成「停下」，而它什么都没在跑。
+  const running = useCompressStore(
+    (s) => s.running && s.runningThreadId === threadId && s.runningKind === 'compress',
+  );
   const busy = useCompressStore((s) => s.running || s.batchRunning);
   const progress = useCompressStore((s) => s.progress);
   const startError = useCompressStore((s) => s.startErrors[threadId] ?? null);

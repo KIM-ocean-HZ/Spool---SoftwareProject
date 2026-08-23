@@ -45,7 +45,12 @@ export default function ThreadView() {
   const nightlyReady = useCompressStore((s) =>
     activeId ? s.results.some((r) => r.target.threadId === activeId) : false,
   );
-  const tidyRunning = useCompressStore((s) => s.running && s.runningThreadId === activeId);
+  // ⛔⛔ 2026-08-23（Ocean：「点击查旧块会把运行信息写在压缩里面，显示『压缩（在跑）』」）：
+  // 这里原来只问了 `running && runningThreadId === activeId` —— **没问跑的是哪一件事**。
+  // 两件事共用一把 sidecar 的锁，于是过期检测一跑，压缩那个页签跟着写「（在跑）」。
+  const runningKind = useCompressStore((s) =>
+    s.running && s.runningThreadId === activeId ? s.runningKind : null,
+  );
   const staleLeft = useCompressStore((s) => {
     const sess = activeId ? s.stale[activeId] : null;
     return sess ? sess.proposals.filter((_, i) => sess.decided[i] === undefined).length : 0;
@@ -112,14 +117,20 @@ export default function ThreadView() {
           </Tab>
           <Tab active={tab === 'compress'} onClick={() => setTab(thread.id, 'compress')}>
             {/* ⚠️ 有一份等着核对就在页签上说出来 —— 切走之后它还在，别让人以为没了。 */}
-            {tidyRunning
+            {runningKind === 'compress'
               ? t('压缩（在跑）')
               : tidyReady || nightlyReady
                 ? t('压缩（1）')
                 : t('压缩')}
           </Tab>
+          {/* ⭐ 2026-08-23 Ocean 改的名：「『查旧块』名字改成『过期检测』，更加贴切」。
+              ⛔ 仍然不许出现「作废」两个字（§2.E3 写死的）——「过期」不是「作废」。 */}
           <Tab active={tab === 'stale'} onClick={() => setTab(thread.id, 'stale')}>
-            {staleLeft > 0 ? t('查旧块（{n}）', { n: staleLeft }) : t('查旧块')}
+            {runningKind === 'stale'
+              ? t('过期检测（在跑）')
+              : staleLeft > 0
+                ? t('过期检测（{n}）', { n: staleLeft })
+                : t('过期检测')}
           </Tab>
         </div>
       )}

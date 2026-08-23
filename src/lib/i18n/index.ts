@@ -1177,14 +1177,26 @@ const EN: Record<string, string> = {
   // E3 · 作废检测的核对面（2026-08-23）。⛔ 这一面上不许出现「作废」两个字 ——
   // 实测 39 条提议里 35 条是「同一件事、旧块还剩很多」，问「要不要作废」会让一个
   // 内容仍然有效的块退出以后每一份 pack。所以问的是三件事。
-  '可能已经过期的块': 'Blocks that may have gone out of date',
-  '查一遍这个项目里，有没有被后面的块整条取代的旧块。这一步要花钱。':
-    'Check whether any older block here has been replaced outright by a later one. This step costs money.',
   '查一遍': 'Check',
+  // ⭐ 2026-08-23 第二轮：这一页改成和压缩页同一个骨架（顶上一句 · 中间一格 · 右下角一个动作）。
+  '查这个项目里有没有旧块已经被后面的块整条取代了。你不点那三个按钮，库里一个字都不动。':
+    'Checks whether any older block here has been replaced outright by a later one. Nothing in your library changes until you press one of the three buttons.',
+  '它会把这个项目的上下文发给 AI 看一遍，问「有没有哪一块已经被后面的块整条取代了」。这一步要花钱。':
+    'It sends this project\u2019s context to the AI once and asks whether any block has been replaced outright by a later one. This step costs money.',
+  'AI 说的每一条都要能在你的块里逐字对上，对不上的 Spool 不拿它去改库。':
+    'Every claim the AI makes has to match your blocks word for word; Spool will not change your library on one that does not.',
+  '这一页只连线，不改任何一块的正文。': 'This page only links blocks together \u2014 it never edits the text of any of them.',
+  '正在查…': 'Checking\u2026',
+  '正在查（{n}s）': 'Checking ({n}s)',
+  '找到': 'Found',
+  '还没决定': 'Undecided',
+  '{n} 条': '{n}',
+  // ⭐ Ocean 第 2 条：**查完什么都没找到是一个结果，不是没有结果** —— ⛔ 别让它变回一片空白。
+  '查完了，这个项目里没有旧块被后面的块整条取代。':
+    'Done \u2014 no block here has been replaced outright by a later one.',
+  '查完了，没有能拿给你的结果。': 'Done \u2014 nothing came back that can be shown to you.',
+  '库里一个字都没动。': 'Nothing in your library was changed.',
   '再查一遍': 'Check again',
-  '这一次没找到被后面的块整条取代的旧块。':
-    'Nothing here was replaced outright by a later block this time.',
-  '找到 {n} 条，还剩 {k} 条没决定。': '{n} found, {k} still undecided.',
   '（引文的标点被重打过）': '(the quote’s punctuation was retyped)',
   '旧的 #{n} 里：': 'In the older #{n}:',
   // ⭐⭐ 2026-08-23（Ocean 第 9 条）：三个动作改用他自己的话 ——「新的 block 把旧的取代了 /
@@ -1267,8 +1279,10 @@ const EN: Record<string, string> = {
   // ⚠️ 「压缩」这个词本身在右栏那一格已经有了，⛔ 别在这儿再写一遍（同名键编译不过）。
   '压缩（在跑）': 'Compress (running)',
   '压缩（1）': 'Compress (1)',
-  '查旧块': 'Older blocks',
-  '查旧块（{n}）': 'Older blocks ({n})',
+  // ⭐ 2026-08-23 Ocean 改的名：「『查旧块』名字改成『过期检测』，更加贴切」。
+  '过期检测': 'Out-of-date check',
+  '过期检测（{n}）': 'Out-of-date check ({n})',
+  '过期检测（在跑）': 'Out-of-date check (running)',
   '正在读这个项目…': 'Reading this project\u2026',
   '再试一次': 'Try again',
   '这个项目有一份压好的，等你核对 —— 打开':

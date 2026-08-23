@@ -131,9 +131,22 @@ interface CompressState {
   running: boolean;
   /** 正在跑的是哪个项目 —— ⚠️ 只有它那个页签该显示进度，别的项目不该跟着转圈。 */
   runningThreadId: string | null;
+  /** ⭐⭐ **2026-08-23（Ocean）：正在跑的是哪一件事。**
+   *
+   *  他撞到的样子：「点击查旧块会把运行信息写在压缩里面，显示『压缩（在跑）』」。
+   *  病根是这两件事共用一把「在跑」的锁（Rust 那边确实只允许一个 sidecar），
+   *  而界面**只问了「在不在跑」，没问「跑的是哪一件」** —— 于是过期检测一跑，
+   *  压缩那一页跟着转圈、跟着显示「正在写压缩稿…」、按钮变成「停下」。
+   *
+   *  ⛔ 别用「哪个面板挂着 session」去猜：两件事可以同时有各自的历史结果。 */
+  runningKind: 'compress' | 'stale' | null;
   progress: CompressProgress | null;
-  /** 跑之前就失败了的（比如没填 key），按项目记。和信封里的失败分开 —— 那个在 outcome 里。 */
+  /** 压缩跑之前就失败了的（比如没填 key），按项目记。和信封里的失败分开 —— 那个在 outcome 里。 */
   startErrors: Record<string, string>;
+  /** ⚠️ **过期检测自己那一份错误，⛔ 不许和压缩共用 `startErrors`。**
+   *  共用的后果是实打实的：查一遍失败之后，**压缩那一页会顶着一条它没干过的错**，
+   *  而且因为那一页现在靠 `startErrors` 判断要不要自己开桌子，它会永远停在「正在读…」。 */
+  staleErrors: Record<string, string>;
 
   /** ⑥ 夜里跑完、等着早上核对的那些。⚠️ **只在内存里**，见文件末尾那段。 */
   results: CompressSession[];
@@ -392,8 +405,10 @@ export const useCompressStore = create<CompressState>((set, get) => ({
   tabs: {},
   running: false,
   runningThreadId: null,
+  runningKind: null,
   progress: null,
   startErrors: {},
+  staleErrors: {},
   stale: {},
   results: [],
   failures: [],
@@ -523,6 +538,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       sessions: { ...st.sessions, [threadId]: frozen },
       running: true,
       runningThreadId: threadId,
+      runningKind: 'compress',
       progress: { stage: 'starting' },
       startErrors: omit(st.startErrors, threadId),
     }));
@@ -548,7 +564,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         startErrors: { ...st.startErrors, [threadId]: e instanceof Error ? e.message : String(e) },
       }));
     } finally {
-      set({ running: false, runningThreadId: null, progress: null });
+      set({ running: false, runningThreadId: null, runningKind: null, progress: null });
     }
   },
 
@@ -707,7 +723,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           ),
           startedAt: Date.now(),
         };
-        set({ running: true, runningThreadId: thread.id, progress: { stage: 'starting' } });
+        set({ running: true, runningThreadId: thread.id, runningKind: 'compress', progress: { stage: 'starting' } });
         // 夜里那一批也走同一条路（坏了自动重跑一次）——⛔ 早上起来看到一份结构性的坏结果，
         // 那一趟等于白跑，而重跑的钱和现在这一笔是同一个量级。
         const { outcome, retry, shield } = await runCompress(
@@ -730,7 +746,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           ],
         }));
       } finally {
-        set({ running: false, runningThreadId: null, progress: null });
+        set({ running: false, runningThreadId: null, runningKind: null, progress: null });
       }
     }
     // 跑完清空队列，并记下今天已经跑过 —— 补跑判断只看这一个数（一天只跑一次）。
@@ -778,7 +794,13 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     }
     const thread = byId.get(threadId);
     if (!thread) return;
-    set({ running: true, runningThreadId: threadId, progress: { stage: 'starting' } });
+    set((st) => ({
+      running: true,
+      runningThreadId: threadId,
+      runningKind: 'stale',
+      progress: { stage: 'starting' },
+      staleErrors: omit(st.staleErrors, threadId),
+    }));
     try {
       // ⚠️ 查的是**完整**的 pack，⛔ 不跳过压过的块：压过不等于没过期，
       // 而「压过的只能被检测语义是否废除」正是他自己写的那一句。
@@ -829,10 +851,10 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       }));
     } catch (e) {
       set((st) => ({
-        startErrors: { ...st.startErrors, [threadId]: e instanceof Error ? e.message : String(e) },
+        staleErrors: { ...st.staleErrors, [threadId]: e instanceof Error ? e.message : String(e) },
       }));
     } finally {
-      set({ running: false, runningThreadId: null, progress: null });
+      set({ running: false, runningThreadId: null, runningKind: null, progress: null });
     }
   },
 

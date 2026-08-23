@@ -40,7 +40,11 @@ export default function ThreadListItem({
   // ⭐ 2026-08-22（Ocean：「正在压缩的项目在左侧边栏的项目名也加一个整理中」）：
   // 一次压缩要跑一两分钟，而它跑的时候人多半已经切到别的项目去了 —— 不在左栏说一句，
   // 屏幕上就没有任何地方能告诉他「哪个项目正在跑」。⚠️ 和 `捕捉中` 一样只用字，不用图标。
-  const tidying = useCompressStore((s) => s.running && s.runningThreadId === thread.id);
+  // ⚠️ **要同时问「哪个项目」和「哪一件事」**（2026-08-23，和页签同一条）：
+  // 少问后半句，点一下「过期检测」左栏就会写「压缩中」—— 而它什么都没在压。
+  const tidying = useCompressStore(
+    (s) => s.running && s.runningThreadId === thread.id && s.runningKind === 'compress',
+  );
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const patchThread = useThreadsStore((s) => s.patch);
   const setCaptureTarget = useThreadsStore((s) => s.setCaptureTarget);
