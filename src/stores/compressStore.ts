@@ -191,6 +191,9 @@ export interface StaleSession {
   proposals: StaleProposal[];
   /** ⛔ 引文对不上被整条丢掉的条数 —— 界面要说出来。 */
   dropped: number;
+  /** ⭐ T2：库里**已经有这条关系**、于是没拿出来问的条数。⚠️ 同样要说出来 ——
+   *  「一条都没找到」和「找到的那几条你去年就处理过了」是两件事。 */
+  already: number;
   outcome: CompressOutcome | null;
   /** 已经下过决定的那几条（下标）。⚠️ 留在单子上但划掉，不是删掉 ——
    *  用户要看得见自己刚才做了什么。 */
@@ -294,8 +297,12 @@ const freshSession = (
 
 // D-c（2026-08-22）：**坏结果自动重跑一次，不拿给用户看。**
 //
-// 十次里有三四次是结构性的坏结果（切不出块 / 重复编号 / 块数对不上 / 压完还剩 95% 以上），
-// 而这几种用户看一眼就知道要重来 —— 中间那一步纯属摩擦。判据见 `worthRetrying`。
+// 结构性的坏结果（切不出块 / 重复编号 / 块数对不上 / 压完比原文还长）用户看一眼就知道
+// 要重来 —— 中间那一步纯属摩擦。判据见 `worthRetrying`。
+//
+// ⚠️ **T1（2026-08-23）：判据收窄过一次。** 原来还有一条「压完还剩 95% 以上」，
+// 而默认档压完就是剩 98% —— 十次里七八次会自动再发一次，钱翻倍、结果还是 98%。
+// ⛔ 那条现在只对「压到最短」成立，理由和实测数写在 `worthRetrying` 上面。
 //
 // ⚠️⚠️ **两次的账要加起来报**（`mergeOutcomes`）。只报第二次那笔，界面上那句
 // 「这一次花了多少」就成了假话 —— 钱是两次都花了的。
@@ -343,7 +350,7 @@ const runCompress = async (
         };
 
   const first = put(await compressPack(req));
-  if (!first.ok || !worthRetrying(source, first.text))
+  if (!first.ok || !worthRetrying(source, first.text, level))
     return { outcome: first, retry: null, shield: report() };
   const second = put(await compressPack(req));
   return {
@@ -727,14 +734,35 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         reasoning: s.apiReasoning,
         timeoutSecs: s.apiTimeoutSecs,
       });
+      // ⛔⛔ T2（2026-08-23，第五轮实测）：**先把库里已经有的那几条摘出去。**
+      //
+      // 实测撞到的是最难看的一种：5 次里最稳的那条提议（4/5）指的关系**库里本来就有**
+      // —— `#23` 早就带着 `corrects → #21`。于是用户被要求批准一件他已经批准过的事，
+      // 点「合并」是空操作（pack 一个字符都没变）。
+      //
+      // ⛔ 而另一半更糟：他要是点「只退旧的」，`setBlockSupersession` 会把那条
+      // `corrects` **降级成 `supersedes`、把 `#21` 整条退掉** —— 而 `corrects`
+      // 当初就是因为「旧块还成立、只有一点要更正」才选的。三条提议里 2 条是这种。
+      const bySeq = new Map<number, Block>();
+      for (const b of blocks) if (b.seq !== null) bySeq.set(b.seq, b);
+      const settled = (p: (typeof scan.proposals)[number]): boolean => {
+        const older = bySeq.get(p.staleSeq);
+        const newer = bySeq.get(p.bySeq);
+        if (!older || !newer) return false;
+        // 这条关系已经记在库里了（哪一种都算：`corrects` 是他选的「旧块留着」，
+        // `supersedes` 是他选的「退掉」—— 两种都是**已经决定过**）。
+        return newer.refKind !== null && newer.refBlockId === older.id;
+      };
+      const fresh = scan.proposals.filter((p) => !settled(p));
       set((st) => ({
         stale: {
           ...st.stale,
           [threadId]: {
             source: text,
             blocks,
-            proposals: scan.proposals,
+            proposals: fresh,
             dropped: scan.dropped,
+            already: scan.proposals.length - fresh.length,
             outcome: scan.outcome,
             decided: {},
             startedAt: Date.now(),
@@ -761,6 +789,17 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     if (action !== 'keep' && (!oldBlock || !newBlock)) {
       // ⛔ 不静默：块在这中间被删了，用户点了没反应会以为库改了。
       toast.error(t('这两块里有一块已经不在了，这一条做不了。'));
+      return;
+    }
+    // ⛔⛔ T2（2026-08-23）：`setBlockSupersession` 是**覆盖式**写入 —— 一块只存得下
+    // 一条关系。新块要是已经指着**别的**块，写下去等于把那条悄悄删了。
+    // ⚠️ 指着同一块的那种在扫描时就摘走了（`settled`），走到这里的只剩「指着别处」。
+    if (action !== 'keep' && newBlock && newBlock.refKind !== null && newBlock.refBlockId !== oldBlock?.id) {
+      toast.error(
+        t('第 {n} 块已经指着另一块了，一块只记得住一条这样的关系。要改的话先在那一块上撤掉原来那条。', {
+          n: p.bySeq,
+        }),
+      );
       return;
     }
     try {

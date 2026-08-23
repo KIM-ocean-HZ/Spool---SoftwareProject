@@ -103,6 +103,13 @@ export interface CompressOutcome {
 // （`src/lib/pack/fixtures/golden-pack.expected.txt` 第 134 行往下就是样例。）
 export const ENTRY_RE = /^(?:(?:📌|💭|🗜)\s+)*#\d+\s+\[/;
 
+/** 同一条头行拆成四截：记号 / 编号 / 方括号里那一截 / 方括号后面那一截正文。
+ *
+ *  ⚠️ **只许有这一份。** `splitPackEntries` 按它切块，`missingNumbersBetween` 按它把
+ *  「Spool 印的那一截」和「用户的字」分开 —— 两处各写一遍的话，
+ *  一边认得的头行另一边认不得，而两边各自都编译得过、测试也绿。 */
+export const HEAD_RE = /^((?:(?:📌|💭|🗜)\s+)*)#(\d+)\s+\[([^\]]*)\]\s?(.*)$/;
+
 /** pack 里有多少条。§6.2 约束 3 要求界面写明「原始 N 块 → 压缩后 M 块」，
  *  而这个数字**由 Spool 自己数**，不问模型 —— 让被审查的一方报告自己的成绩单没有意义。 */
 export const countPackEntries = (packText: string): number =>
@@ -368,19 +375,40 @@ export const pairRewrites = (
 };
 
 /** 原文里有、压缩稿里再也找不到的数字。按块和整份用的是同一个判断。 */
-/** ⚠️ **Spool 自己印上去的行，不是用户的字。** 两类都要排掉，理由不同：
+/** ⚠️ **Spool 自己印上去的行，不是用户的字。** 三类都要排掉，理由不同：
  *
  *  - `↩ cites:` 那种预览行是**别的块的开头几十个字**，还被 `…` 从中间截断 ——
  *    `（2026-0…` 会被抽成一个叫 `2026-0` 的假数字，而那一行本来就有 `missingRelations` 在管；
  *  - `[... truncated, 8945 more chars not shown ...]` 里的 **8945 是渲染器算出来的字数**。
  *    ⛔ 2026-08-22 在真实语料上抓到的：它被报成「丢了一个数字」，于是数字硬闸门把一份
  *    好稿子挡在库外，而用户按「加回去」还补不回来 —— 那个数在原文里根本不是一个内容。
- *    ⚠️ 这一条按形状认，不按具体数字认（`templates.ts::truncationMarker`）。 */
+ *    ⚠️ 这一条按形状认，不按具体数字认（`templates.ts::truncationMarker`）。
+ *  - ⭐ **条目头行** `#12 [2026-08-09 20:42 · from …]`（T5，2026-08-23）。同一族的最后一个：
+ *    那个日期是渲染器从 `created_at` 印出来的，**用户没打过这几个字**，而
+ *    `addBackNumbers` 按设计**拒绝**把头行粘回正文（粘回去会把一行结构行塞进内容里）。
+ *    于是它被报成「丢了数字」→ `numbersGateOpen` 关死 → 「用这一份」永远点不动 →
+ *    「加回去」永远补不回来。⛔ **一个用户无论如何都解不开的闸门，比不设闸门更糟。**
+ *
+ *    ⭐ **它没有资格当硬闸门，还有一条更硬的理由**：R1 之后写回库的只有块的 `content`
+ *    （`contentFromEntryBody`），**头行是下一次渲染时重新印的** —— 头行上的日期
+ *    **在结构上不可能丢进库里**。
+ *
+ *    ⚠️ 实测（第五轮，45 份真实压缩稿）：22 个补不回的数字里有 **4 个**是这一类，
+ *    3 个 `2026-08-09` 加一个 `2026-08-0717:09`（后者是 `squeeze` 把「日期+空格+时间」
+ *    挤成了一个 token，原文里根本没有这个字符串，所以**永远**对不上）。
+ *
+ *    ⚠️ 代价说清楚：模型改写了头行的话，这里不再报。⛔ 那不是无声的损失 ——
+ *    `compareByEntry` 仍然按 `#N` 配对，块不见了/多出来照样报；而头行改了也进不了库。 */
 const SPOOL_OWN_LINE = /^\s*(?:↩|\[\.\.\. truncated, \d+ more chars not shown \.\.\.\])/;
 
 export const missingNumbersBetween = (original: string, compressed: string): string[] => {
   const hay = new Set(numberTokens(compressed));
-  const body = packLines(original).filter((l) => !SPOOL_OWN_LINE.test(l)).join('\n');
+  // ⚠️ 头行**只去掉方括号那一截**（`#12 [2026-08-09 20:42 · from …]`），
+  // ⛔ 不是整行丢掉 —— 块的正文第一行就印在头行上，整行丢掉等于把用户的字排除在核对之外。
+  const body = packLines(original)
+    .filter((l) => !SPOOL_OWN_LINE.test(l))
+    .map((l) => HEAD_RE.exec(l)?.[4] ?? l)
+    .join('\n');
   return numberTokens(body).filter((n) => !hay.has(n));
 };
 

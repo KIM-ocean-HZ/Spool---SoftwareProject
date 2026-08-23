@@ -4,6 +4,7 @@ import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { isHighlightable, rangeIsHighlighted, toggleHighlightRange } from '@/lib/blocks/highlight';
+import { locateQuote } from '@/lib/blocks/quoteFold';
 import { hasSegmentAnnotations } from '@/lib/blocks/segments';
 import { rawRangeFromSelection } from '@/lib/blocks/selectionRange';
 import { SegmentedContent } from '@/lib/blocks/SegmentedContent';
@@ -172,12 +173,15 @@ function TextBlockItem({
     const spans: { start: number; end: number; id: string }[] = [];
     for (const c of corrections) {
       if (!c.quote) continue;
-      let from = block.content.indexOf(c.quote);
+      // ⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。⛔ 用 `indexOf` 的话，
+      // 压缩把这一句的标点改写过之后，这处高亮就**悄悄消失**，而屏幕上没有任何提示。
+      // ⚠️ 折叠长度守恒，所以这里拿到的下标就是 `block.content` 上的下标。
+      let from = locateQuote(block.content, c.quote);
       while (from !== -1) {
         // 2026-08-19: the span carries WHICH correction marked it, so clicking one sentence opens
         // that sentence's correction and not every correction on the block.
         spans.push({ start: from, end: from + c.quote.length, id: c.id });
-        from = block.content.indexOf(c.quote, from + c.quote.length);
+        from = locateQuote(block.content, c.quote, from + c.quote.length);
       }
     }
     return spans;

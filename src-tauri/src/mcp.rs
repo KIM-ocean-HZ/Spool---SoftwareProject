@@ -725,7 +725,13 @@ fn corrections_by_source<'a>(
             .as_deref()
             .map(str::trim)
             .filter(|q| !q.is_empty())
-            .filter(|q| blocks.iter().any(|t| t.id == target && t.content.contains(*q)));
+            // ⭐ T4(2026-08-23):和入库时那道闸同一把尺子(标点折叠)。⛔ 用 `contains`
+            // 的话,压缩改写过这一句的标点之后这里就退回只报块号,而且不报任何错。
+            .filter(|q| {
+                blocks
+                    .iter()
+                    .any(|t| t.id == target && crate::api_engine::quote_is_in_block(&t.content, q))
+            });
         out.entry(target).or_default().push((seq, quote));
     }
     out

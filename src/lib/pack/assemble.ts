@@ -40,6 +40,7 @@ import {
   UNKNOWN_THREAD,
   truncationMarker,
 } from './templates';
+import { quoteIsInBlock } from '@/lib/blocks/quoteFold';
 
 /** What the renderer needs about a block someone else cites. */
 export interface CitedBlock {
@@ -359,7 +360,9 @@ export const correctionsBySource = (blocks: Block[]): Map<string, Correction[]> 
     const entry: Correction = {
       id: b.id,
       seq: b.seq,
-      quote: q && target?.content.includes(q) ? q : null,
+      // ⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。⛔ 用 `includes` 的话，
+      // 压缩把这一句的标点改写过之后，这里会退回只报块号 —— 而闸门当初是放行的。
+      quote: q && target && quoteIsInBlock(target.content, q) ? q : null,
     };
     const list = out.get(b.refBlockId);
     if (list) list.push(entry);
@@ -445,6 +448,24 @@ export const blockLabel = (
   const bodyFitsWhole = body === oneLine(content);
   return note && note.length > 0 && !bodyFitsWhole ? headAnchor(note) : body;
 };
+
+/** ⭐ T6（2026-08-23，第五轮实测）：**退掉一块，给 AI 看的内容会变长还是变短。**
+ *
+ *  退掉一块，pack 里少了它那一整条，多了一行 `↩ replaces …` —— 而那一行是**固定开销**：
+ *  一个前缀、一个时间戳、加上这一块开头那 40 个字。⛔ 块比那一行还短的时候，
+ *  「退掉它」实际上让 pack **变长**。实测在〈申请帮助〉`#6` 上量到净 **+92 字符**。
+ *
+ *  ⚠️ 这里用的是渲染器**自己那几个函数**（`blockLabel` / `formatPackTime` / 那两个常量），
+ *  ⛔ 不是照着它的输出另算一遍 —— 那一行以后改了，这里要跟着改，而不是各说各的。
+ *
+ *  `entryChars` 是这一块**现在**在 pack 里占了多少字符（正文 + 批注 + 那几条附行），
+ *  由调用方从当前这份 pack 上量 —— 只有它知道这一块此刻长什么样。 */
+export const retirementLineChars = (retired: Block): number =>
+  NOTE_INDENT.length +
+  REF_BLOCK_SUPERSEDES.length +
+  `[${formatPackTime(retired.createdAt)}] `.length +
+  blockLabel(retired.content, retired.annotation, annotationIsAi(retired.annotationBy, retired.source))
+    .length;
 
 const renderPinnedPlaceholder = (b: Block): string => {
   const time = formatPackTime(b.createdAt);

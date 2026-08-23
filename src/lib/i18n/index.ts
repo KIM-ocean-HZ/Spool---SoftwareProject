@@ -1203,6 +1203,13 @@ const EN: Record<string, string> = {
   '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。':
     '#{m} stops going into packs (it stays in your library and is still searchable); #{n} is marked as the one that replaced it.',
   '库里一个字都不改，这一条划掉。': 'Nothing in your library changes; this line is struck off.',
+  // T4/T6（2026-08-23，第五轮实测）
+  '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。这一块很短：退掉之后 pack 反而会长一点，换上去的那行说明比它本身还长。':
+    '#{m} stops going into packs (it stays in your library and is still searchable); #{n} is marked as the one that replaced it. This block is short: retiring it actually makes the pack longer, because the line that stands in for it is longer than the block itself.',
+  '另有 {n} 条你已经处理过了 —— 库里记着，这里不再问一遍。':
+    '{n} more are already settled — your library records them, so they are not asked again here.',
+  '第 {n} 块已经指着另一块了，一块只记得住一条这样的关系。要改的话先在那一块上撤掉原来那条。':
+    'Block #{n} already points at a different block, and a block only holds one relation like this. To change it, clear the existing one on that block first.',
   '已合并：#{n} 标成「更正了 #{m}」，#{m} 原样留着。':
     'Merged: #{n} now corrects #{m}, and #{m} stays exactly as it is.',
   '已退：#{m} 不再进 pack，#{n} 标成替代它的那一条。':

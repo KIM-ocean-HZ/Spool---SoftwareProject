@@ -27,6 +27,7 @@ import {
   ANY_NOTE_RE,
   diffLines,
   ENTRY_RE,
+  HEAD_RE,
   HIGHLIGHT_RE,
   lineHasNumber,
   missingNumbersBetween,
@@ -36,6 +37,7 @@ import {
   pairRewrites,
   RENDERED_NOTE_RE,
   uniq,
+  type CompressLevel,
   type NoteRewrite,
 } from './compress';
 
@@ -65,7 +67,6 @@ export interface PackEntry {
 // 2026-08-21 实测撞见了：〈Flux〉#3（一份 README）在原文侧被截成 473 字符，
 // 而压缩稿侧完整，于是核对报「这一块被撑大到 254%」——**是切错了，不是它写多了**。
 const SECTION_RE = /^##\s+(.+?)\s*$/;
-const HEAD_RE = /^((?:(?:📌|💭|🗜)\s+)*)#(\d+)\s+\[([^\]]*)\]\s?(.*)$/;
 const FROM = ' · from ';
 
 /** 把一份 pack 切成条目。切不出来就是空数组 —— 调用方要把这件事显示出来。 */
@@ -604,18 +605,38 @@ const spliceBack = (compressed: string, plan: Map<string, Map<number, string[]>>
  *  ⭐ 十次里有三四次属于这一类，而它们的共同点是：**用户看一眼就知道要重来**，
  *  中间那一步（看懂坏在哪、找到按钮、再点一次、再等一分钟）纯属摩擦。
  *
- *  ⚠️ 四条判据都是**结构性的**，不是「质量不够好」这种要人判断的话：
+ *  ⚠️ 判据必须是**结构性的**，不是「质量不够好」这种要人判断的话：
  *   - 整份切不出块（模型没照 pack 的格式写）；
  *   - 同一个编号出现不止一次（实测撞见过整份原样写两遍，压完剩 194%）；
  *   - 块数对不上（有块整块不见了，或者它编了原文没有的编号）；
- *   - 压完还剩 95% 以上 —— 钱花了，等了一分钟，拿到一份和原文差不多长的东西。
+ *   - **压完比原文还长** —— 无论哪个档位，这都不是压缩。
  *
- *  ⛔ **丢数字不在这四条里**，那一类现在有 `addBackNumbers` 补，不该再花第二笔钱。 */
-export const worthRetrying = (original: string, compressed: string): boolean => {
+ *  ⛔ **丢数字不在里面**，那一类现在有 `addBackNumbers` 补，不该再花第二笔钱。
+ *
+ *  ⚠️⚠️ **T1（2026-08-23，第五轮实测）：长度这一条原来是「剩 95% 以上就重跑」，
+ *  而它和默认档正面打架。** 90 次实测：〈申请规划〉这个库里最大的项目，
+ *  「只删重复」压完中位剩 **98%**、「保留结论和数字」也是 **98%** ——
+ *  于是十次里 **8 次 / 7 次**会自动再发一次，**两次的钱都算用户的，压完还是 98%**。
+ *
+ *  ⭐ 病根不在重跑，在判据：**「只删重复」这一档压完剩 98% 是正确答案，不是失败** ——
+ *  这个项目里本来就没有那么多重复。拿一句「压得不够多」去替用户花第二笔钱，
+ *  而重跑用的是**一模一样的请求**（同一份 pack、同一个档位、同一个温度），
+ *  凭什么第二次就会短？实测也说不会：同一格十次的中位数就是 98%。
+ *
+ *  ⛔ **所以长度这一条只对「压到最短」还成立** —— 那一档用户明说了要最短的，
+ *  交回来一份几乎没动的稿子，是它没照做。⚠️ 实测这一档只有 1/10 会触发。
+ *  其余两档只留「压完比原文还长」这条底线（实测 90 次里 2–3 次，都是明显的坏结果）。 */
+export const worthRetrying = (
+  original: string,
+  compressed: string,
+  level: CompressLevel,
+): boolean => {
   const c = compareByEntry(original, compressed);
   if (!c) return true;
   if (c.duplicated.length > 0 || c.dropped > 0 || c.invented > 0) return true;
-  return compressed.length > original.length * 0.95;
+  // ⚠️ 「压到最短」那一档保留原来那条线；其余两档只挡「比原文还长」。
+  const ceiling = level === 'aggressive' ? 0.95 : 1;
+  return compressed.length > original.length * ceiling;
 };
 
 

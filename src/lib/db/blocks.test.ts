@@ -574,6 +574,23 @@ describe('supersession (v13)', () => {
     });
   });
 
+  // ⛔⛔ T2 (2026-08-23, fifth round): the same rule on `supersedes`. The quote means
+  // "the sentence in the old block this one corrects" — it belongs to `corrects` and to
+  // nothing else. 2 of the 3 real proposals measured that night pointed at a pair that
+  // already carried a `corrects`, and "retire the old one" would have left the quote
+  // hanging off a `supersedes`: harder to spot than the 2026-08-19 case, because the
+  // relation is still there so nothing looks broken.
+  it('takes the corrected quote along when a correction is turned into a replacement', async () => {
+    const { thread, older, newer } = await seed();
+    await setBlockSupersession(newer.id, older.id, 'corrects', 1_754_000_000_000);
+    await setCorrectedQuote(newer.id, '截止 4 月 30 日');
+    await setBlockSupersession(newer.id, older.id, 'supersedes', 2_000_000_000_000);
+    expect((await listBlocksByThread(thread.id)).find((b) => b.id === newer.id)).toMatchObject({
+      refKind: 'supersedes',
+      correctedQuote: null,
+    });
+  });
+
   it('brings both fields back when an undone delete restores the block', async () => {
     const { thread, older, newer } = await seed();
     await setBlockSupersession(newer.id, older.id, 'supersedes', 1_754_000_000_000);

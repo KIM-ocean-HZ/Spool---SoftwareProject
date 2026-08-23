@@ -281,6 +281,11 @@ fn call(
     let mut usage: Option<serde_json::Value> = None;
     let mut model: Option<String> = None;
     let mut read_error: Option<String> = None;
+    // ⛔⛔ T3(2026-08-23):**流式这条路原来从头到尾没读过 `finish_reason`。**
+    // 于是被输出上限掐断的回复会带着 `ok:true` 和半份正文回来 —— 而下面 `cut_off`
+    // 那里自己写着「半份稿子看起来和『删得很狠』一模一样」,这条路上它连 cut_off 都不报。
+    // 第五轮实测撞到:一条回答只出来 37 个字符、986 个输出 token,信封报成功。
+    let mut finish: Option<String> = None;
     let mut last_report = Instant::now();
 
     {
@@ -304,6 +309,9 @@ fn call(
             }
             if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
                 usage = Some(u.clone());
+            }
+            if let Some(f) = v.pointer("/choices/0/finish_reason").and_then(|x| x.as_str()) {
+                finish = Some(f.to_string());
             }
             if let Some(d) = v.pointer("/choices/0/delta") {
                 if let Some(t) = d.get("reasoning_content").and_then(|x| x.as_str()) {
@@ -361,6 +369,20 @@ fn call(
             );
         }
         return err("bad_response", "The stream ended without any content.", Some(status));
+    }
+
+    // ⛔⛔ T3:正文非空 + `finish_reason: "length"` = **被输出上限掐断的半份稿子**。
+    // 和连接断掉(`cut_off`)是同一种损坏,只是断的人不同 —— 所以同样**不能当结果交出去**。
+    // ⚠️ 钱照收:这一次的 usage 仍然报上去,界面上那句「这一次花了多少」才是真的。
+    if finish.as_deref() == Some("length") {
+        return err(
+            "truncated",
+            format!(
+                "The briefing was cut off by the output-token limit: {written_n} characters had arrived after {}s (plus {thought_n} characters of thinking).",
+                ms / 1000
+            ),
+            Some(status),
+        );
     }
 
     Envelope::Ok {
@@ -435,6 +457,19 @@ fn envelope_from_body(
             Some(status),
         );
     };
+
+    // ⛔ T3:非流式这条原来只在**正文为空**的时候才看 `finish_reason` ——
+    // 掐断了但写出了半份的那种,照样被当成成功。
+    if parsed.pointer("/choices/0/finish_reason").and_then(|v| v.as_str()) == Some("length") {
+        return err(
+            "truncated",
+            format!(
+                "The briefing was cut off by the output-token limit: {} characters had arrived.",
+                content.chars().count()
+            ),
+            Some(status),
+        );
+    }
 
     Envelope::Ok {
         ok: true,
@@ -610,6 +645,34 @@ mod tests {
             "choices": [{ "index": 0, "finish_reason": "length", "message": { "content": "" } }]
         });
         assert_eq!(kind_of(&envelope_from_body(&body, 200, "", "m", 1)), "truncated");
+    }
+
+    // ⛔⛔ T3(2026-08-23,第五轮实测):**正文非空**的那一半原来漏了。
+    // 一份被输出上限掐断的压缩稿,看起来和「删得很狠」一模一样 —— 交出去就是
+    // 让用户拿半份稿子去核对,而信封上写着「成功」。
+    #[test]
+    fn a_truncated_reply_that_did_write_something_is_still_a_failure() {
+        let body = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "finish_reason": "length",
+                "message": { "content": "#1 [t] 前半份写出来了,后半份没" }
+            }]
+        });
+        assert_eq!(kind_of(&envelope_from_body(&body, 200, "", "m", 1)), "truncated");
+    }
+
+    // ⚠️ 反过来那一半:正常收尾的回复**不许**被这条新判断误伤。
+    #[test]
+    fn a_reply_that_finished_normally_is_still_ok() {
+        let body = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": { "content": "#1 [t] 整份都在。" }
+            }]
+        });
+        assert_eq!(kind_of(&envelope_from_body(&body, 200, "", "m", 1)), "ok");
     }
 
     // 「思考」按输出价计费,而 §6.2 那张成本表是按「2000 输出」算的。

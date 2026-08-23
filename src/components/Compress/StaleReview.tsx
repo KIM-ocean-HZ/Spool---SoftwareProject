@@ -1,7 +1,10 @@
 import { AlertTriangle, Loader2, ScanSearch } from 'lucide-react';
+import { splitPackEntries } from '@/lib/ai/compressBlocks';
 import { useT } from '@/lib/i18n';
+import { retirementLineChars } from '@/lib/pack/assemble';
 import { useCompressStore } from '@/stores/compressStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import type { StaleSession } from '@/stores/compressStore';
 
 // E3 · 作废检测的核对面（COMPRESS-UX-R2-2026-08-22 §7 / WORKPLAN §2.E3）。
 //
@@ -58,6 +61,16 @@ export default function StaleReview({ threadId }: { threadId: string }) {
           {session ? t('再查一遍') : t('查一遍')}
         </button>
       </div>
+
+      {/* ⭐ T2（2026-08-23）：库里已经有这条关系、于是没拿出来问的，也要说出来。
+          「一条都没找到」和「找到的那几条你已经处理过了」是两件事。 */}
+      {session && session.already > 0 && (
+        <div className="mt-1.5 text-[11px] text-muted">
+          {t('另有 {n} 条你已经处理过了 —— 库里记着，这里不再问一遍。', {
+            n: session.already,
+          })}
+        </div>
+      )}
 
       {/* ⛔ 引文对不上被整条丢掉的，必须报出来：模型提了 5 条只留下 2 条，
           和它本来就只提了 2 条，是两件完全不同的事。 */}
@@ -134,10 +147,20 @@ export default function StaleReview({ threadId }: { threadId: string }) {
                     />
                     <Choice
                       label={t('只退旧的')}
-                      hint={t('#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。', {
-                        n: p.bySeq,
-                        m: p.staleSeq,
-                      })}
+                      hint={
+                        // ⭐ T6（2026-08-23 实测）：退掉一个**短**块，给 AI 看的内容反而更多 ——
+                        // 「这一块不再有效」那两行是固定开销（实测净 +92 字符），块越短越不划算。
+                        // ⛔ 不写成建议（「不建议退」是替用户决定，撞 D6 那条），写成事实。
+                        retireGrowsPack(session, p.staleSeq)
+                          ? t(
+                              '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。这一块很短：退掉之后 pack 反而会长一点，换上去的那行说明比它本身还长。',
+                              { n: p.bySeq, m: p.staleSeq },
+                            )
+                          : t('#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。', {
+                              n: p.bySeq,
+                              m: p.staleSeq,
+                            })
+                      }
                       onClick={() => void decide(threadId, i, 'retire')}
                     />
                     <Choice
@@ -154,6 +177,22 @@ export default function StaleReview({ threadId }: { threadId: string }) {
       )}
     </section>
   );
+}
+
+// ⭐ T6（2026-08-23 实测）：退掉这一块，给 AI 看的内容其实会**变多**吗。
+//
+// 退掉一块，pack 里少了它那一整条，多了一行「这一块不再有效」—— 而那一行是固定开销。
+// 块比那一行还短的时候，「退掉」实际上让 pack 变长（实测〈申请帮助〉`#6` 净 +92 字符）。
+// ⛔ 不给建议（「不建议退」是替用户决定），只把这件事说出来。
+//
+// ⚠️ 「这一块现在有多长」按**当前这份 pack** 量（`session.source` 就是发出去的那一份），
+// ⛔ 不拿 `content.length` 代替 —— 批注、出处行、关系行都跟着一起消失，它们也算数。
+function retireGrowsPack(session: StaleSession, staleSeq: number): boolean {
+  const block = session.blocks.find((b) => b.seq === staleSeq);
+  if (!block) return false;
+  const entry = splitPackEntries(session.source).find((e) => e.seq === staleSeq);
+  if (!entry) return false;
+  return entry.raw.length <= retirementLineChars(block);
 }
 
 // ⚠️ 三个动作**并排**，⛔ 没有一个被做成主按钮 —— 哪一个对，只有用户知道，

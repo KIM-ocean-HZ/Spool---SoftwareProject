@@ -874,6 +874,26 @@ fn fold(s: &str) -> Vec<char> {
     s.chars().map(fold_char).collect()
 }
 
+/// ⭐ T4(2026-08-23,第五轮实测)——**引文只有一把尺子。**
+///
+/// 存进库的 `corrected_quote` 是过了上面那道闸的,而闸**折叠标点**才放行;
+/// 渲染那一侧原来用的是 `content.contains(quote)`,**不折叠**。
+/// ⛔ 平常不咬人,但「先接受一条更正、之后再压缩这个项目」会咬:压缩顺手把全角标点
+/// 换成半角(实测那一份换掉 46%),R1 之后压缩稿写回 `content` —— 于是那句引文从此
+/// 对不上,**pack 里那行「更正了哪一句」退回只报块号,而且不报任何错**。
+///
+/// ⚠️ 和 TS 那边 `lib/blocks/quoteFold.ts` 是同一条规则,两边各写一遍(和表头双份同一类)。
+pub(crate) fn quote_is_in_block(content: &str, quote: &str) -> bool {
+    if quote.is_empty() {
+        return false;
+    }
+    if content.contains(quote) {
+        return true;
+    }
+    let (fc, fq) = (fold(content), fold(quote));
+    !fq.is_empty() && fq.len() <= fc.len() && fc.windows(fq.len()).any(|w| w == fq.as_slice())
+}
+
 /// 一句引文在一块里的下落。⚠️ 只有 `Verbatim` 和 `Retyped` 能留下来。
 #[derive(PartialEq, Debug)]
 enum Quoted {
@@ -1139,6 +1159,29 @@ mod stale_gate_tests {
         );
         assert_eq!(kept.len(), 0, "改了数字的引文放进来了");
         assert_eq!(dropped, 1);
+    }
+
+    // ⭐⭐ T4(2026-08-23,第五轮实测):**闸门和渲染器必须是同一把尺子。**
+    //
+    // 实测撞到的那一条:一条更正进库的时候引文是逐字对得上的;之后这个项目被压缩过一次,
+    // 压缩把 `个：UCLA` 改写成 `个:UCLA`(那一份换掉了 46% 的全角标点),R1 之后
+    // 压缩稿写回 `content` —— 于是 pack 里那行「更正了哪一句」退回只报块号,
+    // 屏幕上那句高亮消失,**而界面不报任何错**。
+    #[test]
+    fn the_renderer_locates_a_quote_the_gate_would_have_let_through() {
+        let after_compression = "第一批三个:UCLA,CMU,UMich.";
+        let quote = "第一批三个：UCLA";
+        assert!(!after_compression.contains(quote), "这条测试的前提没了");
+        assert!(quote_is_in_block(after_compression, quote));
+    }
+
+    // ⛔ 反过来那一半:尺子松到「什么都能对上」就成了假高亮。
+    #[test]
+    fn a_quote_that_is_really_gone_stays_gone() {
+        assert!(!quote_is_in_block("名单里只有 UCLA。", "名单里只有 CMU。"));
+        assert!(!quote_is_in_block("随便什么", ""));
+        // 数字仍然不折叠 —— 15 所和 16 所不是同一句话。
+        assert!(!quote_is_in_block("名单定稿：15 所", "名单定稿:16 所"));
     }
 
     // ⚠️ 省略号故意不在折叠表里：提示词明写「不许用省略号」，用了就是破规矩。

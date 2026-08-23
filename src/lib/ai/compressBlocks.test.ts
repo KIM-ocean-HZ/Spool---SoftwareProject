@@ -312,16 +312,12 @@ describe('addBackNumbers', () => {
 // D-c（2026-08-22）：坏结果自动重跑一次。⚠️ 判据必须是结构性的 ——
 // 「质量不够好」那种要人判断的话不能进这里，否则它会替用户花第二笔钱。
 describe('worthRetrying', () => {
-  it('一模一样地压回来（剩 100%）算坏结果 —— 钱花了，什么也没发生', () => {
-    expect(worthRetrying(APPLY, APPLY)).toBe(true);
-  });
-
   it('切不出块算坏结果', () => {
-    expect(worthRetrying(APPLY, '模型没照格式写。')).toBe(true);
+    expect(worthRetrying(APPLY, '模型没照格式写。', 'balanced')).toBe(true);
   });
 
   it('块数对不上算坏结果', () => {
-    expect(worthRetrying(APPLY, drop(APPLY, '#2 '))).toBe(true);
+    expect(worthRetrying(APPLY, drop(APPLY, '#2 '), 'balanced')).toBe(true);
   });
 
   // ⛔ 丢数字**不在**判据里：那一类有「从原文加回去」补，不该再花第二笔钱。
@@ -329,7 +325,28 @@ describe('worthRetrying', () => {
     const shorter = APPLY.replace('GRE 最晚重考日是 2026-11-25，别错过。', '短。')
       .replace('第一句话，没有数字。', '短。')
       .replace('第三行也没有数字。', '短。');
-    expect(worthRetrying(APPLY, shorter)).toBe(false);
+    expect(worthRetrying(APPLY, shorter, 'balanced')).toBe(false);
+  });
+
+  // ⚠️⚠️ T1（2026-08-23，第五轮 90 次实测）：这三条是这次改动的正题。
+  // 默认档在这个库最大的项目上压完中位剩 98%，而原来的判据是「剩 95% 以上就重跑」——
+  // 十次里七八次自动再发一次，两次的钱都算用户的，压完还是 98%。
+  it('⛔ 默认档几乎没压动（剩 98%）不算坏结果 —— 那是这个项目里本来就没多少重复', () => {
+    const barely = APPLY.replace('第一句话，没有数字。', '第一句话。');
+    expect(barely.length / APPLY.length).toBeGreaterThan(0.95);
+    expect(worthRetrying(APPLY, barely, 'balanced')).toBe(false);
+    expect(worthRetrying(APPLY, barely, 'conservative')).toBe(false);
+  });
+
+  it('⭐ 但「压到最短」那一档还是要重跑 —— 用户明说了要最短的', () => {
+    const barely = APPLY.replace('第一句话，没有数字。', '第一句话。');
+    expect(worthRetrying(APPLY, barely, 'aggressive')).toBe(true);
+  });
+
+  it('压完比原文还长，哪个档位都算坏结果', () => {
+    const longer = `${APPLY}\n多写了一段没人要的话。`;
+    for (const level of ['conservative', 'balanced', 'aggressive'] as const)
+      expect(worthRetrying(APPLY, longer, level)).toBe(true);
   });
 });
 

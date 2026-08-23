@@ -608,4 +608,28 @@ describe('数字和日期丢了要报出来', () => {
   it('两位以下的数不进这张单子', () => {
     expect(auditCompression('#1 [t] R29/L24/S25/W26', '#1 [t] 分项略').missingNumbers).toEqual([]);
   });
+
+  // ⛔⛔ T5（2026-08-23，第五轮实测）：头行方括号里那个日期是渲染器从 `created_at` 印的，
+  // 用户没打过这几个字，而「加回去」按设计拒绝把头行粘回正文 —— 于是它会把硬闸门锁死，
+  // 而用户无论如何都解不开。⭐ 更硬的理由：写回库的只有 `content`，头行是重新渲染的。
+  it('⛔ 头行方括号里的日期不算数字 —— 它锁死的闸门用户永远解不开', () => {
+    const src = '#12 [2026-08-09 20:42 · from Claude] 名单定下来了。';
+    const cut = '#12 [t] 名单定下来了。';
+    expect(auditCompression(src, cut).missingNumbers).toEqual([]);
+  });
+
+  // ⚠️ 同一族的最后一个：`squeeze` 把「日期 + 空格 + 时间」挤成一个 token，
+  // 那个字符串在原文里根本不存在，所以**永远**补不回来。
+  it('⛔ 头行上「日期+时间」挤出来的那个假 token 也不算', () => {
+    const src = '#3 [2026-08-07 17:09 · from Safari] 这一句里没有数字。';
+    expect(auditCompression(src, '#3 [t] 这一句里没有数字。').missingNumbers).toEqual([]);
+  });
+
+  // ⚠️⚠️ 反过来那一半才是重点：块正文的**第一行就印在头行上**。
+  // 整行丢掉的话，用户的字会被排除在核对之外 —— 那比假警报严重得多。
+  it('⭐ 但头行方括号**后面**那截是用户的字，丢了照样要报', () => {
+    const src = '#12 [2026-08-09 20:42 · from Claude] 最晚 2026-11-25 之前交。';
+    const cut = '#12 [2026-08-09 20:42 · from Claude] 尽快交。';
+    expect(auditCompression(src, cut).missingNumbers).toEqual(['2026-11-25']);
+  });
 });

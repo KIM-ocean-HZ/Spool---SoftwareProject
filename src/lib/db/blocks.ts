@@ -706,8 +706,16 @@ export const setBlockSupersession = async (
   // itself refuses to create, produced here by clearing the relation and leaving the
   // quote behind. A quote with nothing to point at marks a sentence in a block nobody
   // is correcting any more.
+  //
+  // ⛔ T2 (2026-08-23): the same clearing has to happen on `supersedes`, not only on null.
+  // The quote means "the sentence in the old block this one corrects" — it belongs to
+  // `corrects` and to nothing else. Turning a `corrects` into a `supersedes` and leaving
+  // the quote behind produces exactly the combination the comment above describes, only
+  // harder to spot: the relation is still there, so nothing looks broken.
+  // Measured in the fifth round: 2 of 3 real proposals would have gone down this path.
+  const keepQuote = kind === 'corrects';
   await db.execute(
-    `UPDATE blocks SET ref_block_id = $1, ref_kind = $2${kind === null ? ', corrected_quote = NULL' : ''} WHERE id = $3`,
+    `UPDATE blocks SET ref_block_id = $1, ref_kind = $2${keepQuote ? '' : ', corrected_quote = NULL'} WHERE id = $3`,
     [kind === null ? null : targetBlockId, kind, id],
   );
   if (kind === 'supersedes' && targetBlockId) {
