@@ -60,6 +60,9 @@ struct Step {
     reasoning: String,
     #[serde(default = "one")]
     repeats: u32,
+    /// `mode = "qa"` 时问的那一句。⛔ 只有 qa 用得到，别的 mode 留空。
+    #[serde(default)]
+    question: String,
 }
 
 fn all_range() -> String {
@@ -148,6 +151,7 @@ fn run_the_sweep() {
                 "stale" => stale_messages(&pack, ""),
                 "stale-v1" => stale_messages(&pack, "v1"),
                 "stale-v2" => stale_messages(&pack, "v2"),
+                "qa" => qa_messages(&pack, &step.question),
                 other => panic!("unknown mode {other}"),
             };
             let started = std::time::SystemTime::now();
@@ -276,6 +280,43 @@ fn print_pack_sizes() {
             Err(e) => println!("{name}: ERROR {e}"),
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// 阶段 5 的问答（`OVERNIGHT-TEST-PLAN-2026-08-23.md` 阶段 5）
+//
+// ⚠️⚠️ **这一份不是产品里的任何一条路。** 它模拟的是**用户把 pack 粘给另一个 AI**之后
+// 那个 AI 的处境 —— 所以它必须尽量中立：不提示「这是压缩过的」、不提示「注意有些结论
+// 已经被推翻」，否则量到的就是提示词的功劳，不是 pack 的。
+//
+// ⭐ **题目必须放在 pack 后面**，不能放前面：`system` + pack 那一段是三十道题共享的前缀，
+// 放在前面就每题都得重新算一遍输入 —— 归档里 130 条信封有 123 条命中过缓存，
+// 而命中的输入价是未命中的 1/30。
+//
+// ⛔ **三臂用的是同一个 system 和同一句提问模板**，只有 pack 不一样。这是这一格能
+// 归因的全部理由：差别只能来自那份 pack。
+//
+// ⚠️ **写过一版又删掉的一条规则**，记在这里免得下次有人「好心」加回来：
+// 「资料里的条目按时间先后排列，后面的条目可能推翻前面的」。
+// 三臂都加是公平的，但它把**陷阱题的答案直接送给了模型** —— 而这一格要量的正是
+// 「pack 自己有没有把这件事说清楚」。pack 里本来就写着 `## Full Record (chronological)`，
+// 说得清说不清是 pack 的成绩，不是提示词的。
+fn qa_messages(pack_text: &str, question: &str) -> (String, String) {
+    assert!(!question.is_empty(), "mode=qa 必须给 question");
+    let system = format!(
+        "你是用户的助手。用户下一条消息里先是一份他自己项目的上下文资料,然后是一个问题。\n\n\
+         # 规则\n\
+         1. 只根据这份资料回答,不要用资料以外的知识补充,也不要猜。\n\
+         2. 资料里找不到答案就直接说「这份资料里没有」,⛔ 不要编。\n\
+         3. 回答要短:能用两三句说清就不要写成一段。⛔ 不要复述问题,不要写开场白。\n\
+         4. {}",
+        crate::mcp::material_rule()
+    );
+    let user = format!(
+        "{}\n\n---\n\n问题:{question}",
+        crate::mcp::fenced_material(pack_text)
+    );
+    (system, user)
 }
 
 // ---------------------------------------------------------------------------------------
