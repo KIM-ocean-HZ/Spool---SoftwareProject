@@ -63,6 +63,16 @@ struct Step {
     /// `mode = "qa"` 时问的那一句。⛔ 只有 qa 用得到，别的 mode 留空。
     #[serde(default)]
     question: String,
+    /// 🆕 第六轮阶段 2b（U14/U15）：**发出去 N 秒之后从另一个线程按「停下」**。
+    /// `0`（默认）= 不取消，跑法和以前一模一样。
+    ///
+    /// ⭐ **为什么非得在这里做**：U14 修的是「取消之后走到哪条分支」——
+    /// 取消把子进程杀了，stdout 于是是空的，而「stdout 空」原来**只有一种解释**
+    /// （子进程死在产出信封之前 = 装坏了）。于是他按一下停下，屏幕上叫他**重装 Spool**。
+    /// ⚠️ 离线构造得出空 stdout，却构造不出「**真的**杀掉一个正在联网的子进程」——
+    /// 而那正是 `CANCELLED` 这条判断要抢在前面的那一刻。
+    #[serde(default)]
+    cancel_after_secs: u64,
 }
 
 fn all_range() -> String {
@@ -164,6 +174,17 @@ fn run_the_sweep() {
                 step.repeats,
                 pack.chars().count()
             );
+            // 🆕 阶段 2b：另起一个线程，睡够了就按「停下」。
+            // ⚠️ **一定要 join**，别让它飘到下一步去 —— 正常跑完之后 `CHILD` 里那个
+            // （已经退出的）子进程还在，一条迟到的取消会把 `CANCELLED` 立起来，
+            // 而下一次 spawn 开头才会把它清掉。⛔ 中间那条缝就是「上一步取消了下一步」。
+            let canceller = (step.cancel_after_secs > 0).then(|| {
+                let secs = step.cancel_after_secs;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(secs));
+                    crate::api_engine::compress_cancel()
+                })
+            });
             let outcome = crate::api_engine::compress_for_test(
                 &bin,
                 &base_url,
@@ -174,6 +195,9 @@ fn run_the_sweep() {
                 &step.reasoning,
                 timeout_secs,
             );
+            // `true` = 按下去的时候真的还有一个活着的子进程。⛔ `false` 要记下来：
+            // 那说明这一次**根本没被取消**（跑得比 N 秒还快），判定不能算数。
+            let cancel_hit = canceller.map(|h| h.join().unwrap_or(false));
 
             // 压缩稿全文：⛔ 只存汇总数字的话，事后想复查「它到底删了什么」就没有素材。
             let stem = format!("{n:03}-{}-{}-{}", sanitize(&step.label), step.level, i);
@@ -212,6 +236,8 @@ fn run_the_sweep() {
                 "ms": outcome.ms,
                 "model_reported": outcome.model,
                 "cuts": outcome.cuts,
+                "cancel_after_secs": step.cancel_after_secs,
+                "cancel_hit": cancel_hit,
                 "text_file": if outcome.ok { serde_json::json!(format!("texts/{stem}.out.txt")) } else { serde_json::Value::Null },
             });
             let mut f = std::fs::OpenOptions::new()
