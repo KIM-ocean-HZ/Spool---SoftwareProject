@@ -43,6 +43,7 @@ export default function StaleReview({ threadId }: { threadId: string }) {
   const busy = useCompressStore((s) => s.running || s.batchRunning);
   const error = useCompressStore((s) => s.staleErrors[threadId] ?? null);
   const scan = useCompressStore((s) => s.runStaleScan);
+  const cancel = useCompressStore((s) => s.cancel);
   const decide = useCompressStore((s) => s.decideStale);
   const enabled = useSettingsStore((s) => s.apiEngineEnabled);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
@@ -254,16 +255,18 @@ export default function StaleReview({ threadId }: { threadId: string }) {
         <span className="text-muted">
           {t('这一页只连线，不改任何一块的正文。')}
         </span>
+        {/* ⛔ 2026-08-23（Ocean:「过期检测跑起来无法取消」）：这一页原来**没有停下**。
+            ⚠️ 它和压缩共用同一条 sidecar 的路，`cancel()` 本来就管得住它 ——
+            少的只是这个按钮。⭐ 一个按钮两种身份，和压缩那一页逐字一样的写法。 */}
         <button
           type="button"
           disabled={busy && !running}
-          onClick={() => void scan(threadId)}
+          onClick={() => (running ? void cancel() : void scan(threadId))}
           className="flex items-center gap-1.5 rounded-md border border-line-strong bg-paper px-3 py-1.5 text-ink transition-colors enabled:hover:border-accent enabled:hover:text-accent disabled:opacity-50"
         >
-          {running && <Loader2 size={12} className="animate-spin" />}
-          {!running && <ScanSearch size={12} />}
+          {running ? <Loader2 size={12} className="animate-spin" /> : <ScanSearch size={12} />}
           <span>
-            {running ? t('正在查（{n}s）', { n: elapsed }) : session ? t('再查一遍') : t('查一遍')}
+            {running ? t('停下（{n}s）', { n: elapsed }) : session ? t('再查一遍') : t('查一遍')}
           </span>
         </button>
       </footer>

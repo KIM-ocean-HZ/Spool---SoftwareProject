@@ -42,8 +42,11 @@ export default function ThreadListItem({
   // 屏幕上就没有任何地方能告诉他「哪个项目正在跑」。⚠️ 和 `捕捉中` 一样只用字，不用图标。
   // ⚠️ **要同时问「哪个项目」和「哪一件事」**（2026-08-23，和页签同一条）：
   // 少问后半句，点一下「过期检测」左栏就会写「压缩中」—— 而它什么都没在压。
-  const tidying = useCompressStore(
-    (s) => s.running && s.runningThreadId === thread.id && s.runningKind === 'compress',
+  // ⛔ 但**两件事都要说**（Ocean 当天第二次指出：「左侧边栏看不到压缩中，和过期检测中」）——
+  //    ⚠️ 只挡掉说错的那一半、不补上说对的那一半，等于把这一行整个变哑：
+  //    过期检测也要跑一两分钟，跑的时候人照样已经切走了。
+  const runningKind = useCompressStore((s) =>
+    s.running && s.runningThreadId === thread.id ? s.runningKind : null,
   );
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const patchThread = useThreadsStore((s) => s.patch);
@@ -225,9 +228,16 @@ export default function ThreadListItem({
               等着核对的也不说（那一份在项目里的「压缩」页签上，页签自己会写）。
               ⚠️ 2026-08-23：这里原来写的是「整理中」，跟着页签改名一起改 ——
               Ocean 的原话是「统一一个名字」，屏幕上只该有一个词指这件事。 */}
-          {tidying && (
-            <span title={t('这个项目正在压缩')} className="flex-none text-[12px] text-accent">
-              {t('压缩中')}
+          {runningKind && (
+            <span
+              title={
+                runningKind === 'compress'
+                  ? t('这个项目正在压缩')
+                  : t('正在查这个项目里有没有过期的块')
+              }
+              className="flex-none text-[12px] text-accent"
+            >
+              {runningKind === 'compress' ? t('压缩中') : t('过期检测中')}
             </span>
           )}
           {/* Capture-target marker (§9.2 / §10.2, #7 2026-07-13): the target row says

@@ -1028,6 +1028,9 @@ export const FAILURE_SENTENCE: Record<string, string> = {
   cut_off:
     '压缩稿写到一半连接断了，没拿到完整的一份。⚠️ 半份稿子看起来和「删得很狠」一模一样，所以没有交给你。把设置里的「单次最长等待」调大，或者换个小一点的打包范围。',
   no_sidecar: '找不到负责联网的那个小程序（spool-ai）。重装一次 Spool 应该能修好。',
+  /** ⚠️ **它不是一个错误，是用户自己按的停下。**
+   *  ⛔ 别把它画在红色那一格里 —— store 会在它出现时干脆不落 outcome，这条只是兜底。 */
+  cancelled: '这一次你自己停下了。',
   http: '接口返回了一个错误。',
   internal: 'Spool 自己出错了。',
 };

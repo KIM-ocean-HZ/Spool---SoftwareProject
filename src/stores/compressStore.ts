@@ -392,6 +392,12 @@ const runCompress = async (
   if (!first.ok || !worthRetrying(source, first.text, level))
     return { outcome: first, retry: null, shield: report() };
   const second = put(await compressPack(req));
+  // ⛔ 用户在**自动重跑**那一次上按了停下：整件事就当停下了。
+  // ⚠️ 不这么写的话，`mergeOutcomes(second, first)` 会把**第一次**那份端上桌 ——
+  // 他按了停下，屏幕上却冒出一份稿子，看起来就是「停下没起作用」。
+  // ⭐ 丢掉的那一份本来就是 `worthRetrying` 判定为结构性坏的（切不出块 / 编号重复 /
+  //    块数对不上 / 比原文还长），⛔ 不是什么可惜的东西。
+  if (!second.ok && second.kind === 'cancelled') return { outcome: second, retry: null, shield: report() };
   return {
     // 第二次没跑成就还是拿第一次那份给用户 —— 手里有一份坏的，总好过只剩一句报错。
     outcome: second.ok ? mergeOutcomes(first, second) : mergeOutcomes(second, first),
@@ -548,6 +554,15 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         frozen.level,
         frozen.reasoning,
       );
+      // ⛔⛔ **用户按了「停下」不是一个结果**（2026-08-23，Ocean）。
+      // 把它当结果落进 session，核对面上就会立起一张红牌，写着「找不到 spool-ai，
+      // 重装一次 Spool 应该能修好」—— 而他只是点了停止。
+      // ⚠️ 这里干脆什么都不落：桌子回到「还没跑」，和他按之前一模一样。
+      if (outcome.kind === 'cancelled') {
+        // ⚠️ ⛔ 不说「没花钱」：已经吐出来的那一段，厂商那边照样算。⛔ 也不编一个数。
+        toast.notice(t('已经停下了。已经跑出去的那一段，模型厂商那边可能照样算钱。'));
+        return;
+      }
       set((st) =>
         st.sessions[threadId]
           ? {
@@ -733,6 +748,8 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         );
         if (outcome.ok) {
           set((st) => ({ results: [...st.results, { ...session, outcome, retry, shield }] }));
+        } else if (outcome.kind === 'cancelled') {
+          // 停下不是「没压成」—— ⛔ 别把它记进早上那张失败单子里。
         } else {
           set((st) => ({
             failures: [...st.failures, { title: thread.title, why: outcome.kind ?? 'http' }],
@@ -833,6 +850,11 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         // `supersedes` 是他选的「退掉」—— 两种都是**已经决定过**）。
         return newer.refKind !== null && newer.refBlockId === older.id;
       };
+      // ⛔ 和压缩那一条同一个道理：按了停下就当没跑过，⛔ 不在这一页立一张红牌。
+      if (scan.outcome.kind === 'cancelled') {
+        toast.notice(t('已经停下了。已经跑出去的那一段，模型厂商那边可能照样算钱。'));
+        return;
+      }
       const fresh = scan.proposals.filter((p) => !settled(p));
       set((st) => ({
         stale: {

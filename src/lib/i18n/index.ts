@@ -1145,6 +1145,10 @@ const EN: Record<string, string> = {
     'Your annotations, the things you wrote and your highlights all survived — and nothing was invented.',
   '它凭空写了 {n} 条你没写过的批注：{s}':
     'It invented {n} annotation(s) you never wrote: {s}',
+  // ⛔ 「停下」不是一个错误 —— ⚠️ 而且不许写成「没花钱」：已经吐出来的那一段照样算。
+  '已经停下了。已经跑出去的那一段，模型厂商那边可能照样算钱。':
+    'Stopped. Whatever the model had already produced may still be billed by the vendor.',
+  '这一次你自己停下了。': 'You stopped this run.',
   '认不出这个模型的价目，算不出这次花了多少钱。':
     'The price list for this model is not known here, so this run’s cost cannot be worked out.',
 
@@ -1283,6 +1287,8 @@ const EN: Record<string, string> = {
   '过期检测': 'Out-of-date check',
   '过期检测（{n}）': 'Out-of-date check ({n})',
   '过期检测（在跑）': 'Out-of-date check (running)',
+  '过期检测中': 'Checking dates',
+  '正在查这个项目里有没有过期的块': 'Checking this project for blocks that have gone out of date',
   '正在读这个项目…': 'Reading this project\u2026',
   '再试一次': 'Try again',
   '这个项目有一份压好的，等你核对 —— 打开':

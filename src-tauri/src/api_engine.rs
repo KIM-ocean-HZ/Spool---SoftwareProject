@@ -29,6 +29,15 @@ use crate::mcp::{compress_messages_for_api, split_cuts, CompressLevel};
 static RUNNING: AtomicBool = AtomicBool::new(false);
 /// 取消是从另一个线程来的（命令跑在阻塞线程上），只能靠这个把子进程的句柄递过去。
 static CHILD: Mutex<Option<Arc<Mutex<Option<Child>>>>> = Mutex::new(None);
+/// ⛔⛔ **是用户按了「停下」，不是出事了**（2026-08-23，Ocean 撞到）。
+///
+/// 他按下停下之后，屏幕上弹的是：**「找不到负责联网的那个小程序（spool-ai）。
+/// 重装一次 Spool 应该能修好。」** —— 一个让人去重装软件的建议，而他只是点了停止。
+///
+/// 病根：取消把子进程杀了，于是 stdout 是空的，而「stdout 空」这条路只有一种解释
+/// （子进程死在产出信封之前 = 装坏了）。**取消走的是同一条路，于是被诊断成装坏了。**
+/// ⚠️ 少了这个标志就分辨不出来 —— 两种情况在 stdout 上长得一模一样。
+static CANCELLED: AtomicBool = AtomicBool::new(false);
 
 /// ⚠️ 上限 2026-08-20 从 15 分钟提到 30 分钟，因为「几十秒的调用」这个前提是错的。
 ///
@@ -257,6 +266,8 @@ fn spawn_sidecar_with(
             });
         }
     }
+    // ⚠️ 每次起子进程之前清一次 —— 上一次的取消不能算在这一次头上。
+    CANCELLED.store(false, Ordering::SeqCst);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -319,6 +330,11 @@ fn spawn_sidecar_with(
     let stdout = out_h.join().unwrap_or_default();
     let stderr = err_h.join().unwrap_or_default();
 
+    // ⛔ **这一条必须排在「stdout 是空的」前面。** 取消之后 stdout 本来就是空的，
+    // 排在后面就永远走不到 —— 那正是「按停下 → 叫我重装 Spool」的成因。
+    if CANCELLED.swap(false, Ordering::SeqCst) {
+        return CompressOutcome::failed("cancelled", "stopped by the user".into(), None);
+    }
     if timed_out {
         return CompressOutcome::failed(
             "timeout",
@@ -413,6 +429,9 @@ pub fn compress_cancel() -> bool {
     let Some(handle) = guard.as_ref() else { return false };
     let mut child = handle.lock().unwrap();
     let Some(c) = child.as_mut() else { return false };
+    // ⚠️ **先立旗再动手。** 杀掉之后那个正在等的线程随时会醒过来去看这个标志 ——
+    // 顺序反过来就有一条缝，缝里它仍然会把「用户按了停下」诊断成「装坏了」。
+    CANCELLED.store(true, Ordering::SeqCst);
     let _ = c.kill();
     let _ = c.wait();
     *child = None;
