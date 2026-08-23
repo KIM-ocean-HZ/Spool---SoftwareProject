@@ -37,9 +37,19 @@ interface Props {
   // 看不见别的块。所以它只在**这一块特别长**的时候值得点（一整篇网页正文那种），
   // 而核对桌上会把这句话写出来。`undefined` = API 引擎没开，这个按钮就不存在。
   onCompress?: () => void;
-  /** ⭐ v24（R2 §1g）：这一块被压过、而且压缩前的原文还在 —— 一键换回去。
-   *  ⛔ 原文还在，还原是白拿的；不做还原就等于让 AI 产物盖掉用户自己的字。 */
-  onRestoreOriginal?: () => void;
+  /** ⭐ v24（R2 §1g）：这一块被压过、而且压缩前的原文还在 —— 打开来看一眼。
+   *
+   *  ⚠️⚠️ **2026-08-23（Ocean 真手指验收第 5 条）：它从「一键还原」变成了「看一眼」。**
+   *  他的原话：「如果用户想看压缩前的 block，现在的按钮只能回退到原文，**不能再次回到
+   *  压缩后文本**，修改。」—— 原来点一下就把库改了，而且改完 `original_content` 就清空，
+   *  想看回压缩稿已经没有了。**看一眼是个来回的动作，不该是一次单程的写库。**
+   *
+   *  所以这个按钮现在只是把原文摊在块底下（读的时候不动库一个字），
+   *  「真的换回去」是摊开之后里面那一行 —— ⛔ 别把两件事合成一个按钮。
+   *  `undefined` = 这一块没压过，或者压的时候用户关了「备份原文」。 */
+  onToggleOriginal?: () => void;
+  /** 原文现在摊开着没有。⚠️ 图标要跟着变色，不然用户不知道自己刚才点开的是哪一块。 */
+  showingOriginal?: boolean;
 }
 
 interface ActionBtnProps {
@@ -91,7 +101,8 @@ export default function BlockActions({
   onToggleStale,
   onDelete,
   onCompress,
-  onRestoreOriginal,
+  onToggleOriginal,
+  showingOriginal,
 }: Props) {
   const t = useT();
   const highlightTitle = !canHighlight
@@ -159,9 +170,12 @@ export default function BlockActions({
         <CircleSlash size={11} className={stale ? 'text-accent' : ''} />
       </ActionBtn>
       {/* §9.6.6：两个入口，同一张核对桌 —— 项目压缩在右侧栏，单块压缩在这儿。 */}
-      {onRestoreOriginal && (
-        <ActionBtn title={t('还原成压缩时的原文')} onClick={onRestoreOriginal}>
-          <RotateCcw size={13} />
+      {onToggleOriginal && (
+        <ActionBtn
+          title={showingOriginal ? t('收起压缩前的原文') : t('看看压缩前的原文')}
+          onClick={onToggleOriginal}
+        >
+          <RotateCcw size={13} className={showingOriginal ? 'text-accent' : ''} />
         </ActionBtn>
       )}
       {onCompress && (

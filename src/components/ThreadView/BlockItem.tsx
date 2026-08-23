@@ -154,6 +154,9 @@ function TextBlockItem({
   // ⚠️ Same condition as foldedCorrectionIds, and it has to stay the same: a correction the
   // feed folded away must be drawn here, and one it kept must NOT be drawn twice.
   const foldable = !hasSegmentAnnotations(block.content);
+  // 压过、而且压缩前的原文还留着。⚠️ 两个条件都要 —— 关了「备份原文」那一次是不可逆的，
+  // 那时候 `compressedAt` 有值而 `originalContent` 是空的（`blocks.ts` 上写着）。
+  const hasOriginal = block.compressedAt != null && block.originalContent != null;
   const attachedCorrections = useMemo(
     () => (foldable ? corrections.filter((c) => c.quote) : []),
     [corrections, foldable],
@@ -220,6 +223,9 @@ function TextBlockItem({
   // the user never has to look for a Save button. Esc reverts to the pre-edit value.
   const [editingContent, setEditingContent] = useState(false);
   const [contentDraft, setContentDraft] = useState(block.content);
+  /** ⭐ 2026-08-23（Ocean 第 5 条）：压缩前的原文摊开着没有。⚠️ **纯界面状态，不进库** ——
+   *  「看一眼」不该改任何东西，这正是他说旧按钮不对的地方。 */
+  const [showingOriginal, setShowingOriginal] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   // DESIGN_CONTEXT_HYGIENE §3.1: whether the "which one does this correct" picker is open
@@ -878,11 +884,11 @@ function TextBlockItem({
             // ⭐ v24（R2 §1g）：只有**压过、而且原文还留着**的块才有这个入口。
             // ⚠️ 压过但没留原文（用户关了备份）的块**不给**这个按钮 —— 一个点了会说
             // 「还原不了」的按钮，比没有更伤：它承诺了一件做不到的事。
-            onRestoreOriginal={
-              block.compressedAt != null && block.originalContent != null
-                ? () => void restoreOriginal(block.id)
-                : undefined
+            // ⭐ 2026-08-23（Ocean 第 5 条）：点它只是**摊开来看**，随时收回去。
+            onToggleOriginal={
+              hasOriginal ? () => setShowingOriginal((v) => !v) : undefined
             }
+            showingOriginal={showingOriginal}
           />
         )}
       </div>
@@ -1170,6 +1176,52 @@ function TextBlockItem({
           the reader gets to it. The SegmentedContent branch above takes no `corrected` spans
           either, so on those few blocks this line is again the whole marking. */}
       <CorrectedByLine corrections={pointerCorrections} />
+
+      {/* ⭐⭐ 2026-08-23（Ocean 真手指验收第 5 条）：压缩前的原文，摊在这一块底下。
+          他的原话：「如果用户想看压缩前的 block，现在的按钮只能回退到原文，**不能再次
+          回到压缩后文本**，修改。」
+
+          ⚠️⚠️ **它是一块另开的只读区域，⛔ 不是把上面那段正文换掉。** 这不是排版偏好：
+          上面那段带着 `withOffsets`，划词、高亮、更正全都按 `block.content` 的字符下标定位
+          （工程护栏：「选区一律走 data-o 偏移映射」）。在那个节点里塞另一份文本，
+          下一次划词就会落到错的字上 —— 而且屏幕上看不出来。
+
+          ⚠️ 打包出去的**永远是上面那一份**（`assemble` 读 `b.content`），压过就带压缩后的，
+          原文一份都不进 pack —— 收件 AI 想看原文要自己来问（MCP 的 `get_block_original`）。
+          ⛔ 这一条是 Ocean 定的：「打包的时候只能带上一份 block，只要有压缩就带有压缩的。」 */}
+      {hasOriginal && showingOriginal && (
+        <div className="mt-2 rounded-md border border-line bg-paper-2/40 px-3 py-2">
+          <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px] text-muted">
+            <span>{t('压缩前的原文（只是给你看，库里存的还是上面那一份）')}</span>
+            <button
+              type="button"
+              onClick={() => setShowingOriginal(false)}
+              className="transition-colors hover:text-accent"
+            >
+              {t('收起')}
+            </button>
+            {/* ⭐ 真的换回去是**另一件事**，所以它在这儿、要多点一下 ——
+                ⚠️ 换回去之后这一块就当没压过（🗜 记号没了，以后还会被排进压缩）。 */}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => {
+                  // 换回去之后这一块就没有「压缩前的原文」了，摊开的这一块跟着收起来。
+                  setShowingOriginal(false);
+                  void restoreOriginal(block.id);
+                }}
+                title={t('把上面那段正文换成这一份原文。这一块从此当作没压过，以后还会被排进压缩。')}
+                className="transition-colors hover:text-accent"
+              >
+                {t('用回这一份')}
+              </button>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap break-words font-ui text-[13px] leading-[1.65] text-ink-2">
+            <MarkdownContent content={block.originalContent!} />
+          </div>
+        </div>
+      )}
 
     </article>
   );

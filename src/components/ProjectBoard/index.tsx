@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderInput,
+  Moon,
   Package,
   RotateCcw,
   Trash2,
@@ -18,6 +19,7 @@ import {
 import type { Thread } from '@/lib/db/threads';
 import { DUE_SOON_DAYS, dueInDays } from '@/lib/threads/deadline';
 import { dateLocale, useT } from '@/lib/i18n';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
 import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
@@ -78,6 +80,14 @@ export default function ProjectBoard() {
   const remove = useThreadsStore((s) => s.remove);
   const patch = useThreadsStore((s) => s.patch);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // ⭐ 2026-08-23（Ocean 真手指验收第 4 条）：「overnight 压缩可以在项目管理的面板里面加入，
+  // 方便多项目加入」。⚠️ 排队这件事本来就是**跨项目**的（睡前勾三个，早上一起看），
+  // 而这一屏是唯一一个所有项目并排在一起的地方 —— 一个一个点进去勾，正是他嫌麻烦的那件事。
+  // ⛔ 压缩没开的时候这个动作不出现（和右栏、页签同一条规矩：默认关闭）。
+  const engineOn = useSettingsStore((s) => s.apiEngineEnabled);
+  const queue = useSettingsStore((s) => s.compressQueue);
+  const nightlyAt = useSettingsStore((s) => s.compressNightlyAt);
+  const updateSettings = useSettingsStore((s) => s.update);
 
   const [sort, setSort] = useState<Sort>('deadline');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -157,6 +167,7 @@ export default function ProjectBoard() {
     const dupes = dupeCounts[th.id] ?? 0;
     const open = openId === th.id;
     const isDone = th.status === 'done';
+    const queued = queue.includes(th.id);
     const title = th.title.trim() || t('无标题');
     const summary = isDone ? th.digest || th.summary || '' : th.summary || '';
 
@@ -276,6 +287,26 @@ export default function ProjectBoard() {
                 </div>
               )}
             </span>
+            {/* ⚠️ 已完成的项目不排队：压一个不再往前走的项目，钱花得没有道理。 */}
+            {engineOn && !isDone && (
+              <RowAction
+                icon={<Moon size={12} />}
+                label={queued ? t('已排进「一起压」') : t('排进「一起压」')}
+                active={queued}
+                title={
+                  nightlyAt
+                    ? t('今晚 {at} 和排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点跑在那一页上改。', { at: nightlyAt })
+                    : t('排进队里，等你按「现在就跑」或者定一个时间。压完在各自项目的「压缩」页签上等你核对。')
+                }
+                onClick={() =>
+                  void updateSettings({
+                    compressQueue: queued
+                      ? queue.filter((id) => id !== th.id)
+                      : [...queue, th.id],
+                  })
+                }
+              />
+            )}
             {isDone ? (
               <RowAction
                 icon={<RotateCcw size={12} />}
@@ -363,26 +394,36 @@ export default function ProjectBoard() {
 }
 
 /** One button in an expanded row. Icon + word, no border — five bordered buttons in a strip
- *  is exactly the 「矩形结构太多」 Ocean objected to in the rail. */
+ *  is exactly the 「矩形结构太多」 Ocean objected to in the rail.
+ *
+ *  ⚠️ `active` 是给「排进一起压」用的：它是一个**开关**，不是一次动作，所以它得看得出
+ *  自己现在是开着还是关着 —— 别的几个按下去就走了，没有这个状态。 */
 function RowAction({
   icon,
   label,
   onClick,
   danger,
+  active,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   danger?: boolean;
+  active?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors ${
         danger
           ? 'text-muted hover:bg-paper hover:text-[color:var(--urgent)]'
-          : 'text-ink-2 hover:bg-paper hover:text-accent'
+          : active
+            ? 'text-accent hover:bg-paper'
+            : 'text-ink-2 hover:bg-paper hover:text-accent'
       }`}
     >
       {icon}

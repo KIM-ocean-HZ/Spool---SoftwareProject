@@ -116,13 +116,13 @@ describe('每个项目自己那一份', () => {
     const a = session();
     const b = { ...session(), source: '别的项目' };
     useCompressStore.setState({ sessions: { A: a, B: b }, tabs: {}, results: [] });
-    useCompressStore.getState().setTab('A', 'tidy');
-    expect(useCompressStore.getState().tabs).toEqual({ A: 'tidy' });
+    useCompressStore.getState().setTab('A', 'compress');
+    expect(useCompressStore.getState().tabs).toEqual({ A: 'compress' });
     useCompressStore.getState().clearSession('A');
     const st = useCompressStore.getState();
     expect(st.sessions.A).toBeUndefined();
     expect(st.sessions.B).toBe(b);
     // ⛔ 页签不因为「不要这一份」而消失 —— 它是项目的一部分，不是一个窗口。
-    expect(st.tabs.A).toBe('tidy');
+    expect(st.tabs.A).toBe('compress');
   });
 });

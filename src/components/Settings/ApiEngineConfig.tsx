@@ -171,7 +171,7 @@ export default function ApiEngineConfig() {
             <div className="min-w-0">
               <div className="text-[11px] text-ink">{t('备份压缩前的原文')}</div>
               <p className="mt-1 text-[11px] leading-relaxed text-muted/80">
-                {t('压缩把块的正文换成更短的版本。留着原文，随时可以还原；关掉的话省一点磁盘，但压缩不可逆。')}
+                {t('压缩把块的正文换成更短的版本。留着原文，块的工具条上就有一个入口能打开看，也能随时换回去；关掉的话省一点磁盘，但压过就找不回原来的字了。')}
               </p>
             </div>
             <Toggle

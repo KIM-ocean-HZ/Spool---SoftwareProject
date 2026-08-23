@@ -218,10 +218,12 @@ export default function ThreadListItem({
             <CountdownBadge deadline={thread.deadline} />
           )}
           {/* 正在压缩的那个项目。⚠️ 只有**正在跑的那一个**说这句话 —— 排在队里等着的不说，
-              等着核对的也不说（那一份在项目里的「整理」页签上，页签自己会写）。 */}
+              等着核对的也不说（那一份在项目里的「压缩」页签上，页签自己会写）。
+              ⚠️ 2026-08-23：这里原来写的是「整理中」，跟着页签改名一起改 ——
+              Ocean 的原话是「统一一个名字」，屏幕上只该有一个词指这件事。 */}
           {tidying && (
             <span title={t('这个项目正在压缩')} className="flex-none text-[12px] text-accent">
-              {t('整理中')}
+              {t('压缩中')}
             </span>
           )}
           {/* Capture-target marker (§9.2 / §10.2, #7 2026-07-13): the target row says

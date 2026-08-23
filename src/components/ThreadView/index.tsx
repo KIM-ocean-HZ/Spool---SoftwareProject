@@ -40,7 +40,16 @@ export default function ThreadView() {
   const tidyReady = useCompressStore((s) =>
     activeId ? s.sessions[activeId]?.outcome?.ok === true : false,
   );
+  // ⭐ 夜里那一批压好的也算「有一份等你核对」—— 它躺在全局那张单子上，
+  // ⚠️ 右栏那个按钮撤掉之后，页签上这个数就是它唯一还看得见的地方。
+  const nightlyReady = useCompressStore((s) =>
+    activeId ? s.results.some((r) => r.target.threadId === activeId) : false,
+  );
   const tidyRunning = useCompressStore((s) => s.running && s.runningThreadId === activeId);
+  const staleLeft = useCompressStore((s) => {
+    const sess = activeId ? s.stale[activeId] : null;
+    return sess ? sess.proposals.filter((_, i) => sess.decided[i] === undefined).length : 0;
+  });
   const engineOn = useSettingsStore((s) => s.apiEngineEnabled);
   // For `done` threads the user can flip to LogView within a session; the override
   // resets to null on thread switch so reopens default back to DigestView (§9.9).
@@ -91,29 +100,37 @@ export default function ThreadView() {
         onSetViewMode={setViewOverride}
       />
       {/* 页签。⚠️ **压缩没开的时候整条不出现** —— 一个点了只会说「你还没配」的页签
-          不如没有（和右栏那一格同一条规矩）。 */}
+          不如没有（和右栏那一格同一条规矩）。
+
+          ⭐ 2026-08-23（Ocean 第 3 条「把两个功能拆出来，变成内容，压缩，和一个新的」）：
+          原来是两个页签，第二个叫「整理」，里面上下摞着压缩核对面和查旧块。
+          ⛔ 别再摞回去 —— 两件事没关系，摞在一起的唯一后果是核对面只剩半屏。 */}
       {engineOn && (
         <div className="flex flex-none items-center gap-4 border-b border-line px-5 text-[12px]">
           <Tab active={tab === 'content'} onClick={() => setTab(thread.id, 'content')}>
             {t('内容')}
           </Tab>
-          <Tab active={tab === 'tidy'} onClick={() => setTab(thread.id, 'tidy')}>
+          <Tab active={tab === 'compress'} onClick={() => setTab(thread.id, 'compress')}>
             {/* ⚠️ 有一份等着核对就在页签上说出来 —— 切走之后它还在，别让人以为没了。 */}
-            {tidyRunning ? t('整理（在跑）') : tidyReady ? t('整理（1）') : t('整理')}
+            {tidyRunning
+              ? t('压缩（在跑）')
+              : tidyReady || nightlyReady
+                ? t('压缩（1）')
+                : t('压缩')}
+          </Tab>
+          <Tab active={tab === 'stale'} onClick={() => setTab(thread.id, 'stale')}>
+            {staleLeft > 0 ? t('查旧块（{n}）', { n: staleLeft }) : t('查旧块')}
           </Tab>
         </div>
       )}
 
-      {engineOn && tab === 'tidy' ? (
-        // ⭐ 「整理」页签里装两件事：作废建议在上，压缩核对在下（R2 §4：
-        // 「后续的作废都可以放进现在的压缩工作区，统一一个名字」）。
-        // ⚠️ 作废那一段自己有高度上限并且内部滚动，⛔ 不能让它把下面的核对面挤没了 ——
-        // 「核对区域太窄」正是上一轮挨骂的那件事。
-        <div className="flex h-full min-h-0 flex-col">
+      {engineOn && tab === 'compress' ? (
+        <div className="min-h-0 flex-1">
+          <CompressBoard threadId={thread.id} />
+        </div>
+      ) : engineOn && tab === 'stale' ? (
+        <div className="min-h-0 flex-1">
           <StaleReview threadId={thread.id} />
-          <div className="min-h-0 flex-1">
-            <CompressBoard threadId={thread.id} />
-          </div>
         </div>
       ) : viewMode === 'digest' ? (
         <DigestView

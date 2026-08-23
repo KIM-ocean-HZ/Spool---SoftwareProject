@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Loader2, Moon } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import EntryCard from './EntryCard';
 import {
@@ -18,18 +18,27 @@ import {
 import { compareByEntry } from '@/lib/ai/compressBlocks';
 import { useT } from '@/lib/i18n';
 import type { Block } from '@/lib/db/blocks';
+import { useBlocksStore } from '@/stores/blocksStore';
 import { useCompressStore } from '@/stores/compressStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 
-// 核对桌（WORKPLAN-2026-08-20 §9.6.2 / §9.6.5 / §9.6.6）。
+// 「压缩」页签（WORKPLAN-2026-08-20 §9.6.2 / §9.6.5 / §9.6.6）。
 //
 // ⚠️ **它开在中间区域，不在右栏**，而且这是一条设计约束不是排版偏好：右栏宽度是
-// `railWidth`（三百来像素），并排比对塞不下。右栏放的是动作和状态，桌子开在这儿。
+// `railWidth`（三百来像素），并排比对塞不下。
 //
-// ⛔ **这一步只看，不写。** §6.4.1 的 `supersedes` 写入那一段仍然锁着，所以这张桌子上
-//    **没有「用这一份」**，只有「复制走」。质量不认可的话，后面那半段一行都不用写。
+// ⭐⭐ **2026-08-23（Ocean 真手指验收第 4 条）：整个压缩入口搬进来了。**
+// 他的原话：「右侧边栏的压缩按钮不要了，压缩直接到面板去使用（overnight 的勾选也放里面）。」
+// 所以这一页现在自己负责三件原来分散在右栏的事：
+//   ① **自己开桌子** —— 进这一页就把这个项目的 pack 组好，不再等谁去点一个按钮；
+//   ② **睡前排队**（勾选 / 几点跑 / 现在就跑 / 队列清单）；
+//   ③ 夜里压好的那一份在这儿认领。
+// ⚠️ ②③ 只在**还没有压缩稿**的时候露面 —— 有稿子的时候这一屏全部让给核对，
+// ⛔ 这一块每长高一行，能核对的地方就矮一行（上一轮挨骂的原话：「核对区域太窄」）。
 export default function CompressBoard({ threadId }: { threadId: string }) {
   const t = useT();
+  const thread = useThreadsStore(selectThreadById(threadId));
   const session = useCompressStore((s) => s.sessions[threadId] ?? null);
   // ⚠️ 只有**正在跑的那个项目**该显示进度条 —— 别的项目的整理页不该跟着转圈。
   const running = useCompressStore((s) => s.running && s.runningThreadId === threadId);
@@ -39,6 +48,10 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
   const runIt = useCompressStore((s) => s.run);
   const cancel = useCompressStore((s) => s.cancel);
   const clearSession = useCompressStore((s) => s.clearSession);
+  const openProject = useCompressStore((s) => s.openProject);
+  const refreshSession = useCompressStore((s) => s.refreshSession);
+  const openResult = useCompressStore((s) => s.openResult);
+  const results = useCompressStore((s) => s.results);
   const useDraft = useCompressStore((s) => s.useDraft);
   const addBackRaw = useCompressStore((s) => s.addBack);
   const addBack = (only?: readonly string[]) => addBackRaw(threadId, only);
@@ -47,10 +60,23 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
   const keepOriginal = useSettingsStore((s) => s.compressKeepOriginal);
   const update = useSettingsStore((s) => s.update);
+  // ⭐ 这个项目的块变了（比如刚把几块还原成压缩前的原文），这一份就要重组一遍 ——
+  // ⚠️ 看得见的是「N 块已经压过了」那句话，真正危险的是它底下那份**会被发出去的 pack**。
+  const liveBlocks = useBlocksStore((s) => s.byThread[threadId]);
 
   const [copied, setCopied] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
+
+  // ⭐ 进这一页就自己开桌子。⛔ 已经有一份的时候不许重开 —— 那会把用户正在核对的稿子擦掉。
+  useEffect(() => {
+    if (!thread || session || startError) return;
+    void openProject(thread);
+  }, [thread, session, startError, openProject]);
+
+  useEffect(() => {
+    void refreshSession(threadId);
+  }, [threadId, liveBlocks, refreshSession]);
 
   useEffect(() => {
     if (!running) return;
@@ -109,7 +135,28 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
     return m;
   }, [session]);
 
-  if (!session) return null;
+  // ⭐ 还没开出桌子。⚠️ 上面那个 effect 正在组 pack（读一次库，通常一眨眼）——
+  // ⛔ 但组失败的时候不能永远停在「正在读…」上，所以这里把错误和一个再试摆出来。
+  if (!session) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-relaxed text-muted">
+        {startError ? (
+          <div className="space-y-2">
+            <div style={{ color: 'var(--urgent)' }}>{startError}</div>
+            <button
+              type="button"
+              onClick={() => thread && void openProject(thread)}
+              className="rounded-md border border-line-strong bg-paper px-3 py-1.5 text-ink transition-colors hover:border-accent hover:text-accent"
+            >
+              {t('再试一次')}
+            </button>
+          </div>
+        ) : (
+          t('正在读这个项目…')
+        )}
+      </div>
+    );
+  }
 
   // 模型自己交代的那几条，一条一行。⚠️ null = **它没说**，不是「什么都没删」——
   // 所以它没说的时候这一整块不出现，⛔ 不印一句「它没有说自己删掉了什么」占一行。
@@ -137,6 +184,10 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
       (session.shield !== null &&
         (session.shield.orphaned > 0 || session.shield.lostSpans.length > 0)));
 
+  // 夜里那一批里属于这个项目的那一份（下标）。-1 = 没有。
+  // ⚠️ 它只画在「还没有压缩稿」那一支里：认领之后 `outcome` 就有了，那一支自己不再渲染。
+  const nightly = results.findIndex((r) => r.target.threadId === threadId);
+
   const copy = async () => {
     if (result === null) return;
     await writeText(result);
@@ -150,16 +201,13 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
           项目名就印在上面那个项目标题上，而**出口是页签**（切回「内容」），不是关掉一个窗口。
           ⛔ 那个 X 正是 Ocean 撞到的死路：「点击退出压缩工作区就无法回去」。 */}
       <header className="flex flex-none items-center justify-between gap-3 border-b border-line px-5 py-2">
-        {/* ⭐ 2026-08-22（Ocean 第 1 条）：「整理页签只在压缩功能打开时才出现，我同意，
-            但是需要在整理页面提示用户去右侧边栏操作」。⚠️ 这个页签里只有**这一个项目**这一次
-            整理；定时、排队一起压、别的项目压好的那张单子，全都在右边栏那一格 ——
-            不说一句，用户在这一页上找不到它们，也不知道它们存在。 */}
+        {/* ⛔ 2026-08-23：这里原来还跟一句「定时压、排队一起压…都在右边栏『压缩』那一格」。
+            **那一格已经没有这些东西了**（Ocean 第 4 条把它们搬进了这一页），
+            ⚠️ 留着就是一句指向空处的话 —— 比不说更糟。 */}
         <div className="min-w-0 text-[11px] text-muted">
           {session.target.kind === 'project'
             ? t('一块对一块地核对。你按「用这一份」之前，库里一个字都不动。')
             : t('只压这一块（第 {n} 块）。库里一个字都不动。', { n: session.target.seq ?? '?' })}
-          {' '}
-          {t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}
         </div>
         {session.outcome && !running && (
           <button
@@ -462,7 +510,9 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
             </div>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-relaxed text-muted">
+          // ⚠️ `min-h-full` 不是 `h-full`：睡前排队那一段撑起来之后内容会比这一屏高，
+          // 而 `h-full` + 居中会把顶上那几行推到滚不到的地方（父层滚不进负方向）。
+          <div className="flex min-h-full items-center justify-center px-6 py-4 text-center text-[12px] leading-relaxed text-muted">
             {running ? (
               <div className="space-y-1">
                 {/* ⚠️ 这两个字数是「它还在正常干活」的唯一证据。 */}
@@ -481,8 +531,20 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
               </div>
             ) : (
               <div className="space-y-1">
+                {/* ⭐ 夜里那一批压好的、属于这个项目的那一份，在这儿认领。
+                    ⚠️ 右栏那个按钮撤掉之后，这是它唯一还够得着的入口。 */}
+                {nightly >= 0 && (
+                  <div className="pb-1">
+                    <button
+                      type="button"
+                      onClick={() => openResult(nightly)}
+                      className="rounded-md border border-accent bg-accent-soft px-3 py-1.5 text-[12px] text-accent transition-colors hover:opacity-80"
+                    >
+                      {t('这个项目有一份压好的，等你核对 —— 打开')}
+                    </button>
+                  </div>
+                )}
                 <div>{t('点右下角开始。')}</div>
-                <div>{t('定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。')}</div>
                 {/* ⭐ R5：这句话说的是一件**结构上的事**，不是一句承诺 —— 那几行根本不进请求
                     （`shield.ts`）。⚠️ 值得让用户看见：他上一轮的原话是「禁止批注被 AI 修改」。 */}
                 <div>
@@ -517,6 +579,9 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
                       })}
                     </div>
                   ))}
+                {/* ⑥ 睡前排队（§9.6.4）。⭐ 2026-08-23 从右栏搬进来（Ocean 第 4 条）。
+                    ⚠️ 只在**还没有压缩稿**的时候出现 —— 核对的时候这一屏全部让给正文。 */}
+                {session.target.kind === 'project' && <NightlyQueue threadId={threadId} />}
               </div>
             )}
           </div>
@@ -537,12 +602,16 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
         <span className="text-muted">
           {t('丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。')}
           {audit && !numbersGateOpen(audit) && (
-            <> {t('这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。')}</>
+            <> {t('这一份现在就卡在这条上 —— 先用上面那个「加回去」。')}</>
           )}
           {' '}
+          {/* ⭐ 2026-08-23（Ocean 第 5 条：「未压缩的 pack 默认保存，不留原文的开关放到
+              设置里面」）：备份**默认开着**，开关在设置里，这里只报现在是哪一种。
+              ⚠️ 关掉那一句必须留在**按下按钮的那一刻**看得见的地方 —— 没人会为了压一次
+              上下文先去翻一遍设置，而这一条关系到他的字还看不看得到。 */}
           {keepOriginal
-            ? t('压缩前的原文会留在每一块自己身上，随时可以还原。')
-            : t('⚠️ 你在设置里关掉了「留原文」—— 这一次换过去就改不回来了。')}
+            ? t('压缩前的原文会留在每一块上：随时打开来看，也随时换得回去。')
+            : t('⚠️ 你在设置里关掉了「备份压缩前的原文」—— 这一次换过去，原来的字就没有了。')}
         </span>
         <div className="flex items-center gap-2">
           {/* ⭐ R1 · 「用这一份」。⛔ 三道闸都在 store 里（数字硬闸门 / 结构没坏 / 真的变了）——
@@ -581,6 +650,124 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
           </button>
         </div>
       </footer>
+    </div>
+  );
+}
+
+// ⑥ 睡前排队（§9.6.4）。⭐ 2026-08-23 从右栏整块搬进来（Ocean 第 4 条：
+// 「overnight 的勾选也放里面」）。
+//
+// ⭐ **授权发生在花钱之前，核对仍然在你手上** —— 这不是无人值守，是排队。
+// ⛔ 没有 launchd、没有后台常驻：应用开着的时候到点跑，到点没开、下次启动补跑。
+//
+// ⛔ D10（Ocean:「价格预估准确度没有保证……不然就不显示」）：⚠️ 这张单子上**只报字数**，
+//    一个「约 ¥X」都不许回来 —— 钱的大头在输出上，而输出多长在发出去之前不可知。
+function NightlyQueue({ threadId }: { threadId: string }) {
+  const t = useT();
+  const queue = useSettingsStore((s) => s.compressQueue);
+  const nightlyAt = useSettingsStore((s) => s.compressNightlyAt);
+  const update = useSettingsStore((s) => s.update);
+  const sizes = useCompressStore((s) => s.sizes);
+  const measureQueue = useCompressStore((s) => s.measureQueue);
+  const runQueue = useCompressStore((s) => s.runQueue);
+  const batchRunning = useCompressStore((s) => s.batchRunning);
+  const running = useCompressStore((s) => s.running);
+  const threadsByWorkspace = useThreadsStore((s) => s.threadsByWorkspace);
+
+  // 排进队之后量一次大小 —— 纯本地，不出网、不花钱。
+  useEffect(() => {
+    void measureQueue();
+  }, [queue, measureQueue]);
+
+  const titles = new Map<string, string>();
+  for (const list of Object.values(threadsByWorkspace)) {
+    for (const th of list) titles.set(th.id, th.title);
+  }
+  // 合计只把**量出来的**那几行加进去 —— ⛔ 少量出一个就不显示合计，不拿半份数字当全份。
+  const measured = queue.map((id) => sizes[id]).filter((n): n is number => n !== undefined);
+  const totalChars =
+    measured.length === queue.length && queue.length > 0
+      ? measured.reduce((sum, c) => sum + c, 0)
+      : null;
+
+  const queued = queue.includes(threadId);
+  const toggle = () =>
+    void update({
+      compressQueue: queued ? queue.filter((id) => id !== threadId) : [...queue, threadId],
+    });
+
+  return (
+    <div className="mx-auto mt-3 max-w-sm space-y-1 border-t border-line pt-3 text-left">
+      <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted transition-colors hover:text-ink">
+        <input
+          type="checkbox"
+          checked={queued}
+          onChange={toggle}
+          className="h-3 w-3 flex-none accent-current"
+        />
+        <Moon size={11} className="flex-none" />
+        {nightlyAt
+          ? t('今晚 {at} 和别的项目一起压（现在排着 {n} 个）', { at: nightlyAt, n: queue.length })
+          : t('排进「一起压」（现在排着 {n} 个）', { n: queue.length })}
+      </label>
+
+      {queue.length > 0 && (
+        <div className="flex items-center gap-2 text-[12px] text-muted">
+          <label className="flex items-center gap-1">
+            <span>{t('几点跑')}</span>
+            <input
+              type="time"
+              value={nightlyAt}
+              onChange={(e) => void update({ compressNightlyAt: e.target.value })}
+              className="rounded border border-line bg-paper px-1 py-0.5 text-[12px] text-ink-2"
+            />
+          </label>
+          {nightlyAt && (
+            <button
+              type="button"
+              onClick={() => void update({ compressNightlyAt: '' })}
+              className="transition-colors hover:text-accent"
+            >
+              {t('取消定时')}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={batchRunning || running}
+            onClick={() => void runQueue()}
+            className="transition-colors enabled:hover:text-accent disabled:opacity-50"
+          >
+            {t('现在就跑')}
+          </button>
+        </div>
+      )}
+
+      {queue.length > 0 && (
+        <ul className="space-y-0.5 text-[12px] text-muted">
+          {queue.map((id) => (
+            <li key={id} className="flex items-baseline gap-1.5">
+              <span className="min-w-0 flex-1 truncate">{titles.get(id) ?? id}</span>
+              <span className="flex-none">
+                {sizes[id] === undefined
+                  ? t('量一下…')
+                  : t('{k} 千字', { k: Math.round(sizes[id]! / 100) / 10 })}
+              </span>
+            </li>
+          ))}
+          <li className="flex items-baseline gap-1.5 border-t border-line pt-0.5">
+            <span className="min-w-0 flex-1 truncate">{t('合计')}</span>
+            <span className="flex-none">
+              {totalChars === null ? '—' : t('{k} 千字', { k: Math.round(totalChars / 100) / 10 })}
+            </span>
+          </li>
+        </ul>
+      )}
+
+      {batchRunning && (
+        <p className="text-[12px] leading-relaxed text-muted">
+          {t('正在按队列一个一个压…压完的会在各自项目的「压缩」页签上等你核对。')}
+        </p>
+      )}
     </div>
   );
 }

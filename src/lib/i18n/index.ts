@@ -388,10 +388,6 @@ const EN: Record<string, string> = {
     'Want copying in any app to save here? That step needs the Input Monitoring permission.',
   '设置截止日期': 'Set deadline',
   '截止日期': 'Deadline',
-  '只看我写的：你自己写的块，加上你亲手批注过的':
-    'Only what I wrote: the blocks you wrote yourself, plus any you annotated by hand',
-  '只看我写的：开着 — 点击看全部': 'Only what I wrote: on — click to show everything',
-  '这个项目里还没有你自己写下的东西。': "You haven't written anything into this project yet.",
   '查看更早的 {n} 条': 'Show {n} earlier blocks',
   'Spool 渲染崩了': 'Spool hit a rendering error',
   '从左侧选一个项目，或按 ⌘N 新建': 'Pick a project on the left, or press ⌘N to create one',
@@ -1173,8 +1169,6 @@ const EN: Record<string, string> = {
   'Spool 自己出错了。': 'Spool itself hit an error.',
 
   // WORKPLAN-2026-08-20 §9.6 —— 压缩搬进右侧栏 + 按块核对（2026-08-21）。
-  '把这个项目的上下文压短一点，压完一块一块给你核对':
-    'Shorten this project\u2019s context, then check it block by block',
   '把这一块压短（压完给你核对，不改库）':
     'Shorten this one block (you check the result; nothing is written)',
   // D9：为什么没有「用这一份」——把沉默的缺口写出来。D-b：数字硬闸门也写在这儿。
@@ -1191,76 +1185,110 @@ const EN: Record<string, string> = {
   '这一次没找到被后面的块整条取代的旧块。':
     'Nothing here was replaced outright by a later block this time.',
   '找到 {n} 条，还剩 {k} 条没决定。': '{n} found, {k} still undecided.',
-  '另有 {n} 条被丢掉了 —— 它给的引文在块里对不上，Spool 不拿它给你看。':
-    '{n} more were dropped — the quotes it gave do not match the block, so Spool does not show them to you.',
   '（引文的标点被重打过）': '(the quote’s punctuation was retyped)',
   '旧的 #{n} 里：': 'In the older #{n}:',
+  // ⭐⭐ 2026-08-23（Ocean 第 9 条）：三个动作改用他自己的话 ——「新的 block 把旧的取代了 /
+  // 合并了 / 什么都没动」。⛔ 别改回「只退旧的」那种说法：「退」在这个界面上没被解释过。
+  '新的取代旧的': 'The newer one replaces the older',
+  '什么都不动': 'Change nothing',
+  '两块都留着，只在 #{n} 上记一句「它更正了 #{m}」。打包的时候两块还是都在，不会因此变短。':
+    'Both blocks stay. #{n} simply gets a note saying it corrects #{m}. Packs still carry both, so nothing gets shorter.',
+  '以后打包只带 #{n}，#{m} 不再放进去（它没被删，还在项目里，也搜得到）。':
+    'From now on packs carry #{n} only; #{m} is left out (it is not deleted \u2014 it stays in the project and is still searchable).',
+  '以后打包只带 #{n}，#{m} 不再放进去（它没被删，还在项目里，也搜得到）。⚠️ #{m} 很短：拿掉它之后打包出来反而会多几个字 —— 顶上去的那句「这一块已经被取代」比它本身还长。':
+    'From now on packs carry #{n} only; #{m} is left out (it is not deleted \u2014 it stays in the project and is still searchable). \u26a0\ufe0f #{m} is short: leaving it out actually makes the pack a little longer, because the \u201creplaced\u201d line that stands in for it is longer than the block itself.',
+  '这两块保持原样，库里一个字都不改，这一条从单子上划掉。':
+    'Both blocks stay as they are, nothing in your library changes, and this line is struck off.',
+  '已合并：两块都留着，#{n} 上记了一句「它更正了 #{m}」。':
+    'Merged: both blocks stay, and #{n} now carries a note saying it corrects #{m}.',
+  '已换：以后打包只带 #{n}，#{m} 不再放进去。':
+    'Replaced: packs now carry #{n} only; #{m} is left out.',
+  // ⭐⭐ 2026-08-23（Ocean 第 8 条「不允许」Spool 知道而不告诉他）：没过闸的那几条也要摆出来。
+  'AI 还说了 {n} 条，但它引的原话在你的块里对不上，所以 Spool 没敢照着做。这是 AI 记错了，不是你的项目有问题。下面是它的原话，你自己看一眼：':
+    'The AI said {n} more thing(s), but the wording it quoted does not match your blocks, so Spool did not act on them. That is the AI misremembering \u2014 nothing is wrong with your project. Here is what it said, so you can judge for yourself:',
+  '它给的理由：{s}': 'Its reason: {s}',
+  '它没说清是哪两块。': 'It did not say which two blocks it meant.',
+  '它说的是第 {m} 块和第 {n} 块，而这个项目里没有这个编号。':
+    'It named blocks #{m} and #{n}, and this project has no such number.',
+  '它说第 {n} 块取代了它自己。': 'It said block #{n} replaced itself.',
+  '它说第 {n} 块里有这么一句：「{s}」—— 那一块里没有这句话。':
+    'It said block #{n} contains this sentence: \u201c{s}\u201d \u2014 that block does not contain it.',
   '新的 #{n} 里：': 'In the newer #{n}:',
-  '只退旧的': 'Retire the older one',
-  '不动': 'Leave it',
-  '把 #{n} 标成「更正了 #{m}」。#{m} 原样留着，还会照常出现在 pack 里。':
-    'Marks #{n} as correcting #{m}. #{m} stays exactly as it is and keeps appearing in packs.',
-  '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。':
-    '#{m} stops going into packs (it stays in your library and is still searchable); #{n} is marked as the one that replaced it.',
-  '库里一个字都不改，这一条划掉。': 'Nothing in your library changes; this line is struck off.',
   // T4/T6（2026-08-23，第五轮实测）
-  '#{m} 从此不再进 pack（它还在库里，搜得到），#{n} 标成替代它的那一条。这一块很短：退掉之后 pack 反而会长一点，换上去的那行说明比它本身还长。':
-    '#{m} stops going into packs (it stays in your library and is still searchable); #{n} is marked as the one that replaced it. This block is short: retiring it actually makes the pack longer, because the line that stands in for it is longer than the block itself.',
   '另有 {n} 条你已经处理过了 —— 库里记着，这里不再问一遍。':
     '{n} more are already settled — your library records them, so they are not asked again here.',
   '第 {n} 块已经指着另一块了，一块只记得住一条这样的关系。要改的话先在那一块上撤掉原来那条。':
     'Block #{n} already points at a different block, and a block only holds one relation like this. To change it, clear the existing one on that block first.',
-  '已合并：#{n} 标成「更正了 #{m}」，#{m} 原样留着。':
-    'Merged: #{n} now corrects #{m}, and #{m} stays exactly as it is.',
-  '已退：#{m} 不再进 pack，#{n} 标成替代它的那一条。':
-    'Retired: #{m} no longer goes into packs; #{n} is marked as the one that replaced it.',
   '这一条没动。': 'Left alone.',
   '这两块里有一块已经不在了，这一条做不了。':
     'One of these two blocks is gone, so this cannot be done.',
   '一块对一块地核对。你按「用这一份」之前，库里一个字都不动。':
     'Checked block by block. Nothing in your library changes until you press “Use this version”.',
-  '压缩前的原文会留在每一块自己身上，随时可以还原。':
-    'Each block keeps its own pre-compression original, so you can restore it at any time.',
-  '⚠️ 你在设置里关掉了「留原文」—— 这一次换过去就改不回来了。':
-    '⚠️ You turned off “keep the original” in settings — this replacement cannot be undone.',
-  '这一份丢了数字或日期，不能进库 —— 先用上面那个「从原文加回去」。':
-    'This version has dropped a number or a date, so it may not enter your library — use “add back from the original” above first.',
   '这一份的块对不上（有块不见了、或者多了编号），不能进库。重压一次吧。':
     'The blocks do not line up (some are missing, or numbers were invented), so this may not enter your library. Run the compression again.',
   '没有哪一块真的变短了 —— 库里什么都没改。':
     'No block actually got shorter — nothing in your library was changed.',
-  '{n} 块换成了压缩稿。压缩前的原文留在每一块自己身上，随时可以还原。':
-    '{n} block(s) replaced with the compressed version. Each keeps its own pre-compression original, so you can restore it at any time.',
-  '{n} 块换成了压缩稿。⚠️ 你关掉了「留原文」，这一次改不回去了。':
-    '{n} block(s) replaced with the compressed version. ⚠️ You turned off “keep the original”, so this cannot be undone.',
   '写不进去：{msg}': 'Could not write: {msg}',
-  '还原成压缩时的原文': 'Restore the text this block had before it was compressed',
+  '这一份丢了数字或日期，不能进库 —— 先用上面那个「加回去」。':
+    'This version has dropped a number or a date, so it may not enter your library \u2014 use \u201cAdd back\u201d above first.',
+  '{n} 块换成了压缩稿。压缩前的原文留在每一块上，块的工具条上有个入口能打开看，也能换回去。':
+    '{n} block(s) replaced with the compressed version. Each keeps its pre-compression original: the block\u2019s toolbar can open it, and switch back to it.',
+  '{n} 块换成了压缩稿。⚠️ 你关掉了「备份压缩前的原文」，原来的字没有了。':
+    '{n} block(s) replaced with the compressed version. \u26a0\ufe0f You turned off \u201ckeep the pre-compression original\u201d, so the original words are gone.',
   '已还原成压缩前的原文': 'Restored to the pre-compression original',
   '这一块压缩时没有留原文，还原不了。': 'No original was kept when this block was compressed, so it cannot be restored.',
   '这一块被压过': 'This block has been compressed',
   '备份压缩前的原文': 'Keep the pre-compression original',
-  '压缩把块的正文换成更短的版本。留着原文，随时可以还原；关掉的话省一点磁盘，但压缩不可逆。':
-    'Compression replaces a block’s text with a shorter version. Keeping the original lets you restore it at any time; turning this off saves a little disk, but compression then cannot be undone.',
+  '压缩把块的正文换成更短的版本。留着原文，块的工具条上就有一个入口能打开看，也能随时换回去；关掉的话省一点磁盘，但压过就找不回原来的字了。':
+    'Compression replaces a block\u2019s text with a shorter version. Keep the original and the block\u2019s toolbar gets a way to open it and to switch back at any time; turn this off to save a little disk, but the original words are then gone for good.',
+  // ⭐ 2026-08-23（Ocean 第 5 条）：看压缩前的原文是一个**来回**的动作，不是一次单程的写库。
+  '看看压缩前的原文': 'Show the text before compression',
+  '收起压缩前的原文': 'Hide the text before compression',
+  '压缩前的原文（只是给你看，库里存的还是上面那一份）':
+    'The text before compression (shown for reading only \u2014 your library still holds the version above)',
+  '用回这一份': 'Switch back to this',
+  '把上面那段正文换成这一份原文。这一块从此当作没压过，以后还会被排进压缩。':
+    'Replaces the text above with this original. The block then counts as never compressed, so it goes back into future compression runs.',
   '这个项目里 {n} 块已经压过了，这一次跳过它们 —— 压过一次就不再花第二笔钱。':
     '{n} block(s) here have already been compressed and are skipped this time — no second charge for the same block.',
   '这个项目里每一块都压过了，没有新的可压。': 'Every block here has already been compressed; there is nothing new to compress.',
   '丢了数字或日期的压缩稿不许进库，以后开了写入这条也不放宽。':
     'A compressed version that has dropped a number or a date may never enter your library — that holds even once writing is unlocked.',
-  '这一份现在就卡在这条上 —— 先用上面那个「从原文加回去」。':
-    'This one is stuck on exactly that — use “add back from the original” above first.',
+  '这一份现在就卡在这条上 —— 先用上面那个「加回去」。':
+    'This one is stuck on exactly that \u2014 use \u201cAdd back\u201d above first.',
+  '压缩前的原文会留在每一块上：随时打开来看，也随时换得回去。':
+    'Each block keeps its pre-compression original: you can open it to read at any time, and switch back to it at any time.',
+  '⚠️ 你在设置里关掉了「备份压缩前的原文」—— 这一次换过去，原来的字就没有了。':
+    '\u26a0\ufe0f You turned off \u201ckeep the pre-compression original\u201d in settings \u2014 once this is swapped in, the original words are gone.',
   // D7：丢掉的数字给一个「加回去」。⚠️ 纯本地动作，不问模型、不花钱。
   // R4：整理是项目里的一个页签，不是一个会盖住一切的窗口。
   '内容': 'Blocks',
-  '整理': 'Tidy up',
-  '整理（在跑）': 'Tidy up (running)',
+  // ⭐ 2026-08-23（Ocean 真手指验收）：「整理」那一个页签拆成了「压缩」和「查旧块」两个。
+  // ⚠️ 「压缩」这个词本身在右栏那一格已经有了，⛔ 别在这儿再写一遍（同名键编译不过）。
+  '压缩（在跑）': 'Compress (running)',
+  '压缩（1）': 'Compress (1)',
+  '查旧块': 'Older blocks',
+  '查旧块（{n}）': 'Older blocks ({n})',
+  '正在读这个项目…': 'Reading this project\u2026',
+  '再试一次': 'Try again',
+  '这个项目有一份压好的，等你核对 —— 打开':
+    'A compressed draft for this project is waiting to be checked \u2014 open it',
+  // ⑥ 睡前排队，2026-08-23 从右栏搬进「压缩」页签（Ocean 第 4 条）。
+  '今晚 {at} 和别的项目一起压（现在排着 {n} 个）':
+    'Compress tonight at {at} together with the other queued projects ({n} queued)',
+  '排进「一起压」（现在排着 {n} 个）': 'Add to the batch ({n} queued)',
+  '正在按队列一个一个压…压完的会在各自项目的「压缩」页签上等你核对。':
+    'Working through the queue one project at a time \u2014 each finished draft waits on that project\u2019s Compress tab.',
+  // 项目管理那一行上的同一个开关 —— 多个项目一次勾完（Ocean 第 4 条后半句）。
+  '排进「一起压」': 'Add to the batch',
+  '已排进「一起压」': 'In the batch',
+  '今晚 {at} 和排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点跑在那一页上改。':
+    'Tonight at {at} the queued projects are compressed one at a time; each draft waits on that project\u2019s Compress tab. The time is set there too.',
+  '排进队里，等你按「现在就跑」或者定一个时间。压完在各自项目的「压缩」页签上等你核对。':
+    'Queued until you press \u201cRun now\u201d or set a time. Each finished draft waits on that project\u2019s Compress tab.',
   // 左侧边栏：正在压缩的那个项目（Ocean 2026-08-22）。
-  '整理中': 'Tidying up',
+  '压缩中': 'Compressing',
   '这个项目正在压缩': 'This project is being compressed right now',
-  '整理（1）': 'Tidy up (1)',
-  '整理这个项目': 'Tidy up this project',
-  '去看这个项目的整理稿': 'Open this project’s draft',
-  '这个项目有一份整理稿还没核对完 —— 点这儿回去看':
-    'This project has a draft you have not finished checking — this takes you back to it',
   '一块对一块地核对。库里一个字都不动。':
     'Checked block by block. Nothing in your library is touched.',
   '只压这一块（第 {n} 块）。库里一个字都不动。':
@@ -1273,8 +1301,6 @@ const EN: Record<string, string> = {
   // Ocean 2026-08-22 第 6 条：模型自述折起来，「报告写简略一点」。
   '它说它删的是（{n} 条）': 'What it says it cut ({n})',
   // 同一天第 1 条：整理页上要指一句「去右边栏」。
-  '定时压、排队一起压、别的项目压好的 —— 都在右边栏「压缩」那一格。':
-    'Scheduling, batching several projects, and drafts finished for other projects all live in the “Compress” box in the right rail.',
   // D-c：坏结果自动重跑一次 —— 重压过必须说，不然那个钱数会莫名其妙翻倍。
   '第一次不合格，自动重压了一次；这是第二次的，钱是两次加起来的。':
     'The first attempt was unusable, so it ran once more. This is the second; the cost covers both.',
@@ -1357,19 +1383,14 @@ const EN: Record<string, string> = {
   '它写了一条你没写过的批注：{s}': 'It wrote an annotation you never wrote: {s}',
 
   // §9.6.4 ⑥：睡前排队、起床核对。
-  '今晚 {at} 一起压（还有 {n} 个）': 'Compress together at {at} tonight ({n} queued)',
-  '排进「一起压」（还有 {n} 个）': 'Queue for the batch ({n} queued)',
   '几点跑': 'Run at',
   '取消定时': 'Cancel the schedule',
   '现在就跑': 'Run now',
   '量一下…': 'measuring…',
   '{k} 千字': '{k}k characters',
   '合计': 'Total',
-  '正在按队列一个一个压…压完的会在这儿等你核对。':
-    'Working through the queue one at a time — finished ones wait here for you.',
   // D2/D3（2026-08-22）：右栏分两段 —— 这个项目的结果不写项目名（就在它自己的栏里），
   // 别的项目的写清楚点了会切过去。
-  '压好了，等你核对': 'Compressed — waiting for you to check it',
   '别的项目里压好的（{n}）': 'Compressed in other projects ({n})',
   '《{name}》—— 切过去核对': '{name} — switch over and check it',
   '会先切到《{name}》，再打开它的核对桌': 'Switches to {name} first, then opens its check table',

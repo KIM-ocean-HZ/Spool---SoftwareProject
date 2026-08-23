@@ -284,7 +284,8 @@ fn gate_round5() {
         let raw = std::fs::read_to_string(out_dir.join(tf)).unwrap_or_default();
         let pack = std::fs::read_to_string(packs_dir.join(format!("pack-{tag}.txt")))
             .unwrap_or_else(|e| panic!("pack-{tag}.txt: {e}"));
-        let (kept, dropped) = crate::api_engine::gate_proposals_for_test(&raw, &pack);
+        let (kept, dropped_items) = crate::api_engine::gate_proposals_for_test(&raw, &pack);
+        let dropped = dropped_items.len();
         total += kept.len() + dropped;
         kept_n += kept.len();
         dropped_n += dropped;

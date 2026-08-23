@@ -371,11 +371,11 @@ export default function RightRail({ thread, onCollapse, onEditBrief }: Props) {
               install, and Settings → AI still reports what was detected. A permanently-visible
               picker for a decision taken once is what he asked to be rid of. */}
 
-          {/* WORKPLAN-2026-08-20 §9.6.2 — 压缩。Ocean:「压缩功能不要放在 pack 里面，放到右边栏，
-              他不是和 pack 绑定的工作」. It sits with the other 「这个项目的运行」 sections, and
-              like them it renders nothing when the API engine is off (§6.2 约束 5：默认关闭).
-              ⚠️ Only the ACTION lives here — the side-by-side review desk opens in the centre
-              column, because `railWidth` is ~300px and a two-column diff does not fit. */}
+          {/* 压缩在右栏剩下的那一点。⚠️⚠️ **2026-08-23 这一格被掏空了大半**（Ocean 真手指
+              验收第 4 条：「右侧边栏的压缩按钮不要了，压缩直接到面板去使用」）—— 按钮、
+              排队勾选、几点跑都搬进了项目里的「压缩」页签，多项目排队在「项目管理」的行里。
+              ⛔ 别往这儿加回去。剩下的只有**跨项目**那一件：别的项目夜里压好的那几份，
+              得有个地方认领。没有东西要认领的时候它整格不渲染。 */}
           {thread && <CompressRail thread={thread} />}
 
           {/* DESIGN_PROJECT_FILES §3.2 — the project's files. Always present (a project with

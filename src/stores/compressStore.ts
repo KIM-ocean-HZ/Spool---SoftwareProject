@@ -12,6 +12,7 @@ import {
   type CompressOutcome,
   type CompressProgress,
   type DuplicateProbe,
+  type StaleDropped,
   type StaleProposal,
 } from '@/lib/ai/compress';
 import { auditCompression, numbersGateOpen } from '@/lib/ai/compress';
@@ -111,9 +112,16 @@ export interface CompressSession {
   startedAt: number;
 }
 
-/** 项目里的两个页签。⚠️ 「整理」是那个面的名字，「压缩」是里面的一个动作 ——
- *  ⛔ 界面上别把两个词混着用（Ocean:「统一一个名字」）。 */
-export type ProjectTab = 'content' | 'tidy';
+/** 项目里的三个页签。
+ *
+ *  ⭐ **2026-08-23（Ocean 真手指验收第 3 条）：原来只有「内容」和「整理」两个。**
+ *  他的原话：「整理面板：把两个功能拆出来，变成内容，压缩，和一个新的。」
+ *
+ *  「整理」那一个面里塞着两件毫不相干的事 —— **把话说短**（压缩）和
+ *  **找出被后面的块取代的旧块**（查旧块）—— 而它们还在抢同一屏高度：
+ *  查旧块那一段顶在最上面，核对面被挤到半屏以下，正是上一轮挨骂的那件事。
+ *  ⛔ 别再把它们并回一个页签。 */
+export type ProjectTab = 'content' | 'compress' | 'stale';
 
 interface CompressState {
   /** 每个项目自己那一份整理稿。⚠️ 键是 threadId。 */
@@ -140,6 +148,15 @@ interface CompressState {
 
   setTab: (threadId: string, tab: ProjectTab) => void;
   openProject: (thread: Thread) => Promise<void>;
+  /** ⭐ 2026-08-23（Ocean 真手指验收第 6 条）：**这个项目的块变了，就把这一份重新组一遍。**
+   *
+   *  他撞到的样子：把所有块都还原成未压缩的了，压缩面上那句「这个项目里 5 块已经压过了，
+   *  这一次跳过它们」还在。⚠️ **看得见的是那句话，真正危险的是它底下那份 pack** ——
+   *  `source` 是开桌子那一刻组的，不重组的话，按「开始压缩」发出去的仍然是**少了那 5 块**
+   *  的旧 pack：钱照花，压的却不是屏幕上那个项目。
+   *
+   *  ⛔ 只重组「还没跑出结果」的整项目那一份 —— 已经有压缩稿的那一份是核对面上的证据。 */
+  refreshSession: (threadId: string) => Promise<void>;
   openBlock: (thread: Thread, block: Block) => Promise<void>;
   openResult: (index: number) => void;
   /** 「不要这一份了」。⚠️ 页签不会因此消失 —— 它是项目的一部分，不是一个会关掉的窗口。 */
@@ -189,8 +206,9 @@ export interface StaleSession {
   source: string;
   blocks: Block[];
   proposals: StaleProposal[];
-  /** ⛔ 引文对不上被整条丢掉的条数 —— 界面要说出来。 */
-  dropped: number;
+  /** ⛔ 引文对不上、被整条丢掉的那几条 —— ⚠️ **连它说了什么一起摆出来**（Ocean 第 8 条：
+   *  「不允许」Spool 知道而不告诉他）。闸挡的是「拿它去动库」，不是「不给看」。 */
+  dropped: StaleDropped[];
   /** ⭐ T2：库里**已经有这条关系**、于是没拿出来问的条数。⚠️ 同样要说出来 ——
    *  「一条都没找到」和「找到的那几条你去年就处理过了」是两件事。 */
   already: number;
@@ -268,6 +286,14 @@ const omit = <T,>(m: Record<string, T>, key: string): Record<string, T> => {
   if (!(key in m)) return m;
   const { [key]: _gone, ...rest } = m;
   return rest;
+};
+
+/** 从项目树里按 id 找一个项目。⚠️ 侧边栏那份是全量的，⛔ 别为这件事再读一次库。 */
+const threadById = (threadId: string): Thread | null => {
+  for (const list of Object.values(useThreadsStore.getState().threadsByWorkspace)) {
+    for (const th of list) if (th.id === threadId) return th;
+  }
+  return null;
 };
 
 const freshSession = (
@@ -387,7 +413,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       );
       set((st) => ({
         sessions: { ...st.sessions, [thread.id]: fresh },
-        tabs: { ...st.tabs, [thread.id]: 'tidy' },
+        tabs: { ...st.tabs, [thread.id]: 'compress' },
         startErrors: omit(st.startErrors, thread.id),
       }));
       // D-a：压之前先在本地数一遍这个项目有多少重复（只读、不出网、不花钱）。
@@ -407,7 +433,39 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       }
     } catch (e) {
       // 组 pack 要读库。⛔ 读失败也要说出来 —— 一个点了没反应的按钮是这个项目最怕的东西。
-      toast.error(t('这个项目的上下文组不出来：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
+      // ⚠️ 2026-08-23：除了 toast 还要落进 `startErrors` —— 压缩页签现在是**自己开桌子**的
+      //    （不再由右栏那个按钮开），一条只闪一下的 toast 会让那一页永远停在「正在读…」。
+      const msg = e instanceof Error ? e.message : String(e);
+      set((st) => ({ startErrors: { ...st.startErrors, [thread.id]: msg } }));
+      toast.error(t('这个项目的上下文组不出来：{msg}', { msg }));
+    }
+  },
+
+  refreshSession: async (threadId) => {
+    const s = get().sessions[threadId];
+    if (!s || s.outcome || s.target.kind !== 'project' || get().running) return;
+    const thread = threadById(threadId);
+    if (!thread) return;
+    try {
+      const { text, blocks, skippedCompressed } = await buildThreadPack(thread, true);
+      // 一个字都没变就什么都不做 —— ⛔ 每次重组都换一次对象，会让下面那次 probe 无限重来。
+      if (text === s.source && skippedCompressed === s.skippedCompressed) return;
+      const fresh: CompressSession = { ...s, source: text, blocks, skippedCompressed, probe: null };
+      set((st) => (st.sessions[threadId] === s ? { sessions: { ...st.sessions, [threadId]: fresh } } : {}));
+      // 重复度也跟着重数一遍：块变了，「有几组重复」这个数就跟着变了。
+      try {
+        const probe = await duplicateProbe(threadId);
+        set((st) =>
+          st.sessions[threadId] === fresh
+            ? { sessions: { ...st.sessions, [threadId]: { ...fresh, probe } } }
+            : {},
+        );
+      } catch {
+        // 数不出来就什么都不说 —— ⛔ 不编一个数。
+      }
+    } catch {
+      // 组不出来就保留手上这一份：一份旧的 pack 好过把核对面清空。
+      // ⛔ 不弹错 —— 这条路是**跟着块变化自动跑**的，弹一次就会跟着每一次编辑弹一次。
     }
   },
 
@@ -421,7 +479,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           [block],
         ),
       },
-      tabs: { ...st.tabs, [thread.id]: 'tidy' },
+      tabs: { ...st.tabs, [thread.id]: 'compress' },
       startErrors: omit(st.startErrors, thread.id),
     }));
   },
@@ -434,7 +492,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     const id = r.target.threadId;
     set((st) => ({
       sessions: { ...st.sessions, [id]: r },
-      tabs: { ...st.tabs, [id]: 'tidy' },
+      tabs: { ...st.tabs, [id]: 'compress' },
       startErrors: omit(st.startErrors, id),
     }));
     useThreadsStore.getState().select(id);
@@ -587,7 +645,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     if (!s?.outcome?.ok || get().running) return;
     const text = s.patched ?? s.outcome.text;
     if (!numbersGateOpen(auditCompression(s.source, text))) {
-      toast.error(t('这一份丢了数字或日期，不能进库 —— 先用上面那个「从原文加回去」。'));
+      toast.error(t('这一份丢了数字或日期，不能进库 —— 先用上面那个「加回去」。'));
       return;
     }
     const cmp = compareByEntry(s.source, text);
@@ -609,8 +667,8 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       set((st) => ({ sessions: omit(st.sessions, threadId), tabs: { ...st.tabs, [threadId]: 'content' } }));
       toast.notice(
         keep
-          ? t('{n} 块换成了压缩稿。压缩前的原文留在每一块自己身上，随时可以还原。', { n })
-          : t('{n} 块换成了压缩稿。⚠️ 你关掉了「留原文」，这一次改不回去了。', { n }),
+          ? t('{n} 块换成了压缩稿。压缩前的原文留在每一块上，块的工具条上有个入口能打开看，也能换回去。', { n })
+          : t('{n} 块换成了压缩稿。⚠️ 你关掉了「备份压缩前的原文」，原来的字没有了。', { n }),
       );
     } catch (e) {
       // ⛔ 写库失败必须说出来。一个点了没反应的按钮，在这条路上意味着用户不知道

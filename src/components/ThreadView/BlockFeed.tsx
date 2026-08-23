@@ -1,6 +1,4 @@
-import { PenLine } from 'lucide-react';
 import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from 'react';
-import { isUserWritten } from '@/lib/blocks/annotationAuthor';
 import { formatAccelerator } from '@/lib/capture/shortcut';
 import type { Block } from '@/lib/db/blocks';
 import { foldedCorrectionIds } from '@/lib/pack/assemble';
@@ -132,9 +130,6 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     selectionAnchor.current = null;
   }, [threadId, clearSelection]);
 
-  // §4.4 filter. Local state, and LogView is keyed by thread id, so switching projects
-  // starts from "show everything" rather than a filter the user forgot they left on.
-  const [mineOnly, setMineOnly] = useState(false);
   // Tail-window size for this thread. Reset on thread switch so a previously expanded
   // history doesn't carry into a different (possibly tiny) thread.
   const [windowSize, setWindowSize] = useState(WINDOW_SIZE);
@@ -150,17 +145,14 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     // 2026-08-19: a correction the reader opens from the marked sentence is drawn under that
     // sentence (CorrectionNote), so it must not ALSO get a card here — that duplicate is
     // what Ocean read as 「多条重复信息」 the first time MCP corrected three blocks at once.
-    // ⚠️ The search destination is exempt for the same reason mineOnly exempts it below.
+    // ⚠️ 搜索落点是例外：「跳到命中处」必须落得下去。
     const folded = foldedCorrectionIds(blocks);
     const shown =
       folded.size === 0
         ? blocks
         : blocks.filter((b) => !folded.has(b.id) || b.id === highlightBlockId);
-    if (!mineOnly) return shown;
-    // ⚠️ The search destination survives the filter. 「跳到命中处」 must land somewhere, and a
-    // jump into a feed that silently dropped the target is the one failure worth code here.
-    return shown.filter((b) => isUserWritten(b) || b.id === highlightBlockId);
-  }, [blocks, mineOnly, highlightBlockId]);
+    return shown;
+  }, [blocks, highlightBlockId]);
 
   // If a search result targets a block outside the current tail window, widen so it's
   // mounted before the scrollIntoView below runs. Runs before the highlight effect so
@@ -417,48 +409,14 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
 
   return (
     <div onMouseDown={handleMouseDown} className="px-6 py-3">
-      {/* One row, three things (Ocean 2026-08-11: 「日期匹配消息弹窗需要和「只看我写的」「排序」
-          两个按键排在一行，缩短位置留给两个按键」). The notices used to own a full-width row and
-          the two controls a second one — two lines above every feed, spent on something mostly
-          absent and something mostly untouched.
-
-          ⚠️ `ml-auto` on the controls is what holds them at the right edge on the ordinary day
-          when DateNotices renders nothing at all — without it they slide left into the gap. */}
+      {/* ⛔ 2026-08-23（Ocean 真手指验收第 1 条：「工作区『只看我写的』筛选按钮去掉」）：
+          这一行原来右边还挂着一个笔形图标，点一下只留下自己写的块。整条撤掉 ——
+          和排序按钮同一个理由：占着位置，从来没被用过。
+          ⚠️ 留下来的只有日期提示，它仍然住在滚动容器里面（Ocean:「不要固定在顶部，
+          需要可以跟随 blocks 滑动」）—— 挪到上一层就会卡在滚动区外面。 */}
       <div className="mb-2 flex items-start gap-2">
-        {/* 旧账 §5-3: dates written inside this project's own blocks. It lives HERE, inside the
-            scroll container, because Ocean asked for 「不要固定在顶部，需要可以跟随 blocks 滑动」
-            — mounted a level up (in ThreadView) it sat outside the scrolling area and stuck. */}
         <DateNotices threadId={threadId} blocks={blocks} />
-        <div className="ml-auto flex flex-none items-center gap-0.5">
-          {/* §4.4 「只看我写的」 — one icon, the state in the tooltip, and it colours in while
-              it is on so a half-empty feed always has a visible reason. */}
-          <button
-            type="button"
-            onClick={() => setMineOnly((v) => !v)}
-            title={
-              mineOnly
-                ? t('只看我写的：开着 — 点击看全部')
-                : t('只看我写的：你自己写的块，加上你亲手批注过的')
-            }
-            aria-label={
-              mineOnly
-                ? t('只看我写的：开着 — 点击看全部')
-                : t('只看我写的：你自己写的块，加上你亲手批注过的')
-            }
-            aria-pressed={mineOnly}
-            className={`rounded p-1 transition-colors hover:text-accent ${
-              mineOnly ? 'text-accent' : 'text-muted'
-            }`}
-          >
-            <PenLine size={13} />
-          </button>
-        </div>
       </div>
-      {mineOnly && ordered.length === 0 && (
-        <p className="py-8 text-center text-sm italic text-muted">
-          {t('这个项目里还没有你自己写下的东西。')}
-        </p>
-      )}
       {hiddenCount > 0 && (
         <div className="mb-2 flex items-center justify-center">
           <button

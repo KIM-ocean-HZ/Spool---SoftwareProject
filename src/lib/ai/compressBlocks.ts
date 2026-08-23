@@ -256,6 +256,31 @@ export const compareByEntry = (original: string, compressed: string): BlockCompa
     byKey.set(key(e), e);
   }
 
+  // ⛔⛔ **2026-08-23（Ocean 真手指验收第 2 / 7 条）：按块查数字，要拿整份压缩稿当分母。**
+  //
+  // 他撞到的样子：一张卡片上红着一行「这几句话里的数字/日期，压缩稿里没有了：
+  // 『- **CMU MHCI：不申。** …TOEFL 要求总分 100…GRE 325…』」，点「加回去」，
+  // 弹出来的却是「这几处已经在压缩稿里了，不用再加」—— 而那行红字**一直不消失**。
+  //
+  // 两句话都没说谎，它们数的分母不一样：
+  //   * 卡片上那一行按**这一块自己**数（`auditEntry` 拿 before.raw 比 after.raw）；
+  //   * 「加回去」按**整份**数（`missingNumbersBetween(original, compressed)`）。
+  // 压缩干的主要活就是跨块合并 —— 一个数从 #12 挪进了 #8，整份里它还在，
+  // 这一块里它没了。于是卡片报丢、补回去的那一路说「不用补」，两边永远和解不了。
+  //
+  // ⭐ 修的是分母，不是放松核对：**整份压缩稿里真的找不到了**才算丢。
+  // 理由有三条，一条比一条硬：
+  //   ① 屏幕上写的就是「压缩稿里没有了」—— 它在别的块里，这句话本身就是假的；
+  //   ② 数字硬闸门（`numbersGateOpen`）从来就是按整份判的，卡片按块判等于界面和闸门各说各话；
+  //   ③ 护栏写死过：**屏幕上给用户看的那一行，必须就是点下去会被插回去的那一行。**
+  // ⚠️ 代价说清楚：一个数在原文里出现在两块、压缩稿里只剩一块的时候，这里不再报。
+  // ⛔ 那不是无声的损失 —— 它没离开这份 pack，而 pack 才是收件 AI 读到的东西。
+  const packMissing = new Set(missingNumbersBetween(original, compressed));
+  const auditPair = (before: PackEntry | null, after: PackEntry | null): EntryAudit => {
+    const audit = auditEntry(before, after);
+    return { ...audit, missingNumbers: audit.missingNumbers.filter((n) => packMissing.has(n)) };
+  };
+
   const pairs: EntryPair[] = [];
   for (const before of a) {
     const after = byKey.get(key(before)) ?? null;
@@ -266,7 +291,7 @@ export const compareByEntry = (original: string, compressed: string): BlockCompa
       seq: before.seq,
       before,
       after,
-      audit: auditEntry(before, after),
+      audit: auditPair(before, after),
     });
   }
   // 剩下的是压缩稿里凭空多出来的编号。⛔ 不许静默丢掉。
@@ -277,7 +302,7 @@ export const compareByEntry = (original: string, compressed: string): BlockCompa
       seq: after.seq,
       before: null,
       after,
-      audit: auditEntry(null, after),
+      audit: auditPair(null, after),
     });
   }
   // 小节内按编号排，小节之间按它们在原文里出现的先后 —— 读起来和 pack 一样。

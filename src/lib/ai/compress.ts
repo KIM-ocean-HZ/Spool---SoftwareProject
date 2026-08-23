@@ -1053,13 +1053,41 @@ export interface StaleProposal {
   retyped: boolean;
 }
 
+/** 为什么这一条没过闸。⚠️ 界面按它挑话说，⛔ 别在界面里另判一遍。 */
+export type StaleDropReason =
+  /** 它没说清是哪两块。 */
+  | 'no_seq'
+  /** 它说的编号不在这份 pack 里。 */
+  | 'no_block'
+  /** 它把一块说成取代了它自己。 */
+  | 'same_block'
+  /** 它说旧块里有这么一句，那一句在那一块里找不到。 */
+  | 'quote_stale'
+  /** 新块那一句找不到。 */
+  | 'quote_new';
+
+/** ⛔ 没过闸、被整条丢掉的那一条 —— **连它说了什么一起带回来**。
+ *
+ *  ⚠️⚠️ 2026-08-23（Ocean 真手指验收第 8 条）：原来这里只有一个数，界面于是只能写
+ *  「另有 1 条被丢掉了…Spool 不拿它给你看」，而他读到的是「我的项目有问题，Spool 不告诉我」。
+ *  **闸挡住的是「拿它去动库」，⛔ 不是「不让用户知道 AI 说过什么」。** */
+export interface StaleDropped {
+  /** null = 它连编号都没说。 */
+  staleSeq: number | null;
+  bySeq: number | null;
+  why: string;
+  quoteStale: string;
+  quoteNew: string;
+  reason: StaleDropReason;
+}
+
 export interface StaleScan {
   outcome: CompressOutcome;
   /** ⚠️ **过了闸的**才在这儿。 */
   proposals: StaleProposal[];
-  /** ⛔ 引文对不上、被整条丢掉的条数。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
-   *  和它本来就只提了 2 条，是两件完全不同的事。 */
-  dropped: number;
+  /** ⛔ 引文对不上、被整条丢掉的那几条。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
+   *  和它本来就只提了 2 条，是两件完全不同的事。⭐ 而且要带上它到底说了什么。 */
+  dropped: StaleDropped[];
 }
 
 interface StaleScanRaw {
@@ -1072,7 +1100,14 @@ interface StaleScanRaw {
     quote_new: string;
     retyped: boolean;
   }[];
-  dropped: number;
+  dropped: {
+    stale_seq: number | null;
+    by_seq: number | null;
+    why: string;
+    quote_stale: string;
+    quote_new: string;
+    reason: StaleDropReason;
+  }[];
 }
 
 export const staleScan = async (req: Omit<CompressRequest, 'level'>): Promise<StaleScan> => {
@@ -1086,7 +1121,14 @@ export const staleScan = async (req: Omit<CompressRequest, 'level'>): Promise<St
   });
   return {
     outcome: raw.outcome,
-    dropped: raw.dropped,
+    dropped: raw.dropped.map((d) => ({
+      staleSeq: d.stale_seq,
+      bySeq: d.by_seq,
+      why: d.why,
+      quoteStale: d.quote_stale,
+      quoteNew: d.quote_new,
+      reason: d.reason,
+    })),
     proposals: raw.proposals.map((p) => ({
       staleSeq: p.stale_seq,
       bySeq: p.by_seq,

@@ -975,15 +975,39 @@ pub struct StaleProposal {
     pub retyped: bool,
 }
 
+/// ⛔ 没过闸、被整条丢掉的那一条 —— **连它说了什么一起交出去**。
+///
+/// ⚠️⚠️ **2026-08-23（Ocean 真手指验收第 8 条）：原来这里只回一个数。**
+/// 界面于是只能写「另有 1 条被丢掉了 —— 它给的引文在块里对不上，Spool 不拿它给你看」，
+/// 而他读到的是「我的项目有问题，但 Spool 不告诉我是哪儿」。他的原话：
+/// **「不允许这样的情况发生。」**
+///
+/// ⭐ 病根不在措辞，在**这个结构里根本没有可给的东西**：丢掉的那几条连内容都没带回来。
+/// 所以整条带回来 —— 它没过闸不是「不能看」，是**不能当成事实去动库**。
+/// ⚠️ 界面上要摆得很清楚：这几条是**AI 自己没说对**，⛔ 不是用户的项目出了问题。
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct StaleDropped {
+    /// 它说的旧块编号。⚠️ 可能根本不是这份 pack 里的编号，甚至可能没说 —— 那时候是 `null`。
+    pub stale_seq: Option<i64>,
+    pub by_seq: Option<i64>,
+    pub why: String,
+    pub quote_stale: String,
+    pub quote_new: String,
+    /// 为什么没过闸。⚠️ 界面按它挑话说，⛔ 别在界面里另判一遍。
+    /// `no_seq` 没说是哪两块 · `no_block` 编号不在这份 pack 里 · `same_block` 指到了自己 ·
+    /// `quote_stale` / `quote_new` 那一句在块里找不到。
+    pub reason: &'static str,
+}
+
 #[derive(serde::Serialize)]
 pub struct StaleScan {
     /// 请求本身的信封（成功没成功、花了多少、多久）。和压缩那条路共用一套。
     pub outcome: CompressOutcome,
     /// ⚠️ **过了闸的**才在这儿。
     pub proposals: Vec<StaleProposal>,
-    /// ⛔ 引文对不上、被整条丢掉的条数。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
-    /// 和它本来就只提了 2 条，是两件完全不同的事。
-    pub dropped: usize,
+    /// ⛔ 引文对不上、被整条丢掉的那几条。⚠️ **必须报出来**：模型提了 5 条只留下 2 条
+    /// 和它本来就只提了 2 条，是两件完全不同的事。⭐ 而且要带上它到底说了什么。
+    pub dropped: Vec<StaleDropped>,
 }
 
 /// 从模型那一坨输出里把 JSON 数组抠出来。⚠️ 提示词说了不要代码块标记，
@@ -997,47 +1021,64 @@ fn json_array_slice(text: &str) -> &str {
 }
 
 /// 逐条过闸。⛔ 一条引文对不上就整条丢掉 —— 提示词里那句承诺必须是真的。
-fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
+///
+/// ⚠️ 丢掉的那几条**连内容一起带出去**（`StaleDropped`）：闸挡住的是「拿它去动库」，
+/// ⛔ 不是「不让用户知道 AI 说过什么」。见 `StaleDropped` 上面那段。
+fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, Vec<StaleDropped>) {
     let blocks = blocks_of(pack);
     let parsed: Vec<serde_json::Value> =
         serde_json::from_str(json_array_slice(raw)).unwrap_or_default();
     let mut kept = Vec::new();
-    let mut dropped = 0usize;
+    let mut dropped: Vec<StaleDropped> = Vec::new();
     for item in parsed {
         let stale_seq = item.get("stale").and_then(serde_json::Value::as_i64);
         let by_seq = item.get("by").and_then(serde_json::Value::as_i64);
-        let (Some(stale_seq), Some(by_seq)) = (stale_seq, by_seq) else {
-            dropped += 1;
-            continue;
+        let str_of = |k: &str| {
+            item.get(k).and_then(serde_json::Value::as_str).unwrap_or_default().to_string()
         };
-        // ⛔ 指到同一块、或者指到 pack 里没有的编号 —— 整条丢掉。
-        let (Some(old), Some(new)) = (blocks.get(&stale_seq), blocks.get(&by_seq)) else {
-            dropped += 1;
+        // ⛔⛔ **引文一个字符都不许动**（首尾空白也算）：这道闸的全部意义是「它引的那句话
+        // 逐字出现在那一块里」，而 `locate` 认的就是这个字符串。⚠️ 顺手 `.trim()` 一下
+        // 会把闸放宽一点点，而且**放宽之后测试照样是绿的** —— 只有 `why` 是给人读的，
+        // 它才 trim（原来就是这样，⛔ 别把两者调换）。
+        let why = str_of("why").trim().to_string();
+        let (qs, qn) = (str_of("quote_stale"), str_of("quote_new"));
+        let drop = |reason: &'static str| StaleDropped {
+            stale_seq,
+            by_seq,
+            why: why.clone(),
+            quote_stale: qs.clone(),
+            quote_new: qn.clone(),
+            reason,
+        };
+        let (Some(stale_seq), Some(by_seq)) = (stale_seq, by_seq) else {
+            dropped.push(drop("no_seq"));
             continue;
         };
         if stale_seq == by_seq {
-            dropped += 1;
+            dropped.push(drop("same_block"));
             continue;
         }
-        let qs = item.get("quote_stale").and_then(serde_json::Value::as_str).unwrap_or("");
-        let qn = item.get("quote_new").and_then(serde_json::Value::as_str).unwrap_or("");
-        let (a, b) = (locate(qs, old), locate(qn, new));
+        // ⛔ 指到 pack 里没有的编号 —— 整条丢掉。
+        let (Some(old), Some(new)) = (blocks.get(&stale_seq), blocks.get(&by_seq)) else {
+            dropped.push(drop("no_block"));
+            continue;
+        };
+        let (a, b) = (locate(&qs, old), locate(&qn, new));
         let ok = |q: &Quoted| matches!(q, Quoted::Verbatim | Quoted::Retyped);
-        if !ok(&a) || !ok(&b) {
-            dropped += 1;
+        if !ok(&a) {
+            dropped.push(drop("quote_stale"));
+            continue;
+        }
+        if !ok(&b) {
+            dropped.push(drop("quote_new"));
             continue;
         }
         kept.push(StaleProposal {
             stale_seq,
             by_seq,
-            why: item
-                .get("why")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default()
-                .trim()
-                .to_string(),
-            quote_stale: qs.to_string(),
-            quote_new: qn.to_string(),
+            why,
+            quote_stale: qs,
+            quote_new: qn,
             retyped: a == Quoted::Retyped || b == Quoted::Retyped,
         });
     }
@@ -1047,7 +1088,7 @@ fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
 /// 实测台用的口子：⛔ 只是把 `gate_proposals` 原样露出来，**不是另一份实现**。
 /// 阶段 4 的复算必须过产品这一道闸，抄一份出来量到的就不是产品了。
 #[cfg(test)]
-pub(crate) fn gate_proposals_for_test(raw: &str, pack: &str) -> (Vec<StaleProposal>, usize) {
+pub(crate) fn gate_proposals_for_test(raw: &str, pack: &str) -> (Vec<StaleProposal>, Vec<StaleDropped>) {
     gate_proposals(raw, pack)
 }
 
@@ -1098,7 +1139,7 @@ pub async fn stale_scan_via_api(
     let (proposals, dropped) = if outcome.ok {
         gate_proposals(&outcome.text, &pack_for_gate)
     } else {
-        (Vec::new(), 0)
+        (Vec::new(), Vec::new())
     };
     Ok(StaleScan { outcome, proposals, dropped })
 }
@@ -1114,8 +1155,11 @@ mod stale_gate_tests {
 #2 [2026-08-01 09:00 · from Claude] 名单定稿：15 所，含 UMich MSI。\n\
 #21 [2026-08-09 21:07 · from Claude] 名单重定：移出 UMich MSI，加入 CMU MSAII（16 个月）。\n";
 
+    /// ⚠️ 下面这些断言只关心「丢了几条」，所以这里把丢掉的那一堆折成一个数。
+    /// ⛔ 别把它当成产品那条路 —— 产品拿的是整条（`StaleDropped`），界面要摆出来给人看。
     fn gate(items: &str) -> (Vec<StaleProposal>, usize) {
-        gate_proposals(items, PACK)
+        let (kept, dropped) = gate_proposals(items, PACK);
+        (kept, dropped.len())
     }
 
     #[test]
@@ -1209,6 +1253,32 @@ mod stale_gate_tests {
             "```json\n[{\"stale\":2,\"by\":21,\"why\":\"x\",\"quote_stale\":\"含 UMich MSI\",\"quote_new\":\"移出 UMich MSI\"}]\n```",
         );
         assert_eq!(kept.len(), 1);
+    }
+
+    // ⭐ 2026-08-23（Ocean 第 8 条「不允许 Spool 不告诉我」）：丢掉的那一条要**带着内容**
+    // 回来，而且要说得出它是**哪一步**没过 —— 界面靠这个字段挑话说。
+    #[test]
+    fn a_dropped_item_comes_back_with_what_it_said() {
+        let (kept, dropped) = gate_proposals(
+            r#"[{"stale":2,"by":21,"why":"名单重定","quote_stale":"这句话原文里根本没有","quote_new":"移出 UMich MSI"}]"#,
+            PACK,
+        );
+        assert_eq!(kept.len(), 0);
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].reason, "quote_stale");
+        assert_eq!(dropped[0].stale_seq, Some(2));
+        assert_eq!(dropped[0].by_seq, Some(21));
+        assert_eq!(dropped[0].why, "名单重定");
+        assert_eq!(dropped[0].quote_stale, "这句话原文里根本没有");
+    }
+
+    #[test]
+    fn a_number_the_pack_does_not_have_says_which_step_failed() {
+        let (_, dropped) = gate_proposals(
+            r#"[{"stale":99,"by":21,"why":"x","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#,
+            PACK,
+        );
+        assert_eq!(dropped[0].reason, "no_block");
     }
 
     #[test]

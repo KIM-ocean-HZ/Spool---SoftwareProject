@@ -370,4 +370,26 @@ describe('missingNumberLines', () => {
     expect(r.added).toEqual(['2026-11-25']);
     expect(r.lines).toHaveLength(1);
   });
+
+  // ⛔⛔ 2026-08-23（Ocean 真手指验收第 2 / 7 条）：**这一条是那个死循环的回归测试。**
+  //
+  // 他看到的：卡片上红着「这几句话里的数字/日期，压缩稿里没有了」，点「加回去」，
+  // 弹「这几处已经在压缩稿里了，不用再加」，而**那行红字一直不消失**。
+  // 根子是两个分母：卡片按**这一块**数，「加回去」按**整份**数 —— 而压缩干的主要活
+  // 就是跨块合并，一个数从这一块挪进了那一块，两边就永远和解不了。
+  it('数字挪进了别的块 —— 卡片上不许再红，⛔ 更不许给一个点了说「不用加」的按钮', () => {
+    // #1 里那一行整条没了，但那个日期在 #2 里出现了 —— 整份压缩稿里它还在。
+    const compressed = drop(APPLY, 'GRE').replace(
+      '另一块，申请截止 2026-12-15。',
+      '另一块，申请截止 2026-12-15。GRE 最晚重考日 2026-11-25。',
+    );
+    expect(missingNumbersBetween(APPLY, compressed)).toEqual([]);
+
+    const pair = compareByEntry(APPLY, compressed)!.pairs.find((p) => p.seq === 1)!;
+    // ⭐ 卡片读的就是这个数组 —— 它必须是空的，那一行红字才会消失。
+    expect(pair.audit.missingNumbers).toEqual([]);
+    expect(missingNumberLines(pair.before!, pair.after!, pair.audit.missingNumbers)).toEqual([]);
+    // ⚠️ 而按块单看，那个日期**确实**不在 #1 里了 —— 这一条钉住的正是「按块看不算数」。
+    expect(auditEntry(pair.before, pair.after).missingNumbers).toEqual(['2026-11-25']);
+  });
 });
