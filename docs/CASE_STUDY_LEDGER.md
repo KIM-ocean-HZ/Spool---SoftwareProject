@@ -203,7 +203,7 @@ here.
 | Published | **2026-08-24** |
 | Tagged commit | tag `v0.6.2` → `58ec01f` |
 | Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
-| **Notarisation — `.app`** | ⚠️ **submission id not captured** — see the note below |
+| **Notarisation — `.app`** | submission `19bba6d2-ab45-4f1e-94c1-79a3ee59f9ee` · **Accepted** (submitted as `Spool.zip` — the build tool zips the `.app` before uploading) |
 | **Notarisation — `.dmg`** | submission `64c13142-db18-43fc-b208-0a2df177d309` · **Accepted** |
 | Artefact — macOS | `Spool_0.6.2_aarch64.dmg`, 10,390,759 bytes |
 | sha256 — macOS | `fc74abee8f3c1084d70a885ccdd79520cb200a266b349536c3ad3fb12d992899` |
@@ -212,15 +212,15 @@ here.
 | Fixed-name assets | `Spool-macOS-arm64.dmg` — **HTTP 200** through `releases/latest/download/`, byte-identical to the versioned asset |
 | Database schema | **v23 → v24** — adds two nullable columns to `blocks` so a compressed block carries its own pre-compression text. Additive; no existing row is rewritten |
 
-**⚠️ This row is the first one that fails its own rule, and it says so rather than inventing a
-number.** The heading of §1.2 states that submission ids are recorded here *because they cannot be
-recomputed*. The `.dmg` id was captured from `notarytool submit --wait`. The `.app` id was not: the
-build ran in a terminal whose scrollback was not kept, and the id printed there is gone with it.
-`xcrun notarytool history` still lists recent submissions and can recover it while Apple retains
-them — **until that is done and pasted in, this cell stays marked rather than filled.** The
-acceptance itself is not in doubt and does not depend on the id: `stapler validate` passes on the
-`.app` and `spctl` reports `source=Notarized Developer ID`, which only a completed notarisation
-produces.
+**⚠️ This row nearly lost a figure this file exists to keep, and the recovery route is worth
+recording.** The heading of §1.2 says submission ids are kept here *because they cannot be
+recomputed*. The `.dmg` id came straight from `notarytool submit --wait`. The `.app` id did not —
+the build ran in a terminal whose scrollback was not kept, and the id printed there went with it.
+**`xcrun notarytool history` recovered it**, listing recent submissions with their ids and dates;
+the `.app` appears there as `Spool.zip`, because the build tool zips the bundle before uploading.
+So the "cannot be recomputed" claim needs one qualification: the ids are unrecoverable *from the
+build*, but Apple serves them back for as long as it retains the submission. **That is a window,
+not a guarantee — capture the id at submission time anyway.**
 
 **What this row adds that the earlier ones do not: a release that shipped one platform on purpose.**
 v0.5.0 and v0.6.1 both carried a Windows installer. This one does not, and the reason is recorded
