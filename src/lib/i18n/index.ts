@@ -1294,18 +1294,22 @@ const EN: Record<string, string> = {
   '这个项目有一份压好的，等你核对 —— 打开':
     'A compressed draft for this project is waiting to be checked \u2014 open it',
   // ⑥ 睡前排队，2026-08-23 从右栏搬进「压缩」页签（Ocean 第 4 条）。
-  '今晚 {at} 和别的项目一起压（现在排着 {n} 个）':
-    'Compress tonight at {at} together with the other queued projects ({n} queued)',
-  '排进「一起压」（现在排着 {n} 个）': 'Add to the batch ({n} queued)',
+  // ⭐ 2026-08-24 改的词（Ocean 第 3 条）：「一起压」→「自动压缩」，并把夜里跑的好处写出来。
+  '今晚自动压缩 —— {at} 开始（现在排着 {n} 个）':
+    'Compressed automatically tonight, starting {at} ({n} queued)',
+  '排进今晚自动压缩（现在排着 {n} 个）':
+    'Add to tonight\u2019s automatic compression ({n} queued)',
+  '夜里跑更便宜 —— DeepSeek 在北京时间 00:30 到 08:30 半价（换别家就看那家的价目表）。而且你不用守在电脑前，早上起来核对就行。':
+    'Nights cost less \u2014 DeepSeek charges half price between 00:30 and 08:30 Beijing time (on another provider, check that provider\u2019s price list). And you do not have to sit there waiting: check the drafts in the morning.',
   '正在按队列一个一个压…压完的会在各自项目的「压缩」页签上等你核对。':
     'Working through the queue one project at a time \u2014 each finished draft waits on that project\u2019s Compress tab.',
   // 项目管理那一行上的同一个开关 —— 多个项目一次勾完（Ocean 第 4 条后半句）。
-  '排进「一起压」': 'Add to the batch',
-  '已排进「一起压」': 'In the batch',
-  '今晚 {at} 和排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点跑在那一页上改。':
-    'Tonight at {at} the queued projects are compressed one at a time; each draft waits on that project\u2019s Compress tab. The time is set there too.',
-  '排进队里，等你按「现在就跑」或者定一个时间。压完在各自项目的「压缩」页签上等你核对。':
-    'Queued until you press \u201cRun now\u201d or set a time. Each finished draft waits on that project\u2019s Compress tab.',
+  '排进今晚自动压缩': 'Add to tonight\u2019s run',
+  '已排进今晚自动压缩': 'In tonight\u2019s run',
+  '今晚 {at} 自动开始，排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点开始在那一页上改。':
+    'Starts automatically tonight at {at}: the queued projects are compressed one at a time, and each draft waits on that project\u2019s Compress tab. The start time is set there too.',
+  '排进队里，等你按「现在就跑」或者定一个开始时间。压完在各自项目的「压缩」页签上等你核对。':
+    'Queued until you press \u201cRun now\u201d or set a start time. Each finished draft waits on that project\u2019s Compress tab.',
   // 左侧边栏：正在压缩的那个项目（Ocean 2026-08-22）。
   '压缩中': 'Compressing',
   '这个项目正在压缩': 'This project is being compressed right now',
@@ -1403,7 +1407,10 @@ const EN: Record<string, string> = {
   '它写了一条你没写过的批注：{s}': 'It wrote an annotation you never wrote: {s}',
 
   // §9.6.4 ⑥：睡前排队、起床核对。
-  '几点跑': 'Run at',
+  '几点开始': 'Start at',
+  '几分开始': 'Start at (minutes)',
+  '24 小时制': '24-hour clock',
+  '未定': 'Not set',
   '取消定时': 'Cancel the schedule',
   '现在就跑': 'Run now',
   '量一下…': 'measuring…',

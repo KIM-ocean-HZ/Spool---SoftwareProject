@@ -666,6 +666,12 @@ export default function CompressBoard({ threadId }: { threadId: string }) {
 //
 // ⛔ D10（Ocean:「价格预估准确度没有保证……不然就不显示」）：⚠️ 这张单子上**只报字数**，
 //    一个「约 ¥X」都不许回来 —— 钱的大头在输出上，而输出多长在发出去之前不可知。
+
+// 24 小时制的两个单子。⛔ 别改回 `<input type="time">`：那个框显示 12 还是 24 小时制由**系统
+// 区域**决定，网页这边关不掉，于是「点 01:55 存成 13:55」（见下面 NightlyQueue 里那段）。
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+
 function NightlyQueue({ threadId }: { threadId: string }) {
   const t = useT();
   const queue = useSettingsStore((s) => s.compressQueue);
@@ -700,6 +706,20 @@ function NightlyQueue({ threadId }: { threadId: string }) {
       compressQueue: queued ? queue.filter((id) => id !== threadId) : [...queue, threadId],
     });
 
+  // ⭐ 2026-08-24（Ocean 第 2 条）：⛔ 这里原来是一个 `<input type="time">`，而它显示 12 还是
+  //    24 小时制**由系统区域决定，网页这边关不掉**。英文区域下框里写的是「01:55 PM」，存进去
+  //    的却是 `13:55`，句子里于是写「今晚 13:55」—— 两个数对不上，而且他要的是**凌晨 01:55**
+  //    （夜里那一档半价），点出来的是**下午 13:55**（原价）。
+  //    ⇒ 换成两个写死 24 小时制的下拉：点什么存的就是什么，locale 再也插不进来。
+  //    ⭐ 顺带把「时间是可以改的」变得看得见（第 1 条）—— 下拉有箭头，`type="time"` 那个框没有。
+  const parsed = /^(\d{1,2}):(\d{2})$/.exec(nightlyAt.trim());
+  const hh = parsed ? parsed[1].padStart(2, '0') : '';
+  const mm = parsed ? parsed[2] : '';
+  // 五分钟一档就够了 —— 这件事的精度是「今晚」。⚠️ 手改过 settings.json 的分钟也要留在单子上，
+  // 不然光是打开这一页就把他定的时间悄悄挪到整五分上。
+  const minutes = [...new Set([...MINUTE_STEPS, ...(mm ? [mm] : [])])].sort();
+  const setAt = (h: string, m: string) => void update({ compressNightlyAt: `${h}:${m}` });
+
   return (
     <div className="mx-auto mt-3 max-w-sm space-y-1 border-t border-line pt-3 text-left">
       <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted transition-colors hover:text-ink">
@@ -711,21 +731,58 @@ function NightlyQueue({ threadId }: { threadId: string }) {
         />
         <Moon size={11} className="flex-none" />
         {nightlyAt
-          ? t('今晚 {at} 和别的项目一起压（现在排着 {n} 个）', { at: nightlyAt, n: queue.length })
-          : t('排进「一起压」（现在排着 {n} 个）', { n: queue.length })}
+          ? t('今晚自动压缩 —— {at} 开始（现在排着 {n} 个）', { at: `${hh}:${mm}`, n: queue.length })
+          : t('排进今晚自动压缩（现在排着 {n} 个）', { n: queue.length })}
       </label>
 
+      {/* ⭐ 2026-08-24（Ocean 第 3 条）：原来那句「今晚一起压」只说了会发生什么，没说**为什么
+          值得等到夜里** —— 于是没人会去用它。这一行就是那个理由。
+          ⛔ 半价那句写的是 **DeepSeek 价目表上的规矩**（默认那家），不是 Spool 对这一次的估算：
+          D10 禁的是「约 ¥X」那种把还没发生的输出算成钱的数，⚠️ 而这一条是对方公布的价目。
+          ⚠️ 端点是可以改的，所以后半句明写「换别家就看那家的价目表」—— ⛔ 发一版就让自己
+          界面上多一句假话，是这个产品最不该犯的错。 */}
+      <p className="pl-[18px] text-[12px] leading-relaxed text-muted">
+        {t(
+          '夜里跑更便宜 —— DeepSeek 在北京时间 00:30 到 08:30 半价（换别家就看那家的价目表）。而且你不用守在电脑前，早上起来核对就行。',
+        )}
+      </p>
+
       {queue.length > 0 && (
-        <div className="flex items-center gap-2 text-[12px] text-muted">
-          <label className="flex items-center gap-1">
-            <span>{t('几点跑')}</span>
-            <input
-              type="time"
-              value={nightlyAt}
-              onChange={(e) => void update({ compressNightlyAt: e.target.value })}
-              className="rounded border border-line bg-paper px-1 py-0.5 text-[12px] text-ink-2"
-            />
-          </label>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
+          <span>{t('几点开始')}</span>
+          <select
+            value={hh}
+            aria-label={t('几点开始')}
+            onChange={(e) => setAt(e.target.value, mm || '00')}
+            className="rounded border border-line bg-paper px-1.5 py-0.5 text-[12px] text-ink outline-none focus:border-accent"
+          >
+            <option value="" disabled>
+              {t('未定')}
+            </option>
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+          <span aria-hidden>:</span>
+          <select
+            value={mm}
+            disabled={!hh}
+            aria-label={t('几分开始')}
+            onChange={(e) => setAt(hh, e.target.value)}
+            className="rounded border border-line bg-paper px-1.5 py-0.5 text-[12px] text-ink outline-none focus:border-accent disabled:opacity-50"
+          >
+            <option value="" disabled>
+              {t('未定')}
+            </option>
+            {minutes.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted/70">{t('24 小时制')}</span>
           {nightlyAt && (
             <button
               type="button"

@@ -291,12 +291,12 @@ export default function ProjectBoard() {
             {engineOn && !isDone && (
               <RowAction
                 icon={<Moon size={12} />}
-                label={queued ? t('已排进「一起压」') : t('排进「一起压」')}
+                label={queued ? t('已排进今晚自动压缩') : t('排进今晚自动压缩')}
                 active={queued}
                 title={
                   nightlyAt
-                    ? t('今晚 {at} 和排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点跑在那一页上改。', { at: nightlyAt })
-                    : t('排进队里，等你按「现在就跑」或者定一个时间。压完在各自项目的「压缩」页签上等你核对。')
+                    ? t('今晚 {at} 自动开始，排在一起的项目一个一个压，压完在各自项目的「压缩」页签上等你核对。几点开始在那一页上改。', { at: nightlyAt })
+                    : t('排进队里，等你按「现在就跑」或者定一个开始时间。压完在各自项目的「压缩」页签上等你核对。')
                 }
                 onClick={() =>
                   void updateSettings({
