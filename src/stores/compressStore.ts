@@ -17,6 +17,7 @@ import {
 } from '@/lib/ai/compress';
 import { auditCompression, numbersGateOpen } from '@/lib/ai/compress';
 import { addBackNumbers, compareByEntry, worthRetrying } from '@/lib/ai/compressBlocks';
+import { relationAlreadySettled, wouldOverwriteRelation } from '@/lib/blocks/staleGuards';
 import {
   contentFromEntryBody,
   isEmptyHeld,
@@ -840,16 +841,12 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       // ⛔ 而另一半更糟：他要是点「只退旧的」，`setBlockSupersession` 会把那条
       // `corrects` **降级成 `supersedes`、把 `#21` 整条退掉** —— 而 `corrects`
       // 当初就是因为「旧块还成立、只有一点要更正」才选的。三条提议里 2 条是这种。
+      // ⛔ 判断住在 `lib/blocks/staleGuards.ts` —— 拆出去是为了它测得到，
+      //    以及为了改掉「按 refKind 认」那个错（`cites` 会整类漏过去，见那个文件）。
       const bySeq = new Map<number, Block>();
       for (const b of blocks) if (b.seq !== null) bySeq.set(b.seq, b);
-      const settled = (p: (typeof scan.proposals)[number]): boolean => {
-        const older = bySeq.get(p.staleSeq);
-        const newer = bySeq.get(p.bySeq);
-        if (!older || !newer) return false;
-        // 这条关系已经记在库里了（哪一种都算：`corrects` 是他选的「旧块留着」，
-        // `supersedes` 是他选的「退掉」—— 两种都是**已经决定过**）。
-        return newer.refKind !== null && newer.refBlockId === older.id;
-      };
+      const settled = (p: (typeof scan.proposals)[number]): boolean =>
+        relationAlreadySettled(bySeq.get(p.staleSeq), bySeq.get(p.bySeq));
       // ⛔ 和压缩那一条同一个道理：按了停下就当没跑过，⛔ 不在这一页立一张红牌。
       if (scan.outcome.kind === 'cancelled') {
         toast.notice(t('已经停下了。已经跑出去的那一段，模型厂商那边可能照样算钱。'));
@@ -896,7 +893,7 @@ export const useCompressStore = create<CompressState>((set, get) => ({
     // ⛔⛔ T2（2026-08-23）：`setBlockSupersession` 是**覆盖式**写入 —— 一块只存得下
     // 一条关系。新块要是已经指着**别的**块，写下去等于把那条悄悄删了。
     // ⚠️ 指着同一块的那种在扫描时就摘走了（`settled`），走到这里的只剩「指着别处」。
-    if (action !== 'keep' && newBlock && newBlock.refKind !== null && newBlock.refBlockId !== oldBlock?.id) {
+    if (action !== 'keep' && wouldOverwriteRelation(oldBlock, newBlock)) {
       toast.error(
         t('第 {n} 块已经指着另一块了，一块只记得住一条这样的关系。要改的话先在那一块上撤掉原来那条。', {
           n: p.bySeq,
