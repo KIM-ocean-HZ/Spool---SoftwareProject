@@ -700,9 +700,20 @@ pub(crate) fn compress_for_test(
     user: &str,
     reasoning: &str,
     timeout_secs: u64,
+    // 🆕 第六轮阶段 2（T3）：**故意**给一个小到不够用的输出上限，把回复掐断。
+    // `None` = 什么都不加，⭐ 也就是产品那条路，一个字节都不差。
+    //
+    // ⚠️⚠️ **为什么在这里加，而不是加进 `sidecar_request`**：那个函数是**和产品共用**的
+    // （见它上面那段注释），改它的签名就等于改产品发出去的请求。而这里是 `#[cfg(test)]`，
+    // 发布构建里根本没有这个函数 —— ⛔ 实测台要的这个旋钮，碰不到用户那条路。
+    max_output_tokens: Option<u32>,
 ) -> CompressOutcome {
     let timeout_secs = clamp_timeout(timeout_secs);
-    let request = sidecar_request(base_url, api_key, model, system, user, reasoning, timeout_secs);
+    let mut request =
+        sidecar_request(base_url, api_key, model, system, user, reasoning, timeout_secs);
+    if let Some(cap) = max_output_tokens {
+        request["max_output_tokens"] = serde_json::json!(cap);
+    }
     let payload = match serde_json::to_vec(&request) {
         Ok(v) => v,
         Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),

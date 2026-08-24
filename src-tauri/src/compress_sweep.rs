@@ -73,6 +73,10 @@ struct Step {
     /// 而那正是 `CANCELLED` 这条判断要抢在前面的那一刻。
     #[serde(default)]
     cancel_after_secs: u64,
+    /// 🆕 第六轮阶段 2（T3）：**故意**把输出上限设小，把回复掐断。
+    /// `0`（默认）= 不发这个参数，⭐ 也就是产品现在那条路。
+    #[serde(default)]
+    max_output_tokens: u32,
 }
 
 fn all_range() -> String {
@@ -194,6 +198,7 @@ fn run_the_sweep() {
                 &user,
                 &step.reasoning,
                 timeout_secs,
+                (step.max_output_tokens > 0).then_some(step.max_output_tokens),
             );
             // `true` = 按下去的时候真的还有一个活着的子进程。⛔ `false` 要记下来：
             // 那说明这一次**根本没被取消**（跑得比 N 秒还快），判定不能算数。
@@ -236,6 +241,7 @@ fn run_the_sweep() {
                 "ms": outcome.ms,
                 "model_reported": outcome.model,
                 "cuts": outcome.cuts,
+                "max_output_tokens": step.max_output_tokens,
                 "cancel_after_secs": step.cancel_after_secs,
                 "cancel_hit": cancel_hit,
                 "text_file": if outcome.ok { serde_json::json!(format!("texts/{stem}.out.txt")) } else { serde_json::Value::Null },
@@ -299,6 +305,7 @@ fn gate_round5() {
     let mut total = 0usize;
     let mut kept_n = 0usize;
     let mut dropped_n = 0usize;
+    let mut by_reason: std::collections::BTreeMap<&'static str, usize> = Default::default();
     for line in std::fs::read_to_string(out_dir.join("runs.jsonl"))
         .expect("no runs.jsonl")
         .lines()
@@ -306,7 +313,11 @@ fn gate_round5() {
         let row: serde_json::Value = serde_json::from_str(line).unwrap();
         let Some(tf) = row.get("text_file").and_then(|v| v.as_str()) else { continue };
         let label = row.get("label").and_then(|v| v.as_str()).unwrap_or("");
-        let tag = label.strip_prefix("4-").unwrap_or(label);
+        // 第五轮那一格 label 是 `4-xxx`，第六轮是 `3-xxx` —— 两个都剥掉。
+        let tag = label
+            .strip_prefix("4-")
+            .or_else(|| label.strip_prefix("3-"))
+            .unwrap_or(label);
         let raw = std::fs::read_to_string(out_dir.join(tf)).unwrap_or_default();
         let pack = std::fs::read_to_string(packs_dir.join(format!("pack-{tag}.txt")))
             .unwrap_or_else(|e| panic!("pack-{tag}.txt: {e}"));
@@ -326,10 +337,85 @@ fn gate_round5() {
         }
         if dropped > 0 {
             eprintln!("  ⛔ {tag} 第 {} 次：丢掉 {dropped} 条", row.get("rep").and_then(|v| v.as_i64()).unwrap_or(0));
+            // ⭐ U8：**理由那一列**。原来这里只做 `.len()`，于是「它坏在哪一步」被扔掉了 ——
+            // 而界面对用户说的那句「是 AI 记错了，不是你的项目有问题」，成不成立全看这一列。
+            for d in &dropped_items {
+                *by_reason.entry(d.reason).or_insert(0) += 1;
+                eprintln!(
+                    "     · {} · 它说 #{} → #{}  {}",
+                    d.reason,
+                    d.stale_seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+                    d.by_seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+                    d.why
+                );
+                eprintln!("       引旧块：{}", d.quote_stale.chars().take(120).collect::<String>());
+                eprintln!("       引新块：{}", d.quote_new.chars().take(120).collect::<String>());
+            }
             eprintln!("     原样输出：{}", raw.replace('\n', " ").chars().take(300).collect::<String>());
         }
     }
     eprintln!("\n  30 次合计：模型提了 {total} 条 · 过闸 {kept_n} 条 · ⛔ 引文对不上被丢掉 {dropped_n} 条");
+    if by_reason.is_empty() {
+        eprintln!("  丢掉的按理由分：（这一批一条都没丢）");
+    } else {
+        let mut rows: Vec<_> = by_reason.iter().collect();
+        rows.sort();
+        eprintln!("  丢掉的按理由分：{rows:?}");
+    }
+
+    // ⛔⛔ 0g 的判定，跑前写死：U8 改的是**带什么回来**，不是**放什么过去**。
+    // 第五轮同格是「提了 7 条 · 过闸 7 条 · 丢掉 0 条」（§7.6），这两个数一动就是把闸改松了。
+    assert_eq!((total, kept_n, dropped_n), (7, 7, 0), "⛔ 和第五轮同格对不上");
+}
+
+/// 0g 的另一半 · **理由那一列本身**（2026-08-24 第六轮）。
+///
+/// ⚠️⚠️ 上面那一格证明不了它：第五轮那批 30 次**一条都没丢**，于是 `reason`
+/// 在真实语料上一次都没被走到。而 U8 新加的 `same_block` / `no_seq` 两类
+/// **在单测里也没有任何断言** —— 也就是说界面挑话说依据的那个字段，
+/// 到今晚为止四类里有两类从来没有被验证过。
+///
+/// ⛔ 所以这里拿构造的响应体把四类逐个走一遍，走的是**产品那道闸**
+/// （`gate_proposals_for_test`），⛔ 不另抄一份比对。
+///
+/// ```text
+/// cargo test --lib compress_sweep::gate_reasons -- --nocapture
+/// ```
+#[test]
+fn gate_reasons() {
+    // 一份最小的 pack，两块，编号 #2 和 #21。
+    let pack = "# Project Context: t\n\n## Full Record (chronological)\n\n\
+#2 [2026-08-01 09:00 · from Claude] 名单定稿：15 所，含 UMich MSI。\n\
+#21 [2026-08-09 21:07 · from Claude] 名单重定：移出 UMich MSI，加入 CMU MSAII。\n";
+
+    let cases: [(&str, &str, &str); 5] = [
+        ("no_seq", "没说是哪两块", r#"[{"why":"x","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#),
+        ("same_block", "指到了自己", r#"[{"stale":21,"by":21,"why":"x","quote_stale":"移出 UMich MSI","quote_new":"移出 UMich MSI"}]"#),
+        ("no_block", "编号不在这份 pack 里", r#"[{"stale":99,"by":21,"why":"x","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#),
+        ("quote_stale", "引旧块那句找不到", r#"[{"stale":2,"by":21,"why":"x","quote_stale":"原文里根本没有这句","quote_new":"移出 UMich MSI"}]"#),
+        ("quote_new", "引新块那句找不到", r#"[{"stale":2,"by":21,"why":"x","quote_stale":"含 UMich MSI","quote_new":"原文里根本没有这句"}]"#),
+    ];
+
+    for (want, human, raw) in cases {
+        let (kept, dropped) = crate::api_engine::gate_proposals_for_test(raw, pack);
+        assert_eq!(kept.len(), 0, "{want}：不该有过闸的");
+        assert_eq!(dropped.len(), 1, "{want}：该丢掉一条");
+        assert_eq!(dropped[0].reason, want, "{want}：理由报错了");
+        // ⛔ 「带着内容回来」是 U8 的全部意义 —— 理由对了但两句引文空着，界面照样没东西给用户看。
+        assert!(
+            !dropped[0].quote_stale.is_empty() && !dropped[0].quote_new.is_empty(),
+            "{want}：引文没带回来"
+        );
+        eprintln!("  ✅ {want:<12} {human:<22} 引文两句都带回来了");
+    }
+
+    // ⭐ 反面：好的那一条仍然过得去（⛔ 别把闸验成「什么都丢」）。
+    let (kept, dropped) = crate::api_engine::gate_proposals_for_test(
+        r#"[{"stale":2,"by":21,"why":"名单重定","quote_stale":"含 UMich MSI","quote_new":"移出 UMich MSI"}]"#,
+        pack,
+    );
+    assert_eq!((kept.len(), dropped.len()), (1, 0));
+    eprintln!("  ✅ {:<12} {:<22} 仍然过闸", "（对照）", "引文两句都对得上");
 }
 
 /// 不花钱的一步：把这一轮要用的几份 pack 有多大打出来。
