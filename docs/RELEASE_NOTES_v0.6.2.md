@@ -6,9 +6,13 @@ It also changes something you were told about this app, so read the network sect
 
 ## Download
 
-**macOS** — `Spool_0.6.2_aarch64.dmg` · Apple Silicon (M1 or later), macOS 11 or newer
+**macOS** — `Spool_0.6.2_aarch64.dmg` · 9.9 MB · Apple Silicon (M1 or later), macOS 11 or newer
 
 The macOS build is signed and notarized with a Developer ID, so it opens without the "unidentified developer" warning. `Spool-macOS-arm64.dmg` is the same file under a fixed name, for direct-download links — either name works.
+
+```
+sha256  fc74abee8f3c1084d70a885ccdd79520cb200a266b349536c3ad3fb12d992899  Spool_0.6.2_aarch64.dmg
+```
 
 **Upgrading runs one small migration.** The schema goes from v23 to v24, which adds two empty columns to the blocks table so a compressed block can carry its own original text. Nothing existing is rewritten, and Spool snapshots your database before it touches anything.
 
