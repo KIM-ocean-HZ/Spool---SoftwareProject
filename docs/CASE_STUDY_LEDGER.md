@@ -197,6 +197,37 @@ here.
 
 ---
 
+
+| Field | v0.6.2 |
+|---|---|
+| Published | **2026-08-24** |
+| Tagged commit | tag `v0.6.2` → `58ec01f` |
+| Signing identity — macOS | Developer ID Application (Apple Developer Program, Team `Q5Y5JRXZ58`) |
+| **Notarisation — `.app`** | ⚠️ **submission id not captured** — see the note below |
+| **Notarisation — `.dmg`** | submission `64c13142-db18-43fc-b208-0a2df177d309` · **Accepted** |
+| Artefact — macOS | `Spool_0.6.2_aarch64.dmg`, 10,390,759 bytes |
+| sha256 — macOS | `fc74abee8f3c1084d70a885ccdd79520cb200a266b349536c3ad3fb12d992899` |
+| Gatekeeper verdict — macOS | `accepted` · `source=Notarized Developer ID` on **both** artefacts, and re-verified on the copy downloaded back from the published Release (byte-identical sha256, staple intact); `codesign -dvv` Authority resolved to the Developer ID certificate, not the local `Spool Dev` one |
+| Windows | **not built for this release** — the Windows pipeline is still scoped to the `windows-port` branch and was not run |
+| Fixed-name assets | `Spool-macOS-arm64.dmg` — **HTTP 200** through `releases/latest/download/`, byte-identical to the versioned asset |
+| Database schema | **v23 → v24** — adds two nullable columns to `blocks` so a compressed block carries its own pre-compression text. Additive; no existing row is rewritten |
+
+**⚠️ This row is the first one that fails its own rule, and it says so rather than inventing a
+number.** The heading of §1.2 states that submission ids are recorded here *because they cannot be
+recomputed*. The `.dmg` id was captured from `notarytool submit --wait`. The `.app` id was not: the
+build ran in a terminal whose scrollback was not kept, and the id printed there is gone with it.
+`xcrun notarytool history` still lists recent submissions and can recover it while Apple retains
+them — **until that is done and pasted in, this cell stays marked rather than filled.** The
+acceptance itself is not in doubt and does not depend on the id: `stapler validate` passes on the
+`.app` and `spctl` reports `source=Notarized Developer ID`, which only a completed notarisation
+produces.
+
+**What this row adds that the earlier ones do not: a release that shipped one platform on purpose.**
+v0.5.0 and v0.6.1 both carried a Windows installer. This one does not, and the reason is recorded
+so a later reader does not mistake it for an omission: the Windows job runs only on the
+`windows-port` branch, and merging `main` into it was declined for this release rather than
+forgotten.
+
 ## 2. Measured findings
 
 These are the rows that matter most: results obtained by measuring a running system, not
