@@ -39,6 +39,9 @@ export interface Proposal {
   /** v26（§2.S8）：一句话「这块整体是什么」，跟着队列走 —— 和 `correctedQuote` 同一条理由：
    *  写它的那个 AI 在用户点头的时候早就走了，这里剩下的东西也重建不出来。 */
   gist: string | null;
+  /** v28（§2.Q1）：这一条为什么引那一块，同上跟着队列走。⚠️ 少了这一半的话，
+   *  AI 写的时候给了理由、用户点完「通过」理由就没了 —— 而那正是它唯一要出现的地方。 */
+  refNote: string | null;
 }
 
 export interface ProposalBatch {
@@ -96,6 +99,7 @@ interface ItemRow {
   recheck_after: number | null;
   corrected_quote: string | null;
   gist: string | null;
+  ref_note: string | null;
 }
 
 // Pending = still inside its 7-day window. Everything else is void and shows as one
@@ -128,6 +132,7 @@ export const listPendingBatches = async (now: number): Promise<ProposalBatch[]> 
       recheckAfter: r.recheck_after,
       correctedQuote: r.corrected_quote,
       gist: r.gist,
+      refNote: r.ref_note,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -214,6 +219,7 @@ export const listBatchesCreatedSince = async (since: number): Promise<ProposalBa
       recheckAfter: r.recheck_after,
       correctedQuote: r.corrected_quote,
       gist: r.gist,
+      refNote: r.ref_note,
     });
     byBatch.set(r.batch_id, list);
   }
@@ -366,6 +372,8 @@ export const approveBatch = async (batchId: string, keepIds?: string[]): Promise
       correctedQuote: r.corrected_quote,
       // v26（§2.S8）：一句话说明同样跟着过来 —— 它描述的就是这段正文。
       gist: r.gist,
+      // v28（§2.Q1）：引用的理由同样跟着过来 —— 它是这条引用关系的一个字段。
+      refNote: r.ref_note,
     });
     // v14 (§9.3 拍板甲): the correction relation is applied on APPROVAL, never at propose
     // time — until the user clicks, nothing about the corrected block has changed. Only
@@ -387,12 +395,25 @@ export const __insertBatchForTest = async (
   batch: Omit<ProposalBatch, 'items'> & {
     items: (Omit<
       Proposal,
-      'id' | 'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter' | 'correctedQuote' | 'gist'
+      | 'id'
+      | 'refKind'
+      | 'sourceUrl'
+      | 'retrievedAt'
+      | 'recheckAfter'
+      | 'correctedQuote'
+      | 'gist'
+      | 'refNote'
     > &
       Partial<
         Pick<
           Proposal,
-          'refKind' | 'sourceUrl' | 'retrievedAt' | 'recheckAfter' | 'correctedQuote' | 'gist'
+          | 'refKind'
+          | 'sourceUrl'
+          | 'retrievedAt'
+          | 'recheckAfter'
+          | 'correctedQuote'
+          | 'gist'
+          | 'refNote'
         >
       >)[];
   },
@@ -414,8 +435,8 @@ export const __insertBatchForTest = async (
   for (let i = 0; i < batch.items.length; i++) {
     const it = batch.items[i]!;
     await db.execute(
-      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      `INSERT INTO proposals (id, batch_id, thread_id, content, annotation, ref_block_id, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist, ref_note, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         nanoid(),
         batch.id,
@@ -429,6 +450,7 @@ export const __insertBatchForTest = async (
         it.recheckAfter ?? null,
         it.correctedQuote ?? null,
         it.gist ?? null,
+        it.refNote ?? null,
         i,
       ],
     );

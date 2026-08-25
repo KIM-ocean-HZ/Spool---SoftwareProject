@@ -252,7 +252,45 @@ CREATE TABLE IF NOT EXISTS blocks (
   --
   -- ⚠️ 它**不进 `blocks_fts`**:落点是「命中之后多告诉你一句这块是什么」,不是「多一处能被
   -- 匹配到的地方」。要改成可匹配得动 FTS 触发器,那是另一件事,另开一版。
-  gist TEXT
+  gist TEXT,
+  -- v28 (WORKPLAN §2.Q1, Ocean 2026-08-25) —— **为什么引它**,一句话。
+  --
+  -- 起因是他读真库 Flux `#16`(引用 `#9`)：引用行截出来的是被引块的正文开头
+  -- 「Dear Hanze, I have great news for you — …」,既不是那一块说了什么,也不是为什么引它。
+  -- `gist` 补的是前一半(「那一块整体是什么」),这一列补的是后一半 ——
+  -- **这一头的块为什么要指过去**。他的例子：「比如这里 block 9,可以让 AI 写一句：
+  -- 教授回复了邮件,项目重启」。
+  --
+  -- ⭐ **为什么是往 `blocks` 加一列,不是另开一张表**(Ocean 2026-08-25 原话:「认可：加一列,
+  -- 不开新表」)：它和 `corrected_quote` **是同一个形状** —— 同一条关系的元数据,挂在**声明
+  -- 这条关系的那一行**上。拆到第二张表意味着每次渲染 pack、每条引用行都多查一次,
+  -- 而且删块时要自己收拾(blocks 这边有 FK 级联,新表没有)。
+  --
+  -- ⚠️⚠️ 那条「别往 blocks 表加列」**不是废了,是有了例外**。它当初是在 `V 批`(浏览位置)
+  -- 的语境里定的：那一次要存的是**视图状态**,寿命和块本身不是一回事,所以落在新表
+  -- `read_positions` 上,对。这一次要存的是**内容**(AI 写下的一句话,进 pack、给下一个模型读)。
+  -- ⛔ 下次再有人想往 blocks 上加列,仍然要**重新问一次** —— 这一条不是通行证。
+  --
+  -- ⚠️ 只在 `ref_block_id` 非空时才有意义,**没有引用却给了理由 = 写入被拒**(mcp.rs)。
+  -- 而且非 `corrects` 的引用**必须**给(Ocean 2026-08-25 拍)：`corrects` 已经有
+  -- `corrected_quote` 和更正正文两处在说「为什么」,再要一句是重复收费。
+  --
+  -- NULL:老引用一条都没有(v28 之前写的每一行),和用户手写的引用 —— 界面照旧退回 `gist`。
+  ref_note TEXT,
+  -- v28 (§2.Q1)：`gist` 这一行是谁写的。'user' | 'ai' | NULL。
+  --
+  -- 为什么现在才需要：v26 的 `gist` 只有 `add_block` 那一刻能写,写它的只有 AI,所以「谁写的」
+  -- 没有第二种答案。`Q2`(`set_block_gist`)和 `Q4`(「摘要」页签)一起把它变成**两边都能改**
+  -- 的一行 —— 那一刻起,一句 `set_block_gist` 就能把用户改过的那句悄悄盖掉。
+  --
+  -- ⚠️ 这不是新发明,是第三次：`threads.summary_source`(v6)和 `blocks.annotation_by`(v14)
+  -- 是同一件事的两次先例,连拒绝的话术都是现成的(`set_thread_summary`)。
+  -- 规矩同样照抄：**MCP 永远不盖掉非 'ai' 的那一行**,拒绝时把自己那句建议说给用户听。
+  --
+  -- NULL = 不知道,也就是 v28 之前写的每一行。⚠️ 那些**全是 AI 写的**(v26–v27 期间
+  -- `gist` 只有 `add_block` 一条写入路径),所以读的时候按 'ai' 待,⛔ 但不回填 ——
+  -- 迁移不写用户数据(2026-05-29 抹库那一类),用户第一次自己改摘要时这一行自愈成 'user'。
+  gist_by TEXT
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
@@ -402,6 +440,11 @@ CREATE TABLE IF NOT EXISTS proposals (
   -- v26 (§2.S8): the same one-line gist, riding the queue so an approved block keeps it.
   -- Same reason corrected_quote rides: the caller that wrote it is gone by approval time.
   gist         TEXT,
+  -- v28 (§2.Q1): 引用的理由，同样跟着队列走。⚠️ 少了这一半的话，AI 写的时候给了理由、
+  -- 用户点完「通过」理由就没了 —— 而引用行正是它唯一要出现的地方。
+  -- ⛔ 这里**没有** `gist_by`：待审的摘要只有一种来路（AI 写的 propose_blocks），
+  -- 批准时按 'ai' 落地就够，多存一列等于多一处能 drift 的地方。
+  ref_note     TEXT,
   sort_order   INTEGER NOT NULL
 );
 

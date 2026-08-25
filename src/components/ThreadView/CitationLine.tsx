@@ -39,7 +39,16 @@ export default function CitationLine({ refBlockId, refKind, fromThreadId }: Prop
   const [cited, setCited] = useState<
     | { state: 'loading' }
     | { state: 'missing' }
-    | { state: 'found'; anchor: string; createdAt: number; seq: number | null; threadId: string }
+    | {
+        state: 'found';
+        anchor: string;
+        /** ⭐ Q1：这一句是**引用方**写的理由（`ref_note`），不是被引块的说明。
+         *  界面上要分得出来 —— 一个说「我为什么指过去」，一个说「那一块是什么」。 */
+        anchorIsWhy: boolean;
+        createdAt: number;
+        seq: number | null;
+        threadId: string;
+      }
   >({ state: 'loading' });
 
   useEffect(() => {
@@ -61,11 +70,21 @@ export default function CitationLine({ refBlockId, refKind, fromThreadId }: Prop
               //   ① `gist` —— AI 写的「这一块整体是什么」（v26 §2.S8，`add_block` 就能给）;
               //   ② 批注 —— 有人（AI 或用户）写过的那一句。
               //   ③ 都没有 → **什么都不显示**，只剩编号和时间,点过去看。
+              //   （⓪ 见下面那一段 —— v28 之后 `refNote` 排在这三级之上。）
               // ⚠️ ⛔ 这里不再走 `blockLabel`：那个梯子的最后一级正是「退回正文前 40 字」，
               // 而那一级就是他要去掉的东西。pack 那边照旧（`assemble.ts` 没动）。
               // ⚠️ 批注不再按「谁写的」过滤（v14 §9.3 拍板乙的那道闸）—— 08-25 Ocean 明确
               // 反过来了：「AI 的批注 UI 应该和用户批注一样」。它在这儿也是一句关于那一块的话。
-              anchor: plainText((b.gist?.trim() || b.annotation?.trim()) ?? ''),
+              // ⭐⭐ Q1（WORKPLAN §2.Q1，Ocean 2026-08-25 拍板乙）—— 梯子最上面加了一级：
+              //   ⓪ `refNote` —— **这一头为什么指过去**（v28，AI 写引用时必须给）。
+              // 他要的原本就是这一句：「我需要 AI 给出引用的理由」。08-25 夜里只做到了
+              // 后半句（下面那两级说的都是「被引的那一块是什么」），前半句当时**没有地方存**。
+              // ⚠️ 它排在最前，因为它是**这一行存在的理由**；`gist` / 批注是退路，
+              // 老引用（v28 之前那些，`refNote` 全是 null）照旧从 ① 开始。
+              anchor: plainText(
+                (b.refNote?.trim() || b.gist?.trim() || b.annotation?.trim()) ?? '',
+              ),
+              anchorIsWhy: !!b.refNote?.trim(),
               createdAt: b.createdAt,
               seq: b.seq,
               threadId: b.threadId,
@@ -162,7 +181,21 @@ export default function CitationLine({ refBlockId, refKind, fromThreadId }: Prop
             <span aria-hidden="true" className="shrink-0 opacity-40">
               ·
             </span>
-            <span className="min-w-0 truncate text-ink-2">{cited.anchor}</span>
+            {/* ⚠️ Q1：这两句话主语不一样，⛔ 不能画成一个样子 ——
+                `refNote` 是**引用方**说「我为什么指过去」，`gist` / 批注是**被引块**说
+                「我是什么」。同一个位置、同一个字号，读的人会把 AI 写的理由当成那一块的原话。
+                所以带理由的那一句前面加一个「因为」记号，`title` 也说清是谁写的。 */}
+            <span
+              className="min-w-0 truncate text-ink-2"
+              title={cited.anchorIsWhy ? t('AI 写的：为什么引这一块') : undefined}
+            >
+              {cited.anchorIsWhy && (
+                <span aria-hidden="true" className="mr-1 opacity-50">
+                  ∵
+                </span>
+              )}
+              {cited.anchor}
+            </span>
           </>
         )}
         {cited.threadId !== fromThreadId && (

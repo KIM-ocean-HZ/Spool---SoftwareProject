@@ -22,6 +22,8 @@ const block = (id: string, createdAt: number, source: string | null): Block => (
   recheckAfter: null,
   correctedQuote: null,
   gist: null,
+  refNote: null,
+  gistBy: null,
   originalContent: null,
   compressedAt: null,
 });

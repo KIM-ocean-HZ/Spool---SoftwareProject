@@ -584,6 +584,12 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           correctedQuote: src.correctedQuote,
           // v26（§2.S8）：一句话说明跟着复制走 —— 它描述的是这段字，而这段字被原样搬过来了。
           gist: src.gist,
+          // v28（§2.Q1）：引用的理由跟着 `refKind` / `refBlockId` 走，和 `correctedQuote`
+          // 同一条理由 —— 它是那条关系的一个字段，复制时丢了就成了「指得对，说不出为什么」。
+          refNote: src.refNote,
+          // v28：摘要跟着来了，「谁写的」就必须跟着来。丢了 = null = 按 'ai' 待，
+          // 于是用户在源项目里亲手写的那句摘要，一到目标项目就能被 `set_block_gist` 盖掉。
+          gistBy: src.gistBy,
           // ⚠️ v24：**原文备份不跟着复制走。** 复制出来的是一块新块，它自己从来没被压过；
           // 把源块的压缩前原文抄过来，会让「回 Spool 拿原始信息」指向一块并不是它的原文。
           originalContent: null,

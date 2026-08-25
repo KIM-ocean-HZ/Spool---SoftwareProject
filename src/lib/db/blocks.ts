@@ -56,6 +56,16 @@ export interface Block {
    *  ⛔ 也不长成「先看目录再决定读哪块」那种第二层路由（§2.5 第 2 条实测：帮不上忙，
    *  有时候直接把准确率弄坏）。 */
   gist: string | null;
+  /** v28（§2.Q1，Ocean 2026-08-25）：**为什么引它** —— 一句话，写在**引用这一头**的块上。
+   *  `gist` 说的是「被引的那一块整体是什么」，这一句说的是「这一头为什么要指过去」。
+   *  null = 没人写过理由（v28 之前的每一条引用，和用户手写的引用）。
+   *  ⚠️ 只在 `refBlockId` 非空时才有意义；非 `corrects` 的引用**必须**给（闸在 mcp.rs）。 */
+  refNote: string | null;
+  /** v28（§2.Q1）：`gist` 这一行是谁写的。null = 不知道 —— 也就是 v28 之前的每一行，
+   *  ⚠️ 而那些**全是 AI 写的**（v26–v27 期间 `gist` 只有 `add_block` 一条写入路径），
+   *  所以读的那一头把 null 当 'ai' 待（`gistIsAi()`）。
+   *  规矩和 `threads.summary_source` 一样：**MCP 不许盖掉非 'ai' 的那一行**。 */
+  gistBy: AnnotationAuthor | null;
   /** v24（R2 §1a）：这一块**压缩之前**的正文。null 有两种意思，⚠️ 两种都不是「有原文」：
    *  从来没压过，或者压过但用户把「备份原文」关了（那一次不可逆）。
    *  分辨看 `compressedAt` —— 它非空而这个是 null，就是第二种。 */
@@ -88,6 +98,8 @@ export interface CreateBlockArgs {
   correctedQuote?: string | null;
   /** v26 (§2.S8): same story again — the one-line gist an AI wrote, carried through approval. */
   gist?: string | null;
+  /** v28 (§2.Q1): 同上 —— AI 写的那句「为什么引它」，只有 approveBatch 带得进来。 */
+  refNote?: string | null;
 }
 
 interface Row {
@@ -110,6 +122,8 @@ interface Row {
   recheck_after: number | null;
   corrected_quote: string | null;
   gist: string | null;
+  ref_note: string | null;
+  gist_by: AnnotationAuthor | null;
   original_content: string | null;
   compressed_at: number | null;
 }
@@ -134,12 +148,14 @@ const fromRow = (r: Row): Block => ({
   recheckAfter: r.recheck_after ?? null,
   correctedQuote: r.corrected_quote ?? null,
   gist: r.gist ?? null,
+  refNote: r.ref_note ?? null,
+  gistBy: r.gist_by ?? null,
   originalContent: r.original_content ?? null,
   compressedAt: r.compressed_at ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, original_content, compressed_at, gist';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, original_content, compressed_at, gist, ref_note, gist_by';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -408,6 +424,11 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     recheckAfter: args.recheckAfter ?? null,
     correctedQuote: args.correctedQuote ?? null,
     gist: args.gist ?? null,
+    // v28 (§2.Q1)：同 `gist` —— 只有 approveBatch 带得进来，GUI 那几条路一律 null。
+    refNote: args.refNote ?? null,
+    // v28：GUI 这条路写不出 `gist`，所以「谁写的」也没有可记的 —— 用户自己写摘要走的是
+    // `updateBlockGist`，那一头才盖 'user'。
+    gistBy: null,
     // v24：新块从来没被压过。⛔ 这两列只有压缩写回和一键还原碰得到。
     originalContent: null,
     compressedAt: null,
@@ -416,9 +437,9 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
   // writers, so a single statement holding the write lock cannot lose the race against
   // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after, corrected_quote, gist)
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after, corrected_quote, gist, ref_note)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14, $15, $16)`,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14, $15, $16, $17)`,
     [
       b.id,
       b.threadId,
@@ -436,6 +457,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.recheckAfter,
       b.correctedQuote,
       b.gist,
+      b.refNote,
     ],
   );
   const assigned = await db.select<{ seq: number | null }[]>(
@@ -471,7 +493,7 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 19;
+  const COLS = 21;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
@@ -501,10 +523,12 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.recheckAfter,
       b.correctedQuote,
       b.gist,
+      b.refNote,
+      b.gistBy,
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist, ref_note, gist_by) VALUES ${tuples}`,
     params,
   );
 };
@@ -594,8 +618,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist, ref_note, gist_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
     [
       block.id,
       block.threadId,
@@ -623,6 +647,10 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.correctedQuote,
       // v26：一句话说明也要原样回来 —— 撤销一次删除，还回来的必须是当时那一行。
       block.gist,
+      // v28：引用的理由同上。⚠️ `gistBy` 尤其不能丢 —— 丢了的话 ⌘Z 会把用户自己写的摘要
+      // 洗成「不知道」，而「不知道」按 'ai' 待，下一句 `set_block_gist` 就能盖掉它。
+      block.refNote,
+      block.gistBy,
     ],
   );
 };

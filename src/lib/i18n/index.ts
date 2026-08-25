@@ -215,6 +215,8 @@ const EN: Record<string, string> = {
   '更正了其中一处：': 'corrects one point in:',
   '其中一处已被更正：': 'one point in this was corrected:',
   '点一下跳到那一块': 'Click to jump to that block',
+  // Q1（§2.Q1）：引用行上那一句是 AI 写的「为什么引它」，⛔ 不是被引块的原话。
+  'AI 写的：为什么引这一块': 'Written by AI: why this block is cited',
   // 2026-08-19 — the correction, shown under the sentence it is about rather than as a pointer
   // somewhere else. 「你写的」 is the whole author distinction on screen: an AI's correction
   // carries its client label instead.

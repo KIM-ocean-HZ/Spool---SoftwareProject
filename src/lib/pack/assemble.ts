@@ -31,6 +31,7 @@ import {
   REF_BLOCK_FROM,
   REF_BLOCK_MISSING,
   REF_BLOCK_SUPERSEDES,
+  REF_NOTE_PREFIX,
   REF_MARKER,
   SECTION_FILES,
   SECTION_LOG,
@@ -305,12 +306,17 @@ const renderBlock = (
   if (b.refBlockId) {
     const cited = refBlocks?.get(b.refBlockId);
     const marker = refBlockMarker(b.refKind);
+    // v28 (§2.Q1): the reason belongs to THIS block, not to the cited one — so it renders
+    // even when the citee is gone. 「↩ cites: (cited block no longer exists) — why: …」 still
+    // tells the reader what this block was building on; dropping it there would lose the
+    // only surviving account of the relation. Byte-for-byte with mcp.rs render_block.
+    const why = b.refNote?.trim() ? `${REF_NOTE_PREFIX}${oneLine(b.refNote)}` : '';
     lines.push(
       cited
         ? `${NOTE_INDENT}${marker}[${formatPackTime(cited.createdAt)}] ${blockLabel(cited.content, cited.annotation, cited.annotationIsAi)}${
             cited.foreignTitle ? `${REF_BLOCK_FROM}${cited.foreignTitle}` : ''
-          }`
-        : `${NOTE_INDENT}${marker}${REF_BLOCK_MISSING}`,
+          }${why}`
+        : `${NOTE_INDENT}${marker}${REF_BLOCK_MISSING}${why}`,
     );
   }
   const corrections = correctedBy?.get(b.id);

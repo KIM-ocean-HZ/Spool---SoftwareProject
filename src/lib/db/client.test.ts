@@ -47,7 +47,7 @@ const blocksSansV13 = (handle: Sqlite): Record<string, unknown>[] =>
     void stale_at;
     void ref_kind;
     void annotation_by;
-    return stripGist(stripCompression(stripProvenance(stripCorrectedQuote(rest))));
+    return stripV28(stripGist(stripCompression(stripProvenance(stripCorrectedQuote(rest)))));
   });
 
 // v20's three columns, off a `blocks` row. Same job as stripBriefSuggestion below: a test
@@ -81,6 +81,15 @@ const stripCompression = (r: Record<string, unknown>): Record<string, unknown> =
 const stripGist = (r: Record<string, unknown>): Record<string, unknown> => {
   const { gist, ...rest } = r;
   void gist;
+  return rest;
+};
+
+// v28's columns, same job again. ⚠️ `gist_by` is on `blocks` only — a queued proposal's
+// gist has exactly one author (the AI that proposed it), so there was nothing to record.
+const stripV28 = (r: Record<string, unknown>): Record<string, unknown> => {
+  const { ref_note, gist_by, ...rest } = r;
+  void ref_note;
+  void gist_by;
   return rest;
 };
 
@@ -124,10 +133,23 @@ const downgradeToV13 = (handle: Sqlite): void => {
   `);
 };
 
+// Rewind past v28: a citation could not say WHY, and nothing recorded who wrote a gist.
+// ⚠️ 这三句 DROP 就是 v28 的「能回滚」——`add-ref-note-and-gist-by` 只加了三个可空列，
+// ⛔ 一个字的既有数据都没动。
+const downgradeToV27 = (handle: Sqlite): void => {
+  handle.exec(`
+    ALTER TABLE blocks DROP COLUMN ref_note;
+    ALTER TABLE blocks DROP COLUMN gist_by;
+    ALTER TABLE proposals DROP COLUMN ref_note;
+    PRAGMA user_version = 27;
+  `);
+};
+
 // Rewind past v27: no project remembered where the reader had got to.
 // ⚠️ 这一句 DROP 就是 v27 的「能回滚」——`add-read-positions` 只加了一张新表，
 // ⛔ 一个字的既有数据都没动，所以退回来最多是下次打开项目落回底部（v26 本来的行为）。
 const downgradeToV26 = (handle: Sqlite): void => {
+  downgradeToV27(handle);
   handle.exec(`
     DROP TABLE IF EXISTS read_positions;
     PRAGMA user_version = 26;
@@ -706,7 +728,7 @@ describe('migrateSchema registry (§19.3)', () => {
       (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map((r) => {
         const { annotation_by, ...rest } = r;
         void annotation_by;
-        return stripGist(stripCompression(stripProvenance(stripCorrectedQuote(rest))));
+        return stripV28(stripGist(stripCompression(stripProvenance(stripCorrectedQuote(rest)))));
       }),
     ).toEqual(blocksBefore);
   });
@@ -791,7 +813,8 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(handle.prepare('SELECT COUNT(*) AS c FROM date_dismissals').get()).toEqual({ c: 0 });
     expect(
       (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(
-        (r: Record<string, unknown>) => stripGist(stripCompression(stripProvenance(stripCorrectedQuote(r)))),
+        (r: Record<string, unknown>) =>
+          stripV28(stripGist(stripCompression(stripProvenance(stripCorrectedQuote(r))))),
       ),
     ).toEqual(blocksBefore);
   });
@@ -799,6 +822,12 @@ describe('migrateSchema registry (§19.3)', () => {
   // V1 (WORKPLAN §2.V1). One new table, empty, and — the property that matters for the most
   // expensive table in the library — `blocks` comes out byte-identical. Ocean's rule for this
   // batch was ⛔「别往 blocks 上面加」, and this is the test that would catch it if someone did.
+  //
+  // ⚠️⚠️ 2026-08-25：这条起点是 v26,所以它现在**一路跑到 v28**,而 v28（`Q1`）是 Ocean
+  // 亲自开的那个例外（「认可：加一列,不开新表」）—— `blocks` 上多了 `ref_note` / `gist_by`。
+  // ⇒ 这里 `stripV28` 掉的是**那个例外**,⛔ 不是把这条规矩改宽了：`read_positions` 仍然
+  // 是一张新表,V1 仍然一列都没往 blocks 上加,而这正是这条测试要钉的东西。
+  // ⛔ 下次再有人往 blocks 加列,这里会红 —— 那时候要去重新问 Ocean,不是再加一个 strip。
   it('v26 → v27 adds an empty read_positions and leaves blocks untouched', async () => {
     applySchema(handle);
     downgradeToV26(handle);
@@ -819,8 +848,44 @@ describe('migrateSchema registry (§19.3)', () => {
     // migration claiming a remembered position — that would land the user mid-thread on the
     // first open after an upgrade, with nothing having been read.
     expect(handle.prepare('SELECT COUNT(*) AS c FROM read_positions').get()).toEqual({ c: 0 });
-    expect(handle.prepare('SELECT * FROM blocks').all()).toEqual(blocksBefore);
+    expect(
+      (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(stripV28),
+    ).toEqual(blocksBefore);
     expect(handle.prepare('SELECT * FROM threads').all()).toEqual(threadsBefore);
+  });
+
+  // Q1 (WORKPLAN §2.Q1). Three nullable columns, no backfill, existing rows otherwise
+  // byte-identical.
+  //
+  // ⚠️⚠️ `gist_by` NULL is the one that has to stay NULL. It reads as「不知道」, and the
+  // reading side treats「不知道」as 'ai' — because between v26 and v27 the ONLY writer of
+  // `gist` was add_block. Stamping 'ai' here instead would be writing user data in a
+  // migration (the 2026-05-29 class), and stamping 'user' would hand every AI-written gist
+  // the protection meant for the user's own.
+  it('v27 → v28 adds ref_note / gist_by and backfills neither', async () => {
+    applySchema(handle);
+    downgradeToV27(handle);
+    seedUserData(handle);
+    const blocksBefore = handle.prepare('SELECT * FROM blocks').all();
+
+    await __migrateSchemaForTest(db);
+
+    expect(userVersion(handle)).toBe(CURRENT_SCHEMA_VERSION);
+    expect(columnNames(handle, 'blocks')).toContain('ref_note');
+    expect(columnNames(handle, 'blocks')).toContain('gist_by');
+    expect(columnNames(handle, 'proposals')).toContain('ref_note');
+    // ⛔ proposals 不要 gist_by —— 待审的摘要只有一种来路。
+    expect(columnNames(handle, 'proposals')).not.toContain('gist_by');
+    // 三列全 NULL，其余一个字节都没动。
+    expect(
+      (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(stripV28),
+    ).toEqual(blocksBefore);
+    expect(
+      handle.prepare('SELECT COUNT(*) AS c FROM blocks WHERE ref_note IS NOT NULL').get(),
+    ).toEqual({ c: 0 });
+    expect(
+      handle.prepare('SELECT COUNT(*) AS c FROM blocks WHERE gist_by IS NOT NULL').get(),
+    ).toEqual({ c: 0 });
   });
 
   // DESIGN_PROJECT_FILES §3.4 (phase three). The queue starts empty and grants nothing: a
@@ -907,7 +972,7 @@ describe('migrateSchema registry (§19.3)', () => {
     expect(handle.prepare('SELECT * FROM threads').all()).toEqual(threadsBefore);
     expect(
       (handle.prepare('SELECT * FROM blocks').all() as Record<string, unknown>[]).map(
-        (r: Record<string, unknown>) => stripGist(stripCompression(r)),
+        (r: Record<string, unknown>) => stripV28(stripGist(stripCompression(r))),
       ),
     ).toEqual(blocksBefore);
   });

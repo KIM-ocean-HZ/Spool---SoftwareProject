@@ -487,6 +487,19 @@ function BatchCard({
                       {item.annotation}
                     </span>
                   )}
+                  {/* ⭐ Q1（2026-08-25）—— **引用的理由也要摆出来。** §2.Q1 那十处没列这一条，
+                      但它和上面那句批注是同一类东西：AI 写的一句话，批准之后落在块上、进 pack、
+                      被下一个模型读。⛔ 不摆 = 用户点「通过」的时候批准了一句自己没看见的话。 */}
+                  {item.refNote && (
+                    <span className="mt-0.5 flex items-baseline gap-1 text-[11px] leading-snug text-muted">
+                      <span aria-hidden="true" className="flex-none opacity-60">
+                        ↩
+                      </span>
+                      <span className="min-w-0 whitespace-pre-wrap break-words">
+                        {item.refNote}
+                      </span>
+                    </span>
+                  )}
                 </span>
               </label>
             </li>

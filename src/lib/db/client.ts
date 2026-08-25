@@ -38,7 +38,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 27;
+const SCHEMA_VERSION = 28;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -865,6 +865,44 @@ const MIGRATIONS: Migration[] = [
         last_block_at INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
       )`);
+    },
+  },
+  {
+    // v28 (WORKPLAN §2.Q1, Ocean 2026-08-25)：引用带上「为什么引它」+ 摘要分得出是谁写的。
+    //
+    // ⚠️⚠️ **ADD COLUMN only，没有回填、⛔ 没有 rebuild 分支** —— 和 v21 / v24 / v26 逐字
+    // 同一条路（2026-05-29 抹库是**重建表**那条分支干的）。三个可空列：
+    //   * `blocks.ref_note` / `proposals.ref_note` —— 引用的理由，要跟着队列过审批
+    //     （`corrected_quote` / `gist` 就是这么带的，少了 proposals 那一半 = 审批之后理由没了）；
+    //   * `blocks.gist_by` —— 摘要是谁写的。⛔ **proposals 不加这一列**：待审的摘要
+    //     只有一种来路（AI 写的 `propose_blocks`），批准时按 'ai' 落地就够，
+    //     多存一列等于多一处能 drift 的地方。
+    //   * 往前：老库每一行都是 NULL —— `ref_note` 读出来是「没人写过理由」（界面退回 `gist`），
+    //     `gist_by` 读出来是「不知道」，⚠️ 而那些**确实全是 AI 写的**（v26–v27 期间 `gist`
+    //     只有 `add_block` 一条写入路径），所以读的那一头按 'ai' 待。
+    //   * 往回：`ALTER TABLE ... DROP COLUMN` 三句退回 v27，⛔ 不丢任何 v27 就有的数据。
+    //
+    // ⚠️ ⛔ **不碰 `blocks_fts`**：external-content 索引的列是逐个点名的（`content, annotation`），
+    // 加列不会让它错位；而这两列本来也不该进它 —— 一句「为什么引它」不是要被搜到的东西。
+    //
+    // ⚠️ 半跑一次和跑完一次分不出来，而这正是安全的那一类：`ALTER TABLE ADD COLUMN` 撞上
+    // 已存在的列会抛，catch 掉再跑一遍什么都不会发生（v26 逐字同一个写法）。
+    from: 27,
+    to: 28,
+    name: 'add-ref-note-and-gist-by',
+    run: async (db) => {
+      const cols: Array<[string, string]> = [
+        ['blocks', 'ref_note'],
+        ['proposals', 'ref_note'],
+        ['blocks', 'gist_by'],
+      ];
+      for (const [table, col] of cols) {
+        try {
+          await db.execute(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
+        } catch (e) {
+          console.info(`[db] ${table}.${col}: not added (likely exists)`, e);
+        }
+      }
     },
   },
 ];

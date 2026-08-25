@@ -56,6 +56,20 @@ export const REF_BLOCK_FROM = ' — in project: ';
 // not on the word "supersedes".
 export const REF_BLOCK_SUPERSEDES = '↩ replaces (that block no longer holds): ';
 export const REF_BLOCK_CORRECTS = '↩ corrects one point in: ';
+// v28 (WORKPLAN §2.Q1, Ocean 2026-08-25) — WHY this block points at that one, in the
+// citing block's own words. Appended to the ↩ line, LAST: everything before it describes
+// the cited block (its time, its label, whose project it is in), and this is the one part
+// spoken by the block you are currently reading.
+//
+// The line answered "what is that block" and never "why am I being shown it". Ocean hit it
+// on the real library — a citation whose preview read 「Dear Hanze, I have great news for
+// you — …」, which is neither. His example of what it should say: 「教授回复了邮件，项目重启」.
+//
+// English like every other pack marker: this line is a contract with whoever the pack is
+// pasted into. Rendered only when a reason was written — a v28 column is NULL on every
+// citation that already exists, and an empty 「— why: 」 would be worse than the line
+// without it.
+export const REF_NOTE_PREFIX = ' — why: ';
 // The mirror image, rendered under the OLDER block — which stays in the pack in full
 // (§3.1.1: correcting one sentence must not cost the other 1,900 characters). Without this
 // line the correction would be invisible to anyone reading the old block top-down.
