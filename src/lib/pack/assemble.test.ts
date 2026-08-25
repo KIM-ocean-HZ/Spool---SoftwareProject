@@ -4,7 +4,12 @@ import { describe, expect, it } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments';
 import type { Block } from '@/lib/db/blocks';
 import type { Thread } from '@/lib/db/threads';
-import { assemble, filterBlocksForRange, foldedCorrectionIds } from './assemble';
+import {
+  assemble,
+  correctionsBySource,
+  filterBlocksForRange,
+  foldedCorrectionIds,
+} from './assemble';
 import { INSTRUCTION_HEADER, PACK_BEGIN, PACK_END } from './templates';
 import goldenFixture from './fixtures/golden-pack.json';
 
@@ -664,6 +669,41 @@ describe('assemble', () => {
       ];
       const folded = foldedCorrectionIds(blocks);
       expect([...folded]).toEqual(['b2']);
+    });
+
+    // ⭐ 2026-08-25（Ocean:「批注不能被更正」）—— 一条更正划的句子在批注里也算数。
+    it('locates a quote that lives in the annotation, and says which field it came from', () => {
+      const blocks = [
+        textBlock('b1', '课程要求:复现一篇论文', {
+          seq: 1,
+          annotation: 'v3 里说 MIT 12/22,实际是 12/15',
+        }),
+        textBlock('b2', '项目名也不对', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: 'MIT 12/22',
+        }),
+      ];
+      const [c] = correctionsBySource(blocks).get('b1') ?? [];
+      expect(c?.quote).toBe('MIT 12/22');
+      expect(c?.field).toBe('annotation');
+      // 划得到 = 点得开 = 折进去（正文那一格的合并块限制管不到批注）。
+      expect([...foldedCorrectionIds(blocks)]).toEqual(['b2']);
+    });
+
+    it('prefers the body when the same words sit in both fields', () => {
+      // ⚠️ 批注是**关于正文**的一句话,同一句话两边都有的时候,更正说的多半是正文那一份。
+      const blocks = [
+        textBlock('b1', '截止 12/22', { seq: 1, annotation: '截止 12/22' }),
+        textBlock('b2', '其实是 12/15', {
+          seq: 2,
+          refBlockId: 'b1',
+          refKind: 'corrects',
+          correctedQuote: '截止 12/22',
+        }),
+      ];
+      expect(correctionsBySource(blocks).get('b1')?.[0]?.field).toBe('content');
     });
 
     it('does not fold under a merged block, which has no marks to click', () => {

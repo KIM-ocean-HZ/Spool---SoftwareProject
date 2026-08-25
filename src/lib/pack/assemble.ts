@@ -349,6 +349,10 @@ export interface Correction {
   id: string;
   seq: number;
   quote: string | null;
+  /** ⭐ 2026-08-25（Ocean:「批注不能被更正」）—— 这句原话是在**哪一格**找到的。
+   *  `null` = 哪一格都对不上（那条更正只能指着整块说话）。
+   *  ⚠️ 两格是两套字符下标，画记号的那一头必须知道该按哪一串定位。 */
+  field: 'content' | 'annotation' | null;
 }
 
 export const correctionsBySource = (blocks: Block[]): Map<string, Correction[]> => {
@@ -357,12 +361,18 @@ export const correctionsBySource = (blocks: Block[]): Map<string, Correction[]> 
     if (b.refKind !== 'corrects' || !b.refBlockId || b.seq == null) continue;
     const q = b.correctedQuote?.trim();
     const target = blocks.find((t) => t.id === b.refBlockId);
+    // ⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。⛔ 用 `includes` 的话，
+    // 压缩把这一句的标点改写过之后，这里会退回只报块号 —— 而闸门当初是放行的。
+    // ⭐ 2026-08-25：正文找不到就再问一次批注。**正文优先** —— 同一句话两格都有的时候，
+    // 更正说的多半是正文那一份（批注是关于正文的话）。
+    const inContent = !!q && !!target && quoteIsInBlock(target.content, q);
+    const inNote =
+      !inContent && !!q && !!target?.annotation && quoteIsInBlock(target.annotation, q);
     const entry: Correction = {
       id: b.id,
       seq: b.seq,
-      // ⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。⛔ 用 `includes` 的话，
-      // 压缩把这一句的标点改写过之后，这里会退回只报块号 —— 而闸门当初是放行的。
-      quote: q && target && quoteIsInBlock(target.content, q) ? q : null,
+      quote: q && (inContent || inNote) ? q : null,
+      field: inContent ? 'content' : inNote ? 'annotation' : null,
     };
     const list = out.get(b.refBlockId);
     if (list) list.push(entry);
@@ -389,8 +399,15 @@ export const foldedCorrectionIds = (blocks: Block[]): Set<string> => {
     // under one would put it behind a door with no handle, the same defect
     // DESIGN_MCP_INTENT_ROUTING §2.1 named on the file side.
     const target = blocks.find((b) => b.id === targetId);
-    if (!target || hasSegmentAnnotations(target.content)) continue;
-    for (const c of list) if (c.quote) out.add(c.id);
+    if (!target) continue;
+    for (const c of list) {
+      if (!c.quote) continue;
+      // ⚠️ 合并块（SegmentedContent）不吃 `corrected` 记号，所以**划在正文里**的那种没有
+      // 可点的记号 —— 折进去等于藏在一扇没有把手的门后面。
+      // ⚠️ 划在**批注**里的不受这一条影响：批注永远走 ContentRuns，记号照常画。
+      if (c.field === 'content' && hasSegmentAnnotations(target.content)) continue;
+      out.add(c.id);
+    }
   }
   return out;
 };

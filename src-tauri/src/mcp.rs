@@ -730,10 +730,16 @@ fn corrections_by_source<'a>(
             .filter(|q| !q.is_empty())
             // ⭐ T4(2026-08-23):和入库时那道闸同一把尺子(标点折叠)。⛔ 用 `contains`
             // 的话,压缩改写过这一句的标点之后这里就退回只报块号,而且不报任何错。
+            // ⭐ 2026-08-25: content OR annotation, mirroring assemble.ts correctionsBySource.
             .filter(|q| {
-                blocks
-                    .iter()
-                    .any(|t| t.id == target && crate::api_engine::quote_is_in_block(&t.content, q))
+                blocks.iter().any(|t| {
+                    t.id == target
+                        && (crate::api_engine::quote_is_in_block(&t.content, q)
+                            || t
+                                .annotation
+                                .as_deref()
+                                .is_some_and(|a| crate::api_engine::quote_is_in_block(a, q)))
+                })
             });
         out.entry(target).or_default().push((seq, quote));
     }
@@ -4271,16 +4277,24 @@ fn parse_corrected_quote(args: &Value) -> Result<Option<String>, String> {
 // only party that can still fix it, and only right now. (The reverse case, the user editing
 // the cited block afterwards, degrades quietly on purpose: nothing is wrong with the write.)
 fn check_quote_occurs(conn: &Connection, ref_block_id: &str, quote: &str) -> Result<(), String> {
-    let content: String = conn
-        .query_row("SELECT content FROM blocks WHERE id = ?1", [ref_block_id], |r| r.get(0))
+    // ⭐ 2026-08-25 (Ocean:「批注不能被更正」): the annotation counts too. A note is a claim
+    // about the block like any other, and it can be wrong in exactly the same way — the GUI
+    // now marks a corrected sentence in either field, so refusing the write here would leave
+    // the AI unable to say what a person sitting in front of the app can say.
+    let (content, annotation): (String, Option<String>) = conn
+        .query_row("SELECT content, annotation FROM blocks WHERE id = ?1", [ref_block_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .map_err(|e| e.to_string())?;
-    if !content.contains(quote) {
+    let found = content.contains(quote)
+        || annotation.as_deref().is_some_and(|a| a.contains(quote));
+    if !found {
         return Err(t!(
-            "corrected_quote 在被更正的那一块里找不到。它要一字不差地照抄那一块正文里的原话 —— \
-             Spool 是靠这句话在原文里定位并画出来的,差一个字就画不出来。",
+            "corrected_quote 在被更正的那一块里找不到。它要一字不差地照抄那一块**正文或批注**里的\
+             原话 —— Spool 是靠这句话在原文里定位并画出来的,差一个字就画不出来。",
             "corrected_quote does not occur in the block being corrected. It has to be copied \
-             verbatim out of that block's text — Spool locates it by exact substring in order to \
-             mark it, so a single character off means nothing is marked."
+             verbatim out of that block's text OR its annotation — Spool locates it by exact \
+             substring in order to mark it, so a single character off means nothing is marked."
         ));
     }
     Ok(())
@@ -4382,6 +4396,26 @@ fn add_block_json(
             ));
         };
         check_quote_occurs(conn, rid, q)?;
+    }
+    // ⭐⭐ 2026-08-25 (Ocean, reading a real correction in his library): 「AI 更正并不能落实到
+    // 单独一个词上……AI 更正按道理应该能更准确」. The aim used to be optional, and an aimless
+    // correction is the shape he was looking at: block #13 corrects #7, and all the interface
+    // can say is 「其中一处已被更正」 with a number — the reader has to diff two blocks by eye.
+    // ⇒ A correction now HAS to say which words it is about.
+    // ⚠️ 「the whole block is wrong」 is a different claim and already has its own relation:
+    // `supersedes` (propose_supersede). The error says so, because a model that cannot find
+    // one sentence usually means that one.
+    if ref_kind == Some("corrects") && corrected_quote.is_none() {
+        return Err(t!(
+            "ref_kind=\"corrects\" 要一起给 corrected_quote —— 更正得说清是那一块里的**哪一句**\
+             不对了(照抄原话,正文或批注里的都行)。用户看到的是那一句上的记号,只给块号的话\
+             他要自己把两块对着读。整块都不作数了的话,那是另一回事:用 propose_supersede。",
+            "ref_kind=\"corrects\" needs a corrected_quote — a correction has to say WHICH \
+             sentence in that block no longer holds (copy it verbatim, from its text or its \
+             annotation). The user sees a mark on that sentence; a bare block number makes them \
+             diff two blocks by eye. If the WHOLE block is superseded, that is a different \
+             claim — use propose_supersede."
+        ));
     }
     let now = now_ms();
     // §20.13 v2.1 (P0-1, field report A4): the client label is an invariant, not a
@@ -4898,6 +4932,19 @@ fn propose_blocks_json(
             };
             check_quote_occurs(conn, rid, q)
                 .map_err(|e| t!("第 {n} 条:{e}", "Proposal {n}: {e}"))?;
+        }
+        // ⭐ 2026-08-25: same rule as add_block — a correction has to aim at a sentence.
+        // ⛔ The two write paths must not drift on this: a model that gets refused on one
+        // and let through on the other learns the wrong lesson from whichever it tries next.
+        if ref_kind == Some("corrects") && corrected_quote.is_none() {
+            return Err(t!(
+                "第 {n} 条写了 ref_kind=\"corrects\" 却没给 corrected_quote —— 更正得说清是那一块里\
+                 的**哪一句**不对了(照抄原话,正文或批注里的都行)。整块都不作数的话用 \
+                 propose_supersede。",
+                "Proposal {n} set ref_kind=\"corrects\" with no corrected_quote — a correction has \
+                 to say WHICH sentence in that block no longer holds (copy it verbatim, from its \
+                 text or its annotation). If the WHOLE block is superseded, use propose_supersede."
+            ));
         }
         pending.push(PendingProposal {
             thread_id,
@@ -6364,7 +6411,7 @@ fn tools_descriptor() -> Value {
                     "recheck_after": { "type": "string", "description": "The date after which this should be checked again, YYYY-MM-DD — for facts with a shelf life (a deadline, a fee, a programme requirement). Once that date passes, packs mark this block as possibly out of date and get_project_overview counts it under needs_attention.due_for_recheck. It never retires or hides the block: that is the user's call alone. Omit for anything that does not go off." },
                     "ref_block_id": { "type": "string", "description": "Optional citation: the block_id (from search_blocks / get_blocks) this finding builds on. Renders in packs as an '↩ cites:' line with the cited block's preview. Use this instead of ever writing ids into content." },
                     "ref_kind": { "type": "string", "enum": ["corrects"], "description": "Set to \"corrects\" when this block says that ONE point inside the block named by ref_block_id is wrong (ref_block_id is then required). The old block is never edited and keeps rendering in full; Spool hangs a line under it pointing here, and marks this one as the correction. ⚠️ A block whose text merely opens with '更正' or 'Correction' does nothing at all — Spool keys on this field, not on your wording, and without it the old block goes on being read as a live conclusion in every future briefing. Omit for an ordinary citation. Retiring a block WHOLE is not this field and never will be — but it is no longer closed to you either: propose_supersede queues that question for the user, who answers it in one click." },
-                    "corrected_quote": { "type": "string", "description": "Only with ref_kind=\"corrects\": the ONE sentence inside the corrected block that no longer holds, copied out of it word for word. Spool finds it by exact substring and marks it in place, so the user can see WHICH sentence changed instead of re-reading a long block hunting for it — a single character off and nothing is marked, so copy, do not paraphrase or re-punctuate. Quote the sentence, not the block (200 chars max). Omit if you cannot point at one sentence; the correction still gets hung under the old block." },
+                    "corrected_quote": { "type": "string", "description": "REQUIRED with ref_kind=\"corrects\": the ONE sentence inside the corrected block that no longer holds, copied out of it word for word — out of its text or out of its annotation, either counts. Spool finds it by exact substring and marks it in place, so the user can see WHICH sentence changed instead of re-reading a long block hunting for it — a single character off and nothing is marked, so copy, do not paraphrase or re-punctuate. Quote the sentence, not the block (200 chars max). If you cannot point at one sentence because the WHOLE block is wrong, that is a different claim — use propose_supersede instead." },
                     "gist": { "type": "string", "description": "One line saying what this block is AS A WHOLE — 50\u{2013}100 characters, in the user's language. It is shown beside this block in search results, where a long block otherwise returns one matching fragment and nothing about the rest of it; across a library of dozens of projects that hit list is the only way in. Write it the way you would answer \u{201c}what is this one about?\u{201d} — not a summary of the conclusion, and not a repeat of the first sentence. It never appears in packs and carries no authority of its own; the user can edit it.", "maxLength": 200 },
                     "dry_run": { "type": "boolean", "description": "Validate and preview without writing: returns the exact content, annotation, source label and block number (#n) this call WOULD store, plus written=false. Nothing lands in the library. Use it whenever the content was assembled from parameters you are not certain about — a written block cannot be edited or taken back. Default false." }
                 },
@@ -6390,7 +6437,7 @@ fn tools_descriptor() -> Value {
                                 "annotation": { "type": "string", "description": "Optional short note shown as the block's annotation." },
                                 "ref_block_id": { "type": "string", "description": "Optional citation to an existing block. Leave it out when you passed source_text — the original passage is cited automatically. Required when ref_kind is \"corrects\": it names the block being corrected." },
                                 "ref_kind": { "type": "string", "enum": ["corrects"], "description": "Set to \"corrects\" when this block says one point inside the block named by ref_block_id is wrong. That block is left untouched and still renders in full — only a line is added under it pointing here. Omit for an ordinary citation. Retiring a block WHOLE is a different tool — propose_supersede — and it queues that question rather than doing it." },
-                                "corrected_quote": { "type": "string", "description": "Only with ref_kind=\"corrects\": the one sentence inside the corrected block that no longer holds, copied out of it word for word (Spool locates it by exact substring to mark it in place; a character off marks nothing). Quote the sentence, not the block, 200 chars max." },
+                                "corrected_quote": { "type": "string", "description": "REQUIRED with ref_kind=\"corrects\": the one sentence inside the corrected block that no longer holds, copied out of it word for word — from its text or its annotation (Spool locates it by exact substring to mark it in place; a character off marks nothing). Quote the sentence, not the block, 200 chars max. Whole block wrong instead? That is propose_supersede." },
                                 "gist": { "type": "string", "description": "One line saying what this block is AS A WHOLE (50\u{2013}100 chars), shown beside it in search results. Same field as add_block's — it survives the review queue and lands on the approved block.", "maxLength": 200 },
                                 "source_url": { "type": "string", "description": "The web address this piece came from (http:// or https://). Same field as add_block's — it survives the review queue and lands on the approved block." },
                                 "retrieved_at": { "type": "string", "description": "The date you read that source, YYYY-MM-DD." },
@@ -11155,11 +11202,25 @@ mod tests {
             "content": "占分是 30% 不是 40%",
             "ref_block_id": "blk_existing_00000000",
             "ref_kind": "corrects",
+            // ⭐ 2026-08-25: an aim is required now — see add_block's twin of this rule.
+            "corrected_quote": "早先的一块",
         }]);
         assert!(
             propose_blocks_json(&mut conn, corrects.as_array().unwrap(), None, None, None, now)
                 .is_ok()
         );
+        // ⭐ …and the queue refuses an aimless one exactly like the direct write does. ⛔ The
+        // two paths must not drift: a model refused on one and let through on the other
+        // learns the wrong lesson from whichever it tries next.
+        let aimless = json!([{
+            "thread_id": "th1",
+            "content": "占分是 30% 不是 40%",
+            "ref_block_id": "blk_existing_00000000",
+            "ref_kind": "corrects",
+        }]);
+        let err = propose_blocks_json(&mut conn, aimless.as_array().unwrap(), None, None, None, now)
+            .unwrap_err();
+        assert!(err.contains("corrected_quote"), "{err}");
         let stored: Option<String> = conn
             .query_row(
                 "SELECT ref_kind FROM proposals WHERE content = '占分是 30% 不是 40%'",
@@ -11602,6 +11663,13 @@ mod tests {
         let err = add_block_json(&mut conn, "th1", "更正:其实要并行评估", None, None, None, Some("corrects"), &Provenance::default(), None, None, false)
             .unwrap_err();
         assert!(err.contains("ref_block_id"), "{err}");
+        // ⭐ 2026-08-25 (Ocean): and one that names a block but no sentence is refused too —
+        // 「AI 更正并不能落实到单独一个词上」. The refusal has to name the other relation, or a
+        // model that really does mean "the whole block is wrong" has nowhere to go.
+        let err = add_block_json(&mut conn, "th1", "更正:其实要并行评估", None, None, Some(&old_id), Some("corrects"), &Provenance::default(), None, None, false)
+            .unwrap_err();
+        assert!(err.contains("corrected_quote"), "{err}");
+        assert!(err.contains("propose_supersede"), "{err}");
 
         // The one that works, end to end: the column is set, and the pack renderer (v14,
         // untouched) hangs the correction under the old block from both sides.
@@ -11614,7 +11682,7 @@ mod tests {
             Some(&old_id),
             Some("corrects"),
             &Provenance::default(),
-            None,
+            Some("不纳入"),
             None,
             false,
         )
@@ -11635,7 +11703,7 @@ mod tests {
         // dry_run has to show it too — it is the one place a caller can check what would
         // land, and a silently dropped ref_kind is exactly the failure this feature is for.
         let dry: Value = serde_json::from_str(
-            &add_block_json(&mut conn, "th1", "预演", None, None, Some(&old_id), Some("corrects"), &Provenance::default(), None, None, true)
+            &add_block_json(&mut conn, "th1", "预演", None, None, Some(&old_id), Some("corrects"), &Provenance::default(), Some("不纳入"), None, true)
                 .unwrap(),
         )
         .unwrap();

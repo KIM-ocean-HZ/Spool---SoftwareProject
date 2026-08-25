@@ -223,7 +223,9 @@ const EN: Record<string, string> = {
   // ⭐ S5（2026-08-24）：更正卡指回它划的那一句。
   '划的是：': 'Marks: ',
   '取消更正': 'Cancel correction',
-  '取消这条更正（那一块本身留着）': 'Cancel this correction (the block itself stays)',
+  // 2026-08-25：取消更正现在把那一块一起删掉（Ocean:「直接消失」），提示也跟着改。
+  '取消这条更正（这一块会一起删掉，⌘Z 拿得回来）':
+    'Cancel this correction — the correcting block is deleted with it (⌘Z brings it back)',
   '更正选中的这一句': 'Correct the selected sentence',
   // The floating prompt, beside 「标为重点?」 — Ocean 2026-08-19:「点击工具栏摩擦太大了」.
   '更正这里?': 'Correct this?',

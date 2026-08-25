@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
-import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { plainText } from '@/lib/blocks/contentRuns';
 import { getBlockById, type RefKind } from '@/lib/db/blocks';
 import { useT } from '@/lib/i18n';
-import { blockLabel } from '@/lib/pack/assemble';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useSearchStore } from '@/stores/searchStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
@@ -52,19 +50,22 @@ export default function CitationLine({ refBlockId, refKind, fromThreadId }: Prop
         b
           ? {
               state: 'found',
-              // Same label ladder the pack's ↩ cites: line uses — one truncation semantic
-              // across pack and GUI (DESIGN_CONTEXT_HYGIENE §3.2).
-              // v14 (§9.3 拍板乙): an AI-written note may not name the block here either.
-              // DESIGN_MCP_WRITE_ROLE §9.5 caught this line doing exactly that in the real
-              // library — GPT's own sentence was naming #4 under #10 and #11.
-              // ⚠️ The ladder runs on the STRIPPED text, so the 40-character budget buys 40
-              // characters of the user's words rather than of `#` and `**`. The rule itself
-              // (40 chars, note wins only when the body does not fit whole) is untouched.
-              anchor: blockLabel(
-                plainText(b.content),
-                b.annotation ? plainText(b.annotation) : b.annotation,
-                annotationIsAi(b.annotationBy, b.source),
-              ),
+              // ⭐⭐ 2026-08-25（Ocean）——「被引用的 block 正文文字再也不显示（这个文字没有
+              // 用，显示不全，且可以直接点过去看）」。
+              //
+              // 他说的是真库 Flux `#16` 引用 `#9`：`#9` 是一封原文邮件，这一行截出来的
+              // 「Dear Hanze, I have great news for you — …」既不是它说了什么，也不是为什么
+              // 引它。⇒ 正文**整条不再出现在这里**。
+              //
+              // 换上的是**一句关于那一块的话**，按这个次序：
+              //   ① `gist` —— AI 写的「这一块整体是什么」（v26 §2.S8，`add_block` 就能给）;
+              //   ② 批注 —— 有人（AI 或用户）写过的那一句。
+              //   ③ 都没有 → **什么都不显示**，只剩编号和时间,点过去看。
+              // ⚠️ ⛔ 这里不再走 `blockLabel`：那个梯子的最后一级正是「退回正文前 40 字」，
+              // 而那一级就是他要去掉的东西。pack 那边照旧（`assemble.ts` 没动）。
+              // ⚠️ 批注不再按「谁写的」过滤（v14 §9.3 拍板乙的那道闸）—— 08-25 Ocean 明确
+              // 反过来了：「AI 的批注 UI 应该和用户批注一样」。它在这儿也是一句关于那一块的话。
+              anchor: plainText((b.gist?.trim() || b.annotation?.trim()) ?? ''),
               createdAt: b.createdAt,
               seq: b.seq,
               threadId: b.threadId,
@@ -156,10 +157,14 @@ export default function CitationLine({ refBlockId, refKind, fromThreadId }: Prop
         <time className="shrink-0 font-mono tabular-nums opacity-70">
           {formatBlockTime(cited.createdAt)}
         </time>
-        <span aria-hidden="true" className="shrink-0 opacity-40">
-          ·
-        </span>
-        <span className="min-w-0 truncate text-ink-2">{cited.anchor}</span>
+        {cited.anchor && (
+          <>
+            <span aria-hidden="true" className="shrink-0 opacity-40">
+              ·
+            </span>
+            <span className="min-w-0 truncate text-ink-2">{cited.anchor}</span>
+          </>
+        )}
         {cited.threadId !== fromThreadId && (
           <>
             <span aria-hidden="true" className="shrink-0 opacity-40">

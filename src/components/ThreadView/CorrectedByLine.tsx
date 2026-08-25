@@ -24,7 +24,8 @@ export default function CorrectedByLine({ corrections }: { corrections: Correcti
 
   return (
     <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-1 font-ui text-[11px] text-muted">
-      <span aria-hidden="true">⚠️</span>
+      {/* ⛔ 2026-08-25（Ocean）：这里以前有一个 ⚠️。去掉了 —— 这一行本来就是灰的小字，
+          一个警告表情把它读成了「出事了」，而它说的只是「后面有人更正过这一处」。 */}
       <span className="shrink-0">{t('其中一处已被更正：')}</span>
       {corrections.map((c) => (
         <button

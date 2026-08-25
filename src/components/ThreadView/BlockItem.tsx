@@ -141,7 +141,7 @@ function TextBlockItem({
   const setContent = useBlocksStore((s) => s.setContent);
   const setAnnotation = useBlocksStore((s) => s.setAnnotation);
   const setStale = useBlocksStore((s) => s.setStale);
-  const clearSupersession = useBlocksStore((s) => s.clearSupersession);
+  const removeBlock = useBlocksStore((s) => s.remove);
   const addCorrection = useBlocksStore((s) => s.addCorrection);
   const siblings = useBlocksStore((s) => s.byThread[block.threadId]);
   // v13's warning, seen from the corrected block — the half the feed never had. Derived
@@ -167,13 +167,21 @@ function TextBlockItem({
   // 压过、而且压缩前的原文还留着。⚠️ 两个条件都要 —— 关了「备份原文」那一次是不可逆的，
   // 那时候 `compressedAt` 有值而 `originalContent` 是空的（`blocks.ts` 上写着）。
   const hasOriginal = block.compressedAt != null && block.originalContent != null;
+  /** 这一条更正挂不挂得到某一句上（挂得上 = 画在那一句底下；挂不上 = 只能指着整块说）。
+   *  ⚠️ 必须和 `assemble.ts` 的 `foldedCorrectionIds` 同一条件：那边从时间线上折走的，
+   *  这边必须画出来，⛔ 少一条就是一块存在于库里、屏幕上哪儿都看不到的更正。
+   *  ⭐ 2026-08-25：划在**批注**里的不受合并块那条限制 —— 批注永远走 ContentRuns，记号照画。 */
+  const isAttached = useCallback(
+    (c: Correction): boolean => !!c.quote && (c.field === 'annotation' || foldable),
+    [foldable],
+  );
   const attachedCorrections = useMemo(
-    () => (foldable ? corrections.filter((c) => c.quote) : []),
-    [corrections, foldable],
+    () => corrections.filter(isAttached),
+    [corrections, isAttached],
   );
   const pointerCorrections = useMemo(
-    () => (foldable ? corrections.filter((c) => !c.quote) : corrections),
-    [corrections, foldable],
+    () => corrections.filter((c) => !isAttached(c)),
+    [corrections, isAttached],
   );
   const correctionBlocks = useMemo(
     () =>
@@ -182,23 +190,35 @@ function TextBlockItem({
         .filter((b): b is Block => !!b),
     [attachedCorrections, siblings],
   );
-  const correctedSpans = useMemo(() => {
-    const spans: { start: number; end: number; id: string }[] = [];
-    for (const c of corrections) {
-      if (!c.quote) continue;
-      // ⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。⛔ 用 `indexOf` 的话，
-      // 压缩把这一句的标点改写过之后，这处高亮就**悄悄消失**，而屏幕上没有任何提示。
-      // ⚠️ 折叠长度守恒，所以这里拿到的下标就是 `block.content` 上的下标。
-      let from = locateQuote(block.content, c.quote);
-      while (from !== -1) {
-        // 2026-08-19: the span carries WHICH correction marked it, so clicking one sentence opens
-        // that sentence's correction and not every correction on the block.
-        spans.push({ start: from, end: from + c.quote.length, id: c.id });
-        from = locateQuote(block.content, c.quote, from + c.quote.length);
+  /** 一格里所有被更正的位置。⭐ T4（2026-08-23）：和入库时那道闸同一把尺子（标点折叠）。
+   *  ⛔ 用 `indexOf` 的话，压缩把这一句的标点改写过之后，这处记号就**悄悄消失**，而屏幕上
+   *  没有任何提示。⚠️ 折叠长度守恒，所以拿到的下标就是这一格自己那串字符上的下标。 */
+  const spansIn = useCallback(
+    (field: 'content' | 'annotation', text: string) => {
+      const spans: { start: number; end: number; id: string }[] = [];
+      for (const c of corrections) {
+        if (!c.quote || c.field !== field) continue;
+        let from = locateQuote(text, c.quote);
+        while (from !== -1) {
+          // 2026-08-19: the span carries WHICH correction marked it, so clicking one sentence opens
+          // that sentence's correction and not every correction on the block.
+          spans.push({ start: from, end: from + c.quote.length, id: c.id });
+          from = locateQuote(text, c.quote, from + c.quote.length);
+        }
       }
-    }
-    return spans;
-  }, [corrections, block.content]);
+      return spans;
+    },
+    [corrections],
+  );
+  const correctedSpans = useMemo(
+    () => spansIn('content', block.content),
+    [spansIn, block.content],
+  );
+  /** ⭐ 2026-08-25（Ocean:「批注不能被更正」）—— 批注那一格上的同一件事。 */
+  const noteCorrectedSpans = useMemo(
+    () => spansIn('annotation', block.annotation ?? ''),
+    [spansIn, block.annotation],
+  );
 
   // ⭐ S5（2026-08-24，Ocean 选丙）—— **一块上多条更正，要配得上对。**
   //
@@ -220,6 +240,16 @@ function TextBlockItem({
   const correctionQuote = useMemo(
     () => new Map(corrections.flatMap((c) => (c.quote ? [[c.id, c.quote] as const] : []))),
     [corrections],
+  );
+  /** ⭐ 2026-08-25：划在批注上的那几条 —— 卡片跟在批注底下（正文那边是跟在段落底下）。
+   *  ⚠️ 按 seq 排，不按位置：批注是一句话，几条更正挤在同一句上时位置分不出先后。 */
+  const noteCorrectionBlocks = useMemo(
+    () =>
+      attachedCorrections
+        .filter((c) => c.field === 'annotation')
+        .map((c) => (siblings ?? []).find((b) => b.id === c.id))
+        .filter((b): b is Block => !!b),
+    [attachedCorrections, siblings],
   );
   const correctionAt = useMemo(() => {
     const firstSpan = new Map<string, number>();
@@ -831,10 +861,12 @@ function TextBlockItem({
   // Slicing the raw range instead means the stored quote always occurs in the block, for a
   // one-word selection and a five-paragraph one alike. See selectionRange.ts.
   const startCorrection = (raw: FieldRange | null): void => {
-    // ⚠️ 更正只对正文开着：一条更正存的是 `corrected_quote`，而 pack / `check_quote_occurs`
-    // 两边都拿它去**正文**里找（`correctedSpans` 也是）。拿批注里的句子存进去 = 一条谁也定位
-    // 不到的更正。⛔ 想让批注也能更正的话是另一件事，不是在这儿加一行。
-    const quote = raw && raw.field === 'content' ? block.content.slice(raw.start, raw.end).trim() : '';
+    // ⭐ 2026-08-25（Ocean:「批注不能被更正」）—— 批注上划的句子也能更正了。
+    // ⚠️ 存进去的仍然只有 `corrected_quote` 一句原话，**没有「哪一格」这个字段**：
+    // 定位那一头（`correctionsBySource`）先在正文里找，找不到再问批注。⛔ 别在这儿多存一个
+    // 字段去「记住」它划的是哪一格 —— 那一份记录会在用户改动那一格之后立刻过期，而定位是
+    // 每次现算的，永远不会。
+    const quote = raw ? fieldText(raw.field).slice(raw.start, raw.end).trim() : '';
     if (!quote) return;
     setActive(block.id);
     setCorrecting(quote);
@@ -872,7 +904,16 @@ function TextBlockItem({
   // ⭐ An AI note the user has edited by hand. Shown apart from a clean AI note so a reader
   // is never told an AI said something in words the AI did not choose (Ocean:「需要做区分」).
   const noteEdited = annotationEdited(block.annotationBy);
-  const annotationAsTitle = hasNote && !noteIsAi;
+  // ⭐⭐ 2026-08-25（Ocean）：「AI 的批注 UI 应该和用户批注一样，放在 block 顶上，
+  // 只是加了 AI 批注的标签。」
+  //
+  // ⛔ 这一行推翻的是 v14 §9.3「拍板乙」的**排版**那一半：那时候 AI 批注被压到正文下面、
+  // 12px 灰字，理由是「W7 让批注成为这一块的名字，而那个名字该由写它的人来起」。
+  // 他现在看到的是另一面：**同一件东西（这一块是关于什么的）画在两个地方**，读的时候
+  // 要在心里换一次算法。⇒ 位置统一，作者身份改由**标签**来说。
+  // ⚠️⚠️ **只动画在哪儿，⛔ 没动权限。** pack 里 AI 批注仍然是 `ai note:`（🧩 Synthesis），
+  // 拿不到 💭 Personal —— `annotationAuthor.ts` 一个字没改，`ai-edited` 也仍然算 AI 的。
+  const annotationAsTitle = hasNote;
   const annotationView = (
     <div
       // Double-click the annotation itself to edit just the annotation in place
@@ -889,6 +930,13 @@ function TextBlockItem({
       onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
       className="mb-1.5 font-ui text-[15px] font-medium leading-[1.55] text-ink"
     >
+      {/* 标签走**行内**，不另起一行也不占一列：批注常常是一整句话，用 flex 分成两栏的话
+          第二行会缩进到标签右边，读起来像引文。行内的话文字自然绕回左边缘。 */}
+      {noteIsAi && (
+        <span className="mr-1.5 rounded border border-line px-1 align-[0.15em] text-[10px] font-normal text-muted">
+          {noteEdited ? t('AI 批注 · 你改过') : t('AI 批注')}
+        </span>
+      )}
       {/* Step 3 §20.5: annotations are a read surface too — route through the same
           tokenizer so a ==…== span (and search hits when navigated) renders as a
           highlight, never literal markers. No spine on annotations.
@@ -899,41 +947,40 @@ function TextBlockItem({
         hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
         activeHitIndex={navHitIndex}
         withOffsets
+        corrected={noteCorrectedSpans}
+        onCorrectedClick={
+          noteCorrectionBlocks.length > 0
+            ? (id) => setOpenCorrectionId((cur) => (cur === id ? null : (id ?? null)))
+            : undefined
+        }
       />
     </div>
   );
-  // The demoted twin. Same double-click target on purpose: the user editing this note is
-  // exactly the moment it becomes theirs, and updateBlockAnnotation stamps 'user' — after
-  // which it takes the title slot like any other note they wrote.
-  const aiAnnotationView = (
-    <div
-      onDoubleClick={
-        readOnly
-          ? undefined
-          : () => {
-              openEditor('annotation');
-            }
-      }
-      title={readOnly ? undefined : t('双击编辑批注')}
-      ref={noteViewRef}
-      onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
-      className="mt-1.5 flex items-baseline gap-1.5 font-ui text-[12px] leading-[1.5] text-muted"
-    >
-      <span className="shrink-0 rounded border border-line px-1 text-[10px]">
-        {/* ⭐ 「需要做区分」: an AI note the user has edited says so here as well, not only
-            inside the editor — this line is where a reader meets it. */}
-        {noteEdited ? t('AI 批注 · 你改过') : t('AI 批注')}
-      </span>
-      <span className="min-w-0 italic">
-        <ContentRuns
-          content={block.annotation ?? ''}
-          hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
-          activeHitIndex={navHitIndex}
-          withOffsets
+  /** 批注上那几条更正的卡片。⚠️ 画在批注**外面**：批注那个 div 是 15px / font-medium 的标题
+   *  样式，卡片长在里面会连字重一起继承过去。 */
+  const noteCorrectionCards = noteCorrectionBlocks.length > 0 && (
+    <div className="mb-1.5">
+      {noteCorrectionBlocks.map((c) => (
+        <CorrectionNote
+          key={c.id}
+          correction={c}
+          quote={correctionQuote.get(c.id) ?? null}
+          dimmed={openCorrectionId !== null && openCorrectionId !== c.id}
+          onRemove={
+            readOnly
+              ? undefined
+              : () => {
+                  setOpenCorrectionId(null);
+                  void removeBlock(c.id);
+                }
+          }
         />
-      </span>
+      ))}
     </div>
   );
+  // ⛔ 这里以前还有一个「被压到正文底下」的 AI 批注视图（`aiAnnotationView`）。
+  // 2026-08-25 Ocean 定了「AI 批注和用户批注一样放在顶上，只是加个标签」之后它就是重复的了 ——
+  // 同一句话画两遍。⛔ 别把它加回来：要区分作者，标签在上面那一个视图里。
 
   return (
     <article
@@ -1036,7 +1083,7 @@ function TextBlockItem({
             selectionAlreadyHighlighted={selectionAlreadyHighlighted}
             // 2026-08-19: corrections apply to the SAVED text, so the entry point is closed while
             // the content is a draft in a textarea.
-            canCorrect={!editorOpen && selectionRaw?.field === 'content'}
+            canCorrect={!editorOpen && selectionRaw !== null}
             onCorrect={() => startCorrection(selectionRaw)}
             onTogglePin={() => onTogglePin?.()}
             onEdit={() => openEditor('content')}
@@ -1067,13 +1114,15 @@ function TextBlockItem({
         )}
       </div>
 
-      {/* W7 (DESIGN_WORKBENCH §7, DESIGN_CONTEXT_HYGIENE §3.2 rung one): when the user
-          wrote a note about this block, THAT is what the block is — so it reads first, in
-          the block's own voice, and the captured original drops below it as quoted
-          material. Blocks with no note are untouched: §7 rejected the unconditional
-          version precisely because most blocks have none and would have carried a blank
-          headline over demoted prose. */}
+      {/* W7 (DESIGN_WORKBENCH §7, DESIGN_CONTEXT_HYGIENE §3.2 rung one): when someone
+          wrote a note about this block, THAT is what the block is — so it reads first and
+          the captured original drops below it as quoted material. Blocks with no note are
+          untouched: §7 rejected the unconditional version precisely because most blocks
+          have none and would have carried a blank headline over demoted prose.
+          ⚠️ 2026-08-25 起「someone」包括 AI（Ocean 拍的，见 annotationView 上面那段）——
+          谁写的由标签说，不再由位置说。 */}
       {annotationAsTitle && annotationView}
+      {annotationAsTitle && noteCorrectionCards}
 
       {/* ⭐ 2026-08-25 (Ocean, V3 验收): read mode is now the ONLY thing a block draws inline.
           The editor moved out to a pane-filling panel (see the portal at the bottom of this
@@ -1101,6 +1150,8 @@ function TextBlockItem({
               // W7: demoted to quoted material when the note above is carrying the block.
               // Neutral rule, not the accent one — accent means "the user's own words",
               // and under W7 those are the line above, not this one.
+              // ⚠️ AI 批注也算（08-25）：Ocean 要的是「和用户批注一样」，⛔ 一样就包括
+              // 正文让位这一半 —— 只把标签挪上去、正文还占着 15px 的话，两句会打架。
               annotationAsTitle
                 ? 'border-l-2 border-line pl-2 text-[13px] text-ink-2'
                 : 'text-[15px] text-ink'
@@ -1156,7 +1207,14 @@ function TextBlockItem({
                                 ? undefined
                                 : () => {
                                     setOpenCorrectionId(null);
-                                    void clearSupersession(c.id);
+                                    // ⭐ 2026-08-25（Ocean）:「取消更正后，更正的内容会变成
+                                    // 一个 block，修复，直接消失。」
+                                    // ⛔ 以前这里只是**解开关系**（`clearSupersession`）——
+                                    // 那一块本身留在时间线上，成了一条没头没尾的孤块：
+                                    // 它的全部内容就是「这句话应该是……」，脱离了它更正的那
+                                    // 一句之后没人读得懂。现在整块删掉。
+                                    // ⚠️ 走的是普通删除那条路，所以它进撤销栈 —— ⌘Z 能拿回来。
+                                    void removeBlock(c.id);
                                   }
                             }
                           />
@@ -1190,8 +1248,7 @@ function TextBlockItem({
               >
                 {selectionAlreadyHighlighted ? t('取消重点?') : t('标为重点?')}
               </button>
-              {/* ⚠️ 更正只挂在正文的选区上 —— 见 startCorrection 里那一段。 */}
-              {!readOnly && !editorOpen && highlightPrompt.raw?.field === 'content' && (
+              {!readOnly && !editorOpen && highlightPrompt.raw && (
                 <>
                   <span aria-hidden="true" className="w-px shrink-0 bg-line" />
                   <button
@@ -1224,9 +1281,6 @@ function TextBlockItem({
           )}
       </div>
 
-      {/* v14 (§9.3 拍板乙): an AI's note about this block, kept visible but kept in its
-          place — under the content, muted, and labelled as the AI's. */}
-      {hasNote && noteIsAi && aiAnnotationView}
 
       {/* v2.4 P2-3: quiet citation line — the feed counterpart of the pack's ↩ cites
           row. Only MCP-written blocks carry refBlockId, so most blocks skip this.

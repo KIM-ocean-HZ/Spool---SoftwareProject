@@ -66,12 +66,12 @@ export default function CorrectionNote({ correction, quote, dimmed, onRemove }: 
               e.stopPropagation();
               onRemove();
             }}
-            // ⚠️ 「取消更正」, not 「删除」: this takes the relation off, and the block itself
-            // stays in the library. Clearing it here leaves nothing to point the quote at, so
-            // the store clears the quote in the same write.
             // ⭐ S1（2026-08-24）：原来写的是「解除」——「解除」在这个界面上从来没被解释过，
             // 和 U9 判掉「只退旧的」里那个「退」是同一条理由。
-            title={t('取消这条更正（那一块本身留着）')}
+            // ⚠️ 2026-08-25（Ocean）：它现在**把这条更正整块删掉**，不再只是解开关系 ——
+            // 解开之后剩下的那一块（内容就是「这句话应该是……」）脱离了它划的那一句就没人
+            // 读得懂，Ocean 的原话是「直接消失」。⛔ 所以这句提示必须说清删的是什么、怎么回来。
+            title={t('取消这条更正（这一块会一起删掉，⌘Z 拿得回来）')}
             className="ml-auto shrink-0 transition-colors hover:text-accent"
           >
             {t('取消更正')}
