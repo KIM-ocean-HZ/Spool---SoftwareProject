@@ -605,3 +605,85 @@ attribution-grep-false-positive）；⚠️「别往 blocks 表加列」现在�
 
 `~/Library/Application Support/spool-compress-sweep/2026-08-24-round6/`
 ⛔ **不进仓库**（里面是真实的选校名单、成绩、个人材料）。清单见上一版交接 §6，没变。
+
+---
+
+## 13. 🆕 08-25 深夜：`Q 批` 四条全做完了（**✅ 已提交，⛔ 一条都没验**）
+
+> **这一窗做了什么**：Ocean 说 §10 / §11 那十一条他已经重开验过、没问题（§10.2 第 5 条
+> 那个「攒够一小时」的他明说不用专门排），所以直接进了 `Q 批`。
+
+### 13.1 三个提交
+
+| 提交 | 内容 |
+|---|---|
+| `16f7f20` | **Q1** —— `blocks.ref_note` / `blocks.gist_by` / `proposals.ref_note`，库 v27 → v28 |
+| `cf45a1e` | **Q2 + Q3** —— `set_block_gist`；搜索命中里 `corrected` / `gist_predates_the_correction` |
+| `74b6d28` | **Q4** —— 「块摘要」页签 |
+| `a24d050` | 顺手修的：周回顾那一页印出整条 NDJSON（见 §13.4） |
+
+⛔ 四个都没推。TS 681 / Rust 134 全绿，`npm run build` 通过。
+⛔ **`/Applications` 里那一版还是 08-24 那份** —— 要重新装才验得到。
+
+### 13.2 ⛔ 交接单里有一句是错的（§12 那份提示词）
+
+> 「gist 现在一共在几个地方被读（搜索命中 / 引用行 / pack）」
+
+**pack 根本不读 `gist`。** 只有两处：搜索命中（`query.ts` + `mcp.rs`）和引用行
+（`CitationLine.tsx`）。pack 的 `↩ cites:` 走的是 `block_label`（批注 → 正文前 40 字
+那把梯子），`gist` 的 schema 描述里也明写着 "It never appears in packs"。
+⇒ **`Q1` 是往 pack 里放这类字段的第一次**，而 `Q2` 改完 `gist` 不会波及 pack。
+
+### 13.3 三件当时定了、Ocean 应该知道的
+
+1. **引用的理由是「必须给」的**（他选的推荐项）：`ref_block_id` 且不是 `corrects` ⇒
+   不给 `ref_note` 直接拒。⚠️ 老客户端下次写引用会先吃一个拒绝 —— 那是有意的，
+   和 08-25「更正必须给准星」同一形状，拒绝话术里写清了该写什么。
+2. **`Q3` 做了**（他选的推荐项）。⭐ 那个「摘要是不是停在更正之前」的判断**不用新列**：
+   `gist_by IS NULL` 就等于「这一句是 `add_block` 那一刻写的」，而更正必然在那之后。
+3. ⚠️ **页签叫「块摘要」，不是「摘要」。** 他说的是「摘要」，但那两个字在**同一屏上**
+   已经被占了两次（`ThreadHeader` 的「摘要 / 全记录」、项目头上的「＋ 写一句话摘要」），
+   英文那边更硬 —— `'摘要'` 这个 i18n 键已经是 `'Digest'` 了。**他可以改回去，我这边改一行。**
+
+### 13.4 🆕 周回顾那一页印出整条 NDJSON —— 已修（`a24d050`）
+
+他贴回来的是从 `{"type":"system",…}` 一路到 `{"type":"result",…}` 的整条事件流。
+
+病根一行：`engine.rs` 非零退出那个 `match` 里 `EngineKind::Claude => None` ——
+claude 失败时一个字都不解析，掉进兜底「stderr 空就把整个 stdout 端上去」，
+而 claude 的失败**全写在 stdout 的事件流里**、stderr 是空的。那一整条流成了 `detail`，
+存进 `engine_runs.detail`，再被 `ReviewBoard` 一字不差地印出来。
+
+修法不是新写解析器：`parse_claude_stream` 早就读得懂那一行，只是退出码为零时才被调用。
+⚠️ **这只修「看到的是什么」。** 403 本身是他那台机器上 `claude` CLI 的认证问题
+（`apiKeySource: none`），不是 Spool 的事。
+
+### 13.5 ⛔ 下一件：DeepSeek 跑周回顾（**他提了，还没开工**）
+
+> **他的原话**：「考虑到 CLI 只支持 codex 和 claude，这两个模型太贵了（gemini 的能力有限，
+> 且额度少）加入 deepseek 的周总结，总结的 model 可以让用户自行选择。」
+
+**先摸出来的现状 —— 一大半东西已经在了**：
+
+| 已经有的 | 在哪 |
+|---|---|
+| sidecar 会说 OpenAI 兼容协议，默认就是 DeepSeek | `src-tauri/sidecar/src/main.rs` |
+| 「模型」是**用户已经能自己填**的一个设置框 | `ApiEngineConfig.tsx:120`，默认 `deepseek-v4-flash` |
+| 形态 C 已经跑着两件事：压缩、过期检测 | `api_engine.rs`（`compress_pack_via_api` / `stale_scan_via_api`） |
+
+⇒ **真正缺的只有一件：周回顾没有形态 C 那条路。** 它今天只走形态 B（用户自己装的
+`claude` / `codex` / `gemini` CLI）。
+
+⚠️ **动手前有一个必须先问 Ocean 的**：两条路拿材料的方式根本不一样。
+形态 B 是把 MCP 交给 CLI，让它**自己一轮轮去翻**（`get_digest` → `list_threads` → `get_pack`）；
+形态 C **只有一发** —— 一个 prompt 进去，一段文字出来，没有 MCP。
+所以「这一周的材料」得由 Spool 自己在本地拼好、一次性发出去，而**拼多少**是要拍板的：
+
+- **甲**：只发 `get_digest` 那一份（跨项目、按周截断）。便宜、稳，⛔ 但深度不如 CLI 那条路。
+- **乙**：digest + 本周有动静的项目各一份 pack。接近 CLI 的效果，⚠️ 但一份 pack 就上万字，
+  几个项目叠起来会撞上下文上限，而且**按字数计费**。
+- **丙**：分两步（先 digest 挑出项目，再每个项目一发，最后合稿）。最接近 CLI，
+  ⚠️ 但那是好几发，钱和时间都乘上去。
+
+⭐ 另外一条**不用问就该做**的：`ReviewBoard` 那根引擎条现在只认形态 B，
+要能选「用 CLI」还是「用 API」—— 压缩那一页早就是两条路并行的，照抄它的形态。
