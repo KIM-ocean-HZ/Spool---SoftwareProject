@@ -55,6 +55,9 @@ interface BlocksState {
   addCorrection: (target: Block, quote: string, text: string) => Promise<void>;
   setContent: (id: string, content: string) => Promise<void>;
   setAnnotation: (id: string, annotation: string | null) => Promise<void>;
+  /** Q4（§2.Q4）：用户自己改这一块的摘要（`gist`）。传空 = 清掉。
+   *  ⚠️ 写下去的同时盖上 `gistBy = 'user'`，从此 `set_block_gist` 不许再动它。 */
+  setGist: (id: string, gist: string | null) => Promise<void>;
   attach: (args: CreateAttachmentArgs) => Promise<Attachment>;
   detach: (attachmentId: string, threadId: string) => Promise<void>;
   // v2.8 §20.2: per-attachment toggle for inlining extracted_text into pack/summaries.
@@ -363,6 +366,25 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
         next[tId] = list.map((b) => (b.id === id ? { ...b, annotation, annotationBy } : b));
       }
       set({ byThread: next });
+    },
+
+    // Q4（§2.Q4）：和 `setAnnotation` 同一个形状，两处**有意不同**：
+    //  ① ⛔ 不碰撤销栈。摘要不是内容 —— 它进不了 pack，改错了就地再改一次就行，
+    //     而 `invalidateForBlock` 会把这一块**正文的**那条撤销记录一起打掉。
+    //  ② 作者是写死的 'user'，不是算出来的（`annotation_by` 那三态是为 pack 权威存在的，
+    //     `gist` 不进 pack —— 详见 `updateBlockGist`）。
+    setGist: async (id, gist) => {
+      const trimmed = gist?.trim();
+      const next = trimmed ? trimmed : null;
+      await db.updateBlockGist(id, next);
+      const state = get();
+      const byThread: Record<string, Block[]> = {};
+      for (const [tId, list] of Object.entries(state.byThread)) {
+        byThread[tId] = list.map((b) =>
+          b.id === id ? { ...b, gist: next, gistBy: 'user' as const } : b,
+        );
+      }
+      set({ byThread });
     },
 
     attach: async (args) => {

@@ -559,6 +559,26 @@ export const updateBlockContent = async (id: string, content: string): Promise<v
   await db.execute('UPDATE blocks SET content = $1 WHERE id = $2', [content, id]);
 };
 
+// ⭐ Q4（WORKPLAN §2.Q4，Ocean 2026-08-25）：用户自己改这一块的摘要。
+//
+// 他的原话：「摘要也需要可视化，可以修改，放在内容，压缩，过期检测同级的新区域显示。」
+// ⚠️ 我原本建议先不做界面编辑（怕它和批注打架，两句都在说「这一块是什么」），**他否了**，
+// 理由成立：**AI 能改的东西，用户看不见就没法纠。**
+//
+// 空字符串 = 清掉，和 `set_block_gist` 那一头同一条规矩（过期的摘要比没有摘要更坏）。
+//
+// ⚠️⚠️ `gist_by` 只有两个状态（'user' / 'ai'），⛔ **不照 `annotation_by` 那三个**。
+// 那第三个（'ai-edited'）存在的理由是 **pack 里的权威**：一句 AI 写的批注不会因为用户
+// 改了个字就变成 💭 Personal。而 `gist` **根本不进 pack**，它唯一决定的事情是
+// 「AI 还能不能盖掉它」—— 用户动手改过，答案就是不能，没有第三种。
+// （`threads.summary_source` 是同一个形状的先例，也只有两个状态。）
+export const updateBlockGist = async (id: string, gist: string | null): Promise<void> => {
+  const db = await getDb();
+  const trimmed = gist?.trim();
+  const next = trimmed ? trimmed : null;
+  await db.execute("UPDATE blocks SET gist = $1, gist_by = 'user' WHERE id = $2", [next, id]);
+};
+
 // v14 (§9.3 拍板乙): this function is only ever reached from the GUI or the capture overlay,
 // so whatever it writes is the user's own sentence. Stamping 'user' here is what lets a note
 // the user adds to an AI-written block keep its 💭 Personal authority — the one case the

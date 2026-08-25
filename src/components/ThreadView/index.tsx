@@ -7,7 +7,9 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import CompressBoard from '@/components/Compress/CompressBoard';
 import StaleReview from '@/components/Compress/StaleReview';
+import GistBoard, { staleGistCount } from '@/components/Gist/GistBoard';
 import { useCompressStore } from '@/stores/compressStore';
+import { useSearchStore } from '@/stores/searchStore';
 import DigestView from './DigestView';
 import LogView from './LogView';
 import ThreadHeader, { type ThreadViewMode } from './ThreadHeader';
@@ -64,8 +66,19 @@ export default function ThreadView() {
   const staleAny = useCompressStore((s) =>
     activeId ? (s.stale[activeId]?.proposals.length ?? 0) : 0,
   );
-  /** 页签条出不出。⭐ S2：压缩没开、但 AI 提了东西在等，也要出。 */
+  /** 「压缩」和「过期检测」这两个出不出。⭐ S2：压缩没开、但 AI 提了东西在等，也要出。 */
   const showTabs = engineOn || staleAny > 0;
+  // ⭐⭐ Q4（2026-08-25）：**页签条从此永远画。**
+  // 「摘要」是 AI 通过 MCP 写进来的，和本地引擎开没开**毫无关系** —— 一个从没开过引擎的
+  // 用户照样会有一库摘要，而在这之前 `showTabs` 是整条页签排的总闸，`false` 的时候
+  // 一个页签都不画，那一库摘要就永远看不见。
+  // ⛔ 别顺手把 `showTabs` 删了：它仍然挡着「压缩」和「过期检测」—— 那两个点进去
+  // 确实只会说「你还没配」，而这正是它当初存在的理由。
+  const highlight = useSearchStore((s) => s.highlight);
+  /** 「摘要」页签上那个数：**只数「这一块挂着更正，而摘要还是更正之前那句」**。
+   *  ⛔ 不数「没有摘要」—— 大多数块本来就没有摘要，那个数字会永远是个大数，
+   *  三天之后没有人再看它一眼。 */
+  const gistStale = staleGistCount(blocks);
   // For `done` threads the user can flip to LogView within a session; the override
   // resets to null on thread switch so reopens default back to DigestView (§9.9).
   const [viewOverride, setViewOverride] = useState<ThreadViewMode | null>(null);
@@ -133,8 +146,7 @@ export default function ThreadView() {
           只按 `engineOn` 出页签的话，关着压缩的用户永远看不到 AI 提的那一条。
           ⛔ 一条看不见的提案等于没提过。所以有东西等着的时候这一条照出，
           ⚠️ 但「压缩」那个页签仍然只跟着 `engineOn` 走：那一个点进去确实只会说「你还没配」。 */}
-      {showTabs && (
-        <div className="flex flex-none items-center gap-4 border-b border-line px-5 text-[12px]">
+      <div className="flex flex-none items-center gap-4 border-b border-line px-5 text-[12px]">
           <Tab active={tab === 'content'} onClick={() => setTab(thread.id, 'content')}>
             {t('内容')}
           </Tab>
@@ -150,6 +162,7 @@ export default function ThreadView() {
           )}
           {/* ⭐ 2026-08-23 Ocean 改的名：「『查旧块』名字改成『过期检测』，更加贴切」。
               ⛔ 仍然不许出现「作废」两个字（§2.E3 写死的）——「过期」不是「作废」。 */}
+          {showTabs && (
           <Tab active={tab === 'stale'} onClick={() => setTab(thread.id, 'stale')}>
             {runningKind === 'stale'
               ? t('过期检测（在跑）')
@@ -157,10 +170,27 @@ export default function ThreadView() {
                 ? t('过期检测（{n}）', { n: staleLeft })
                 : t('过期检测')}
           </Tab>
+          )}
+          {/* ⭐ Q4：和「内容」一样永远在。 */}
+          <Tab active={tab === 'gist'} onClick={() => setTab(thread.id, 'gist')}>
+            {gistStale > 0 ? t('块摘要（{n}）', { n: gistStale }) : t('块摘要')}
+          </Tab>
         </div>
-      )}
 
-      {engineOn && tab === 'compress' ? (
+      {tab === 'gist' ? (
+        <div className="min-h-0 flex-1">
+          {/* ⚠️ 跳转在这一层做：先切回「内容」，再点亮那一块。只调 `highlight` 的话，
+              用户还停在「摘要」这一页上，什么都不会发生。 */}
+          <GistBoard
+            key={thread.id}
+            threadId={thread.id}
+            onJump={(blockId) => {
+              setTab(thread.id, 'content');
+              highlight(blockId);
+            }}
+          />
+        </div>
+      ) : engineOn && tab === 'compress' ? (
         <div className="min-h-0 flex-1">
           <CompressBoard threadId={thread.id} />
         </div>

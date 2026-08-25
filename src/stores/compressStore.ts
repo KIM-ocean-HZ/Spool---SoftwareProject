@@ -129,7 +129,10 @@ export interface CompressSession {
  *  **找出被后面的块取代的旧块**（查旧块）—— 而它们还在抢同一屏高度：
  *  查旧块那一段顶在最上面，核对面被挤到半屏以下，正是上一轮挨骂的那件事。
  *  ⛔ 别再把它们并回一个页签。 */
-export type ProjectTab = 'content' | 'compress' | 'stale';
+// ⚠️ Q4（2026-08-25）加了 `gist`。这个类型叫 `ProjectTab` 而住在 `compressStore` 里，
+// 是因为页签这件事是压缩那一轮带出来的 —— ⛔ 别为了「摘要和压缩没关系」把它搬走：
+// 搬走要动的是「每个项目停在哪个页签」那份持久状态，代价远大于一个名字不够准。
+export type ProjectTab = 'content' | 'compress' | 'stale' | 'gist';
 
 interface CompressState {
   /** 每个项目自己那一份整理稿。⚠️ 键是 threadId。 */

@@ -215,6 +215,26 @@ const EN: Record<string, string> = {
   '更正了其中一处：': 'corrects one point in:',
   '其中一处已被更正：': 'one point in this was corrected:',
   '点一下跳到那一块': 'Click to jump to that block',
+  // Q4（§2.Q4）：「摘要」页签。⚠️ 那两句说明是这一页的一部分，⛔ 不是装饰 ——
+  // 不说清分工的话，用户第一反应是「这不就是批注吗」。
+  // ⚠️ 页签叫「**块**摘要」，⛔ 不是光「摘要」—— Ocean 说的是「摘要」，但那两个字在
+  // **同一屏上**已经被占了两次：`ThreadHeader` 的「摘要 / 全记录」是项目完成后的结论，
+  // 项目头上那句「＋ 写一句话摘要」是项目的一句话。再来第三个「摘要」，中文界面上
+  // 分不出来（英文那边更硬：`'摘要'` 这个键已经是 'Digest' 了，一个键不能两个译法）。
+  '块摘要': 'Gist',
+  '块摘要（{n}）': 'Gist ({n})',
+  '摘要是一行说明，AI 在别的地方认出这一块靠它 —— 搜索命中旁边、引用行上。它不进 pack。':
+    'A gist is one line that lets an AI recognise this block ELSEWHERE — beside a search hit, on a citation line. It never goes into a pack.',
+  '批注是你对这一块说的话，画在块的顶上。两者不是一回事，都可以留空。':
+    'An annotation is what YOU have to say about this block, drawn at the top of it. They are not the same thing, and either may be left empty.',
+  '这个项目还没有块。摘要是给每一块写的一行说明，等有了块再回来。':
+    'This project has no blocks yet. A gist is one line written for a block, so come back once there are some.',
+  '还没有摘要': 'No gist yet',
+  '一句话说清这一块整体是什么': 'One line saying what this block is as a whole',
+  '点一下改这一句': 'Click to edit this line',
+  '可能过期': 'may be out of date',
+  '这一块后来被更正过，而这一句是更正之前写的':
+    'This block was corrected later, and this line was written before that correction',
   // Q1（§2.Q1）：引用行上那一句是 AI 写的「为什么引它」，⛔ 不是被引块的原话。
   'AI 写的：为什么引这一块': 'Written by AI: why this block is cited',
   // 2026-08-19 — the correction, shown under the sentence it is about rather than as a pointer

@@ -21,6 +21,7 @@ import {
   setBlockSupersession,
   setCorrectedQuote,
   togglePin,
+  updateBlockGist,
 } from './blocks';
 import { isMcpSource } from '@/lib/blocks/sourceIcon';
 import { __setTestDb } from './client';
@@ -770,5 +771,51 @@ describe('applyCompression / restoreBlockOriginal', () => {
     await applyCompression([{ id: block.id, content: '短一点' }], false, 5);
     expect(await restoreBlockOriginal(block.id)).toBe(false);
     expect((await read(threadId)).content).toBe('短一点');
+  });
+});
+
+// ⭐ Q4（WORKPLAN §2.Q4，Ocean 2026-08-25）—— 用户自己改摘要。
+//
+// 钉两条，两条都是「漏了没有症状」的那一类：
+//   ① 写下去的同时必须盖 `gist_by = 'user'` —— 少了这一句，`set_block_gist` 会把
+//      用户刚写的那句当成 AI 自己写的（NULL 按 AI 待），下一次调用当场盖掉;
+//   ② 空 = 清掉，而且 `gist_by` 仍然是 'user' —— 清空也是用户的一个决定，⛔ 那一列
+//      不该被抹掉。⚠️ 但 `set_block_gist` 那道闸问的是「**还有没有那一句**」而不只是
+//      `gist_by`：清空之后 AI 可以重新补一句（`set_thread_summary` 的老规矩），
+//      否则用户清掉一条错摘要就等于把 AI 永远锁在外面，而界面上没有解开的路。
+describe('Q4 · 用户自己写块摘要', () => {
+  let handle: Sqlite;
+  beforeEach(async () => {
+    handle = new DatabaseSync(':memory:');
+    handle.exec(schemaSql.replace(/--.*$/gm, ''));
+    __setTestDb(makeAdapter(handle));
+  });
+  afterEach(() => handle.close());
+
+  const seedBlock = async (): Promise<string> => {
+    const ws = await createWorkspace('收件箱');
+    const th = await createThread(ws.id, '摘要测试');
+    const b = await createBlock({ threadId: th.id, content: '正文' });
+    return b.id;
+  };
+
+  const readGist = (id: string) =>
+    handle.prepare('SELECT gist, gist_by FROM blocks WHERE id = ?1').get(id) as {
+      gist: string | null;
+      gist_by: string | null;
+    };
+
+  it('写一句摘要，同时盖上「用户写的」', async () => {
+    const id = await seedBlock();
+    expect(readGist(id)).toEqual({ gist: null, gist_by: null });
+    await updateBlockGist(id, '  这一块记的是截止日期  ');
+    expect(readGist(id)).toEqual({ gist: '这一块记的是截止日期', gist_by: 'user' });
+  });
+
+  it('清空之后 gist 没了，「用户写的」留着（闸看的是那一句还在不在）', async () => {
+    const id = await seedBlock();
+    await updateBlockGist(id, '先写一句');
+    await updateBlockGist(id, '   ');
+    expect(readGist(id)).toEqual({ gist: null, gist_by: 'user' });
   });
 });

@@ -4073,13 +4073,19 @@ fn set_thread_summary_json(
 //
 // ⛔ **只写 `gist` 一列** —— 不碰 content / annotation:「AI 批注不能人为新增」那条红线还在。
 fn set_block_gist_json(conn: &Connection, block_id: &str, gist: Option<&str>) -> Result<String, String> {
-    let (thread_title, seq, existing_by, deleted): (String, Option<i64>, Option<String>, Option<i64>) =
-        conn.query_row(
-            "SELECT t.title, b.seq, b.gist_by, t.deleted_at
+    let (thread_title, seq, existing, existing_by, deleted): (
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+    ) = conn
+        .query_row(
+            "SELECT t.title, b.seq, b.gist, b.gist_by, t.deleted_at
                FROM blocks b JOIN threads t ON t.id = b.thread_id
               WHERE b.id = ?1",
             [block_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .map_err(|_| {
             t!(
@@ -4091,7 +4097,13 @@ fn set_block_gist_json(conn: &Connection, block_id: &str, gist: Option<&str>) ->
         return Err(t!("这一块所在的项目已被删除。", "The project this block is in has been deleted."));
     }
     // 用户自己写的那一句,MCP 不得覆盖 —— `set_thread_summary` 的规矩,一字不改。
-    if existing_by.as_deref() == Some("user") {
+    //
+    // ⚠️⚠️ **要同时问「还有没有那一句」**,⛔ 不能只看 `gist_by`。用户在「块摘要」页签上
+    // **清空**一条摘要之后,那一行仍然记着 'user'(清空也是他的一个决定,那一列不该被抹掉);
+    // 只认 `gist_by` 的话,AI 就被永远锁在外面了 —— 而界面上**没有任何一条路**能把它解开。
+    // `set_thread_summary` 的拒绝话术里早就写着这条出口:「用户清空摘要后 MCP 方可再写」。
+    let has_gist = existing.as_deref().map(str::trim).is_some_and(|g| !g.is_empty());
+    if has_gist && existing_by.as_deref() == Some("user") {
         let n = seq.map(|s| format!("#{s}")).unwrap_or_default();
         return Err(t!(
             "〈{thread_title}〉{n} 的摘要是用户自己写的,MCP 不得覆盖。\
@@ -10230,6 +10242,16 @@ mod tests {
             .query_row("SELECT gist FROM blocks WHERE id = ?1", [&bid], |r| r.get(0))
             .unwrap();
         assert_eq!(g.as_deref(), Some("我自己写的一句"), "拒绝之后一个字都不许落地");
+
+        // ⭐ 用户把自己那句**清掉**之后,AI 又可以写了 —— `gist_by` 仍然是 'user'
+        // (清空也是他的一个决定),但那一句已经不在了。
+        // ⛔ 只认 `gist_by` 的话 AI 被永远锁在外面,而界面上没有任何一条路能解开。
+        conn.execute("UPDATE blocks SET gist = NULL WHERE id = ?1", [&bid]).unwrap();
+        set_block_gist_json(&conn, &bid, Some("清空之后 AI 重新补的一句")).unwrap();
+        let g: Option<String> = conn
+            .query_row("SELECT gist FROM blocks WHERE id = ?1", [&bid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(g.as_deref(), Some("清空之后 AI 重新补的一句"));
 
         // 不存在的块 → 拒,并且说清 block_id 从哪儿来。
         let err = set_block_gist_json(&conn, "nope", Some("x")).unwrap_err();
