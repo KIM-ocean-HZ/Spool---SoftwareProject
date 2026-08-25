@@ -1193,6 +1193,65 @@ pub async fn stale_scan_via_api(
     Ok(StaleScan { outcome, proposals, dropped })
 }
 
+// ---------------------------------------------------------------------------------------
+// 周回顾走这条路 —— 2026-08-25，Ocean：「CLI 只支持 codex 和 claude，这两个模型太贵了
+// （gemini 的能力有限，且额度少），加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
+//
+// ⭐ 「模型自行选择」**这一半本来就有**：设置里那个「模型」输入框（`ApiEngineConfig.tsx`）
+// 写的就是 `apiModel`，默认 `deepseek-v4-flash`，端点也是用户自己填的。
+// ⇒ 这一段补的只是「周回顾也能走这条路」，⛔ 不是又发明一套模型设置。
+//
+// ⚠️ 和压缩 / 过期检测的**唯一**区别：材料是在 Rust 这边自己开库拼的
+// （`weekly_material_for_api`），不从前端接 —— 跨全库的东西前端手上没有。
+//
+// ⛔ 这条路一个字都不往库里写。回顾正文回给前端，由前端按老路子记进 `engine_runs`，
+// 存不存成块仍然是用户的事（和形态 B 那条一样）。
+#[tauri::command]
+pub async fn weekly_review_via_api(
+    app: tauri::AppHandle,
+    since_days: Option<i64>,
+    base_url: String,
+    api_key: String,
+    model: String,
+    reasoning: String,
+    timeout_secs: u64,
+) -> Result<CompressOutcome, String> {
+    if RUNNING.swap(true, Ordering::SeqCst) {
+        return Err("a run is already in flight".into());
+    }
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        if let Ok(dir) = tauri::Manager::path(&app).app_config_dir() {
+            crate::mcp::refresh_lang(&dir);
+        }
+        // ⚠️ 拼材料失败要当成一次失败的运行回出去，⛔ 不是 panic，也不是空材料硬发 ——
+        // 空材料发出去只会换回一段编的回顾，而钱已经花了。
+        let (digest, fresh) = match crate::mcp::weekly_material_for_api(since_days) {
+            Ok(m) => m,
+            Err(e) => return CompressOutcome::failed("internal", e, None),
+        };
+        let (system, user) = crate::mcp::weekly_messages_for_api(&digest, &fresh);
+        let bin = match sidecar_path() {
+            Ok(p) => p,
+            Err(e) => return CompressOutcome::failed("no_sidecar", e, None),
+        };
+        let timeout_secs = clamp_timeout(timeout_secs);
+        let request =
+            sidecar_request(&base_url, &api_key, &model, &system, &user, &reasoning, timeout_secs);
+        let payload = match serde_json::to_vec(&request) {
+            Ok(v) => v,
+            Err(e) => return CompressOutcome::failed("internal", e.to_string(), None),
+        };
+        spawn_sidecar_with(&bin, payload, timeout_secs, Some(app.clone()))
+    })
+    .await;
+    RUNNING.store(false, Ordering::SeqCst);
+    *CHILD.lock().unwrap() = None;
+    Ok(match out {
+        Ok(o) => o,
+        Err(e) => CompressOutcome::failed("internal", e.to_string(), None),
+    })
+}
+
 #[cfg(test)]
 mod stale_gate_tests {
     use super::*;

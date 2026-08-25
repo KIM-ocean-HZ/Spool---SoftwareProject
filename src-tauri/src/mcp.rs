@@ -8108,6 +8108,160 @@ pub fn stale_messages_for_api(pack_text: &str) -> (String, String) {
     (system, fenced_material(pack_text))
 }
 
+// ---------------------------------------------------------------------------------------
+// 周回顾走形态 C（API）—— 2026-08-25，Ocean：「CLI 只支持 codex 和 claude，这两个模型太贵了
+// （gemini 的能力有限，且额度少），加入 deepseek 的周总结」。
+//
+// ⚠️⚠️ **两条路拿材料的方式根本不一样，这是这一段存在的全部理由。**
+// 形态 B 是把 MCP 交给 CLI，让它自己一轮轮翻（`get_digest` → `get_pack` → `get_blocks`）；
+// 形态 C **只有一发**，没有 MCP —— 发出去什么，它就只知道什么。
+// ⛔ 所以直接复用 `weekly_review_prompt_text` 是错的：那份提示词第 1 条写着
+// 「要展开某个项目，先用 get_pack / get_blocks 补读」—— 在这条路上那是一句做不到的话，
+// 而一个被要求去调不存在的工具的模型，会开始**编**它本该去读的东西。
+//
+// ⭐ **材料范围是 Ocean 拍的**（他给的第四条，比我提的三条都好）：
+// 「digest 加上本周有动静的项目的新加入的所有 block（不是整个 pack），
+//   digest 当历史，新 block 为新动作。」
+// ⇒ 量跟着**这一周真实的活动**走，⛔ 不跟着库的大小走：一个攒了两年的项目，
+//    这一周没动就一个字都不发；整份 pack 那条路则是历史越厚发得越多，钱和上下文一起爆。
+const WEEKLY_API_SYSTEM: &str = r#"你在帮用户做一次跨项目回顾。用户下一条消息里是两段材料：
+
+- **# 历史**：Spool 生成的跨项目摘要（digest）—— 每个项目到目前为止是怎么回事。
+- **# 这一周新加的**：这段时间里真正新写进去的块，按项目分组。⚠️ 这一段是「新动作」。
+
+# 你要做的
+1. 按项目写，**一个项目一段**，用大白话，别用项目管理黑话。每段三行：
+   - **做了什么**：以「这一周新加的」为准。那一节里没有这个项目，就写「这一周没动」。
+   - **还剩什么**：没定下来的、卡住的、下一步要碰的。💭 无来源的块和 note: 行是用户自己的话，
+     信号最高；==高亮== 是他自己划的重点。
+   - **离截止还有几天**：照抄「历史」那一段顶部「截止日期」一节里这个项目的那一行；
+     那一节里没有它，就写「没设截止日期」。⚠️ 别自己算日期，更别把块正文里写的日期
+     当成项目的截止日期 —— 那是块里的内容，不是这个项目的截止日期。
+2. 哪些项目各占一段：「这一周新加的」里出现的每一个，加上「历史」的「近期活跃」和
+   「截止日期」两节里出现的每一个。其余的一句话带过，别点名。
+3. 段的顺序按截止日期排，最紧的、已逾期的排最前，没设截止日期的排在最后。
+   全部写完之后，用一句话说接下来最该先做的那一件事 —— 建议的语气，不要命令。
+4. ⛔⛔ **你手上只有这两段材料，没有别的。** 你**没有**任何可以调用的工具，
+   也读不到没发给你的块 —— 材料里看不出来的就明说看不出来，⛔ 绝不编，
+   ⛔ 也不要说「我去查一下」或者建议自己再读点什么。
+5. 全程用项目标题称呼项目，⛔ 绝不把 id 说出来或写进正文。
+6. 直接写回顾正文，⛔ 别写开场白，别复述这几条规则。
+7. {rule}"#;
+
+/// 周回顾（形态 C）的两段消息。⚠️ 规则整个在 `system` 里、材料在 `user` 里 ——
+/// 反过来放前缀缓存一次都命中不了（和 `compress_messages_for_api` 同一条纪律）。
+pub fn weekly_messages_for_api(digest: &str, fresh: &str) -> (String, String) {
+    let system = WEEKLY_API_SYSTEM.replace("{rule}", material_rule());
+    let user = format!(
+        "# 历史\n{}\n\n# 这一周新加的\n{}",
+        fenced_material(digest),
+        fenced_material(fresh)
+    );
+    (system, user)
+}
+
+/// 「这一周新加的」那一段：窗口内新写进去的块，按项目分组，⛔ 不含历史。
+///
+/// ⚠️ 用 `render_block` 而不是 `digest_block_lines`：digest 那一份是**索引**（每块一行、
+/// 掐到 160 字），而这一段是这一周唯一的事实来源 —— 掐短了模型就只能从半句话里猜。
+/// ⇒ 历史给索引，新动作给原文，正是 Ocean 那句「digest 当历史，新 block 为新动作」。
+///
+/// ⚠️ 退了的块（`stale_at`）不进来 —— 和 pack、digest 同一条规矩：用户说不作数的东西，
+/// 不该出现在「这一周做了什么」里。
+pub fn weekly_fresh_blocks_text(
+    conn: &Connection,
+    since_days: i64,
+    now: i64,
+) -> Result<String, String> {
+    let days = since_days.clamp(1, DIGEST_MAX_DAYS);
+    let cutoff = window_start_ms(now, days - 1);
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.title, b.id, b.kind, b.content, b.annotation, b.ref_thread_id,
+                    b.ref_block_id, b.source, b.pinned, b.seq, b.created_at, b.stale_at,
+                    b.ref_kind, b.annotation_by, b.source_url, b.retrieved_at,
+                    b.recheck_after, b.corrected_quote, b.compressed_at, b.ref_note
+               FROM blocks b
+               JOIN threads t ON t.id = b.thread_id
+               JOIN workspaces w ON w.id = t.workspace_id
+              WHERE t.deleted_at IS NULL AND w.deleted_at IS NULL
+                AND b.stale_at IS NULL
+                AND b.created_at >= ?1
+              ORDER BY t.title ASC, b.created_at ASC, b.rowid ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, BlockRow)> = stmt
+        .query_map([cutoff], |r| {
+            Ok((
+                r.get(0)?,
+                BlockRow {
+                    id: r.get(1)?,
+                    kind: r.get(2)?,
+                    content: r.get(3)?,
+                    annotation: r.get(4)?,
+                    ref_thread_id: r.get(5)?,
+                    ref_block_id: r.get(6)?,
+                    source: r.get(7)?,
+                    pinned: r.get::<_, i64>(8)? == 1,
+                    seq: r.get(9)?,
+                    created_at: r.get(10)?,
+                    stale_at: r.get(11)?,
+                    ref_kind: r.get(12)?,
+                    annotation_by: r.get(13)?,
+                    source_url: r.get(14)?,
+                    retrieved_at: r.get(15)?,
+                    recheck_after: r.get(16)?,
+                    corrected_quote: r.get(17)?,
+                    compressed_at: r.get(18)?,
+                    ref_note: r.get(19)?,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    if rows.is_empty() {
+        // ⚠️ 「这一周什么都没加」**是一个结果，不是没有结果**（`StaleReview` 上那条同源）。
+        // ⛔ 发一段空的过去，模型只会当成「材料丢了」然后开始从 digest 里编本周动态。
+        return Ok(t!(
+            "（这段时间没有任何项目新加过块。）",
+            "(No project had a new block written to it in this window.)"
+        ));
+    }
+    let no_refs = std::collections::HashMap::new();
+    let empty_refs: RefBlocks = std::collections::HashMap::new();
+    let no_corrections = std::collections::HashMap::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for (title, b) in &rows {
+        if *title != current {
+            current = title.clone();
+            out.push(format!("\n## {}", if title.is_empty() { untitled() } else { title }));
+        }
+        // ⛔ `ref_blocks` 故意是空的：被引的那一块多半是**历史**，不在这一周里，
+        // 把它拉进来就等于绕开「只发本周」这条边界。引用行会退成「引用的块不在这份材料里」，
+        // 而那正是实话。⭐ `ref_note`（Q1）照常印 —— 那一句是这一头写的，说得清为什么引它。
+        out.extend(render_block(b, &no_refs, &empty_refs, &no_corrections, now));
+    }
+    Ok(out.join("\n").trim_start().to_string())
+}
+
+/// 周回顾（形态 C）的两段材料，一次读完：历史（digest）+ 这一周新加的块。
+///
+/// ⚠️ 自己开库，⛔ 不从前端接材料 —— 和 `stale_scan_via_api` 那条路不一样。
+/// 那一条接的是**一个项目**的 pack（前端本来就为了显示而握着它），
+/// 而这一条要的是**跨全库**的东西，前端手上没有，也不该为了发一次请求去拼一份。
+pub(crate) fn weekly_material_for_api(since_days: Option<i64>) -> Result<(String, String), String> {
+    let dir = app_data_dir().ok_or_else(|| t!("无法定位 Spool 数据目录。", "Could not locate Spool's data directory."))?;
+    refresh_lang(&dir);
+    let conn = open_db(&dir)?;
+    let now = now_ms();
+    let days = since_days.unwrap_or(DIGEST_DEFAULT_DAYS);
+    let digest = get_digest_json(&conn, None, Some(days), None, now)?;
+    let fresh = weekly_fresh_blocks_text(&conn, days, now)?;
+    Ok((digest, fresh))
+}
+
 #[cfg(test)]
 mod compress_prompt_tests {
     use super::*;
@@ -10328,6 +10482,78 @@ mod tests {
         let h = hit_for(&conn, &bid);
         assert_eq!(h["corrected"], true, "更正还挂着,这一条不变");
         assert_eq!(h["gist_predates_the_correction"], false);
+    }
+
+    // ⭐⭐ 周回顾走形态 C（2026-08-25，Ocean：「加入 deepseek 的周总结」）。
+    //
+    // 钉三条，三条都是「漏了没有症状、但会花着钱产出一段编的回顾」的那一类：
+    //   ① 材料只含**这一周新加的**块 —— 历史块一个都不许混进来（那是 digest 的活）。
+    //      ⛔ 这条边界一破，材料量就跟着库的大小走，钱和上下文一起爆，
+    //      而 Ocean 拍的正是「不是整个 pack」。
+    //   ② 退了的块不算「这一周做了什么」—— 和 pack / digest 同一条规矩。
+    //   ③ 材料**不许出现在 system 里**：规则每次一样、材料每次不同，
+    //      放反了前缀缓存一次都命中不了（和压缩那条路同一条纪律）。
+    #[test]
+    fn the_weekly_api_material_holds_only_this_weeks_blocks() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-weekly-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO threads (id, workspace_id, title, status, is_capture_target,
+                                  created_at, updated_at)
+             VALUES ('t1', 'ws1', '申请规划', 'active', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        let now = 1_756_000_000_000i64;
+        let day = 86_400_000i64;
+        let mut n = 0i64;
+        let mut add = |id: &str, body: &str, at: i64, stale: Option<i64>| {
+            n += 1;
+            conn.execute(
+                "INSERT INTO blocks (id, thread_id, kind, content, pinned, seq, created_at, stale_at)
+                 VALUES (?1, 't1', 'text', ?2, 0, ?3, ?4, ?5)",
+                rusqlite::params![id, body, n, at, stale],
+            )
+            .unwrap();
+        };
+        add("b_old", "去年就写下的老结论", now - 200 * day, None);
+        add("b_new", "这一周才定下来的新结论", now - day, None);
+        add("b_retired", "这一周写的但用户说不作数了", now - day, Some(now));
+
+        let fresh = weekly_fresh_blocks_text(&conn, 7, now).unwrap();
+        assert!(fresh.contains("这一周才定下来的新结论"), "{fresh}");
+        // ① 历史块是 digest 的活，⛔ 不许混进「新动作」。
+        assert!(!fresh.contains("去年就写下的老结论"), "{fresh}");
+        // ② 退了的块不算这一周做了什么。
+        assert!(!fresh.contains("用户说不作数了"), "{fresh}");
+        // 项目名要在，否则模型分不出这几块是谁的。
+        assert!(fresh.contains("申请规划"), "{fresh}");
+
+        // ⚠️「这一周什么都没加」是一个结果，不是没有结果 —— ⛔ 不许发一段空的过去。
+        let quiet = weekly_fresh_blocks_text(&conn, 7, now + 400 * day).unwrap();
+        assert!(!quiet.trim().is_empty());
+        assert!(quiet.contains("没有任何项目新加过块"), "{quiet}");
+
+        // ③ 摆放位置就是钱：规则整个在 system 里，材料在 user 里。
+        let (system, user) = weekly_messages_for_api("DIGEST-BODY", "FRESH-BODY");
+        assert!(!system.contains("DIGEST-BODY"), "digest 漏进了缓存前缀");
+        assert!(!system.contains("FRESH-BODY"), "本周材料漏进了缓存前缀");
+        assert!(user.contains("DIGEST-BODY") && user.contains("FRESH-BODY"));
+        assert!(system.contains(MATERIAL_OPEN), "围栏规则要和规则住在一起");
+        // ⛔ 这条路没有 MCP。提示词必须说清「你没有工具」——
+        // 一个被要求去调不存在的工具的模型，会开始编它本该去读的东西。
+        assert!(system.contains("没有"), "{system}");
     }
 
     // ⭐⭐ S2(2026-08-24)—— MCP 那条「整条取代」提案走的是**和 E3 同一道闸**。

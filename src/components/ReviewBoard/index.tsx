@@ -2,7 +2,9 @@ import { CalendarRange, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
-import { listRunsForAction, type EngineRun } from '@/lib/db/engineRuns';
+import { listRunsForAction, recordRun, type EngineRun } from '@/lib/db/engineRuns';
+import { loadApiKey, weeklyReviewViaApi } from '@/lib/ai/compress';
+import { toast } from '@/stores/toastStore';
 import { canShowEngineActions } from '@/lib/engine/gate';
 import { dateLocale, useT } from '@/lib/i18n';
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
@@ -57,6 +59,20 @@ export default function ReviewBoard() {
 
   const [reviews, setReviews] = useState<EngineRun[] | null>(null);
 
+  // ⭐⭐ 2026-08-25（Ocean）——「CLI 只支持 codex 和 claude，这两个模型太贵了
+  // （gemini 的能力有限，且额度少），加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
+  //
+  // ⚠️ **两条路并存，不是替换。** CLI 那条（形态 B）一分钱不花、一个 key 不填；
+  // 这一条（形态 C）用用户自己填的端点和模型 —— 设置里那个「模型」框本来就是他的，
+  // ⛔ 这里不再发明第二套模型设置。
+  const apiOn = useSettingsStore((s) => s.apiEngineEnabled);
+  const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl);
+  const apiModel = useSettingsStore((s) => s.apiModel);
+  const apiReasoning = useSettingsStore((s) => s.apiReasoning);
+  const apiTimeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
+  const [apiRunning, setApiRunning] = useState(false);
+
+
   useEffect(() => {
     if (engineStatus === null) void probe();
   }, [engineStatus, probe]);
@@ -74,6 +90,62 @@ export default function ReviewBoard() {
   // end of every run — so this follows a review finishing without polling for it.
   useEffect(load, [load, runs]);
 
+  /** 用 API 跑一次周回顾。
+   *
+   *  ⚠️ 材料**不在这儿拼** —— Rust 那边自己开库拼（digest 当历史 + 本周新加的块当新动作，
+   *  ⭐ 范围是 Ocean 拍的：「不是整个 pack」）。前端只负责端点、key、模型和记账。
+   *
+   *  ⚠️ 记进 `engine_runs` 走的是和 CLI 那条**同一张表**，所以跑完之后这一页的列表
+   *  自己就有了，⛔ 不需要第二套显示。 */
+  const runViaApi = useCallback(async (): Promise<void> => {
+    if (apiRunning) return;
+    setApiRunning(true);
+    const startedAt = Date.now();
+    try {
+      const key = await loadApiKey();
+      const out = await weeklyReviewViaApi({
+        baseUrl: apiBaseUrl,
+        apiKey: key,
+        model: apiModel,
+        reasoning: apiReasoning,
+        timeoutSecs: apiTimeoutSecs,
+      });
+      await recordRun({
+        action: 'weekly_review',
+        // 周回顾读的是整个库，不属于任何一个项目 —— 和 CLI 那条一样。
+        threadId: null,
+        // ⚠️ 记「实际跑的是哪个模型」而不是一句「api」：按次付费的时候，
+        // 「我以为在用 Flash」和「实际在用 Pro」差好几倍，而端点会回报真名。
+        engine: out.model ?? apiModel,
+        outcome: out.ok ? 'ok' : 'failed',
+        resultText: out.text.trim() || null,
+        detail: out.ok ? null : (out.message ?? null),
+        blocksWritten: 0,
+        proposalsQueued: 0,
+        usage: {
+          model: out.model ?? apiModel,
+          costUsd: null,
+          inputTokens: out.inputTokens || null,
+          outputTokens: out.outputTokens || null,
+        },
+        startedAt,
+        finishedAt: Date.now(),
+      });
+      // ⚠️「有回话」，⛔ 不是「写好了」—— 2026-08-11 那条纪律：Spool 判断不了一段散文
+      // 是回顾还是道歉，所以不许替它宣称。
+      toast.notice(
+        out.ok
+          ? t('周回顾跑完了，就在下面')
+          : t('周回顾没跑成'),
+      );
+    } catch (e) {
+      toast.error(t('周回顾没跑成'), e instanceof Error ? e.message : String(e));
+    } finally {
+      setApiRunning(false);
+      load();
+    }
+  }, [apiRunning, apiBaseUrl, apiModel, apiReasoning, apiTimeoutSecs, load, t]);
+
   const engineReady = canShowEngineActions({
     cliAvailable: engineStatus?.available === true,
     mcpEnabled,
@@ -81,6 +153,11 @@ export default function ReviewBoard() {
     actionsEnabled,
   });
   const running = current?.action === 'weekly_review';
+  /** 装着的那个 CLI 叫什么。⚠️ 两条路并排摆着的时候，光写「回顾这一周」两遍
+   *  用户分不出哪个是哪个 —— 按钮上必须说出跑的是谁。 */
+  const cliName = engineStatus?.selected
+    ? (ENGINE_LABEL[engineStatus.selected] ?? engineStatus.selected)
+    : null;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -95,11 +172,15 @@ export default function ReviewBoard() {
         <span className="text-[11px] text-muted">{t('跨所有项目，不属于任何一个')}</span>
       </header>
 
-      {engineReady && (
+      {/* ⭐ 2026-08-25：**两条路并存**，所以这根条子的闸是「随便哪条准备好了」，
+          ⛔ 不再只认 CLI。以前只认 `engineReady`，于是一个没装 CLI、但填了 API key 的用户
+          在这一屏上看不到任何可以点的东西。 */}
+      {(engineReady || apiOn) && (
         <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-6 py-2">
+          {engineReady && (
           <button
             type="button"
-            disabled={current !== null}
+            disabled={current !== null || apiRunning}
             onClick={() => enqueue('', '', 'weekly_review', timeoutSecs)}
             title={t('回顾最近一周——读一遍所有项目')}
             className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
@@ -109,8 +190,35 @@ export default function ReviewBoard() {
             ) : (
               <CalendarRange size={12} className="flex-none" />
             )}
-            {running ? t('正在回顾…') : t('回顾这一周')}
+            {running
+              ? t('正在回顾…')
+              : cliName
+                ? t('回顾这一周（用 {engine}）', { engine: cliName })
+                : t('回顾这一周')}
           </button>
+          )}
+
+          {/* ⭐⭐ Ocean 2026-08-25：「加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
+              ⚠️ 模型是**设置里那个「模型」框**（`apiModel`），⛔ 这里不再做第二个选择器 ——
+              按钮上把它的名字说出来，用户点之前就知道这一下花的是谁的钱。 */}
+          {apiOn && (
+            <button
+              type="button"
+              disabled={apiRunning || current !== null}
+              onClick={() => void runViaApi()}
+              title={t('用你自己填的端点和模型跑一次（按字数计费）')}
+              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
+            >
+              {apiRunning ? (
+                <Loader2 size={12} className="flex-none animate-spin" />
+              ) : (
+                <CalendarRange size={12} className="flex-none" />
+              )}
+              {apiRunning
+                ? t('正在回顾…')
+                : t('回顾这一周（用 {engine}）', { engine: apiModel })}
+            </button>
+          )}
 
           {/* ⭐ 2026-08-25（Ocean:「周回顾没法暂停」）—— 停下的按钮以前**只长在右边栏的
               LiveRun 卡片上**，而钉住的视图（项目管理 / 周回顾）根本不挂右边栏（App.tsx:

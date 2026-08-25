@@ -1113,6 +1113,26 @@ interface StaleScanRaw {
   }[];
 }
 
+/** 周回顾走形态 C（2026-08-25，Ocean：「加入 deepseek 的周总结」）。
+ *
+ *  ⚠️ 和压缩 / 过期检测**不一样：这里不传材料**。
+ *  那两条传的是一个项目的 pack（前端本来就为了显示握着它），而周回顾要的是**跨全库**的
+ *  东西，前端手上没有 —— 由 Rust 自己开库拼：digest 当历史，本周新加的块当新动作
+ *  （⭐ 范围是 Ocean 拍的：「不是整个 pack」）。
+ *
+ *  ⛔ 这条路一个字都不往库里写。回顾正文回到这儿，按老路子记进 `engine_runs`。 */
+export const weeklyReviewViaApi = async (
+  req: Omit<CompressRequest, 'level' | 'packText'> & { sinceDays?: number },
+): Promise<CompressOutcome> =>
+  invoke<CompressOutcome>('weekly_review_via_api', {
+    sinceDays: req.sinceDays ?? null,
+    baseUrl: req.baseUrl,
+    apiKey: req.apiKey,
+    model: req.model,
+    reasoning: req.reasoning,
+    timeoutSecs: req.timeoutSecs,
+  });
+
 export const staleScan = async (req: Omit<CompressRequest, 'level'>): Promise<StaleScan> => {
   const raw = await invoke<StaleScanRaw>('stale_scan_via_api', {
     packText: req.packText,

@@ -215,6 +215,12 @@ const EN: Record<string, string> = {
   '更正了其中一处：': 'corrects one point in:',
   '其中一处已被更正：': 'one point in this was corrected:',
   '点一下跳到那一块': 'Click to jump to that block',
+  // 2026-08-25：周回顾多了一条 API 的路，两个按钮并排 —— 名字里必须说出跑的是谁。
+  '回顾这一周（用 {engine}）': 'Review this week (with {engine})',
+  '用你自己填的端点和模型跑一次（按字数计费）':
+    'Run it on the endpoint and model you configured (billed per token)',
+  '周回顾跑完了，就在下面': 'The weekly review is done — it is right below',
+  '周回顾没跑成': 'The weekly review did not run',
   // Q4（§2.Q4）：「摘要」页签。⚠️ 那两句说明是这一页的一部分，⛔ 不是装饰 ——
   // 不说清分工的话，用户第一反应是「这不就是批注吗」。
   // ⚠️ 页签叫「**块**摘要」，⛔ 不是光「摘要」—— Ocean 说的是「摘要」，但那两个字在
