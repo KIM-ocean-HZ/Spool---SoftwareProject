@@ -1488,9 +1488,23 @@ fn list_threads_json(conn: &Connection, title_contains: Option<&str>) -> Result<
 // ⭐ S8 (§2.S8): `b.gist` rides along for the one thing a snippet cannot do — say what the
 // block is AS A WHOLE. A 2,000-character block returns one matching fragment and nothing
 // about the rest of it, and across 39 projects that hit list is the only way in.
+// ⭐ Q3 (§2.Q3, 2026-08-25): the last two columns answer 「这一句还作数吗」.
+//
+// `Q2` gave an AI a way to fix a stale gist, but that leaves the window between the moment
+// a correction lands and the moment somebody remembers to go back — and inside that window
+// the hit list goes on showing the pre-correction line as if it were current. ⛔ 不能只靠
+// AI 自觉。
+//
+// ⚠️ `gist_by IS NULL` is what makes 「摘要必然停在更正之前那句」 derivable without a new
+// timestamp column: NULL means the line came from `add_block`, i.e. from the block's own
+// creation — and a correction of that block is necessarily later. Anything that has been
+// looked at since carries 'ai' (set_block_gist) or 'user' (the 摘要 tab).
 const SEARCH_COLS: &str = "b.id, b.thread_id, b.content, b.annotation, b.created_at,
                            t.title, w.title, b.source, b.pinned, b.seq, b.stale_at,
-                           b.annotation_by, b.gist";
+                           b.annotation_by, b.gist,
+                           EXISTS(SELECT 1 FROM blocks c
+                                   WHERE c.ref_block_id = b.id AND c.ref_kind = 'corrects'),
+                           b.gist_by";
 const SEARCH_DEFAULT_LIMIT: i64 = 20;
 const SEARCH_MAX_LIMIT: i64 = 50;
 
@@ -1553,6 +1567,9 @@ fn search_blocks_json(
         // ⭐ S8 (§2.S8): 「这块整体是什么」, one line, written on the write path. None on every
         // block nobody has written one for — which is every block until an AI does.
         gist: Option<String>,
+        // ⭐ Q3 (§2.Q3): 这一块挂着更正吗，以及它的摘要是不是从没被人回头看过。
+        corrected: bool,
+        gist_by: Option<String>,
     }
     let map_row = |r: &rusqlite::Row| -> rusqlite::Result<Cand> {
         Ok(Cand {
@@ -1570,6 +1587,8 @@ fn search_blocks_json(
             stale_at: r.get(10)?,
             annotation_by: r.get(11)?,
             gist: r.get(12)?,
+            corrected: r.get::<_, i64>(13)? == 1,
+            gist_by: r.get(14)?,
         })
     };
 
@@ -1692,6 +1711,16 @@ fn search_blocks_json(
                 // ⚠️ null when nobody wrote one — which is every block until an AI does,
                 // so a reader must treat its absence as "unknown", never as "nothing to say".
                 "gist": c.gist,
+                // ⭐ Q3 (§2.Q3, 2026-08-25): 这一块上挂着一条更正 —— 上面那个片段和那一句
+                // `gist` 都可能说的是被更正掉的那个说法。⛔ 不把更正正文塞进来：那是
+                // `get_blocks` / `get_pack` 的活,这里只负责让读的人知道要去看。
+                "corrected": c.corrected,
+                // ⚠️ 更狠的那一半：`gist_by` 为 NULL = 这一句是 `add_block` 那一刻写下的,
+                // 而更正必然在那之后 ⇒ **它必然停在更正之前那个说法上**。
+                // 谁回头看过一眼(set_block_gist / 用户自己改),这里就不是 NULL 了。
+                "gist_predates_the_correction": c.corrected
+                    && c.gist.is_some()
+                    && c.gist_by.is_none(),
                 "annotation": c.annotation,
                 "created_at": format_pack_time(c.created_at),
                 "thread_title": c.thread_title,
@@ -4022,6 +4051,74 @@ fn set_thread_summary_json(
     )
     .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
     Ok(json!({ "thread_id": thread_id, "title": title, "summary": summary }).to_string())
+}
+
+// ⭐⭐ Q2 (WORKPLAN §2.Q2, Ocean 2026-08-25) —— 给已有块补/改摘要。
+//
+// **为什么非有不可**(他的理由,比我提的那条硬):我说的是「老块补不上摘要」,他说的是
+// > 「被更正的 block 摘要无法被更正,读取会被误导,更正的信息也可以出现在摘要里面。」
+//
+// `gist` 在 v26 只有 `add_block` 那一刻写得进去,而更正是**后来**才落下的 ⇒
+// **一块被更正之后,它的摘要必然停在更正之前那个说法上**,而搜索命中那一行给 AI 看的正是它。
+// ⛔ 这不是「少个入口」,是**会过期而无法更新**。
+//
+// 形状照抄 `set_thread_summary`（现成的先例）,两处**有意不一样**:
+//   ① **传空 = 清掉**,而 `set_thread_summary` 拒绝空。⭐ 是有意的:
+//      **一条过期的摘要比没有摘要更坏** —— 前者会骗下一个读它的模型,后者只是少一行。
+//   ② 它认的是 `gist_by`(v28),不是 `summary_source`。规矩一模一样:
+//      **不许盖掉用户写的那一句**,拒绝时把自己那句建议说给用户听。
+//      ⚠️ `gist_by` 为 NULL 的按 **AI** 待 —— v26–v27 期间 `gist` 只有 `add_block`
+//      一条写入路径,那些确实全是 AI 写的。⛔ 反过来按「用户」待的话,AI 自己写下的
+//      每一句都会从此改不动,而这条工具存在的全部理由就是让它改得动。
+//
+// ⛔ **只写 `gist` 一列** —— 不碰 content / annotation:「AI 批注不能人为新增」那条红线还在。
+fn set_block_gist_json(conn: &Connection, block_id: &str, gist: Option<&str>) -> Result<String, String> {
+    let (thread_title, seq, existing_by, deleted): (String, Option<i64>, Option<String>, Option<i64>) =
+        conn.query_row(
+            "SELECT t.title, b.seq, b.gist_by, t.deleted_at
+               FROM blocks b JOIN threads t ON t.id = b.thread_id
+              WHERE b.id = ?1",
+            [block_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .map_err(|_| {
+            t!(
+                "没有这一块(block_id 用 search_blocks / get_blocks 返回的那个)。",
+                "No such block — block_id takes one returned by search_blocks or get_blocks."
+            )
+        })?;
+    if deleted.is_some() {
+        return Err(t!("这一块所在的项目已被删除。", "The project this block is in has been deleted."));
+    }
+    // 用户自己写的那一句,MCP 不得覆盖 —— `set_thread_summary` 的规矩,一字不改。
+    if existing_by.as_deref() == Some("user") {
+        let n = seq.map(|s| format!("#{s}")).unwrap_or_default();
+        return Err(t!(
+            "〈{thread_title}〉{n} 的摘要是用户自己写的,MCP 不得覆盖。\
+             把你想写的那一句告诉用户,由他在 Spool 的「摘要」页签里自己改。",
+            "The gist on {n} in \u{2039}{thread_title}\u{203a} was written by the user, and MCP may \
+             never overwrite it. Tell them the line you would write and let them edit it \
+             themselves, under the Gist tab in Spool."
+        ));
+    }
+    let gist = gist.map(str::trim).filter(|s| !s.is_empty());
+    // D-1: 和另外三个写入工具同一道闸 —— 这一句是会显示给人看的文本。
+    if let Some(g) = gist {
+        reject_raw_ids(conn, &[("gist", g)])?;
+    }
+    conn.execute(
+        "UPDATE blocks SET gist = ?1, gist_by = 'ai' WHERE id = ?2",
+        rusqlite::params![gist, block_id],
+    )
+    .map_err(|e| t!("写入失败: {e}", "Write failed: {e}"))?;
+    Ok(json!({
+        "block_id": block_id,
+        "thread_title": thread_title,
+        "seq": seq,
+        "gist": gist,
+        "cleared": gist.is_none()
+    })
+    .to_string())
 }
 
 // v2.4 (D1/5b): a raw 21-char nanoid written into content/annotation surfaces in
@@ -6381,7 +6478,7 @@ fn tools_descriptor() -> Value {
         },
         {
             "name": "search_blocks",
-            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, `gist` (one line saying what that block is AS A WHOLE, when someone wrote one — the snippet tells you where the words matched, this tells you what they are part of; null means nobody has written one, not that there is nothing to say), and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and the project it belongs to \u{2014} a file is one the user put in that project themselves, so it carries no source label of its own. \u{26a0}\u{fe0f} A hit inside a file the user has not opened up to AI carries `ai_readable: false`, no snippet and a `locked` note: you learn WHICH file holds the phrase and nothing of what it says \u{2014} ask with request_file_access(attachment_id) to read it. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
+            "description": "Keyword-search every block (content + user annotations) across all projects. Use this to find WHICH project a topic lives in — before pulling its full context with get_pack, or before filing something new with add_block. Returns {total, offset, limit, hits}: relevance-ranked, each hit carrying a snippet with the match wrapped in **…**, its source label (the authority category is read off this — user-typed blocks have none), pinned flag, `gist` (one line saying what that block is AS A WHOLE, when someone wrote one — the snippet tells you where the words matched, this tells you what they are part of; null means nobody has written one, not that there is nothing to say), `corrected` (a later block corrects a point inside this one — both the snippet and the gist may be describing the version that was corrected; read it with get_blocks or get_pack before relying on it), `gist_predates_the_correction` (stronger: that gist was written when the block was created and nobody has revisited it since the correction landed, so it is describing the OLD story — do not repeat it to the user, and fix it with set_block_gist while you are here), and block/project ids (ids are tool parameters only — cite hits to the user by snippet and thread_title). Page past `limit` with offset. Latin/ASCII queries match whole words at any length (GRE never hits degree); CJK queries match substrings. Queries of 1-2 characters scan newest-first. Text extracted from attached files (PDF/docx/…) is searched too, but reported separately under `attachment_hits` / `attachment_total` — a phrase that lives only inside a PDF shows up there and never in `hits`, and never counts toward `total`. A file hit names the file it matched and the project it belongs to \u{2014} a file is one the user put in that project themselves, so it carries no source label of its own. \u{26a0}\u{fe0f} A hit inside a file the user has not opened up to AI carries `ai_readable: false`, no snippet and a `locked` note: you learn WHICH file holds the phrase and nothing of what it says \u{2014} ask with request_file_access(attachment_id) to read it. They are not paged: the hits ride with the first page (offset=0), while `attachment_total` keeps reporting on every page.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
@@ -6678,6 +6775,20 @@ fn tools_descriptor() -> Value {
                 "required": ["thread_id", "summary"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "set_block_gist",
+            "description": "Write or replace the one-line gist on a block that is ALREADY in the library — the line search hits show beside it, saying what that block is AS A WHOLE. Use it in two situations. FIRST and most important: you just corrected a point inside a block, or read a correction hanging under one. A gist can only be written when a block is created, and corrections land later — so the moment a block is corrected its gist is frozen on the pre-correction version of the story, and that frozen line is exactly what the next search hit shows to whoever looks. Go and fix it, and put what actually holds into the line. SECOND: a block that carries no gist at all (every block written before this field existed, and everything the user typed by hand) — a long one comes back from search as one matching fragment with nothing about the rest of it. Passing an empty gist CLEARS the line, and that is deliberate: a gist that has gone wrong is worse than none, because it is read as current. It writes that one line and nothing else — never the block's text, never its annotation. A gist the USER wrote is refused: say the line you would have written and let them edit it in Spool. Requires MCP writes enabled in Spool's settings.",
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true },
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "block_id": { "type": "string", "description": "Block id from search_blocks / get_blocks." },
+                    "gist": { "type": "string", "description": "One line saying what this block is AS A WHOLE — 50\u{2013}100 characters, in the user's language. Same field and same rules as add_block's gist: answer \u{201c}what is this one about?\u{201d}, not \u{201c}what does it conclude\u{201d}, and do not just repeat the opening sentence. Pass an empty string to clear the line entirely.", "maxLength": 200 }
+                },
+                "required": ["block_id"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -6856,9 +6967,9 @@ fn handle_tool_call(params: &Value) -> Value {
             // they click. A user who has not turned writing on has not agreed to that
             // conversation happening at all — and both are still reachable by hand (the ✓ in
             // 项目文件, the 跟进 panel), so the switch closes nothing off to the user.
-            "create_thread" | "add_block" | "set_thread_summary" | "propose_blocks"
-            | "propose_supersede" | "request_file_access" | "suggest_follow_up_item"
-            | "close_follow_up_item" => {
+            "create_thread" | "add_block" | "set_thread_summary" | "set_block_gist"
+            | "propose_blocks" | "propose_supersede" | "request_file_access"
+            | "suggest_follow_up_item" | "close_follow_up_item" => {
                 if !mcp_write_enabled(&dir) {
                     // propose_blocks stores nothing, so a caller could reasonably read the
                     // shared refusal as Spool being confused. Say why the switch still
@@ -6954,6 +7065,15 @@ fn handle_tool_call(params: &Value) -> Value {
                         args.get("outcome").and_then(Value::as_str).unwrap_or(""),
                         args.get("answer_block_id").and_then(Value::as_str),
                         now_ms(),
+                    )
+                } else if name == "set_block_gist" {
+                    set_block_gist_json(
+                        &conn,
+                        args.get("block_id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| t!("缺少 block_id 参数。", "Missing the block_id argument."))?,
+                        // ⚠️ 给了空串 = 清掉,和「没给这个参数」是同一件事,⛔ 不是错误。
+                        args.get("gist").and_then(Value::as_str),
                     )
                 } else if name == "set_thread_summary" {
                     set_thread_summary_json(
@@ -7220,6 +7340,25 @@ fn human_headline(name: &str, args: &Value, result: &str) -> Option<String> {
             "Updated the one-line summary of \u{2039}{}\u{203a} in the catalogue.",
             v.get("title").and_then(Value::as_str).unwrap_or_default()
         )),
+        // Q2 (§2.Q2)：清掉和改写是两句不同的话 —— 清掉那一下用户在「摘要」页签上看得见,
+        // ⛔ 说成「更新了」会让他以为那一行还在。
+        "set_block_gist" => {
+            let project = v.get("thread_title").and_then(Value::as_str).unwrap_or_default();
+            let n = v.get("seq").and_then(Value::as_i64).map(|s| format!("#{s}")).unwrap_or_default();
+            Some(if v.get("cleared").and_then(Value::as_bool).unwrap_or(false) {
+                t!(
+                    "清掉了〈{project}〉{n} 的摘要 —— 那一行已经不成立,搜索命中旁边从此不再显示它。",
+                    "Cleared the gist on {n} in \u{2039}{project}\u{203a} — that line no longer \
+                     held, and search hits will not show it any more."
+                )
+            } else {
+                t!(
+                    "改写了〈{project}〉{n} 的摘要 —— 搜索命中旁边显示的就是这一行。",
+                    "Rewrote the gist on {n} in \u{2039}{project}\u{203a} — that is the line \
+                     shown beside it in search hits."
+                )
+            })
+        }
         // DESIGN_PROJECT_FILES §3.4. Same job as propose_blocks' headline, one register
         // stronger: the sentence a model is most likely to reach for here is "I read your
         // PDF", and it read nothing at all.
@@ -8126,12 +8265,12 @@ fn write_gate_line(dir: &std::path::Path) -> &'static str {
         // see — and hit a second refusal it was never warned about. The list is now the
         // whole write surface.
         ts!(
-            "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary / propose_blocks \
+            "⚠️ 用户没有打开「允许 AI 写入」,add_block / set_thread_summary / set_block_gist / propose_blocks \
              一定会被拒绝——别去调用,提案队列也一样走不通。\
              把结论完整讲给用户,并告诉他:Spool → 设置 → 通用 →「MCP 服务」→ 打开「允许 AI 写入」,\
              你才能替他存回。",
             "\u{26a0}\u{fe0f} The user has NOT turned on \u{201c}Let AI write\u{201d}, so add_block, \
-             set_thread_summary and propose_blocks will all be refused — do not call them; the \
+             set_thread_summary, set_block_gist and propose_blocks will all be refused — do not call them; the \
              proposal queue is closed too. Give the user the whole finding in the chat, and tell \
              them: Spool \u{2192} Settings \u{2192} General \u{2192} \u{201c}MCP service\u{201d} \
              \u{2192} turn on \u{201c}Let AI write\u{201d}, and then you can store it for them."
@@ -9043,7 +9182,7 @@ fn thread_health_report(
 // ⚠️ Lifted out of the json! literal on 2026-08-09 (DESIGN_MCP_INTENT_ROUTING §4.2 B-2)
 // so that a test can read it. Nothing about the text changed in the move; what changed
 // is that `every_tool_is_reachable_from_the_routing_text` can now see it.
-const INSTRUCTION_BODY: &str = "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). APPLICABILITY BEFORE AUTHORITY: a block is usable only where its scope, time and preconditions still match the task at hand — an approach that worked earlier is not the default now, and something ruled out earlier is a historical fact, not a standing ban; 📖's weight holds only inside the scope and period it was verified for. AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters, and a `gist` \u{2014} one line, 50\u{2013}100 characters, saying what the block is AS A WHOLE. That line is what search hits show beside a block: a long block otherwise comes back as one matching fragment with nothing about the rest of it, and across dozens of projects the hit list is the only way in. It is cheap to write while you are already there and impossible to reconstruct later. Cite the block it builds on via ref_block_id, and say WHY in ref_note \u{2014} one sentence, required on every citation that is not a correction. That sentence is the citation line the user reads; without it the line is a block number and a timestamp. It is not a description of the block you are citing (that block has its own gist) \u{2014} it is what you are pointing at it FOR: \u{201c}the professor replied, the project is back on\u{201d}. create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. One case is not a write at all: when a passage the user handed you belongs in several DIFFERENT projects, propose_blocks queues the split for them to approve inside Spool, and saves nothing — pass source_text so the pieces cite the passage they came from, and tell the user \\\"N items are waiting for you in Spool\\\", never that you saved them. Splitting a few findings across projects is that same one case — two add_block calls into two projects is the wrong shape for it, however small it looks. What a project WATCHES is not a block either: it lives in that project's follow-up list, one line per thing, and a block titled 当前跟进 / current follow-up is wrong twice over — it is permanent, and nothing reads it when a follow-up actually runs. Add to that list with suggest_follow_up_item, one call per line, and it waits for the user rather than taking effect. That is also what to do with a question this conversation could not close: an open question you file is read by the NEXT conversation, whereas one you leave in the chat is gone. When a project's lines come back on a read (get_follow_up_brief, get_project_overview, or the counts on list_threads), say what is on them before going further — but not the ones marked raised_today, which the user has already heard about today. Answering one is only half of it: retire it with close_follow_up_item, naming what you found, or it is asked again in the next conversation and by every follow-up run — and say which line you retired, since nobody was asked first. The lines marked standing:true are the ones you may not close at all; they are watches that never complete, so if one looks finished to you, that is something to tell the user, not something to do. When what you are storing came from OUT THERE rather than out of this conversation, say so in the write itself: source_url is the page, retrieved_at (YYYY-MM-DD) is the day you read it, and recheck_after is the day it stops being safe to trust — a deadline, a fee, an entry requirement. Spool then prints that under the block and, once the recheck date passes, marks it as possibly out of date and counts it in get_project_overview's needs_attention.due_for_recheck. Without those dates a page you read today reads as timeless a year from now, and neither you nor the user can tell which of the two it is. Correcting ONE point inside a block already in the library is ref_kind:\"corrects\" naming that block, in add_block or propose_blocks — a block whose text merely opens with 更正 / Correction does nothing at all: only ref_kind makes Spool hang the correction under the old block, and without it the old one keeps rendering as a live conclusion in every future briefing. When you can point at the sentence that went wrong, copy it verbatim into corrected_quote: Spool marks that sentence in place inside the old block, and without it the user is told one point in a long block is wrong and left to hunt for which. And a yes covers the one thing you asked for and nothing else: being let into a file is not permission to write blocks. A file you cannot read is a request you have not made yet — never tell the user to send it another way, Spool already has it; ask for it with request_file_access(attachment_id). If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.";
+const INSTRUCTION_BODY: &str = "Spool (思簿) is the user's local context hub. HARD RULE first — naming: talk to the user in project/block titles only; raw ids (sbC2zgTo…) are tool parameters — never say them, never write them into content/annotations (add_block REFUSES such a write outright — nothing is stored; cite blocks via ref_block_id instead). APPLICABILITY BEFORE AUTHORITY: a block is usable only where its scope, time and preconditions still match the task at hand — an approach that worked earlier is not the default now, and something ruled out earlier is a historical fact, not a standing ban; 📖's weight holds only inside the scope and period it was verified for. AUTHORITY (each pack opens with the full rules — this is the digest-sized version): 📖 Reference (institutional sources) = ground truth; 🧩 Synthesis (AI-written essays) = framing, not facts; 🔄 Process (chat traces) = read for the user's evolving questions; 💭 Personal (sourceless entries + note: lines) = the user's own intent, highest signal; ==spans== are user-highlighted. WORKFLOW: cross-project questions (\"最近在忙什么\") → get_digest first; its 📌 anchor lines are capped at 160 chars (a shorter pin is shown whole) — full pinned text via get_blocks(pinned=true) or get_pack(range=pinned). Pick projects with list_threads (watch approx_pack_chars; title_contains resolves a title to its id); locate topics with search_blocks, then read around a hit with get_blocks(around_block_id=…) or filter pages (pinned / has_annotation / source_contains). find_similar_blocks only reports duplicates — merging is the user's curation. get_pack is one project's full briefing; over budget it keeps the header + pinned + newest blocks and says what it omitted; pass include_ids=true when you will cite or jump from what you read. WRITING (needs the user's consent toggles in Spool settings): you are the one who answers, not a librarian — writing back is for what this conversation produced and the library lacks, not for tidying it up. ONE finding per add_block, with an annotation saying why it matters, and a `gist` \u{2014} one line, 50\u{2013}100 characters, saying what the block is AS A WHOLE. That line is what search hits show beside a block: a long block otherwise comes back as one matching fragment with nothing about the rest of it, and across dozens of projects the hit list is the only way in. It is cheap to write while you are already there and impossible to reconstruct later. Cite the block it builds on via ref_block_id, and say WHY in ref_note \u{2014} one sentence, required on every citation that is not a correction. That sentence is the citation line the user reads; without it the line is a block number and a timestamp. It is not a description of the block you are citing (that block has its own gist) \u{2014} it is what you are pointing at it FOR: \u{201c}the professor replied, the project is back on\u{201d}. create_thread only for a genuinely new topic; set_thread_summary refreshes the catalogue card — if refused (user-written), tell the user your suggestion instead of retrying. One case is not a write at all: when a passage the user handed you belongs in several DIFFERENT projects, propose_blocks queues the split for them to approve inside Spool, and saves nothing — pass source_text so the pieces cite the passage they came from, and tell the user \\\"N items are waiting for you in Spool\\\", never that you saved them. Splitting a few findings across projects is that same one case — two add_block calls into two projects is the wrong shape for it, however small it looks. What a project WATCHES is not a block either: it lives in that project's follow-up list, one line per thing, and a block titled 当前跟进 / current follow-up is wrong twice over — it is permanent, and nothing reads it when a follow-up actually runs. Add to that list with suggest_follow_up_item, one call per line, and it waits for the user rather than taking effect. That is also what to do with a question this conversation could not close: an open question you file is read by the NEXT conversation, whereas one you leave in the chat is gone. When a project's lines come back on a read (get_follow_up_brief, get_project_overview, or the counts on list_threads), say what is on them before going further — but not the ones marked raised_today, which the user has already heard about today. Answering one is only half of it: retire it with close_follow_up_item, naming what you found, or it is asked again in the next conversation and by every follow-up run — and say which line you retired, since nobody was asked first. The lines marked standing:true are the ones you may not close at all; they are watches that never complete, so if one looks finished to you, that is something to tell the user, not something to do. When what you are storing came from OUT THERE rather than out of this conversation, say so in the write itself: source_url is the page, retrieved_at (YYYY-MM-DD) is the day you read it, and recheck_after is the day it stops being safe to trust — a deadline, a fee, an entry requirement. Spool then prints that under the block and, once the recheck date passes, marks it as possibly out of date and counts it in get_project_overview's needs_attention.due_for_recheck. Without those dates a page you read today reads as timeless a year from now, and neither you nor the user can tell which of the two it is. Correcting ONE point inside a block already in the library is ref_kind:\"corrects\" naming that block, in add_block or propose_blocks — a block whose text merely opens with 更正 / Correction does nothing at all: only ref_kind makes Spool hang the correction under the old block, and without it the old one keeps rendering as a live conclusion in every future briefing. When you can point at the sentence that went wrong, copy it verbatim into corrected_quote: Spool marks that sentence in place inside the old block, and without it the user is told one point in a long block is wrong and left to hunt for which. Correcting a block leaves one thing behind that nothing else will fix: its `gist` was written when the block was created, so it now describes the version you just corrected \u{2014} and that frozen line is exactly what the next search hit shows. Finish the job with set_block_gist on the corrected block: write what actually holds, or pass an empty gist to clear it, because a gist that has gone wrong is read as current and is worse than none. The same tool is how a block written before gists existed gets one at all. If it refuses, the user wrote that line themselves \u{2014} tell them what you would have written instead of retrying. And a yes covers the one thing you asked for and nothing else: being let into a file is not permission to write blocks. A file you cannot read is a request you have not made yet — never tell the user to send it another way, Spool already has it; ask for it with request_file_access(attachment_id). If you ever compress a pack: keep the skeleton, every note: line, sourceless entry and ==span== verbatim; dedupe only the Full Record; store via add_block, never as a replacement.";
 
 const OPENERS: &str = "The user speaks plain language, not tool names. Typical openers, \
 and what to call:\n\
@@ -9084,7 +9223,8 @@ Removing a line is the user's own doing, in Spool\n\
 \"这些还准吗\" / \"有没有过时的\" / \"what might be out of date\" \u{2192} get_project_overview \
 (needs_attention.due_for_recheck), then get_blocks to see which ones \u{2014} and when you go \
 and re-check one, write the new answer back with retrieved_at and a fresh recheck_after\n\
-\"这条结论不对了\" / \"更正一下\" / \"that conclusion is wrong now\" \u{2192} add_block with ref_kind:\"corrects\" + ref_block_id naming the old block, and corrected_quote holding the sentence in it that no longer holds, copied word for word \u{2014} find that block first (search_blocks / get_blocks), never just open the new block's text with 更正\n\
+\"这条结论不对了\" / \"更正一下\" / \"that conclusion is wrong now\" \u{2192} add_block with ref_kind:\"corrects\" + ref_block_id naming the old block, and corrected_quote holding the sentence in it that no longer holds, copied word for word \u{2014} find that block first (search_blocks / get_blocks), never just open the new block's text with 更正. \u{2b50} Then look at the corrected block's `gist`: it was written before the correction and still speaks for the old version of the story, and that is the line the next search hit shows \u{2014} fix it with set_block_gist, or clear it\n\
+\"这一块的摘要不对了\" / \"给这些块补一句说明\" / \"that one-line summary is out of date\" \u{2192} set_block_gist(block_id, gist) \u{2014} it is the only way to touch a gist after the block exists; an empty gist clears the line, which beats leaving a wrong one up\n\
 \"这个名单/计划整个重做了\" / \"新的那版把旧的整个换掉了\" / \"that whole list has been redone\" \u{2192} propose_supersede naming the two blocks \u{2014} it asks the user, it does not retire anything. ONLY when the newer block replaces the older one WHOLESALE; if just one point inside is wrong, it is the ref_kind:\"corrects\" line above, and when the two readings are close, choose that one\n\
 \"is X getting messy\" / \"有没有重复\" \u{2192} thread_health\n\
 \"体检一下\" / \"check my library\" \u{2192} check_library\n\
@@ -9551,7 +9691,10 @@ mod tests {
                 "request_file_access",
                 "suggest_follow_up_item",
                 "close_follow_up_item",
-                "set_thread_summary"
+                "set_thread_summary",
+                // Q2 (§2.Q2)：它只写 `gist` 一列，但那一列是 AI 读得到的文本 —— 一句写错的
+                // 摘要会一路骗到下一次搜索命中，所以它跟其余八个走同一道写入闸。
+                "set_block_gist"
             ]
         );
     }
@@ -10005,6 +10148,164 @@ mod tests {
         assert!(pack.contains("— why: 这条进度是照那封回信排的"), "{pack}");
         // ⛔ 更正那一条没给理由,所以它的 ↩ 行上不许凭空长出一个 why。
         assert_eq!(pack.matches("— why: ").count(), 1, "{pack}");
+    }
+
+    // ⭐⭐ Q2 (WORKPLAN §2.Q2, Ocean 2026-08-25) —— `set_block_gist`。
+    //
+    // 他给的理由：「被更正的 block 摘要无法被更正,读取会被误导」。所以这条测试走的正是
+    // 那条时间线：写一块带摘要的 → 更正它 → **摘要仍然停在更正之前那句** → 改掉它。
+    //
+    // 三条不变量：
+    //   ① AI 写的(和 `gist_by` 为 NULL 的老行)改得动 —— 这条工具存在的全部理由;
+    //   ② 用户写的**改不动**,而且拒绝里要说出退路(告诉用户你想写什么);
+    //   ③ 传空 = 清掉。⭐ 是有意的：一条过期的摘要比没有摘要更坏。
+    #[test]
+    fn set_block_gist_updates_ai_lines_and_refuses_the_users() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-setgist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let tid: String = serde_json::from_str::<Value>(
+            &create_thread_json(&conn, None, "摘要测试", None).unwrap(),
+        )
+        .unwrap()["thread_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let bid: String = serde_json::from_str::<Value>(
+            &add_block_json(&mut conn, &tid, "截止日期是 4 月 30 日", None, None, None, None, &Provenance::default(), None, Some("这一块记的是申请截止日期"), None, false).unwrap(),
+        )
+        .unwrap()["block_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // 更正落下 —— ⚠️ 摘要一个字都没变,它仍然停在更正之前那个说法上。
+        add_block_json(&mut conn, &tid, "改到 3 月 15 日了", None, None, Some(&bid), Some("corrects"), &Provenance::default(), Some("截止日期是 4 月 30 日"), None, None, false)
+            .unwrap();
+        let (g, by): (Option<String>, Option<String>) = conn
+            .query_row("SELECT gist, gist_by FROM blocks WHERE id = ?1", [&bid], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(g.as_deref(), Some("这一块记的是申请截止日期"));
+        assert_eq!(by, None, "add_block 那条路不写 gist_by —— NULL 按 AI 待");
+
+        // ① 改得动（NULL 按 AI 待）。
+        let out: Value = serde_json::from_str(
+            &set_block_gist_json(&conn, &bid, Some("申请截止日期,后来改到 3 月 15 日")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(out["cleared"], false);
+        let (g, by): (Option<String>, Option<String>) = conn
+            .query_row("SELECT gist, gist_by FROM blocks WHERE id = ?1", [&bid], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(g.as_deref(), Some("申请截止日期,后来改到 3 月 15 日"));
+        assert_eq!(by.as_deref(), Some("ai"));
+
+        // ③ 传空 = 清掉。
+        let out: Value = serde_json::from_str(&set_block_gist_json(&conn, &bid, Some("  ")).unwrap()).unwrap();
+        assert_eq!(out["cleared"], true);
+        let g: Option<String> = conn
+            .query_row("SELECT gist FROM blocks WHERE id = ?1", [&bid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(g, None);
+
+        // ② 用户写的改不动,而且拒绝要说出退路。
+        conn.execute("UPDATE blocks SET gist = '我自己写的一句', gist_by = 'user' WHERE id = ?1", [&bid])
+            .unwrap();
+        let err = set_block_gist_json(&conn, &bid, Some("我来改一下")).unwrap_err();
+        assert!(err.contains("告诉用户"), "拒绝里没给退路: {err}");
+        let g: Option<String> = conn
+            .query_row("SELECT gist FROM blocks WHERE id = ?1", [&bid], |r| r.get(0))
+            .unwrap();
+        assert_eq!(g.as_deref(), Some("我自己写的一句"), "拒绝之后一个字都不许落地");
+
+        // 不存在的块 → 拒,并且说清 block_id 从哪儿来。
+        let err = set_block_gist_json(&conn, "nope", Some("x")).unwrap_err();
+        assert!(err.contains("search_blocks"), "{err}");
+    }
+
+    // ⭐ Q3 (WORKPLAN §2.Q3, 2026-08-25) —— 搜索命中里，挂着更正的块要说一句。
+    //
+    // ⚠️ **这条是我加的,Ocean 没提。** 理由:`Q2` 把「摘要能改」交给了 AI 的自觉,而更正
+    // 落下的那一刻,旧摘要仍然在搜索命中里骗人 —— 中间那段时间没有任何东西提醒读它的人。
+    //
+    // 钉的是那个「不用新列也判得出来」的判断:`gist_by IS NULL` = 这一句是 `add_block`
+    // 那一刻写的,而更正必然在那之后 ⇒ **它必然停在更正之前那个说法上**。
+    // ⛔ 有人回头看过一眼(`set_block_gist`)之后,这个旗子必须落下来 —— 不然它会天天喊狼来了。
+    #[test]
+    fn search_hits_flag_a_corrected_block_and_its_frozen_gist() {
+        store_lang(Lang::Zh);
+        let tmp = std::env::temp_dir().join(format!("spool-q3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let conn = Connection::open(tmp.join("spool.db")).unwrap();
+        conn.execute_batch(include_str!("../../src/lib/db/schema.sql")).unwrap();
+        conn.execute_batch(&format!("PRAGMA user_version = {EXPECTED_SCHEMA_VERSION};")).unwrap();
+        conn.execute(
+            "INSERT INTO workspaces (id, title, sort_order, created_at, updated_at)
+             VALUES ('ws1', '收件箱', 0, 1, 1)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        let mut conn = open_db_rw(&tmp).unwrap();
+        let tid: String = serde_json::from_str::<Value>(
+            &create_thread_json(&conn, None, "更正提示测试", None).unwrap(),
+        )
+        .unwrap()["thread_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let bid: String = serde_json::from_str::<Value>(
+            &add_block_json(&mut conn, &tid, "量子退火的调参结论如下", None, None, None, None, &Provenance::default(), None, Some("这一块记的是量子退火那一组超参"), None, false).unwrap(),
+        )
+        .unwrap()["block_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let hit_for = |conn: &Connection, id: &str| -> Value {
+            let out = search_blocks_json(conn, "量子退火", None, None).unwrap();
+            let v: Value = serde_json::from_str(&out).unwrap();
+            v["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|h| h["block_id"] == id)
+                .cloned()
+                .expect("命中里有这一块")
+        };
+
+        // 还没有更正 —— 两个旗子都不许立。
+        let h = hit_for(&conn, &bid);
+        assert_eq!(h["corrected"], false);
+        assert_eq!(h["gist_predates_the_correction"], false);
+
+        // 更正落下 —— 两个旗子一起立起来。
+        add_block_json(&mut conn, &tid, "那组超参后来换了", None, None, Some(&bid), Some("corrects"), &Provenance::default(), Some("量子退火的调参结论如下"), None, None, false)
+            .unwrap();
+        let h = hit_for(&conn, &bid);
+        assert_eq!(h["corrected"], true);
+        assert_eq!(h["gist_predates_the_correction"], true, "摘要还停在更正之前那句");
+
+        // 有人回头改过摘要 —— ⛔ 第二个旗子必须落下来，第一个照旧立着。
+        set_block_gist_json(&conn, &bid, Some("这一块记的是量子退火超参,后来换过一次")).unwrap();
+        let h = hit_for(&conn, &bid);
+        assert_eq!(h["corrected"], true, "更正还挂着,这一条不变");
+        assert_eq!(h["gist_predates_the_correction"], false);
     }
 
     // ⭐⭐ S2(2026-08-24)—— MCP 那条「整条取代」提案走的是**和 E3 同一道闸**。
