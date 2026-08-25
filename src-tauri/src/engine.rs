@@ -1473,7 +1473,26 @@ pub fn run_action(
         // words are in the event stream, not on stderr — stderr carries log noise.
         let said = match kind {
             EngineKind::Codex => parse_codex_error(&stdout),
-            EngineKind::Claude => None,
+            // ⭐⭐ 2026-08-25（Ocean，周回顾）—— **这里原来是 `None`。**
+            //
+            // 他看到的:周回顾那一页上印着**整条 NDJSON**（`{"type":"system",…}` 一路到
+            // `{"type":"result",…}`，含工具清单、session id、token 计数）。
+            //
+            // 病根就在这一行:claude 非零退出时一个字都不解析 ⇒ 掉进下面那个兜底,
+            // 而兜底是「stderr 空就把整个 stdout 端上去」。claude 的失败**全写在 stdout 的
+            // 事件流里**（stderr 是空的），于是那一整条流成了 `detail`，
+            // 存进 `engine_runs.detail`，再被 `ReviewBoard` 一字不差地印出来。
+            //
+            // ⚠️ 修法不是新写一个解析器:`parse_claude_stream` **早就读得懂那一行了**
+            // （`is_error` + `result`，成功那条路一直在用它）。它退出码为零时被调用，
+            // 非零时不被调用 —— 而失败的形状是一样的。Ocean 那次的 `result` 就是一句
+            // 「Failed to authenticate. API Error: 403 Request not allowed」。
+            //
+            // ⚠️ 解析不出来仍然回 None,照旧走兜底 —— §9.3 #4「做成能回退的」。
+            EngineKind::Claude => parse_claude_stream(&stdout)
+                .ok()
+                .map(|env| env.result.trim().to_string())
+                .filter(|r| !r.is_empty()),
             // gemini exits non-zero on quota exhaustion and still prints its envelope, whose
             // `error.message` is the sentence worth showing ("You have exhausted your daily
             // quota on this model"). ⚠️ On the auth-failure path that envelope is on STDERR
@@ -2060,6 +2079,32 @@ mod tests {
         // Garbage is a reported failure (§2.3 "输出解析失败"), never a silent success.
         assert!(parse_claude_stream("not json at all").is_err());
         assert!(parse_claude_stream("").is_err());
+    }
+
+    // ⭐⭐ 2026-08-25（Ocean，周回顾）—— 认证失败那一次,他在周回顾那一页上看到的是
+    // **整条 NDJSON**。下面三行是他贴回来的原样（截短了，句子一个字没改）。
+    //
+    // 钉的是「非零退出时也要读信封」：claude 的失败全写在 stdout 的事件流里（stderr 是空的），
+    // 而这条路以前一个字都不解析 ⇒ 整条流被当成 `detail` 存进 `engine_runs`，
+    // 再被 `ReviewBoard` 原样印出来。
+    //
+    // ⛔ 断言里要出现「不含 session_id」这一条：只断言「含那句话」的话，
+    // 有人把兜底改回去（整条 stdout 里当然也含那句话）测试照样绿。
+    #[test]
+    fn a_failed_claude_run_reports_the_sentence_not_the_whole_stream() {
+        let stdout = concat!(
+            r#"{"type":"system","subtype":"init","session_id":"3847c7e6","tools":["Bash","Read"],"apiKeySource":"none"}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Failed to authenticate. API Error: 403 Request not allowed"}]},"session_id":"3847c7e6","error":"authentication_failed","is_api_error_message":true}"#,
+            "\n",
+            r#"{"is_error":true,"session_id":"3847c7e6","subtype":"success","api_error_status":403,"result":"Failed to authenticate. API Error: 403 Request not allowed","type":"result","duration_ms":1452}"#,
+        );
+        let env = parse_claude_stream(stdout).unwrap();
+        assert!(env.is_error);
+        assert_eq!(env.result, "Failed to authenticate. API Error: 403 Request not allowed");
+        // ⛔ 这一条才是这次修的东西：用户看到的必须是那一句,不是整条流。
+        assert!(!env.result.contains("session_id"), "{}", env.result);
+        assert!(!env.result.contains("apiKeySource"), "{}", env.result);
     }
 
     // W4 / §9.3 #4. Every line below is verbatim from a real `--output-format stream-json
