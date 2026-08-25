@@ -1115,6 +1115,25 @@ fn gate_proposals(raw: &str, pack: &str) -> (Vec<StaleProposal>, Vec<StaleDroppe
     (kept, dropped)
 }
 
+/// ⭐ S2(2026-08-24)——MCP 那一侧提「整条取代」时走的**同一道闸**。
+///
+/// ⛔⛔ **这是一个转发，不是第二份实现。** 它调的就是 `locate` ——E3 花钱扫那一遍
+/// 用的那一个。§2.S2 写死了:「界面上放行的和 Rust 放行的必须是同一批」,
+/// 抄一份出来,两条路就会在某一次改动之后悄悄分叉,而分叉的那一天没有任何症状。
+///
+/// `Some(retyped)` = 放行(`retyped` = 只差标点的重打,界面要说出来);
+/// `None` = 整条丢掉(引文对不上,或者**动的是数字**)。
+///
+/// ⚠️⚠️ **输入一个字符都不许动,首尾空白也算** —— 顺手 `.trim()` 一下会把闸放宽一点点,
+/// 而且**放宽之后测试照样是绿的**。
+pub(crate) fn quote_passes(quote: &str, block: &str) -> Option<bool> {
+    match locate(quote, block) {
+        Quoted::Verbatim => Some(false),
+        Quoted::Retyped => Some(true),
+        Quoted::Digits | Quoted::Absent => None,
+    }
+}
+
 /// 实测台用的口子：⛔ 只是把 `gate_proposals` 原样露出来，**不是另一份实现**。
 /// 阶段 4 的复算必须过产品这一道闸，抄一份出来量到的就不是产品了。
 #[cfg(test)]

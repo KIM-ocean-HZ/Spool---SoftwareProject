@@ -56,12 +56,30 @@ export default function ThreadView() {
     return sess ? sess.proposals.filter((_, i) => sess.decided[i] === undefined).length : 0;
   });
   const engineOn = useSettingsStore((s) => s.apiEngineEnabled);
+  const loadProposedStale = useCompressStore((s) => s.loadProposedStale);
+  /** 这个项目那张卡上一共有几条（**含已经决定过的**）。
+   *  ⚠️ 用它而不是 `staleLeft` 决定页签条出不出：决定完最后一条的那一刻 `staleLeft` 归零，
+   *  ⛔ 页签会在用户眼皮底下消失，而他刚刚才点了那一下、还想看到「已换 / 已合并」那句回执。
+   *  已决定的那几条留在单子上（划掉，不删）——那是 E3 定的，这里跟着它。 */
+  const staleAny = useCompressStore((s) =>
+    activeId ? (s.stale[activeId]?.proposals.length ?? 0) : 0,
+  );
+  /** 页签条出不出。⭐ S2：压缩没开、但 AI 提了东西在等，也要出。 */
+  const showTabs = engineOn || staleAny > 0;
   // For `done` threads the user can flip to LogView within a session; the override
   // resets to null on thread switch so reopens default back to DigestView (§9.9).
   const [viewOverride, setViewOverride] = useState<ThreadViewMode | null>(null);
   useEffect(() => {
     setViewOverride(null);
   }, [activeId]);
+
+  // ⭐ S2（2026-08-24）：AI 提的「整条取代」在**打开项目**的时候就读进来，
+  // ⛔ 不是等用户切到那个页签才读 —— 页签上那个数（`staleLeft`）是他唯一会注意到
+  // 「有东西在等」的地方，而它读的就是这一份。等切过去才读，等于**提案没人看得见**。
+  // ⚠️ 只读库，不花钱、不起 sidecar。
+  useEffect(() => {
+    if (activeId) void loadProposedStale(activeId);
+  }, [activeId, loadProposedStale]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -110,11 +128,17 @@ export default function ThreadView() {
           ⭐ 2026-08-23（Ocean 第 3 条「把两个功能拆出来，变成内容，压缩，和一个新的」）：
           原来是两个页签，第二个叫「整理」，里面上下摞着压缩核对面和查旧块。
           ⛔ 别再摞回去 —— 两件事没关系，摞在一起的唯一后果是核对面只剩半屏。 */}
-      {engineOn && (
+      {/* ⭐⭐ S2（2026-08-24）：**压缩没开，也可能有东西在等。**
+          `propose_supersede` 归「允许 AI 写入」管，和「压缩引擎」是两个开关 ——
+          只按 `engineOn` 出页签的话，关着压缩的用户永远看不到 AI 提的那一条。
+          ⛔ 一条看不见的提案等于没提过。所以有东西等着的时候这一条照出，
+          ⚠️ 但「压缩」那个页签仍然只跟着 `engineOn` 走：那一个点进去确实只会说「你还没配」。 */}
+      {showTabs && (
         <div className="flex flex-none items-center gap-4 border-b border-line px-5 text-[12px]">
           <Tab active={tab === 'content'} onClick={() => setTab(thread.id, 'content')}>
             {t('内容')}
           </Tab>
+          {engineOn && (
           <Tab active={tab === 'compress'} onClick={() => setTab(thread.id, 'compress')}>
             {/* ⚠️ 有一份等着核对就在页签上说出来 —— 切走之后它还在，别让人以为没了。 */}
             {runningKind === 'compress'
@@ -123,6 +147,7 @@ export default function ThreadView() {
                 ? t('压缩（1）')
                 : t('压缩')}
           </Tab>
+          )}
           {/* ⭐ 2026-08-23 Ocean 改的名：「『查旧块』名字改成『过期检测』，更加贴切」。
               ⛔ 仍然不许出现「作废」两个字（§2.E3 写死的）——「过期」不是「作废」。 */}
           <Tab active={tab === 'stale'} onClick={() => setTab(thread.id, 'stale')}>
@@ -139,7 +164,7 @@ export default function ThreadView() {
         <div className="min-h-0 flex-1">
           <CompressBoard threadId={thread.id} />
         </div>
-      ) : engineOn && tab === 'stale' ? (
+      ) : showTabs && tab === 'stale' ? (
         <div className="min-h-0 flex-1">
           <StaleReview threadId={thread.id} />
         </div>

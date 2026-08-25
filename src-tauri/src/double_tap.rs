@@ -138,16 +138,29 @@ static LAST_COPY_CHORD_NS: AtomicU64 = AtomicU64::new(0);
 // the Claude-popup conflict the gate exists for cannot happen — bypassing is safe.
 static COPY_GATE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-// Two ⌥ taps within this window count as a double-tap. Matches the macOS system
-// double-click default; reliable at this tight value because the interval is measured
-// from hardware timestamps, not from (latency-prone) callback delivery time.
+// Two ⌥ taps within this window count as a double-tap.
+//
+// ⚠️ 2026-08-25 (WORKPLAN §2.V4, Ocean): 500 → 250. It used to match the macOS system
+// double-click default; it no longer does, and that is deliberate. Ocean's words while
+// using the S-batch build: 「捕捉双击 option 现在间隔的时间太长了,导致我正常使用 option
+// 也会被误判。」— at 500ms, two ordinary ⌥ presses half a second apart were being read as
+// a capture gesture. The system double-click default is calibrated for a mouse aimed at a
+// target; this key is one the user also presses for its normal job, so the window has to be
+// short enough that deliberate double-tapping is the only thing that lands in it.
+//
+// ⚠️ The known cost, stated to Ocean before he picked 250: a slow double-tap now misses.
+// If he reports "it stopped working", the next value is 300 — ⛔ NOT back to 500, which is
+// the value that produced the false positives in the first place.
+//
+// Reliable at this tight value because the interval is measured from hardware timestamps,
+// not from (latency-prone) callback delivery time.
 //
 // 2026-07-31 (DESIGN_CAPTURE_NOTE_FIRST §1.3): the long-press (collect panel) and
 // single-tap (collapse toggle) gestures that used to share this key are GONE — three
 // gestures on one key with overlapping windows made "single tap" structurally
 // ambiguous (two taps 300–500ms apart read as collapse + capture). Double-tap is now
 // the only ⌥ gesture.
-const DOUBLE_TAP_WINDOW_MS: u64 = 500;
+const DOUBLE_TAP_WINDOW_MS: u64 = 250;
 
 const NANOS_PER_MS: u64 = 1_000_000;
 

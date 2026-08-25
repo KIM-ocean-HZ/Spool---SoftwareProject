@@ -23,7 +23,9 @@ export interface HitRange {
 // §10.1 — the inline half of Markdown. One more attribute on the same run, for the same
 // reason `highlight` is one: a search hit can overlap a bold span, and flat runs with
 // independent attributes is what lets both render without nesting wrappers.
-export type InlineMark = 'strong' | 'em' | 'code';
+/** ⭐ `'source'` 不是 Markdown：它是合并留下的 `[from chatgpt] ` 记号（segments.ts）。
+ *  和另外三个走同一条路,是因为它要的正是同一件事 —— 记号本身藏掉,里面那几个字换个样子画。 */
+export type InlineMark = 'strong' | 'em' | 'code' | 'source';
 
 export interface ContentRun {
   text: string;
@@ -60,6 +62,11 @@ export interface ContentRun {
 // ⚠️ `em` is deliberately the fussiest pattern here. A lone `*` shows up in ordinary prose
 // (「3 * 4」, footnote stars), so it only counts when it hugs its text and follows a
 // boundary — a false italic silently eats two characters of the user's text.
+/** 行首的 `[from <来源>] `，见 segments.ts。⚠️ 那边那一条是判断单独一段用的（`^` 不带 `m`），
+ *  这里要在整串里扫，所以是它的 `gm` 双生。改一处必须改另一处。 */
+const SOURCE_MARK_RE = /^\[from ([^\]\n]+)\] /gm;
+const SOURCE_OPEN = '[from ';
+
 const INLINE_MARKS: { mark: InlineMark; re: RegExp; cap: number }[] = [
   { mark: 'code', re: /`([^`\n]+)`/g, cap: 1 },
   { mark: 'strong', re: /\*\*([^\n]+?)\*\*/g, cap: 2 },
@@ -148,6 +155,21 @@ export function tokenizeContent(content: string, opts: TokenizeOptions = {}): Co
       intervals.push({ kind: 'mark', start: s + cap, end: e - cap, mark });
       intervals.push({ kind: 'cap', start: e - cap, end: e });
     }
+  }
+  // ⭐ 2026-08-25 —— 合并留下的来源记号。`[from ` 和 `] ` 当 cap 藏掉,中间那几个字画成一枚
+  // 小标签（Ocean:「来源的文字特别大,和正文混在一起」—— 它以前就是 15px 的正文）。
+  // ⚠️ 只认**行首**（`m` 标志）：合并出来的段一定从行首开始,而正文里正好有一行以
+  // 「[from …] 」开头的概率,比把它错认成正文的代价小。
+  for (const m of content.matchAll(SOURCE_MARK_RE)) {
+    const s = m.index ?? 0;
+    const e = s + m[0].length;
+    if (!free(s, e)) continue;
+    claimed.push({ start: s, end: e });
+    intervals.push({ kind: 'cap', start: s, end: s + SOURCE_OPEN.length });
+    intervals.push({ kind: 'mark', start: s + SOURCE_OPEN.length, end: e - 2, mark: 'source' });
+    // ⚠️ 只藏 `]`,记号末尾那个空格留着当普通正文 —— `plainText()`（搜索预览、引用行、
+    // 刻度条的悬浮预览都用它）拿到的是「chatgpt 第二段」而不是「chatgpt第二段」。
+    intervals.push({ kind: 'cap', start: e - 2, end: e - 1 });
   }
   // Structural markers (`## `, `- `, the fences) are hidden exactly like a == cap.
   for (const h of opts.hidden ?? []) intervals.push({ kind: 'cap', start: h.start, end: h.end });
@@ -302,7 +324,10 @@ export function ContentRuns({
               ? 'italic'
               : run.mark === 'code'
                 ? 'rounded-sm bg-paper-2 px-1 font-mono text-[0.9em] text-ink'
-                : '';
+                : run.mark === 'source'
+                  ? // 合并留下的来源记号：一枚小灰标签,和块头上那个来源徽章一个意思、一个音量。
+                    'mr-0.5 rounded-sm border border-line px-1 text-[0.72em] text-muted'
+                  : '';
         // A strong run inside the spine already carries its own weight — emitting both would
         // leave which one wins up to the order Tailwind happens to write them out in.
         const spineWeight = run.spine && run.mark !== 'strong' ? 'font-medium' : '';

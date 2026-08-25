@@ -27,9 +27,12 @@ import type { StaleSession } from '@/stores/compressStore';
 // 60 次里 39 条提议，**35 条是「同一件事、旧块还剩很多」** —— 问「要不要作废」，
 // 用户点头就会让一个**内容仍然有效**的块退出以后每一份 pack，而他不会发现。
 //
-// ⭐ 三个动作用的是 Ocean 自己的话（「新的 block 把旧的取代了 / 合并了 / 什么都没动」）：
-// **合并 / 新的取代旧的 / 什么都不动**。⛔ 别改回「只退旧的」——「退」在这个界面上
-// 从来没有被解释过。
+// ⭐ 三个动作：**合并 / 整条取代 / 不动**。
+// ⛔ 别改回「只退旧的」——「退」在这个界面上从来没有被解释过（U9，2026-08-23）。
+// ⭐ S1（2026-08-24，Ocean 拍板）：「新的取代旧的」→「整条取代」，「什么都不动」→「不动」
+// （他的话：字太多）。**屏幕上这件事只许有一个名字** —— 更正关系那个解绑按钮、
+// 引用行上 `supersedes` 的动词，这次一起对齐到「整条取代」。
+// ⚠️ 检测那句说明**本来**就写着「已经被后面的块整条取代了」—— 是按钮来对齐它，不是反过来。
 //
 // ⛔ **不做 confidence 过滤**（§2.E3 写死的）：实测最离谱那条自标 `high`。
 export default function StaleReview({ threadId }: { threadId: string }) {
@@ -45,6 +48,7 @@ export default function StaleReview({ threadId }: { threadId: string }) {
   const scan = useCompressStore((s) => s.runStaleScan);
   const cancel = useCompressStore((s) => s.cancel);
   const decide = useCompressStore((s) => s.decideStale);
+  const loadProposed = useCompressStore((s) => s.loadProposedStale);
   const enabled = useSettingsStore((s) => s.apiEngineEnabled);
   const timeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
 
@@ -59,15 +63,27 @@ export default function StaleReview({ threadId }: { threadId: string }) {
     return () => clearInterval(id);
   }, [running]);
 
-  if (!enabled) return null;
+  // ⭐ S2：AI 提的那几条读进来。⚠️ **不花钱、不起 sidecar**，所以打开这一页就读一次；
+  // ⛔ 别把它挂在「查一遍」那个按钮上 —— 那个按钮是要花钱的，而这几条已经在库里等着了。
+  useEffect(() => {
+    void loadProposed(threadId);
+  }, [threadId, loadProposed]);
+
+  // ⭐⭐ S2：压缩引擎没开，但 AI 提的那几条照样要看得见 ——「允许 AI 写入」和
+  // 「压缩引擎」是两个开关，⛔ 一条看不见的提案等于没提过。
+  // ⚠️ 引擎没开的时候这一页**只有那几条提案**：查一遍是要花钱的，那个按钮跟着 `enabled` 走。
+  if (!enabled && (session?.proposals.length ?? 0) === 0) return null;
 
   const left = session
     ? session.proposals.filter((_, i) => session.decided[i] === undefined).length
     : 0;
   const cost = session?.outcome?.ok ? estimateCost(session.outcome) : null;
   // 「跑完了，什么都没找到」—— ⚠️ 这是一个结果，要占中间那一格，⛔ 不是一片空白。
+  // ⛔⛔ S2：判据是 `outcome`，**不是「有没有 session」** —— AI 提了一条就会有 session，
+  // 而那时候一遍都没查过。照旧写法会对着一个从没查过的项目说「查完了，没有旧块被取代」。
+  const scanned = !!session?.outcome;
   const cleanRun =
-    !!session && session.proposals.length === 0 && session.dropped.length === 0;
+    scanned && session!.proposals.length === 0 && session!.dropped.length === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -136,6 +152,16 @@ export default function StaleReview({ threadId }: { threadId: string }) {
                       <span className="font-mono text-muted">
                         #{p.staleSeq} → #{p.bySeq}
                       </span>
+                      {/* ⭐ S2（2026-08-24）：**同一张卡上有两个来路。** 判断是同一个判断，
+                          三个按钮、三条护栏一处不差 —— ⛔ 唯一要说清的是「这条是谁提的」：
+                          花钱扫出来的那一遍，和正在聊天的那个 AI 顺手提的，用户有权分得开。 */}
+                      {p.origin === 'mcp' && (
+                        <span className="flex-none rounded border border-line px-1 text-[10px] text-muted">
+                          {p.client?.trim()
+                            ? t('{who} 提的', { who: p.client })
+                            : t('聊天里提的')}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1 text-ink-2">{p.why}</span>
                       {/* ⚠️ 重打了标点要说出来：它确实破了「逐字」，只是没改内容。 */}
                       {p.retyped && (
@@ -181,7 +207,7 @@ export default function StaleReview({ threadId }: { threadId: string }) {
                           onClick={() => void decide(threadId, i, 'merge')}
                         />
                         <Choice
-                          label={t('新的取代旧的')}
+                          label={t('整条取代')}
                           hint={
                             // ⭐ T6（2026-08-23 实测）：退掉一个**短**块，给 AI 看的内容反而更多 ——
                             // 「这一块不再有效」那两行是固定开销（实测净 +92 字符）。
@@ -199,7 +225,7 @@ export default function StaleReview({ threadId }: { threadId: string }) {
                           onClick={() => void decide(threadId, i, 'retire')}
                         />
                         <Choice
-                          label={t('什么都不动')}
+                          label={t('不动')}
                           hint={t('这两块保持原样，库里一个字都不改，这一条从单子上划掉。')}
                           onClick={() => void decide(threadId, i, 'keep')}
                         />
@@ -233,11 +259,11 @@ export default function StaleReview({ threadId }: { threadId: string }) {
                 )}
                 <div>{t('库里一个字都没动。')}</div>
               </div>
-            ) : session ? (
+            ) : scanned ? (
               // 提议全被闸挡下了：一条都没剩，但**确实有东西可说**。
               <div className="space-y-2">
                 <div className="text-ink-2">{t('查完了，没有能拿给你的结果。')}</div>
-                <DroppedNote session={session} />
+                <DroppedNote session={session!} />
               </div>
             ) : (
               <div className="space-y-1">
@@ -257,7 +283,9 @@ export default function StaleReview({ threadId }: { threadId: string }) {
         </span>
         {/* ⛔ 2026-08-23（Ocean:「过期检测跑起来无法取消」）：这一页原来**没有停下**。
             ⚠️ 它和压缩共用同一条 sidecar 的路，`cancel()` 本来就管得住它 ——
-            少的只是这个按钮。⭐ 一个按钮两种身份，和压缩那一页逐字一样的写法。 */}
+            少的只是这个按钮。⭐ 一个按钮两种身份，和压缩那一页逐字一样的写法。
+            ⚠️ S2：引擎没开就不出这个按钮 —— 它要花钱，而这一页此刻是靠 AI 提案撑起来的。 */}
+        {enabled && (
         <button
           type="button"
           disabled={busy && !running}
@@ -266,9 +294,10 @@ export default function StaleReview({ threadId }: { threadId: string }) {
         >
           {running ? <Loader2 size={12} className="animate-spin" /> : <ScanSearch size={12} />}
           <span>
-            {running ? t('停下（{n}s）', { n: elapsed }) : session ? t('再查一遍') : t('查一遍')}
+            {running ? t('停下（{n}s）', { n: elapsed }) : scanned ? t('再查一遍') : t('查一遍')}
           </span>
         </button>
+        )}
       </footer>
     </div>
   );

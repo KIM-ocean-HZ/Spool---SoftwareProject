@@ -32,6 +32,13 @@ import {
   type Block,
 } from '@/lib/db/blocks';
 import { PINNED_SEE_ABOVE } from '@/lib/pack/templates';
+import {
+  deleteSupersedeProposal,
+  listSupersedeProposals,
+  purgeExpiredSupersedeProposals,
+  type SupersedeProposal,
+} from '@/lib/db/supersedeProposals';
+import { stripInventedSkeleton } from '@/lib/pack/skeleton';
 import type { Thread } from '@/lib/db/threads';
 import { assemble } from '@/lib/pack/assemble';
 import { buildThreadPack } from '@/lib/pack/forThread';
@@ -199,6 +206,9 @@ interface CompressState {
   runStaleScan: (threadId: string) => Promise<void>;
   /** 对一条提议下决定。⛔ 三个动作的语义写在 `StaleAction` 上，别在界面里另解释一遍。 */
   decideStale: (threadId: string, index: number, action: StaleAction) => Promise<void>;
+  /** ⭐ S2：把 AI 提的「整条取代」读进这个项目的那张卡。
+   *  ⚠️ 它**不花钱、不起 sidecar** —— 只是读库，所以打开这一页就可以跑一次。 */
+  loadProposedStale: (threadId: string) => Promise<void>;
 }
 
 /** ⭐ 界面**不许叫「作废」**（WORKPLAN §2.E3 写死的）。理由是实测的失败形状：
@@ -215,11 +225,22 @@ interface CompressState {
  *  - `keep`   = **不动**：什么都不写，这一条从单子上划掉。 */
 export type StaleAction = 'merge' | 'retire' | 'keep';
 
+/** 卡片上的一条。⭐ S2：**同一张卡上有两个来路** —— 花钱扫出来的，和正在聊天的那个 AI
+ *  顺手提的。⚠️ 判断是同一个判断，所以三个按钮、三条护栏完全一样；
+ *  ⛔ 差别只在卡片上要说清楚「这条是谁提的」，别的一处都不许分叉。 */
+export interface StaleEntry extends StaleProposal {
+  origin: 'scan' | 'mcp';
+  /** `mcp` 才有：谁提的、以及它在 `supersede_proposals` 里那一行的 id（下完决定要删）。 */
+  client?: string;
+  rowId?: string;
+}
+
 export interface StaleSession {
-  /** 送出去的那份 pack。⚠️ 提议里的 `#N` 是照它数的。 */
+  /** 送出去的那份 pack。⚠️ 提议里的 `#N` 是照它数的。
+   *  ⚠️ 只有花钱扫过才有；纯 MCP 提案的会话这里是空串。 */
   source: string;
   blocks: Block[];
-  proposals: StaleProposal[];
+  proposals: StaleEntry[];
   /** ⛔ 引文对不上、被整条丢掉的那几条 —— ⚠️ **连它说了什么一起摆出来**（Ocean 第 8 条：
    *  「不允许」Spool 知道而不告诉他）。闸挡的是「拿它去动库」，不是「不给看」。 */
   dropped: StaleDropped[];
@@ -249,18 +270,29 @@ const draftWrites = (session: CompressSession, compressed: string) => {
   for (const b of session.blocks) if (b.seq !== null) bySeq.set(b.seq, b);
 
   const writes = new Map<string, string>();
+  // S7①：压缩发明出来的 pack 骨架行剔在这儿（`skeleton.ts` 上写着为什么按「压缩前有没有」减）。
+  const skeletonLines: string[] = [];
   for (const p of cmp.pairs) {
     if (!p.before || !p.after) continue;
     // 占位那一条：认它的是**原文侧**那一行（压缩稿侧可能被改写成别的话）。
     if (p.before.body.trimEnd().endsWith(PINNED_SEE_ABOVE)) continue;
     const block = bySeq.get(p.seq);
     if (!block) continue;
-    const content = contentFromEntryBody(p.after.body, heldFor.get(p.key));
+    const stripped = stripInventedSkeleton(
+      block.content,
+      contentFromEntryBody(p.after.body, heldFor.get(p.key)),
+    );
+    skeletonLines.push(...stripped.removed);
+    const content = stripped.content;
+    // ⚠️ 剔完才判空 —— 一条整段都是骨架行的压缩稿，剔完是空的，⛔ 那一块不许写。
     if (content.trim().length === 0) continue;
     if (content === block.content) continue;
     writes.set(block.id, content);
   }
-  return [...writes].map(([id, content]) => ({ id, content }));
+  return {
+    writes: [...writes].map(([id, content]) => ({ id, content })),
+    skeletonLines,
+  };
 };
 
 /** 一份只装一个块的 pack。
@@ -685,14 +717,14 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       toast.error(t('这一份的块对不上（有块不见了、或者多了编号），不能进库。重压一次吧。'));
       return;
     }
-    const writes = draftWrites(s, text);
-    if (!writes || writes.length === 0) {
+    const draft = draftWrites(s, text);
+    if (!draft || draft.writes.length === 0) {
       toast.notice(t('没有哪一块真的变短了 —— 库里什么都没改。'));
       return;
     }
     const keep = useSettingsStore.getState().compressKeepOriginal;
     try {
-      const n = await applyCompression(writes, keep, Date.now());
+      const { changed: n, quotesLost } = await applyCompression(draft.writes, keep, Date.now());
       // ⚠️ 写完把这个项目的块重读一遍 —— 不重读的话屏幕上还是压之前那份，
       // 而用户刚刚按的按钮上写着「用这一份」。
       await useBlocksStore.getState().load(threadId);
@@ -702,6 +734,29 @@ export const useCompressStore = create<CompressState>((set, get) => ({
           ? t('{n} 块换成了压缩稿。压缩前的原文留在每一块上，块的工具条上有个入口能打开看，也能换回去。', { n })
           : t('{n} 块换成了压缩稿。⚠️ 你关掉了「备份压缩前的原文」，原来的字没有了。', { n }),
       );
+      // S7①：剔掉了 Spool 自己的骨架行。⚠️ 说一句就够了 —— 它没进库，不用用户做什么。
+      if (draft.skeletonLines.length > 0) {
+        toast.notice(
+          t('压缩稿里有 {n} 行是 Spool 自己印的说明，不是你的字 —— 没有写进库。', {
+            n: draft.skeletonLines.length,
+          }),
+        );
+      }
+      // ⭐ S3：⛔ 这一句不许省。压缩打断一条更正的引文，在 08-24 那次是**完全无声**的 ——
+      // 屏幕上什么都不划，也不报错。更正本身还在库里（关系没动），丢的是「指哪一句」。
+      if (quotesLost.length > 0) {
+        const one = quotesLost[0];
+        toast.error(
+          quotesLost.length === 1
+            ? t('#{c} 更正的是 #{b} 里的一句话 —— #{b} 压完之后那句话找不回来了。更正还留着，只是不再划出是哪一句。', {
+                c: one.correctionSeq ?? '?',
+                b: one.targetSeq ?? '?',
+              })
+            : t('有 {n} 条更正指的那句话，压完之后找不回来了。更正都还留着，只是不再划出是哪一句。', {
+                n: quotesLost.length,
+              }),
+        );
+      }
     } catch (e) {
       // ⛔ 写库失败必须说出来。一个点了没反应的按钮，在这条路上意味着用户不知道
       //    自己的库到底改没改。
@@ -852,14 +907,22 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         toast.notice(t('已经停下了。已经跑出去的那一段，模型厂商那边可能照样算钱。'));
         return;
       }
-      const fresh = scan.proposals.filter((p) => !settled(p));
+      const fresh: StaleEntry[] = scan.proposals
+        .filter((p) => !settled(p))
+        .map((p) => ({ ...p, origin: 'scan' as const }));
+      // ⭐ S2：AI 提的那几条**留在同一张卡上** —— 花钱扫一遍不该把它们冲掉。
+      // ⚠️ 排在扫描结果前面：它们等的时间更久（7 天就过期）。
+      // ⚠️ 库里已经有这条关系的照样摘走（`settled`），⛔ 两个来路同一把尺子。
+      const proposed = (await listSupersedeProposals(threadId, Date.now()))
+        .map(toStaleEntry)
+        .filter((p) => !settled(p));
       set((st) => ({
         stale: {
           ...st.stale,
           [threadId]: {
             source: text,
             blocks,
-            proposals: fresh,
+            proposals: [...proposed, ...fresh],
             dropped: scan.dropped,
             already: scan.proposals.length - fresh.length,
             outcome: scan.outcome,
@@ -916,6 +979,11 @@ export const useCompressStore = create<CompressState>((set, get) => ({
         await setBlockSupersession(newBlock.id, oldBlock.id, 'supersedes', Date.now());
       }
       if (action !== 'keep') await useBlocksStore.getState().load(threadId);
+      // ⭐ S2：AI 提的那一条，活干完了就把库里那一行删掉。
+      // ⚠️ 「不动」也删 —— **「不动」是一个决定，不是「还没决定」**；留着的话下次打开
+      // 又问一遍，正是 T2 那条「要求用户批准他已经批准过的事」。
+      // ⛔ 不留拒绝日志（和 `proposals` 同一条理由：拒绝日志会把队列变成垃圾堆）。
+      if (p.rowId) await deleteSupersedeProposal(p.rowId);
       set((st) => {
         const cur = st.stale[threadId];
         if (!cur) return {};
@@ -930,7 +998,81 @@ export const useCompressStore = create<CompressState>((set, get) => ({
       toast.error(t('写不进去：{msg}', { msg: e instanceof Error ? e.message : String(e) }));
     }
   },
+
+  // ⭐ S2（2026-08-24，Ocean 拍板）：AI 提的「整条取代」读进这个项目那张卡。
+  //
+  // ⛔ **并进 E3 那张卡，不新开一张** —— 判断是同一个判断（这一块是不是被后面那块整条
+  // 取代了），只是发现它的人不同：E3 是花钱让 sidecar 扫一遍，这条是正在聊天的那个 AI
+  // 顺手提的。**并进去用户只学一套话；分开就是两套。**
+  //
+  // ⚠️ 这个函数**不花钱、不起 sidecar**，所以它不碰 `running` 那把锁，
+  // 也不写 `outcome` —— 那一行报账的格子只属于真花过钱的那一次。
+  loadProposedStale: async (threadId) => {
+    const now = Date.now();
+    try {
+      await purgeExpiredSupersedeProposals(now);
+      const rows = await listSupersedeProposals(threadId, now);
+      const blocks = useBlocksStore.getState().byThread[threadId] ?? [];
+      const bySeq = new Map<number, Block>();
+      for (const b of blocks) if (b.seq !== null) bySeq.set(b.seq, b);
+      // ⛔⛔ T2 那条尺子照用：库里**已经有这条关系**的不再问一遍。
+      // ⚠️ 块还没读进来的时候（`blocks` 空）一条都摘不掉 —— 那是对的：
+      // 宁可多问一条，也不许因为读慢了就把一条真提议悄悄吞掉。
+      const fresh = rows
+        .map(toStaleEntry)
+        .filter(
+          (p) =>
+            blocks.length === 0 ||
+            !relationAlreadySettled(bySeq.get(p.staleSeq), bySeq.get(p.bySeq)),
+        );
+      set((st) => {
+        const cur = st.stale[threadId];
+        // 扫描出来的那几条留着，AI 提的整批换成刚读到的（库是唯一的真相）。
+        const scanned = (cur?.proposals ?? []).filter((p) => p.origin === 'scan');
+        const decidedRows = new Set(
+          Object.entries(cur?.decided ?? {})
+            .map(([i]) => cur?.proposals[Number(i)]?.rowId)
+            .filter((x): x is string => !!x),
+        );
+        const next = [...fresh.filter((p) => !decidedRows.has(p.rowId!)), ...scanned];
+        if (next.length === 0 && !cur) return {};
+        return {
+          stale: {
+            ...st.stale,
+            [threadId]: {
+              source: cur?.source ?? '',
+              blocks: cur?.blocks ?? blocks,
+              proposals: next,
+              dropped: cur?.dropped ?? [],
+              already: cur?.already ?? 0,
+              outcome: cur?.outcome ?? null,
+              // ⚠️ 单子重排了，下标跟着变 —— ⛔ 旧的 `decided`（按下标记的）不能留，
+              // 留着会把「已决定」的划线画到别的条目上。已经决定过的那几行本来就删掉了。
+              decided: {},
+              startedAt: cur?.startedAt ?? now,
+            },
+          },
+        };
+      });
+    } catch (e) {
+      console.info('[stale] 读不到 AI 提的整条取代', e);
+    }
+  },
 }));
+
+/** 库里那一行 → 卡片上那一条。⚠️ 两个来路在卡片上共用同一个形状，
+ *  ⛔ 除了「谁提的」以外一处都不许分叉。 */
+const toStaleEntry = (r: SupersedeProposal): StaleEntry => ({
+  staleSeq: r.staleSeq,
+  bySeq: r.bySeq,
+  why: r.why,
+  quoteStale: r.quoteStale,
+  quoteNew: r.quoteNew,
+  retyped: r.retyped,
+  origin: 'mcp',
+  client: r.client,
+  rowId: r.id,
+});
 
 // 子进程报回来的进度（在思考 / 在写 / 已经多少字）。⚠️ 这两个数字是「它还在正常干活」的
 // 唯一证据 —— 之前那次 180 秒超时，界面上分不出「在写」和「卡死」，就是因为没有它们。

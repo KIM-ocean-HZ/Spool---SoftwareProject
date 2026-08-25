@@ -2,6 +2,13 @@ import { Fragment, type RefObject, useEffect, useMemo, useRef, useState } from '
 import { formatAccelerator } from '@/lib/capture/shortcut';
 import type { Block } from '@/lib/db/blocks';
 import { foldedCorrectionIds } from '@/lib/pack/assemble';
+import {
+  mountedBlockIds,
+  scrollBlockIntoView,
+  stepBlockIndex,
+  topmostVisibleBlockId,
+} from '@/lib/blocks/viewportAnchor';
+import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useDropStore } from '@/stores/dropStore';
@@ -89,6 +96,8 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
   const inputMonitoring = usePermissionStore((s) => s.inputMonitoring);
   // Only read for the empty state's copy — off macOS it is the capture trigger itself.
   const captureShortcut = useSettingsStore((s) => s.captureShortcut);
+  // V2 ④: one-time reading-gesture line. Armed only by a first launch (App.tsx).
+  const blockNavHint = useSettingsStore((s) => s.blockNavHintPending);
   const packHintBlockId = useCaptureStore((s) => s.packHintBlockId);
   // v2.8 §20.1 selection state. Anchor id drives shift-click range selection.
   const selectedBlockIds = useBlocksStore((s) => s.selectedBlockIds);
@@ -174,6 +183,77 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
     const el = document.querySelector(`[data-block-id="${highlightBlockId}"]`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [highlightBlockId, blocks, windowSize]);
+
+  // ⭐ V2 ② (WORKPLAN §2.V2, Ocean 2026-08-25: 「这个一定要加」): ↓ / ↑ move the focus one
+  // block down / up. ↑ is not in his words — the workplan asks for it because a feed you can
+  // only walk one direction through is a half-built control.
+  //
+  // The landing looks exactly like clicking a block does (`setActive` → the §19.18 tint), so
+  // there is no second "focused" visual to learn.
+  //
+  // ⚠️ The cursor cannot BE `activeBlockId`: that store fades itself to null after 3s
+  // (activeBlockStore FADE_MS — it is a tint, not a cursor). Read as the cursor, ↓ would
+  // silently restart from the top of the feed whenever the user paused for three seconds.
+  // So the position is kept here, and refreshed from the store whenever something else sets
+  // it — which is what makes ↓ continue from a block the user just clicked.
+  const cursorRef = useRef<string | null>(null);
+  const activeBlockId = useActiveBlockStore((s) => s.activeBlockId);
+  useEffect(() => {
+    if (activeBlockId) cursorRef.current = activeBlockId;
+  }, [activeBlockId]);
+  useEffect(() => {
+    cursorRef.current = null;
+  }, [threadId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      // ⚠️ Modifier-held arrows belong to the OS and to text editing (⌥↓ / ⇧↓ extend a
+      // selection), never to us.
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      // ⚠️ Typing beats navigating, always: in the composer, a block's content or annotation
+      // editor, the capture note box or any search field, ↓ moves the caret.
+      const target = e.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      // ⚠️ Already-spoken-for arrows: ThreadPicker's list and Composer's @-mention candidates
+      // both preventDefault on ArrowDown (ThreadPicker.tsx / Composer.tsx). React dispatches
+      // its synthetic handlers at the root container, i.e. BEFORE this window-level bubble
+      // listener, so by the time we run their claim is already visible here.
+      if (e.defaultPrevented) return;
+      // ⚠️ A modal owns the keyboard while it is up — otherwise ↓ scrolls the feed behind
+      // Settings / the pack dialog / the review panel. Every one of them is a `fixed inset-0`
+      // layer, which is the only thing they have in common to test for.
+      if (document.activeElement?.closest('.fixed.inset-0')) return;
+
+      const container = scrollRef.current;
+      const ids = mountedBlockIds(container);
+      if (ids.length === 0) return;
+
+      // No cursor yet (fresh thread, or the user has only scrolled): start from what they are
+      // looking at, not from the top of a 200-block feed.
+      const from = cursorRef.current ?? topmostVisibleBlockId(container);
+      const nextId = stepBlockIndex(ids, from, e.key === 'ArrowDown' ? 1 : -1);
+      if (!nextId) return;
+
+      e.preventDefault();
+      cursorRef.current = nextId;
+      useActiveBlockStore.getState().setActive(nextId);
+      scrollBlockIntoView(container, nextId);
+      // V2 ④: the hint has done its job the moment the gesture is used.
+      if (useSettingsStore.getState().blockNavHintPending) {
+        void useSettingsStore.getState().update({ blockNavHintPending: false });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [scrollRef]);
 
   // v2.8 §20.1 drag-marquee: mouseDown on empty feed space (no block, no button, no
   // textarea …) starts a rubber-band selection like Finder. Modifier-held mouseDown is
@@ -417,6 +497,30 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       <div className="mb-2 flex items-start gap-2">
         <DateNotices threadId={threadId} blocks={blocks} />
       </div>
+      {/* V2 ④ (Ocean 2026-08-25:「在用户首装时教学一下」). One line, once in a library's
+          lifetime, at the top of the first feed a new user opens — the tutorial thread, which
+          is what App.tsx lands a first launch on.
+          ⛔ NOT a floating hint window: Ocean's redline on V2 is 「不做悬浮窗 —— 不希望破坏
+          安静的特性」. This sits in the feed and scrolls away with it, the same shape as the
+          one-time pack line further down.
+          ⚠️ It is deliberately NOT a seeded tutorial block, which is where 教学 normally
+          lives in this app (client.ts TUTORIAL): appending a 7th block to that thread would
+          make retranslateTutorial's byte-for-byte matcher fail to pair up every EXISTING
+          install's 6 rows, silently killing the tutorial's language switch for everyone who
+          already installed Spool. */}
+      {blockNavHint && (
+        <div className="mb-2 flex items-start gap-2 px-3 text-xs italic text-muted">
+          <p className="flex-1">{t('块是整条展开的。按 ↓ / ↑ 可以一块一块地看,右边那列刻度是你在第几块。')}</p>
+          <button
+            type="button"
+            onClick={() => void useSettingsStore.getState().update({ blockNavHintPending: false })}
+            className="not-italic text-muted/70 transition-colors hover:text-accent"
+            title={t('知道了')}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {hiddenCount > 0 && (
         <div className="mb-2 flex items-center justify-center">
           <button

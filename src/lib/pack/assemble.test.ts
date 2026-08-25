@@ -852,3 +852,29 @@ describe('assemble', () => {
     });
   });
 });
+
+// ⛔⛔ S8（WORKPLAN §2.S8 第三条「不许」，2026-08-24）——
+// **一句话标签不许进 pack 正文冒充块。**
+//
+// pack 只有四带权威（📖 Reference / 🧩 Synthesis / 🔄 Process / 💭 Personal），而这一句
+// **一带都不属于**：它是 AI 顺手写的一行索引说明，不是用户的话、不是机构来源、也不是结论。
+// 混进正文就是给它一个它没有的身份，而收件 AI 分不出来 —— 那正是 §5.1「权威洗白」
+// 已经在真库里发生过的那件事。
+//
+// ⚠️ 今天它没进 pack 是因为 `assemble` 根本不读这一列。这条测试钉的是**将来**：
+// 有人为了「让 AI 多知道一点」把它加进去，这里会红。
+describe('S8 · 一句话标签', () => {
+  it('⛔ 一个字都不许出现在 pack 里', () => {
+    const gist = 'GISTMARKER_这一句只给搜索用';
+    const out = assemble({
+      thread,
+      blocks: [textBlock('b1', '正文本身。', { gist, annotation: '批注' })],
+      attachments: [],
+      now: NOW,
+      instructions: true,
+    });
+    expect(out).toContain('正文本身。');
+    expect(out).not.toContain(gist);
+    expect(out).not.toContain('GISTMARKER');
+  });
+});

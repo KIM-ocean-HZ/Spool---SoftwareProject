@@ -7,7 +7,7 @@ const block = (id: string, refBlockId: string | null = null, refKind: Block['ref
   ({ id, seq: 1, refBlockId, refKind, threadId: 't', kind: 'text', content: '', annotation: null,
      annotationBy: null, refThreadId: null, source: null, pinned: false, createdAt: 0,
      staleAt: null, sourceUrl: null, retrievedAt: null, recheckAfter: null,
-     correctedQuote: null, originalContent: null, compressedAt: null });
+     correctedQuote: null, gist: null, originalContent: null, compressedAt: null });
 
 const OLD = block('old');
 

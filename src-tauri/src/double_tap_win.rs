@@ -61,9 +61,18 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     HWND_MESSAGE, MSG, WM_INPUT, WNDCLASSW,
 };
 
-// Two Ctrl taps within this many ms are a double-tap. Matches the macOS module's 500ms and
-// the Windows system double-click default — a value users' fingers are already calibrated to.
-const DOUBLE_TAP_WINDOW_MS: i32 = 500;
+// Two Ctrl taps within this many ms are a double-tap. Matches the macOS module's 250ms
+// (double_tap.rs — read the reasoning there, it is the same gesture on the other platform).
+//
+// ⚠️ 2026-08-25 (WORKPLAN §2.V4, Ocean): 500 → 250, changed in lockstep with the macOS
+// module. This used to say it matched the Windows system double-click default too — it no
+// longer does, on purpose: ⌥/Ctrl is a key the user also presses for its normal job, so the
+// window is tuned against false positives rather than against a mouse-calibrated default.
+//
+// ⚠️ ⛔ These two constants must not drift apart. The value was changed on Ocean's report
+// from the macOS build, and this file's path never runs on the development machine — a
+// one-sided edit here is invisible to every local test AND leaves this comment lying.
+const DOUBLE_TAP_WINDOW_MS: i32 = 250;
 
 // Raw Input constants. Defined locally rather than imported so the module depends on the
 // windows-sys FUNCTIONS and STRUCTS only, not on the exact path of every flag constant —

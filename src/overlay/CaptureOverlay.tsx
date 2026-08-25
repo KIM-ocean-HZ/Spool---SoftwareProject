@@ -187,6 +187,36 @@ export default function CaptureOverlay() {
       .then(() => emitAction({ kind: 'annotate', blockId: p.blockId, threadId: p.threadId, annotation: next }))
       .catch((e) => console.error('[overlay] annotation save failed', e));
   }, []);
+
+  /** 每一条「这张卡完事了」的出口都走这儿：Esc、点外面、×、完成、自己超时。
+   *  ⚠️ 攒着一张休息卡的话，它顶上来接班，⛔ 这一步不许 `hideOverlay()` —— 窗口一藏，
+   *  Rust 那边会把前台还回去，再弹一次就是第二次打扰。 */
+  const leaveCard = useCallback((): void => {
+    setExpanded(false);
+    const due = pendingBreakRef.current;
+    pendingBreakRef.current = null;
+    if (due) {
+      setContent({ kind: 'break', data: due });
+      setHover(false);
+      setPickerOpen(false);
+      return;
+    }
+    setContent(null);
+    hideOverlay();
+  }, []);
+  // ⭐⭐ 2026-08-25（Ocean:「休息弹窗会强制关闭我正在写批注的捕捉弹窗」）—— 到点的休息**等**。
+  //
+  // 捕捉弹窗一出来批注框就是开着的（note-first），而休息卡以前是直接 `setContent` 顶掉它的：
+  // 正在打的那半句话连同这次捕捉一起没了。⛔ 丢一次输入换一次提醒,这个交换任何时候都不成立。
+  //
+  // ⚠️ 也**不是丢掉**它（自动维护那条注释里的话:「a break the person earned should not
+  // vanish」）：先攒在这儿,等这张卡自己走完（写完 / Esc / 点外面 / 自己超时），下面那个
+  // `leaveCard` 就把它接上去 —— 窗口都不用重新弹，人也已经从那句话里出来了。
+  const pendingBreakRef = useRef<OverlayBreak | null>(null);
+  /** 现在这张卡是不是「人正在往里打字」的捕捉卡。⚠️ 用 ref：事件监听只挂一次,闭包里的
+   *  `content` 会永远停在挂上去那一刻。 */
+  const capturingRef = useRef(false);
+
   // ResizeObserver target — the visible card root. Used to match the OS window
   // height to the toast's actual rendered height so the rounded bottom corner
   // is always visible regardless of attribution-line wrap or expansion state.
@@ -300,6 +330,15 @@ export default function CaptureOverlay() {
     let cancelled = false;
     void (async () => {
       const dispose = await listen<OverlayBreak>(OVERLAY_BREAK_EVENT, (e) => {
+        // ⭐ 人正在这张卡上写批注 —— 攒着，等这张卡走完（leaveCard）。
+        if (capturingRef.current) {
+          pendingBreakRef.current = e.payload;
+          // ⚠️ Rust 侧已经按休息卡的高度把这个窗口缩过了（capture.rs `send_overlay_show`
+          // 每次都发 `OVERLAY_HEIGHT_COLLAPSED`）。不管它的话，批注框下半截当场被切掉。
+          const el = cardRef.current;
+          if (el) resizeOverlay(Math.ceil(el.getBoundingClientRect().height) + SHADOW_ALLOWANCE);
+          return;
+        }
         setContent({ kind: 'break', data: e.payload });
         setHover(false);
         setPickerOpen(false);
@@ -381,11 +420,10 @@ export default function CaptureOverlay() {
             ? BREAK_AUTO_DISMISS_MS
             : TOAST_AUTO_DISMISS_MS;
     const t = setTimeout(() => {
-      setContent(null);
-      hideOverlay();
+      leaveCard();
     }, ms);
     return () => clearTimeout(t);
-  }, [content, hover, pickerOpen, annotationDraft]);
+  }, [content, hover, pickerOpen, annotationDraft, leaveCard]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -425,14 +463,12 @@ export default function CaptureOverlay() {
       if (isImeComposing(e)) return;
       if (e.key === 'Escape') {
         pendingNoteRef.current = null;
-        setContent(null);
-        setExpanded(false);
-        hideOverlay();
+        leaveCard();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [content]);
+  }, [content, leaveCard]);
 
   // v2.9 §9.13: Rust's mouse-down tap fires this when the user clicks outside the toast
   // (resuming work). Dismiss the same way Esc / × does — let the user keep working.
@@ -442,9 +478,7 @@ export default function CaptureOverlay() {
     void (async () => {
       const dispose = await listen(OVERLAY_DISMISS_EVENT, () => {
         flushPendingNote();
-        setContent(null);
-        setExpanded(false);
-        hideOverlay();
+        leaveCard();
       });
       if (cancelled) dispose();
       else unlisten = dispose;
@@ -453,7 +487,11 @@ export default function CaptureOverlay() {
       cancelled = true;
       if (unlisten) unlisten();
     };
-  }, [flushPendingNote]);
+  }, [flushPendingNote, leaveCard]);
+
+  // 「人正在往里打字」= 屏幕上是捕捉卡。⚠️ note-first 之下批注框一出来就是开着的,所以
+  // 「卡在不在」就是「人在不在写」;没打字的那种也顶多让休息卡等它自己超时那几秒。
+  capturingRef.current = content?.kind === 'toast';
 
   // Note-first: focus the annotation textarea the moment the toast (re)renders with
   // the editor open. DOM focus is recorded whether or not the window is key yet, so it
@@ -644,9 +682,7 @@ export default function CaptureOverlay() {
 
   const dismissToast = (): void => {
     flushPendingNote();
-    setContent(null);
-    setExpanded(false);
-    hideOverlay();
+    leaveCard();
   };
 
   // Note-first exits. Finish (Enter / 完成): commit the draft and dismiss — the user
@@ -654,16 +690,12 @@ export default function CaptureOverlay() {
   // Cancel (Esc): discard the draft and dismiss.
   const finishNote = (): void => {
     flushPendingNote();
-    setContent(null);
-    setExpanded(false);
-    hideOverlay();
+    leaveCard();
   };
   const cancelNote = (): void => {
     pendingNoteRef.current = null;
     setAnnotationDraft('');
-    setContent(null);
-    setExpanded(false);
-    hideOverlay();
+    leaveCard();
   };
 
   return (

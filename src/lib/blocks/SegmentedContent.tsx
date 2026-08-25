@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { HighlightedContent } from './HighlightedContent';
-import { hasSegmentAnnotations, parseSegments } from './segments';
+import { hasSegmentAnnotations, parseSegments, splitSegmentSource } from './segments';
 
 // v2.8 §20.1 follow-up — display a merged block's content as a list of segments, each
 // with its own annotation attached visually. Falls back to a plain HighlightedContent
@@ -27,7 +27,9 @@ export function SegmentedContent({
   const segments = parseSegments(content);
   return (
     <Fragment>
-      {segments.map((seg, i) => (
+      {segments.map((seg, i) => {
+        const { source, body, offset } = splitSegmentSource(seg.text);
+        return (
         <div
           key={i}
           // Segments after the first get a top divider so the reader can see the
@@ -36,7 +38,15 @@ export function SegmentedContent({
           className={i > 0 ? 'mt-2 border-t border-dashed border-line/70 pt-2' : ''}
         >
           <div className="whitespace-pre-wrap break-words">
-            <HighlightedContent content={seg.text} withOffsets={withOffsets} offset={seg.start} />
+            {/* ⭐ 2026-08-25（Ocean:「来源的文字特别大,和正文混在一起,太突兀」）—— 合并留下的
+                `[from …]` 记号在这条路上也画成一枚小标签,和 ContentRuns 那条路一个样子。
+                ⚠️ 偏移要加上记号本身占的字符数,否则在这一段里划词会整体左移几个字。 */}
+            {source && (
+              <span className="mr-1 rounded-sm border border-line px-1 text-[0.72em] text-muted">
+                {source}
+              </span>
+            )}
+            <HighlightedContent content={body} withOffsets={withOffsets} offset={seg.start + offset} />
           </div>
           {seg.annotation && (
             // Styling mirrors BlockItem's top-level annotation row (paper-2 tint,
@@ -46,7 +56,8 @@ export function SegmentedContent({
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </Fragment>
   );
 }

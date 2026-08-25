@@ -44,6 +44,7 @@ export default function ReviewBoard() {
   const current = useEngineStore((s) => s.current);
   const runs = useEngineStore((s) => s.runs);
   const enqueue = useEngineStore((s) => s.enqueue);
+  const cancel = useEngineStore((s) => s.cancel);
   const engineStatus = useEngineStore((s) => s.status);
   const probe = useEngineStore((s) => s.probe);
 
@@ -110,6 +111,22 @@ export default function ReviewBoard() {
             )}
             {running ? t('正在回顾…') : t('回顾这一周')}
           </button>
+
+          {/* ⭐ 2026-08-25（Ocean:「周回顾没法暂停」）—— 停下的按钮以前**只长在右边栏的
+              LiveRun 卡片上**，而钉住的视图（项目管理 / 周回顾）根本不挂右边栏（App.tsx:
+              `pinnedView ? null : …`）。所以从这一屏点「回顾这一周」的人，看着它转，
+              没有任何地方能停。⛔ 别用「跳回项目再停」搪塞：他就在这一屏。
+              ⚠️ 停下不是暂停 —— 停了不能续跑，再点一次是从头跑（已经写进去的留着）。 */}
+          {running && (
+            <button
+              type="button"
+              onClick={() => void cancel()}
+              title={t('点一下停下来（停了不能续跑，再点就是从头再来）')}
+              className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+            >
+              {t('停下')}
+            </button>
+          )}
 
           {/* §4.3's master switch, moved here from 项目管理 (2026-08-11). It used to govern
               two things and now governs one: with per-project 压缩 retired, a weekly review is

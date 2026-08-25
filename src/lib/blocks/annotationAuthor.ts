@@ -17,7 +17,20 @@ import { isMcpSource } from './sourceIcon';
 // user gave by hand, which no competitor can do better than guess), and the proxy demotes
 // it. §0.5.1 makes that worse over time, not better: as more blocks arrive through MCP, the
 // user's own annotations increasingly land ON AI-written blocks.
-export type AnnotationAuthor = 'user' | 'ai';
+// ⭐ 2026-08-25 (Ocean, V3 验收):「AI 批注后加入人为修改仍然是 AI 批注,需要做区分,
+// AI 批注可以人为修改,不能人为新增。」Three states, not two:
+//
+//   'user'      —— the user wrote it. 💭 Personal in the pack, highest signal.
+//   'ai'        —— an AI wrote it, untouched.
+//   'ai-edited' —— an AI wrote it and the user has since corrected it BY HAND.
+//
+// ⚠️ Why the third one exists rather than flipping to 'user' on edit (which is what the
+// code did until today): the sentence did not become the user's just because they fixed a
+// word in it. Ocean's rule is that it 「仍然是 AI 批注」 — so it keeps AI authority in the
+// pack, and the interface says so, while still being editable.
+// ⛔ There is deliberately no way to CREATE an 'ai' / 'ai-edited' note from the interface —
+// 「不能人为新增」. A note the user types on a block with no note is always 'user'.
+export type AnnotationAuthor = 'user' | 'ai' | 'ai-edited';
 
 /** True when this block's annotation was written by an AI rather than the user.
  *
@@ -29,7 +42,24 @@ export type AnnotationAuthor = 'user' | 'ai';
 export const annotationIsAi = (
   annotationBy: AnnotationAuthor | null | undefined,
   source: string | null,
-): boolean => (annotationBy ? annotationBy === 'ai' : isMcpSource(source));
+): boolean =>
+  // ⚠️ 'ai-edited' counts as AI here, and that is the whole point of Ocean's rule: a note an
+  // AI wrote does not acquire 💭 Personal authority in the pack because the user tidied it.
+  // ⛔ Anything reading this to mean "untouched AI text" wants `annotationEdited` below.
+  annotationBy ? annotationBy === 'ai' || annotationBy === 'ai-edited' : isMcpSource(source);
+
+/** True when an AI wrote this note and the user has since edited it — the state the
+ *  interface has to show apart from a clean AI note, so a reader is never told an AI said
+ *  something in words the AI did not choose. */
+export const annotationEdited = (annotationBy: AnnotationAuthor | null | undefined): boolean =>
+  annotationBy === 'ai-edited';
+
+/** What `annotation_by` becomes when the USER saves a note from the interface. Editing an
+ *  AI note keeps it an AI note (marked as edited); everything else is the user's own. */
+export const nextAnnotationAuthor = (
+  current: AnnotationAuthor | null | undefined,
+  source: string | null,
+): AnnotationAuthor => (annotationIsAi(current, source) ? 'ai-edited' : 'user');
 
 /** 「只看我写的」(archived DESIGN_NEXT_STAGE §4.4 — 「我的思考」凸显) — is this block one the
  *  user put something of their own into?

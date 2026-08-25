@@ -140,3 +140,52 @@ describe('SegmentedContent, withOffsets', () => {
     expect(out).toContain('data-o="4"');
   });
 });
+
+// ⭐ S5（2026-08-24）：`afterBlock` —— 更正卡跟在它划的那一句所在的那一段底下。
+// ⛔ 这是往一个**共用**渲染器上加的口子，所以第一条钉的是「不传就零变化」。
+describe('MarkdownContent, afterBlock', () => {
+  it('⛔ 不传 afterBlock：连一层 Fragment 都不多包，输出一个字节不变', () => {
+    expect(renderToStaticMarkup(<MarkdownContent content="just a sentence" />)).toBe(
+      'just a sentence',
+    );
+  });
+
+  it('单段正文：插在那一段后面', () => {
+    const out = renderToStaticMarkup(
+      <MarkdownContent content="就一段话" afterBlock={() => <i>TAIL</i>} />,
+    );
+    expect(out).toBe('就一段话<i>TAIL</i>');
+  });
+
+  // 位置就是配对的依据，所以给的范围必须是**原始 content 的下标** ——
+  // 和 `corrected` 那套坐标同一套。错一套，卡片就挂到隔壁那一段底下去。
+  it('给的是每一段在原始 content 里的 [start, end)', () => {
+    const content = '# 标题\n\n第一段\n\n第二段';
+    const seen: [number, number][] = [];
+    renderToStaticMarkup(
+      <MarkdownContent
+        content={content}
+        afterBlock={(start, end) => {
+          seen.push([start, end]);
+          return null;
+        }}
+      />,
+    );
+    expect(seen).toHaveLength(3);
+    for (const [start, end] of seen) expect(content.slice(start, end)).not.toContain('#');
+    expect(content.slice(seen[0]![0], seen[0]![1])).toBe('标题');
+    expect(content.slice(seen[1]![0], seen[1]![1])).toBe('第一段');
+    expect(content.slice(seen[2]![0], seen[2]![1])).toBe('第二段');
+  });
+
+  it('每一段只插自己那一份', () => {
+    const out = renderToStaticMarkup(
+      <MarkdownContent
+        content={'第一段\n\n第二段'}
+        afterBlock={(start) => (start === 0 ? <i>A</i> : <i>B</i>)}
+      />,
+    );
+    expect(out.indexOf('A')).toBeLessThan(out.indexOf('第二段'));
+    expect(out.indexOf('第二段')).toBeLessThan(out.indexOf('B'));
+  });
+});

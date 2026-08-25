@@ -629,8 +629,8 @@ describe('applyCompression / restoreBlockOriginal', () => {
 
   it('留原文：正文换成压缩稿，原文和时间一起写上', async () => {
     const { threadId, block } = await seed();
-    const n = await applyCompression([{ id: block.id, content: '短一点，2026-11-25 还在。' }], true, 1_754_000_000_000);
-    expect(n).toBe(1);
+    const { changed } = await applyCompression([{ id: block.id, content: '短一点，2026-11-25 还在。' }], true, 1_754_000_000_000);
+    expect(changed).toBe(1);
     const after = await read(threadId);
     expect(after.content).toBe('短一点，2026-11-25 还在。');
     expect(after.originalContent).toBe('很长很长的原文，里面有 2026-11-25。');
@@ -652,8 +652,8 @@ describe('applyCompression / restoreBlockOriginal', () => {
   //    告诉收件 AI「这几句不是原话」，而它其实是原话。
   it('内容没变就一个字都不写', async () => {
     const { threadId, block } = await seed();
-    const n = await applyCompression([{ id: block.id, content: block.content }], true, 1);
-    expect(n).toBe(0);
+    const { changed } = await applyCompression([{ id: block.id, content: block.content }], true, 1);
+    expect(changed).toBe(0);
     const after = await read(threadId);
     expect(after.compressedAt).toBeNull();
     expect(after.originalContent).toBeNull();
@@ -667,6 +667,90 @@ describe('applyCompression / restoreBlockOriginal', () => {
     const after = await read(threadId);
     expect(after.compressedAt).toBe(5);
     expect(after.originalContent).toBeNull();
+  });
+
+  // ⭐⭐ S3（2026-08-24，Ocean 选乙）—— **压缩不许悄悄打掉引文。**
+  // 真库里已经发生过：〈申请帮助〉#11 那条更正的引文，被 08-24 11:20:51 的一次压缩打断，
+  // 屏幕上什么都不划、也不报错。下面四条钉的就是这四种下落。
+  describe('S3 · 压完重定位更正引文', () => {
+    const seedPair = async (targetContent: string, quote: string) => {
+      const ws = await createWorkspace('W');
+      const th = await createThread(ws.id, 'P');
+      const target = await createBlock({ threadId: th.id, content: targetContent });
+      const corr = await createBlock({ threadId: th.id, content: '其实不是这样。' });
+      await setBlockSupersession(corr.id, target.id, 'corrects', 1);
+      await setCorrectedQuote(corr.id, quote);
+      return { threadId: th.id, target, corr };
+    };
+    const readById = async (threadId: string, id: string) =>
+      (await listBlocksByThread(threadId)).find((b) => b.id === id)!;
+
+    it('标点被改写 —— 引文换成压缩稿里的那一句，不算打断', async () => {
+      const { threadId, target, corr } = await seedPair(
+        '前言。结论：不要把任何学校称为保底。后话。',
+        '结论：不要把任何学校称为保底。',
+      );
+      const { quotesLost } = await applyCompression(
+        [{ id: target.id, content: '结论:不要把任何学校称为保底.' }],
+        true,
+        9,
+      );
+      expect(quotesLost).toEqual([]);
+      expect((await readById(threadId, corr.id)).correctedQuote).toBe(
+        '结论:不要把任何学校称为保底.',
+      );
+    });
+
+    it('措辞被改写 —— 引文清掉、关系留着，并且报出来', async () => {
+      const { threadId, target, corr } = await seedPair(
+        '关于必修实习位：NEU 的 co-op 属于培养方案内的必修实习。',
+        'NEU 的 co-op 属于培养方案内的必修实习',
+      );
+      const { quotesLost } = await applyCompression(
+        [{ id: target.id, content: 'NEU co-op 是必修实习。' }],
+        true,
+        9,
+      );
+      // ⛔ 报出来 —— 无声才是 08-24 那次的形状。两个号码都是屏幕上的 #N。
+      expect(quotesLost).toEqual([{ correctionSeq: corr.seq, targetSeq: target.seq }]);
+      const after = await readById(threadId, corr.id);
+      expect(after.correctedQuote).toBeNull();
+      // ⛔ 关系必须留着：pack 和界面仍然说得出「#N 里有一处被更正了」。
+      expect(after.refKind).toBe('corrects');
+      expect(after.refBlockId).toBe(target.id);
+    });
+
+    it('⛔ 压缩前就对不上的引文，压缩不许动它、也不许赖在自己头上', async () => {
+      const { threadId, target, corr } = await seedPair('正文', '一句谁也对不上的话');
+      const { quotesLost } = await applyCompression(
+        [{ id: target.id, content: '压完的正文' }],
+        true,
+        9,
+      );
+      expect(quotesLost).toEqual([]);
+      expect((await readById(threadId, corr.id)).correctedQuote).toBe('一句谁也对不上的话');
+    });
+
+    // ⚠️ `ref_block_id` 可以跨项目指 —— 按项目筛就会漏掉别的项目里那条更正。
+    it('别的项目里的更正也照样重定位', async () => {
+      const ws = await createWorkspace('W');
+      const a = await createThread(ws.id, 'A');
+      const b = await createThread(ws.id, 'B');
+      const target = await createBlock({ threadId: a.id, content: '甲：这句话在 A 里。' });
+      const corr = await createBlock({ threadId: b.id, content: '其实不是。' });
+      await setBlockSupersession(corr.id, target.id, 'corrects', 1);
+      await setCorrectedQuote(corr.id, '这句话在 A 里');
+
+      const { quotesLost } = await applyCompression(
+        [{ id: target.id, content: '甲：换了个说法。' }],
+        true,
+        9,
+      );
+      expect(quotesLost).toHaveLength(1);
+      expect(
+        (await listBlocksByThread(b.id)).find((x) => x.id === corr.id)!.correctedQuote,
+      ).toBeNull();
+    });
   });
 
   it('一键还原：换回原文，两列一起清空', async () => {

@@ -31,6 +31,7 @@ type PersistableKey =
   | 'aiEffortClaude'
   | 'language'
   | 'firstCaptureHintPending'
+  | 'blockNavHintPending'
   | 'railWidth'
   | 'sidebarCollapsed'
   | 'railCollapsed'
@@ -125,6 +126,12 @@ interface SettingsState {
   // keeps the one-time closing line away from existing libraries, which never had the
   // key written. Default false, so "no key" means "don't show it".
   firstCaptureHintPending: boolean;
+  // V2 ④ (WORKPLAN §2.V2, Ocean 2026-08-25: 「在用户首装时教学一下」). Same shape and same
+  // reason as the key above it: armed by the launch that creates the database, spent the
+  // first time the user actually presses ↓/↑ (or dismisses the line). An existing library
+  // never had the key written, so nobody who has been reading their projects for weeks is
+  // suddenly told how to read them — the rule DESIGN_FIRST_RUN §4 already settled.
+  blockNavHintPending: boolean;
   // DESIGN_WORKBENCH §3 — the two rails. Ocean 2026-08-06: "左右两侧边栏都可以拖移或者隐藏".
   // The width is persisted because a dragged rail that forgets is worse than one that
   // cannot be dragged, and it is clamped on read (lib/layout.ts) so a hand-edited
@@ -289,6 +296,7 @@ const KEYS: PersistableKey[] = [
   'aiEffortClaude',
   'language',
   'firstCaptureHintPending',
+  'blockNavHintPending',
   'railWidth',
   'sidebarCollapsed',
   'railCollapsed',
@@ -343,6 +351,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   aiEffortClaude: null,
   language: detectSystemLanguage(),
   firstCaptureHintPending: false,
+  blockNavHintPending: false,
   railWidth: DEFAULT_RAIL_WIDTH,
   sidebarCollapsed: false,
   railCollapsed: true,

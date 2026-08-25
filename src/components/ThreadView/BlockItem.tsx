@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { flushSync } from 'react-dom';
-import { annotationIsAi } from '@/lib/blocks/annotationAuthor';
+import { annotationEdited, annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { isHighlightable, rangeIsHighlighted, toggleHighlightRange } from '@/lib/blocks/highlight';
@@ -86,6 +87,15 @@ const NAV_SCROLL_DISMISS_PX = 200;
 // §6.2-bis's rule about selectors, applied to a memo input: a fresh [] here would make the
 // span memo below recompute on every render of every uncorrected block — which is all of them.
 const EMPTY_CORRECTIONS: Correction[] = [];
+
+/** 这一块上可以划词的两格。⚠️ 它们各有一套字符下标（一套是 `content` 的，一套是
+ *  `annotation` 的）—— 划词、`==重点` 都必须带着这个字段走，见 selectionRaw。 */
+type BlockField = 'content' | 'annotation';
+interface FieldRange {
+  start: number;
+  end: number;
+  field: BlockField;
+}
 
 // Filter the flat hits array down to one field and keep each hit's global
 // index in the original array — InBlockNavigator counts and the active-index
@@ -190,6 +200,41 @@ function TextBlockItem({
     return spans;
   }, [corrections, block.content]);
 
+  // ⭐ S5（2026-08-24，Ocean 选丙）—— **一块上多条更正，要配得上对。**
+  //
+  // 之前是「一次只开一条」：从「句子 → 更正」通（点一句只开那一句的更正，这是有意的），
+  // **反方向没有** —— 卡片上没有任何东西指回它划的是哪一句。⚠️ 一条更正的时候够用，
+  // 两条就不够：真库 seq 21 上挂着两条，Ocean 只能点一次、记住、再点一次、再比对。
+  // **它随更正条数变差。**
+  //
+  // 丙：不再一次只开一条，**每条直接跟在它划的那一句底下**，按那一句在正文里的先后排。
+  // ⛔ 两条别弄坏的：① 折走的那几条**只在这一处画**（`BlockFeed` 把它们挡在时间线外）——
+  // 不许出现「时间线一份、块底下一份」的双份；② `correctedSpans` 上那个 `id` 是配对的
+  // **唯一依据**（2026-08-19 加的），⛔ 别在重构里丢掉。
+  //
+  // ⚠️ 定位不到的更正**到不了这儿**：`correctionsBySource` 已经把对不上的 `quote` 置空，
+  // 而 `attachedCorrections` 只收有 quote 的 —— 对不上的那几条留在时间线上有自己的卡片
+  // （`foldedCorrectionIds` 同一个条件）。所以下面每一条都一定有 span。
+  /** 每条更正划的是哪一句 —— 卡片上要指回去。⚠️ 同一段里挂着两条的时候，位置本身
+   *  分不出谁是谁（两条都跟在同一段底下），⛔ 所以这一句不许省。 */
+  const correctionQuote = useMemo(
+    () => new Map(corrections.flatMap((c) => (c.quote ? [[c.id, c.quote] as const] : []))),
+    [corrections],
+  );
+  const correctionAt = useMemo(() => {
+    const firstSpan = new Map<string, number>();
+    for (const sp of correctedSpans) {
+      const at = firstSpan.get(sp.id);
+      if (at === undefined || sp.start < at) firstSpan.set(sp.id, sp.start);
+    }
+    return correctionBlocks
+      .flatMap((c) => {
+        const at = firstSpan.get(c.id);
+        return at === undefined ? [] : [{ block: c, at }];
+      })
+      .sort((x, y) => x.at - y.at);
+  }, [correctedSpans, correctionBlocks]);
+
   // Action-bar reveal is JS-driven (not CSS group-hover): mouseleave deterministically
   // clears it, so the bar can't get stuck visible when the cursor moves to the block
   // below. See PLAN_EN.md §9.3.
@@ -232,17 +277,37 @@ function TextBlockItem({
   // on this block. Local, because only one block can be answering that question at a time
   // and the answer is over in one click.
 
+  // ⭐ 2026-08-25 (Ocean, V3 验收) — which field the editing panel opens focused on.
+  // 「双击批注 → 输入框跳到批注」. Both fields are always present in the panel; this only
+  // decides where the cursor lands, so there is one editing surface and not two modes.
+  const [focusField, setFocusField] = useState<'content' | 'annotation'>('content');
+
   // Annotation editor. Visually separate (paper-2 background) so a reader can tell
   // "the user wrote this" apart from "the user captured this".
   const [editingAnnotation, setEditingAnnotation] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState(block.annotation ?? '');
   const annotationRef = useRef<HTMLTextAreaElement>(null);
+  /** 面板开着 —— 两个字段一起开，一起关（openEditor / commitAll / cancelAll）。
+   *  ⚠️ 声明在这么靠上，是因为下面划词那条 effect 的依赖数组要用它（`const` 有暂时性死区，
+   *  声明在 effect 下面的话，第一次 render 就当场抛 ReferenceError）。 */
+  const editorOpen = editingContent || editingAnnotation;
 
   // Smart truncation: detect overflow against the collapsed cap. Re-measure when the
   // content text changes (the block could just have been edited).
   const measureRef = useRef<HTMLDivElement>(null);
   const articleRef = useRef<HTMLElement>(null);
-  const [collapsed, setCollapsed] = useState(true);
+  // ⚠️ V2 ① (WORKPLAN §2.V2, Ocean 2026-08-25): starts EXPANDED. It used to be `true`.
+  // His words: 「让 block 默认展开吧,不展开,文字的更改信息不能被看到。」— the S-batch
+  // correction marks (§2.S5/§2.S6) sit under the sentence they correct, and in a long block
+  // that sentence is usually past line 6, i.e. under the fold. A reader who does not know
+  // something is down there never expands to find it, so the marks were invisible in
+  // practice. Truncation still EXISTS (`needsTruncation`, the 收起 button) — it is now
+  // opt-in per block instead of the default for every block.
+  const [collapsed, setCollapsed] = useState(false);
+  // Whether the block's current expanded state came from the user pressing 展开全部,
+  // as opposed to just being the default. Only the former re-folds on outside-click —
+  // see the auto-collapse effect below for why that distinction is load-bearing.
+  const manuallyExpanded = useRef(false);
   const [needsTruncation, setNeedsTruncation] = useState(false);
 
   // 2026-08-19: which correction is open, by the correcting block's id. Closed until the reader
@@ -270,7 +335,7 @@ function TextBlockItem({
   // chip enables/disables correctly. The whole feature stays isolated behind
   // highlight.ts + HighlightedContent.tsx for a clean §20.8 revert.
   const [highlightPrompt, setHighlightPrompt] = useState<
-    { x: number; y: number; raw: { start: number; end: number } | null } | null
+    { x: number; y: number; raw: FieldRange | null } | null
   >(null);
   // True iff the current selection already sits inside a `==…==` highlight — flips
   // the toolbar button into "un-highlight" mode (different icon + title) so the user
@@ -278,7 +343,12 @@ function TextBlockItem({
   // as highlightableSelection.
   const [selectionAlreadyHighlighted, setSelectionAlreadyHighlighted] = useState(false);
   // Same range, for the toolbar button — which fires without a live selection.
-  const [selectionRaw, setSelectionRaw] = useState<{ start: number; end: number } | null>(null);
+  // ⭐ 2026-08-25（Ocean:「批注无法高亮和更正」）：它现在**带着这段划在哪一格**。
+  // ⚠️ 正文和批注是**两套字符坐标**，只传 start/end 的话，划在批注上的那一段会拿正文的下标
+  // 去包 `==` —— 包到另一句话上，而且屏幕上看不出来。
+  const [selectionRaw, setSelectionRaw] = useState<FieldRange | null>(null);
+  /** 批注**读**的时候画在哪个节点里（两个 view 只会挂一个）—— 划词按它映射下标。 */
+  const noteViewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editingContent) setContentDraft(block.content);
@@ -288,26 +358,11 @@ function TextBlockItem({
     if (!editingAnnotation) setAnnotationDraft(block.annotation ?? '');
   }, [block.annotation, editingAnnotation]);
 
-  useEffect(() => {
-    if (editingContent && contentRef.current) {
-      const el = contentRef.current;
-      // v2.9 §14.3 / §19.19: preventScroll suppresses the browser's default
-      // scrollIntoView-on-focus, which was one half of the edit-entry viewport jump.
-      el.focus({ preventScroll: true });
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  }, [editingContent]);
-
-  useEffect(() => {
-    // v2.8 §20.4: when both fields enter edit together (double-click path), keep focus
-    // on the content textarea — the spec says double-click lands focus on content by
-    // default. Auto-focus the annotation only when it's the standalone ✑ entry point.
-    if (editingAnnotation && !editingContent && annotationRef.current) {
-      const el = annotationRef.current;
-      el.focus({ preventScroll: true });
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  }, [editingAnnotation, editingContent]);
+  // ⛔ 这里以前有两条「进编辑就聚焦」的 effect（一条盯 editingContent、一条盯 editingAnnotation），
+  // 是**合成面板之前**留下的。⚠️ 2026-08-25 Ocean 报的「双击批注和工具栏的批注都跳不进批注框,
+  // 打的字还是进正文」就是它们：现在 openEditor 一次把两个字段都打开,所以盯 editingContent
+  // 那条**每次都成立**,而它是 passive effect —— 跑在下面那条 layout effect **之后**,
+  // 于是刚落到批注上的光标又被抢回正文。⛔ 别把它们加回来:落点只有下面那一处说了算。
 
   useLayoutEffect(() => {
     if (editingContent) return; // measurement only applies to the rendered prose path
@@ -407,8 +462,20 @@ function TextBlockItem({
   // the textarea covers the truncation path, so the listener firing mid-edit would
   // leave the block silently collapsed and the user would land on a re-truncated
   // view after blur. Only attached when the listener has work to do.
+  //
+  // ⚠️⚠️ V2 ① (2026-08-25) — `manuallyExpanded` is why this effect still has a job.
+  // This effect was written when collapsed-by-default was the rule: "expanded" could only
+  // ever mean "the user opened this one", so snapping back on outside-click RESTORED the
+  // default. Now that every block starts expanded, an unguarded version would read
+  // "expanded" on all of them at mount and the FIRST click anywhere — another block, the
+  // sidebar, empty space — would collapse the entire feed. That is not a smaller version
+  // of V2, it is V2 undone by the first click, and worse than today because it is invisible
+  // until it happens.
+  // ⛔ So this is deliberately NOT deleted (the workplan's 「别顺手删掉」): scoped to blocks
+  // the user expanded BY HAND, it does exactly the job it was written for — you collapsed a
+  // long block, opened it again to read it, clicked away, and it returns to how you left it.
   useEffect(() => {
-    if (collapsed || editingContent || editingAnnotation) return;
+    if (collapsed || !manuallyExpanded.current || editingContent || editingAnnotation) return;
     const onDocMouseDown = (e: MouseEvent): void => {
       const article = articleRef.current;
       if (!article) return;
@@ -418,6 +485,33 @@ function TextBlockItem({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [collapsed, editingContent, editingAnnotation]);
+
+  /** 一格现在存的是什么。⚠️ 读**库里那一份**，不是 draft —— 显示态划词是对已保存文本划的。 */
+  const fieldText = useCallback(
+    (field: BlockField): string => (field === 'annotation' ? (block.annotation ?? '') : block.content),
+    [block.annotation, block.content],
+  );
+
+  /** 显示态：这段选区落在哪一格、对应那一格的哪一段字符。null = 不在这一块里，或者不值得包。
+   *  ⚠️ 先问正文再问批注，两个节点互不包含，所以谁先问不影响结果。 */
+  const resolveSelection = useCallback(
+    (sel: Selection): FieldRange | null => {
+      const roots: Array<[BlockField, HTMLElement | null]> = [
+        ['content', measureRef.current],
+        ['annotation', noteViewRef.current],
+      ];
+      for (const [field, root] of roots) {
+        if (!root) continue;
+        const raw = rawRangeFromSelection(root, sel);
+        if (!raw) continue;
+        const text = field === 'annotation' ? (block.annotation ?? '') : block.content;
+        if (!isHighlightable(text.slice(raw.start, raw.end))) return null;
+        return { ...raw, field };
+      }
+      return null;
+    },
+    [block.annotation, block.content],
+  );
 
   // v2.8 §20.5: track the live selection so (a) the floating prompt dismisses when
   // it becomes stale and (b) the toolbar's highlight button enables/disables based
@@ -432,12 +526,25 @@ function TextBlockItem({
         setSelectionRaw(null);
         setSelectionAlreadyHighlighted(false);
       };
-      // Edit mode: the textarea's own selection is ALREADY a raw range into the draft, so
-      // it needs no mapping — it is the same shape display mode arrives at the long way.
-      if (editingContent) {
-        const ta = contentRef.current;
-        if (ta && document.activeElement === ta && ta.selectionStart !== ta.selectionEnd) {
-          const range = { start: ta.selectionStart, end: ta.selectionEnd };
+      // Edit mode: whichever of the panel's two textareas holds the cursor. Its own
+      // selectionStart/End ARE raw offsets into that field's draft — the same shape display
+      // mode arrives at the long way.
+      // ⭐ 2026-08-25：以前这里只认正文那一个 textarea，所以光标一进批注框，
+      // 「标为重点」就灰掉了（Ocean:「批注无法高亮」）。
+      if (editorOpen) {
+        const active = document.activeElement;
+        const ta =
+          active === annotationRef.current
+            ? annotationRef.current
+            : active === contentRef.current
+              ? contentRef.current
+              : null;
+        if (ta && ta.selectionStart !== ta.selectionEnd) {
+          const range = {
+            start: ta.selectionStart,
+            end: ta.selectionEnd,
+            field: (ta === annotationRef.current ? 'annotation' : 'content') as BlockField,
+          };
           if (isHighlightable(ta.value.slice(range.start, range.end))) {
             setSelectionRaw(range);
             // Read the textarea's own buffer (the draft), not the persisted block.content —
@@ -451,28 +558,25 @@ function TextBlockItem({
         }
         return;
       }
-      // Display mode: window selection must be inside this block's content.
+      // Display mode: the window selection, in whichever of the two read surfaces it landed.
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
         clear();
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
-      const container = measureRef.current;
-      if (!container) {
-        clear();
-        return;
-      }
       // ⚠️ The range, not sel.toString(). The rendered text is missing every marker it
       // spans, so it is the wrong thing to reason about and the wrong thing to search for.
-      const raw = rawRangeFromSelection(container, sel);
-      if (!raw || !isHighlightable(block.content.slice(raw.start, raw.end))) {
+      const found = resolveSelection(sel);
+      if (!found) {
         clear();
         if (highlightPrompt) setHighlightPrompt(null);
         return;
       }
-      setSelectionRaw(raw);
-      setSelectionAlreadyHighlighted(rangeIsHighlighted(block.content, raw.start, raw.end));
+      setSelectionRaw(found);
+      setSelectionAlreadyHighlighted(
+        rangeIsHighlighted(fieldText(found.field), found.start, found.end),
+      );
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') setHighlightPrompt(null);
@@ -483,7 +587,41 @@ function TextBlockItem({
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('keydown', onKey);
     };
-  }, [readOnly, editingContent, highlightPrompt, block.content]);
+  }, [readOnly, editorOpen, highlightPrompt, block.content, block.annotation, resolveSelection]);
+
+  // ⭐ Where the editing panel is drawn: the pane-level host LogView renders. Looked up when
+  // the panel opens rather than held from mount, so it survives a thread switch remounting
+  // LogView. Null in DigestView (read-only, never edits) — the panel simply never opens.
+  const [editorHost, setEditorHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!editorOpen) return;
+    setEditorHost(document.querySelector<HTMLElement>('[data-block-editor-host]'));
+  }, [editorOpen]);
+
+  // ⭐ 「双击批注 → 输入框跳到批注」. One panel, two fields; this is the only difference the
+  // entry point makes. Runs after the portal has mounted, hence layout-effect.
+  useLayoutEffect(() => {
+    if (!editorOpen || !editorHost) return;
+    const el = focusField === 'annotation' ? annotationRef.current : contentRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [editorOpen, editorHost, focusField]);
+
+  // Leaving the panel: a click anywhere outside it saves and closes, which is the 「点外面出」
+  // half of the gesture Ocean said was already right. ⚠️ mousedown, not click — a click that
+  // starts inside the panel and releases outside (a drag-select that overshoots) must NOT
+  // count as leaving.
+  useEffect(() => {
+    if (!editorOpen) return;
+    const onDocMouseDown = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-block-editor-panel]')) return;
+      void commitAll();
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  });
 
   // v2.9 §14.3 / §19.19: the read-only → editable swap changes the block's
   // intrinsic height (textarea vs. wrapped prose), which can shift the article's
@@ -508,6 +646,18 @@ function TextBlockItem({
     }
   };
 
+  // ⭐ Every way into edit mode goes through here: double-click on the content, double-click
+  // on the note, the ✑ hover action, the toolbar's edit button. They differ ONLY in where the
+  // cursor lands —「全部做到一个面板进行编辑」.
+  const openEditor = (field: 'content' | 'annotation'): void => {
+    setActive(block.id);
+    setFocusField(field);
+    enterEditMode(() => {
+      setEditingContent(true);
+      setEditingAnnotation(true);
+    });
+  };
+
   const commitContent = async (): Promise<void> => {
     const next = contentDraft;
     setEditingContent(false);
@@ -517,11 +667,6 @@ function TextBlockItem({
     } catch (e) {
       console.error('[block] content save failed', e);
     }
-  };
-
-  const cancelContent = (): void => {
-    setContentDraft(block.content);
-    setEditingContent(false);
   };
 
   const commitAnnotation = async (): Promise<void> => {
@@ -536,14 +681,14 @@ function TextBlockItem({
     }
   };
 
-  const cancelAnnotation = (): void => {
-    setAnnotationDraft(block.annotation ?? '');
-    setEditingAnnotation(false);
-  };
-
   // v2.8 §20.4: unified-mode cancel. When the user entered edit via double-click both
   // fields are open at once; Esc on either should drop both drafts and close both, so
   // they can't get out of step (one revert, one stale draft committed by a later blur).
+  // Save both fields and close. The 完成 button, and a click outside the panel.
+  const commitAll = async (): Promise<void> => {
+    await Promise.all([commitContent(), commitAnnotation()]);
+  };
+
   const cancelAll = (): void => {
     setContentDraft(block.content);
     setEditingContent(false);
@@ -555,8 +700,11 @@ function TextBlockItem({
   // Runs on mouseup so the selection is stable; ignores selections collapsed by the
   // click, selections that escape this block, and selections that aren't wrap-worthy
   // (whitespace-only or already-nested ==).
-  const onContentMouseUp = (): void => {
-    if (readOnly || editingContent) {
+  // ⭐ 2026-08-25：正文和批注**同一个处理器**（Ocean:「批注无法高亮」）。锚点仍然量在正文那
+  // 个节点上 —— 提示条画在正文的 `relative` 盒子里，批注在它上面，所以批注那一段量出来的
+  // y 是负的，正好把提示条画到批注头上。
+  const onSurfaceMouseUp = (): void => {
+    if (readOnly || editorOpen) {
       setHighlightPrompt(null);
       return;
     }
@@ -565,9 +713,8 @@ function TextBlockItem({
       setHighlightPrompt(null);
       return;
     }
-    const range = sel.getRangeAt(0);
-    const container = measureRef.current;
-    if (!container || !container.contains(range.commonAncestorContainer)) {
+    const anchor = measureRef.current;
+    if (!anchor) {
       setHighlightPrompt(null);
       return;
     }
@@ -575,17 +722,17 @@ function TextBlockItem({
     // 点击工具栏摩擦太大了」. The range is captured HERE, with the selection still live —
     // clicking either button collapses it, so reading it back later is too late. Both
     // actions in the chip run off this one range.
-    const raw = rawRangeFromSelection(container, sel);
-    if (!raw || !isHighlightable(block.content.slice(raw.start, raw.end))) {
+    const found = resolveSelection(sel);
+    if (!found) {
       setHighlightPrompt(null);
       return;
     }
-    const rect = range.getBoundingClientRect();
-    const blockRect = container.getBoundingClientRect();
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const blockRect = anchor.getBoundingClientRect();
     setHighlightPrompt({
       x: rect.left + rect.width / 2 - blockRect.left,
       y: rect.top - blockRect.top - 4,
-      raw,
+      raw: found,
     });
   };
 
@@ -603,14 +750,16 @@ function TextBlockItem({
   //  - edit    → mutate the textarea draft, so the change rides the normal blur-commit and
   //              the user keeps editing without losing context. The textarea's own
   //              selectionStart/End ARE raw offsets into the draft, so no mapping is needed.
-  const runHighlight = async (range: { start: number; end: number } | null): Promise<void> => {
+  const runHighlight = async (range: FieldRange | null): Promise<void> => {
     if (!range) return;
-    if (editingContent) {
-      const ta = contentRef.current;
-      const draft = contentDraft;
+    const onNote = range.field === 'annotation';
+    if (editorOpen) {
+      const ta = onNote ? annotationRef.current : contentRef.current;
+      const draft = onNote ? annotationDraft : contentDraft;
       const { content: next, changed } = toggleHighlightRange(draft, range.start, range.end);
       if (!changed) return;
-      setContentDraft(next);
+      if (onNote) setAnnotationDraft(next);
+      else setContentDraft(next);
       // Put the caret after what was just wrapped, so typing continues where they were.
       const caret = next.length - (draft.length - range.end);
       setTimeout(() => {
@@ -618,6 +767,20 @@ function TextBlockItem({
         ta.focus();
         ta.setSelectionRange(caret, caret);
       }, 0);
+      return;
+    }
+    // Display-mode, on the note: persist it the same way editing the note does.
+    // ⚠️ ⛔ 不push撤销 —— `HighlightPayload` 复原的是 `content`，拿它去回滚一次批注改动会把
+    // 正文写回旧版本。批注的每一次改动本来就不进撤销栈（`setAnnotation` 也没有），这里一致。
+    if (onNote) {
+      const before = block.annotation ?? '';
+      const { content: next, changed } = toggleHighlightRange(before, range.start, range.end);
+      if (!changed) return;
+      try {
+        await setAnnotation(block.id, next);
+      } catch (e) {
+        console.error('[highlight] annotation save failed', e);
+      }
       return;
     }
     // Display-mode path: persist immediately via the store, then record an undo entry
@@ -667,8 +830,11 @@ function TextBlockItem({
   // which made selecting a whole paragraph (the normal thing to do) the case that failed.
   // Slicing the raw range instead means the stored quote always occurs in the block, for a
   // one-word selection and a five-paragraph one alike. See selectionRange.ts.
-  const startCorrection = (raw: { start: number; end: number } | null): void => {
-    const quote = raw ? block.content.slice(raw.start, raw.end).trim() : '';
+  const startCorrection = (raw: FieldRange | null): void => {
+    // ⚠️ 更正只对正文开着：一条更正存的是 `corrected_quote`，而 pack / `check_quote_occurs`
+    // 两边都拿它去**正文**里找（`correctedSpans` 也是）。拿批注里的句子存进去 = 一条谁也定位
+    // 不到的更正。⛔ 想让批注也能更正的话是另一件事，不是在这儿加一行。
+    const quote = raw && raw.field === 'content' ? block.content.slice(raw.start, raw.end).trim() : '';
     if (!quote) return;
     setActive(block.id);
     setCorrecting(quote);
@@ -703,6 +869,9 @@ function TextBlockItem({
   // about their block; hiding it would trade one misrepresentation for a blind spot.
   const hasNote = !!block.annotation?.trim() && !editingAnnotation;
   const noteIsAi = annotationIsAi(block.annotationBy, block.source);
+  // ⭐ An AI note the user has edited by hand. Shown apart from a clean AI note so a reader
+  // is never told an AI said something in words the AI did not choose (Ocean:「需要做区分」).
+  const noteEdited = annotationEdited(block.annotationBy);
   const annotationAsTitle = hasNote && !noteIsAi;
   const annotationView = (
     <div
@@ -712,20 +881,24 @@ function TextBlockItem({
         readOnly
           ? undefined
           : () => {
-              setActive(block.id);
-              enterEditMode(() => setEditingAnnotation(true));
+              openEditor('annotation');
             }
       }
       title={readOnly ? undefined : t('双击编辑批注')}
+      ref={noteViewRef}
+      onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
       className="mb-1.5 font-ui text-[15px] font-medium leading-[1.55] text-ink"
     >
       {/* Step 3 §20.5: annotations are a read surface too — route through the same
           tokenizer so a ==…== span (and search hits when navigated) renders as a
-          highlight, never literal markers. No spine on annotations. */}
+          highlight, never literal markers. No spine on annotations.
+          ⭐ `withOffsets`（2026-08-25）：划词靠 `data-o` 把选区映射回原字符串，没有它这一格
+          就只能读、不能划 —— 这正是 Ocean 说的「批注无法高亮」。 */}
       <ContentRuns
         content={block.annotation ?? ''}
         hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
         activeHitIndex={navHitIndex}
+        withOffsets
       />
     </div>
   );
@@ -738,21 +911,25 @@ function TextBlockItem({
         readOnly
           ? undefined
           : () => {
-              setActive(block.id);
-              enterEditMode(() => setEditingAnnotation(true));
+              openEditor('annotation');
             }
       }
       title={readOnly ? undefined : t('双击编辑批注')}
+      ref={noteViewRef}
+      onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
       className="mt-1.5 flex items-baseline gap-1.5 font-ui text-[12px] leading-[1.5] text-muted"
     >
       <span className="shrink-0 rounded border border-line px-1 text-[10px]">
-        {t('AI 批注')}
+        {/* ⭐ 「需要做区分」: an AI note the user has edited says so here as well, not only
+            inside the editor — this line is where a reader meets it. */}
+        {noteEdited ? t('AI 批注 · 你改过') : t('AI 批注')}
       </span>
       <span className="min-w-0 italic">
         <ContentRuns
           content={block.annotation ?? ''}
           hits={isNavTarget ? hitsForField(navHits, 'annotation') : undefined}
           activeHitIndex={navHitIndex}
+          withOffsets
         />
       </span>
     </div>
@@ -859,15 +1036,12 @@ function TextBlockItem({
             selectionAlreadyHighlighted={selectionAlreadyHighlighted}
             // 2026-08-19: corrections apply to the SAVED text, so the entry point is closed while
             // the content is a draft in a textarea.
-            canCorrect={!editingContent && selectionRaw !== null}
+            canCorrect={!editorOpen && selectionRaw?.field === 'content'}
             onCorrect={() => startCorrection(selectionRaw)}
             onTogglePin={() => onTogglePin?.()}
-            onEdit={() => enterEditMode(() => setEditingContent(true))}
+            onEdit={() => openEditor('content')}
             onHighlight={() => void runHighlightFromToolbar()}
-            onAnnotate={() => {
-              setActive(block.id);
-              enterEditMode(() => setEditingAnnotation(true));
-            }}
+            onAnnotate={() => openEditor('annotation')}
             stale={block.staleAt != null}
             onToggleStale={() => {
               setActive(block.id);
@@ -901,47 +1075,19 @@ function TextBlockItem({
           headline over demoted prose. */}
       {annotationAsTitle && annotationView}
 
-      {editingContent ? (
-        <textarea
-          ref={contentRef}
-          value={contentDraft}
-          onChange={(e) => setContentDraft(e.target.value)}
-          onBlur={() => void commitContent()}
-          onKeyDown={(e) => {
-            if (isImeComposing(e.nativeEvent)) return;
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              // v2.8 §20.4: in unified edit mode (double-click) Esc cancels both fields.
-              if (editingAnnotation) cancelAll();
-              else cancelContent();
-            }
-          }}
-          rows={Math.min(12, Math.max(2, contentDraft.split('\n').length + 1))}
-          className="w-full resize-none rounded border border-line-strong bg-paper px-2 py-1.5 font-ui text-[15px] leading-[1.65] text-ink outline-none focus:border-accent"
-          spellCheck={false}
-        />
-      ) : (
-        <div className="relative">
+      {/* ⭐ 2026-08-25 (Ocean, V3 验收): read mode is now the ONLY thing a block draws inline.
+          The editor moved out to a pane-filling panel (see the portal at the bottom of this
+          component) —「编辑窗口不是固定的,用户需要下滑才能找到」 was the report: the editor
+          used to grow in place, so on a long block it opened below the fold. */}
+      <div className="relative">
           <div
             ref={measureRef}
-            // v2.8 §20.4: double-click opens content AND annotation together — annotation
-            // becomes a quiet area at the bottom of edit mode. Both save on blur; Esc on
-            // either cancels both. The ✑ hover action still opens annotation alone for
-            // users who reach for it instead (decide post-dogfooding which stays).
-            onDoubleClick={
-              readOnly
-                ? undefined
-                : () => {
-                    setActive(block.id);
-                    enterEditMode(() => {
-                      setEditingContent(true);
-                      setEditingAnnotation(true);
-                    });
-                  }
-            }
+            // ⭐ Double-click opens the editing panel with BOTH fields in it and puts the
+            // cursor in the content —「全部做到一个面板进行编辑」.
+            onDoubleClick={readOnly ? undefined : () => openEditor('content')}
             // v2.8 §20.5: capture selection on mouseup so the prompt anchors to the
             // user's released selection rect.
-            onMouseUp={readOnly ? undefined : onContentMouseUp}
+            onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
             title={readOnly ? undefined : t('双击编辑（含批注）')}
             style={
               showCollapsed
@@ -989,6 +1135,34 @@ function TextBlockItem({
                         setOpenCorrectionId((cur) => (cur === id ? null : (id ?? null)))
                     : undefined
                 }
+                // ⭐ S5：更正卡跟在**它划的那一句所在的那一段**底下。⛔ 这是它们**唯一**
+                // 被画出来的地方 —— `BlockFeed` 把这几块挡在时间线外，多画一处就是双份。
+                afterBlock={
+                  correctionAt.length === 0
+                    ? undefined
+                    : (start, end) => {
+                        const here = correctionAt.filter(
+                          (c) => c.at >= start && c.at < end,
+                        );
+                        if (here.length === 0) return null;
+                        return here.map(({ block: c }) => (
+                          <CorrectionNote
+                            key={c.id}
+                            correction={c}
+                            quote={correctionQuote.get(c.id) ?? null}
+                            dimmed={openCorrectionId !== null && openCorrectionId !== c.id}
+                            onRemove={
+                              readOnly
+                                ? undefined
+                                : () => {
+                                    setOpenCorrectionId(null);
+                                    void clearSupersession(c.id);
+                                  }
+                            }
+                          />
+                        ));
+                      }
+                }
               />
             )}
           </div>
@@ -1016,7 +1190,8 @@ function TextBlockItem({
               >
                 {selectionAlreadyHighlighted ? t('取消重点?') : t('标为重点?')}
               </button>
-              {!readOnly && !editingContent && highlightPrompt.raw && (
+              {/* ⚠️ 更正只挂在正文的选区上 —— 见 startCorrection 里那一段。 */}
+              {!readOnly && !editorOpen && highlightPrompt.raw?.field === 'content' && (
                 <>
                   <span aria-hidden="true" className="w-px shrink-0 bg-line" />
                   <button
@@ -1035,91 +1210,40 @@ function TextBlockItem({
               type="button"
               onClick={() => {
                 setActive(block.id);
-                setCollapsed((v) => !v);
+                setCollapsed((v) => {
+                  // Records "expanded is the user's choice here", which is what arms the
+                  // outside-click re-fold above. Collapsing disarms it again.
+                  manuallyExpanded.current = v;
+                  return !v;
+                });
               }}
               className="mt-1 text-[11px] text-muted hover:text-accent"
             >
               {collapsed ? t('展开全部') : t('收起')}
             </button>
           )}
-        </div>
-      )}
+      </div>
 
       {/* v14 (§9.3 拍板乙): an AI's note about this block, kept visible but kept in its
           place — under the content, muted, and labelled as the AI's. */}
       {hasNote && noteIsAi && aiAnnotationView}
 
-      {/* The annotation EDITOR always sits below the content — editing returns to the
-          source layout (same reason the content textarea keeps raw `==` markers). Quiet
-          and subordinate to the content textarea above, so a block being annotated for the
-          first time shows a barely-there input rather than competing for attention. */}
-      {editingAnnotation && (
-        <div className="mt-1.5">
-          <textarea
-            ref={annotationRef}
-            value={annotationDraft}
-            onChange={(e) => setAnnotationDraft(e.target.value)}
-            onBlur={() => void commitAnnotation()}
-            onKeyDown={(e) => {
-              if (isImeComposing(e.nativeEvent)) return;
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                // v2.8 §20.4: in unified edit mode Esc on either field cancels both.
-                if (editingContent) cancelAll();
-                else cancelAnnotation();
-              }
-              // §3.6: Enter inserts a newline (commit is the 完成 button or blur). This is
-              // also why a Chinese-IME Enter that confirms a candidate no longer ends the
-              // note prematurely — Enter never commits here.
-            }}
-            rows={2}
-            placeholder={t('批注（可选）')}
-            className="w-full resize-none rounded border border-line bg-paper-2/30 px-2 py-1 font-ui text-[12px] italic leading-[1.5] text-muted placeholder:text-muted/60 outline-none focus:border-line-strong focus:text-ink-2"
-            spellCheck={false}
-          />
-          <div className="mt-1 flex justify-end">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()} // don't blur the textarea first
-              onClick={() => {
-                if (editingContent) void commitContent();
-                void commitAnnotation();
-              }}
-              className="rounded border border-accent bg-accent-soft px-2 py-0.5 text-[11px] text-accent hover:bg-accent/10"
-            >
-              {t('完成')}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* v2.4 P2-3: quiet citation line — the feed counterpart of the pack's ↩ cites
           row. Only MCP-written blocks carry refBlockId, so most blocks skip this.
           v13: the same line, with the relation's own verb (DESIGN_CONTEXT_HYGIENE §3.1). */}
       {block.refBlockId && (
-        <CitationLine refBlockId={block.refBlockId} refKind={block.refKind} />
+        <CitationLine
+          refBlockId={block.refBlockId}
+          refKind={block.refKind}
+          fromThreadId={block.threadId}
+        />
       )}
 
       {/* 2026-08-19 — the corrections attached to this block, under the sentence they are about,
-          joined to it by the dashed rule in CorrectionNote. Opened by clicking the marked
-          sentence; BlockFeed keeps these same blocks out of the timeline, so this is the
-          one place each of them is drawn. */}
-      {correctionBlocks
-        .filter((c) => c.id === openCorrectionId)
-        .map((c) => (
-          <CorrectionNote
-            key={c.id}
-            correction={c}
-            onRemove={
-              readOnly
-                ? undefined
-                : () => {
-                    setOpenCorrectionId(null);
-                    void clearSupersession(c.id);
-                  }
-            }
-          />
-        ))}
+          joined to it by the dashed rule in CorrectionNote.
+          ⭐ S5（2026-08-24）：它们**搬到正文里面去了**（`MarkdownContent` 的 `afterBlock`），
+          每条跟在它划的那一句所在的那一段底下 —— ⛔ 所以这里不许再画一遍。
+          点一句仍然有用：那一句的卡片亮起来，别的暗下去（`dimmed`）。 */}
 
       {/* The manual entry point's second half: the user has picked the wrong sentence and
           now says what is right. Shown under the block for the same reason the note is —
@@ -1223,6 +1347,108 @@ function TextBlockItem({
         </div>
       )}
 
+
+      {/* ⭐⭐ 2026-08-25 (Ocean, V3 验收) — THE editing surface. One panel, both fields,
+          filling the whole thread pane:「让编辑窗口直接填满整个背景,让背景窗口成为一个
+          block 的工作区」.
+          ⛔ No dim behind it (that was the first version and he rejected it) and ⛔ it does
+          not grow inline any more —「用户需要下滑才能找到编辑窗口」 was the bug.
+          ⚠️ Neither textarea commits on blur. They used to, and in a two-field panel that is
+          a trap: moving the cursor from the content to the note would have blurred the
+          content, committed it and closed the panel out from under the user. Saving happens
+          on 完成, on Esc-cancel, or on a click outside the panel. */}
+      {editorOpen &&
+        editorHost &&
+        createPortal(
+          <div
+            data-block-editor-panel
+            className="pointer-events-auto absolute inset-0 flex flex-col bg-paper"
+          >
+            <div className="flex items-center justify-between border-b border-line px-6 py-2.5">
+              <span className="font-ui text-[11px] text-muted">
+                {t('正在编辑这一块 · Esc 放弃')}
+              </span>
+              <div className="flex items-center gap-2">
+                {/* ⚠️ The hover toolbar lives on the article, which this panel now covers, so
+                    ==重点== had to come along or it would have quietly stopped being
+                    reachable while editing — the one mode where you are most likely to want
+                    it. Same handler as the toolbar's button. */}
+                <button
+                  type="button"
+                  disabled={selectionRaw === null}
+                  onMouseDown={(e) => e.preventDefault()} // keep the selection alive
+                  onClick={() => void runHighlightFromToolbar()}
+                  className="rounded border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-line disabled:hover:text-muted"
+                  title={t('标为重点（包裹 ==选区==）')}
+                >
+                  {selectionAlreadyHighlighted ? t('取消重点') : t('标为重点')}
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()} // don't pull focus out of the field first
+                  onClick={() => void commitAll()}
+                  className="rounded border border-accent bg-accent-soft px-2.5 py-1 text-[11px] text-accent hover:bg-accent/10"
+                >
+                  {t('完成')}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 py-4">
+              <textarea
+                ref={contentRef}
+                value={contentDraft}
+                onChange={(e) => setContentDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (isImeComposing(e.nativeEvent)) return;
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelAll();
+                  }
+                }}
+                // `flex-1` + `min-h-0`: the content field takes whatever the note leaves,
+                // so the panel is full at any window size without a hardcoded height.
+                className="min-h-0 flex-1 resize-none rounded-md border border-line-strong bg-paper px-3.5 py-3 font-ui text-[15px] leading-[1.65] text-ink outline-none focus:border-accent"
+                spellCheck={false}
+              />
+
+              <div className="shrink-0">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="font-ui text-[11px] text-muted">{t('批注')}</span>
+                  {/* ⭐「AI 批注可以人为修改,不能人为新增」 —— the label says who wrote it, and
+                      once the user edits an AI note it says BOTH things (annotationAuthor.ts
+                      'ai-edited'). ⛔ There is no control here that creates an AI note. */}
+                  {hasNote && noteIsAi && (
+                    <span className="rounded border border-line px-1 text-[10px] text-muted">
+                      {noteEdited ? t('AI 批注 · 你改过') : t('AI 批注')}
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  ref={annotationRef}
+                  value={annotationDraft}
+                  onChange={(e) => setAnnotationDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (isImeComposing(e.nativeEvent)) return;
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelAll();
+                    }
+                    // §3.6: Enter inserts a newline — never commits. Also what keeps a
+                    // Chinese-IME Enter (confirming a candidate) from ending the note.
+                  }}
+                  rows={3}
+                  placeholder={
+                    hasNote && noteIsAi ? t('改这条 AI 批注（不会变成你写的）') : t('批注（可选）')
+                  }
+                  className="w-full resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 font-ui text-[13px] italic leading-[1.55] text-ink-2 placeholder:text-muted/60 outline-none focus:border-line-strong"
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+          </div>,
+          editorHost,
+        )}
     </article>
   );
 }

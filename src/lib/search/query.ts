@@ -48,6 +48,9 @@ export interface SearchHit {
   // All literal substring matches across both fields. The snippet is for the
   // search-result preview; these drive in-block highlighting + navigation.
   hitOffsets: HitOffset[];
+  /** ⭐ S8：这一块**整体**是什么，一句话。null = 还没有人写过。
+   *  ⚠️ 片段说的是「字在哪儿对上的」，这一句说的是「它们是什么的一部分」。 */
+  gist: string | null;
 }
 
 interface Row {
@@ -59,6 +62,7 @@ interface Row {
   thread_title: string;
   workspace_id: string;
   workspace_title: string;
+  gist: string | null;
 }
 
 // Window a long hit line so the keyword stays visible with some context on each
@@ -180,8 +184,10 @@ const ftsPhrase = (raw: string): string => `"${raw.replace(/"/g, '""')}"`;
 // Escape the SQL LIKE wildcards so a literal `%`/`_`/`\` in the query stays literal.
 const escapeLike = (raw: string): string => raw.replace(/[\\%_]/g, (c) => `\\${c}`);
 
+// ⭐ S8（§2.S8）：`b.gist` 一起取 —— 用户和 AI 在这一屏上撞的是同一件事：
+// 一个 2,000 字的长块只还得回一个命中片段，还不出这块整体是什么。
 const SELECT_COLS = `b.id AS block_id, b.thread_id, b.content, b.annotation, b.created_at,
-         t.title AS thread_title, t.workspace_id, w.title AS workspace_title`;
+         t.title AS thread_title, t.workspace_id, w.title AS workspace_title, b.gist`;
 
 // FTS path: join the trigram index back to the live rows. Threads/workspaces are
 // soft-deleted (their blocks are not), so a hit inside a deleted thread is excluded.
@@ -214,6 +220,7 @@ const toHit = (r: Row, query: string): SearchHit => {
     createdAt: r.created_at,
     field,
     snippet,
+    gist: r.gist ?? null,
     hitOffsets: buildHitOffsets(r.content, r.annotation, query),
   };
 };

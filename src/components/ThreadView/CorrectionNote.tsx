@@ -7,6 +7,11 @@ import SeqBadge from './SeqBadge';
 interface Props {
   /** The correcting block — the one carrying refKind 'corrects' and the quote. */
   correction: Block;
+  /** ⭐ S5：它划的是哪一句。**卡片指回去的那一头** —— 之前只有「句子 → 更正」这一个方向。 */
+  quote?: string | null;
+  /** 点了别的那一句：这一张暗下去。⚠️ 只是**弱化**，⛔ 不是收起来 ——
+   *  「一次只开一条」正是丙要改掉的东西。 */
+  dimmed?: boolean;
   /** Undo entry point. Absent on read-only surfaces. */
   onRemove?: () => void;
 }
@@ -29,7 +34,7 @@ interface Props {
 // carries its client label and its number, because it is content someone else wrote into the
 // user's library and the pack will read it back under that label. The user's own carries
 // neither: it is simply theirs, and the warm rule says so without a badge.
-export default function CorrectionNote({ correction, onRemove }: Props) {
+export default function CorrectionNote({ correction, quote, dimmed, onRemove }: Props) {
   const t = useT();
   // The one distinction that matters here. `source` is the client label MCP stamps
   // ('Codex · MCP'); a block written in this window has none.
@@ -37,9 +42,9 @@ export default function CorrectionNote({ correction, onRemove }: Props) {
 
   return (
     <div
-      className={`mt-1.5 border-l border-dashed pl-2.5 ${
+      className={`mt-1.5 border-l border-dashed pl-2.5 transition-opacity ${
         byAi ? 'border-[var(--notice-warm-edge)]' : 'border-accent/45'
-      }`}
+      } ${dimmed ? 'opacity-45' : ''}`}
     >
       <div className="mb-0.5 flex items-baseline gap-1.5 font-ui text-[11px] text-muted">
         <span className="shrink-0">{t('更正')}</span>
@@ -61,16 +66,28 @@ export default function CorrectionNote({ correction, onRemove }: Props) {
               e.stopPropagation();
               onRemove();
             }}
-            // ⚠️ 「解除」, not 「删除」: this takes the relation off, and the block itself stays
-            // in the library. Clearing it here leaves nothing to point the quote at, so the
-            // store clears the quote in the same write.
-            title={t('解除这条更正关系（那一块本身留着）')}
+            // ⚠️ 「取消更正」, not 「删除」: this takes the relation off, and the block itself
+            // stays in the library. Clearing it here leaves nothing to point the quote at, so
+            // the store clears the quote in the same write.
+            // ⭐ S1（2026-08-24）：原来写的是「解除」——「解除」在这个界面上从来没被解释过，
+            // 和 U9 判掉「只退旧的」里那个「退」是同一条理由。
+            title={t('取消这条更正（那一块本身留着）')}
             className="ml-auto shrink-0 transition-colors hover:text-accent"
           >
-            {t('解除')}
+            {t('取消更正')}
           </button>
         )}
       </div>
+      {/* ⭐ S5（2026-08-24，Ocean 选丙）：卡片指回它划的那一句。
+          ⚠️ 同一段里挂着两条更正的时候，「跟在那一段底下」这个位置分不出谁是谁 ——
+          真库 seq 21 上就挂着两条。⛔ 所以位置和这一句都要有，少一样就又回到
+          「点一次、记住、再点一次、再比对」。 */}
+      {quote?.trim() && (
+        <div className="mb-1 font-ui text-[11px] leading-snug text-muted">
+          <span className="opacity-70">{t('划的是：')}</span>
+          <span className="text-ink-2">「{quote}」</span>
+        </div>
+      )}
       <div className="font-ui text-[13px] leading-[1.55] text-ink-2">
         <ContentRuns content={correction.content} />
       </div>

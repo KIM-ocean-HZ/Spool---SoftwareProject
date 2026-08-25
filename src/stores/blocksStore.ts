@@ -349,7 +349,10 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
     },
 
     setAnnotation: async (id, annotation) => {
-      await db.updateBlockAnnotation(id, annotation);
+      // ⭐ The author comes BACK from the write (2026-08-25): editing an AI note keeps it an
+      // AI note, marked as edited, so the feed has to re-render with the new label rather
+      // than assume 'user'.
+      const annotationBy = await db.updateBlockAnnotation(id, annotation);
       // §9.13: an annotation edit invalidates any prior undo entry for this block (same
       // rationale as setContent). Pin/source edits do NOT — those are reversible by the
       // reverse action, so they leave undo entries intact.
@@ -357,7 +360,7 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
       const state = get();
       const next: Record<string, Block[]> = {};
       for (const [tId, list] of Object.entries(state.byThread)) {
-        next[tId] = list.map((b) => (b.id === id ? { ...b, annotation } : b));
+        next[tId] = list.map((b) => (b.id === id ? { ...b, annotation, annotationBy } : b));
       }
       set({ byThread: next });
     },
@@ -579,6 +582,8 @@ export const useBlocksStore = create<BlocksState>((set, get) => {
           // more field OF that relation, and a copy that dropped it would point at the
           // right block with the aim knocked off.
           correctedQuote: src.correctedQuote,
+          // v26（§2.S8）：一句话说明跟着复制走 —— 它描述的是这段字，而这段字被原样搬过来了。
+          gist: src.gist,
           // ⚠️ v24：**原文备份不跟着复制走。** 复制出来的是一块新块，它自己从来没被压过；
           // 把源块的压缩前原文抄过来，会让「回 Spool 拿原始信息」指向一块并不是它的原文。
           originalContent: null,

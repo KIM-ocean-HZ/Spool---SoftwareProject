@@ -38,7 +38,7 @@ export const setSeedLanguage = (lang: SeedLanguage): void => {
 // carries a database from the previous version to the new one. On startup the
 // database's PRAGMA user_version is compared against this and every applicable step
 // runs in sequence, each stamping user_version as its own checkpoint (§19.3).
-const SCHEMA_VERSION = 24;
+const SCHEMA_VERSION = 27;
 
 // Things a migration did to the user's data that the user is entitled to hear about.
 // v15 is the first migration that removes anything (the retired `url` attachments), and
@@ -782,6 +782,89 @@ const MIGRATIONS: Migration[] = [
           console.info(`[db] blocks.${col}: not added (likely exists)`, e);
         }
       }
+    },
+  },
+  {
+    // v25 (WORKPLAN §2.S2, Ocean 2026-08-24): AI 提「整条取代」的那条队列。
+    //
+    // ⚠️⚠️ **ADD 一张新表，别的一个字都不动** —— 和 v22 建 `follow_up_items` 同一条路
+    // （那一步上写着理由：2026-05-29 抹库是**重建表**那条分支干的，所以这里只有
+    // `CREATE TABLE IF NOT EXISTS`，没有 UPDATE、没有回填、⛔ 没有任何 rebuild 分支）。
+    //
+    // 往回怎么走：`DROP TABLE supersede_proposals` 一句退回 v24，⛔ 而且退回不丢任何
+    // v24 就有的数据 —— 这张表只装「还没被人点过」的提案，本来就是 7 天自己过期的东西。
+    //
+    // ⚠️ 半跑一次和跑完一次分不出来，而这正是安全的那一类：`IF NOT EXISTS` 再跑一遍
+    // 什么都不会发生。
+    from: 24,
+    to: 25,
+    name: 'add-supersede-proposals',
+    run: async (db) => {
+      await db.execute(`CREATE TABLE IF NOT EXISTS supersede_proposals (
+        id             TEXT PRIMARY KEY,
+        thread_id      TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+        stale_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        by_block_id    TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        client         TEXT NOT NULL DEFAULT '',
+        why            TEXT NOT NULL DEFAULT '',
+        quote_stale    TEXT NOT NULL,
+        quote_new      TEXT NOT NULL,
+        retyped        INTEGER NOT NULL DEFAULT 0,
+        created_at     INTEGER NOT NULL,
+        expires_at     INTEGER NOT NULL
+      )`);
+      await db.execute(`CREATE INDEX IF NOT EXISTS idx_supersede_proposals_thread
+        ON supersede_proposals(thread_id, created_at ASC)`);
+    },
+  },
+  {
+    // v26 (WORKPLAN §2.S8, Ocean 2026-08-24)：一句话「这块整体是什么」，进搜索命中。
+    //
+    // ⚠️⚠️ **ADD COLUMN only，没有回填、⛔ 没有 rebuild 分支** —— 和 v21 / v24 逐字同一条路
+    // （2026-05-29 抹库是重建表那条分支干的）。两张表各加一个可空列：
+    //   * 往前：老库走一遍这一步，每一行都是 NULL，读出来就是「还没有人写过这一句」；
+    //   * 往回：`ALTER TABLE ... DROP COLUMN gist` 两句退回 v25，⛔ 而且不丢任何 v25 就有的数据。
+    //
+    // ⚠️ ⛔ **不碰 `blocks_fts`**：那是个 external-content 索引，列是逐个点名的
+    // （`content, annotation`），所以加列不会让它错位，而这一列本来也不该进它 ——
+    // 落点是「命中之后多说一句这块是什么」，不是「多一处能被匹配到的地方」。
+    from: 25,
+    to: 26,
+    name: 'add-block-gist',
+    run: async (db) => {
+      for (const table of ['blocks', 'proposals']) {
+        try {
+          await db.execute(`ALTER TABLE ${table} ADD COLUMN gist TEXT`);
+        } catch (e) {
+          console.info(`[db] ${table}.gist: not added (likely exists)`, e);
+        }
+      }
+    },
+  },
+  {
+    // v27 (WORKPLAN §2.V1, Ocean 2026-08-25)：上次读到哪儿，按项目记，存 30 天。
+    //
+    // ⚠️⚠️ **ADD 一张新表，别的一个字都不动** —— 和 v22 / v25 逐字同一条路
+    // （2026-05-29 抹库是**重建表**那条分支干的，所以这里只有 `CREATE TABLE IF NOT EXISTS`，
+    // 没有 UPDATE、没有回填、⛔ 没有任何 rebuild 分支）。
+    //
+    // ⛔ 为什么是新表而不是往 `blocks` 加列：`blocks` 是这个库最贵的一张表，而这一行是
+    // 「30 天后自己过期、随时可以整张丢掉」的东西 —— 寿命和块本身根本不是一回事。
+    //
+    // 往回怎么走：`DROP TABLE read_positions` 一句退回 v26，⛔ 而且退回不丢任何 v26 就有的
+    // 数据 —— 这张表只装浏览位置，丢了最多是下次打开项目回到底部（也就是 v26 的行为）。
+    //
+    // ⚠️ 半跑一次和跑完一次分不出来，而这正是安全的那一类：`IF NOT EXISTS` 再跑一遍什么都不会发生。
+    from: 26,
+    to: 27,
+    name: 'add-read-positions',
+    run: async (db) => {
+      await db.execute(`CREATE TABLE IF NOT EXISTS read_positions (
+        thread_id     TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+        block_id      TEXT NOT NULL,
+        last_block_at INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL
+      )`);
     },
   },
 ];

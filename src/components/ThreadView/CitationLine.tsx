@@ -6,13 +6,15 @@ import { useT } from '@/lib/i18n';
 import { blockLabel } from '@/lib/pack/assemble';
 import { formatBlockTime } from '@/lib/utils/time';
 import { useSearchStore } from '@/stores/searchStore';
-import { useThreadsStore } from '@/stores/threadsStore';
+import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import SeqBadge from './SeqBadge';
 
 interface Props {
   refBlockId: string;
   /** v13 (DESIGN_CONTEXT_HYGIENE §3.1): what the citation MEANS. Null reads as 'cites'. */
   refKind?: RefKind | null;
+  /** S4②：**引用方**所在的项目。被引的块不在这个项目里，就要把项目名显出来。 */
+  fromThreadId: string;
 }
 
 // §20.13 v2.4 P2-3 (2026-07-12): the feed counterpart of the pack's "↩ cites:" line.
@@ -32,7 +34,7 @@ interface Props {
 // Three things Ocean read as one blob (`#1 8/7 16:50 # 申请人定位… **目标。**`) are now three:
 // a ring (SeqBadge), a clock, and the body — separated by · and by colour, with the body's
 // markdown markers dropped (plainText).
-export default function CitationLine({ refBlockId, refKind }: Props) {
+export default function CitationLine({ refBlockId, refKind, fromThreadId }: Props) {
   const t = useT();
   const select = useThreadsStore((s) => s.select);
   const highlight = useSearchStore((s) => s.highlight);
@@ -75,25 +77,55 @@ export default function CitationLine({ refBlockId, refKind }: Props) {
     };
   }, [refBlockId]);
 
+  // ⭐ S4②（2026-08-24，Ocean）—— **被引的块在别的项目时，把项目名显出来。**
+  // pack 里早就有这一句（`REF_BLOCK_FROM = ' — in project: '`，`templates.ts:50`），
+  // **只在跨项目时才加**，当初记的理由是「不加的话这条引用读起来像证据就在这份 pack 里」。
+  // 界面上一直没有：`threadId` 取出来了，但只用来跳转，从不显示。
+  // ⇒ ⚠️ **AI 读到的比用户看到的多一句话。** Ocean 的原话：「我点过去才知道这个 block 12
+  // 是申请帮助项目的，而不是这个项目的」。**pack 那条理由一字不改地适用于界面。**
+  //
+  // ⚠️ `selectThreadById` 返回的是 store 里那个对象本身（稳定引用），⛔ 不是新建的数组 ——
+  // 这一条是 2026-08-05 那次 React #185 打死主窗留下的纪律。
+  const citedThread = useThreadsStore(
+    selectThreadById(cited.state === 'found' ? cited.threadId : null),
+  );
+
   if (cited.state === 'loading') return null;
   // v13: the verb, not just the arrow. "Builds on" and "replaces" are opposite claims, and
   // the feed showed them identically until now.
+  //
+  // ⭐ S4①（2026-08-24，Ocean）—— **`cites` 也要有动词。** 在这之前 `cites`（`ref_kind` 为
+  // NULL）是唯一没有动词的一种：只剩一个 `↩` 和一个编号。真库 seq 21 就是这样，而**紧挨着
+  // 它下面**是一张写着「更正」的卡（那是 seq 23 在更正 seq 21，方向相反）。
+  // ⇒ **一个没标方向的出向箭头压着一个标了方向的入向关系，方向自然读不出来。**
+  // Ocean 的原话：「他应该是修正了（也有可能是被修正了）」。
+  // ⚠️ 用「引用了」而不是别的词：这一屏上「引用」已经是这件事的名字了（下面那句
+  // 「引用的块已删除」用的就是它），⛔ 别再发明第二个。
   const verb =
     refKind === 'supersedes'
-      ? t('取代了')
+      ? t('整条取代了')
       : refKind === 'corrects'
         ? t('更正了其中一处：')
-        : null;
+        : t('引用了');
 
   if (cited.state === 'missing') {
+    // ⚠️ 这一行不带 `cites` 的动词：后面那句「引用的块已删除」里已经有「引用」两个字了，
+    // 两个连着念是「引用了 引用的块已删除」。`supersedes` / `corrects` 照旧带 ——
+    // 那两种的方向本身就是要说的话。
+    const missingVerb = refKind === 'supersedes' || refKind === 'corrects' ? verb : null;
     return (
       <div className="mt-1.5 flex items-baseline gap-1.5 font-ui text-[11px] text-muted">
         <span aria-hidden="true">↩</span>
-        {verb && <span className="shrink-0">{verb}</span>}
+        {missingVerb && <span className="shrink-0">{missingVerb}</span>}
         <span className="italic">{t('引用的块已删除')}</span>
       </div>
     );
   }
+
+  // ⚠️ 项目名查不到的时候仍然说一句「在别的项目里」—— 用户要知道的第一件事是
+  // 「不在这个项目」，⛔ 那一句不许因为查不到名字就整个消失。
+  const elsewhere =
+    cited.threadId === fromThreadId ? null : (citedThread?.title?.trim() || null);
 
   // The cited block may live in another project — select() first, exactly like a search
   // result does (SearchOverlay.navigate), so the jump works across the whole library and
@@ -128,6 +160,16 @@ export default function CitationLine({ refBlockId, refKind }: Props) {
           ·
         </span>
         <span className="min-w-0 truncate text-ink-2">{cited.anchor}</span>
+        {cited.threadId !== fromThreadId && (
+          <>
+            <span aria-hidden="true" className="shrink-0 opacity-40">
+              ·
+            </span>
+            <span className="max-w-[45%] shrink-0 truncate text-muted">
+              {elsewhere ? t('在〈{title}〉', { title: elsewhere }) : t('在别的项目里')}
+            </span>
+          </>
+        )}
       </button>
     </div>
   );

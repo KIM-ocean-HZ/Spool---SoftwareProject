@@ -231,7 +231,28 @@ CREATE TABLE IF NOT EXISTS blocks (
   -- v24: 这一块是什么时候被压过的。NULL = 从来没压过。
   -- ⚠️ 它同时是「只压新块」那条规则的依据（R2 §1e）：组压缩用的 pack 时跳过它非空的块 ——
   -- 一块压过一次就不再花第二笔钱去压，也不会被压第二遍越压越短。
-  compressed_at INTEGER
+  compressed_at INTEGER,
+  -- v26 (WORKPLAN §2.S8, Ocean 2026-08-24) —— **这一块整体是什么**，一句话（50–100 字）。
+  --
+  -- 要解决的:一个 2,000 字的长块,`search_blocks` 今天只还得回一个命中片段,**还不出这块
+  -- 整体是什么**。跨项目找东西时(实测 39 个项目 / 195 块),那是唯一的入口。
+  --
+  -- ⭐ 这是从整套 RAG 工具箱里**唯一活下来**的那一条(`RESEARCH_RAG_CONTEXT-2026-08-24` §7)。
+  -- 它能过红线,靠的是三条:**它是文本不是向量** —— 所以确定、能 diff、**用户能改**。
+  --
+  -- ⛔ **三条不许**:
+  --  ① 不建向量索引、不算嵌入(理由:确定性 / 写入路径被拖下水 / 体积 10–50 倍);
+  --  ② 不做 AI 生成的层级或摘要树(`DESIGN_CONTEXT_HYGIENE` §2.6:会过时,而用户维护的层级不会);
+  --  ③ ⛔⛔ **这句话不许进 pack 正文冒充块** —— 它是给搜索用的,不是第五种权威。
+  --     pack 有四带(📖/🧩/🔄/💭),这一句一带都不属于。
+  --
+  -- ⚠️ 渐进披露那条泼冷水的证据仍然管着它(§2.5 第 2 条:「第二层路由从来没帮上忙,
+  -- 有时候直接把准确率弄坏」)——⭐ 所以它只做**搜索命中的说明**,
+  -- ⛔ 不许长成「先看目录再决定读哪块」那种第二层路由。
+  --
+  -- ⚠️ 它**不进 `blocks_fts`**:落点是「命中之后多告诉你一句这块是什么」,不是「多一处能被
+  -- 匹配到的地方」。要改成可匹配得动 FTS 触发器,那是另一件事,另开一版。
+  gist TEXT
 );
 
 -- v9 (DESIGN_SCHEMA_V9 H-1): `seq` is the number a human sees and says out loud — "#12"
@@ -378,6 +399,9 @@ CREATE TABLE IF NOT EXISTS proposals (
   -- reason the three above do — the caller that read the old block is gone by the time the
   -- user approves, and nothing left here could reconstruct which sentence it meant.
   corrected_quote TEXT,
+  -- v26 (§2.S8): the same one-line gist, riding the queue so an approved block keeps it.
+  -- Same reason corrected_quote rides: the caller that wrote it is gone by approval time.
+  gist         TEXT,
   sort_order   INTEGER NOT NULL
 );
 
@@ -471,3 +495,63 @@ CREATE TABLE IF NOT EXISTS file_access_requests (
 
 CREATE INDEX IF NOT EXISTS idx_file_access_requests
   ON file_access_requests(request_id, created_at ASC);
+
+-- v25 (WORKPLAN §2.S2, Ocean 2026-08-24) — AI 提「整条取代」的那条队列。
+--
+-- ⛔⛔ **一条红线在这一天被推翻了，只推翻了一半。** `DESIGN_CONTEXT_HYGIENE` §5 原本写着
+-- 「AI 不许提①整块作废 / ②整块取代 —— 判断权在用户，AI 猜错的代价不对称（会把一条对的
+-- 结论从 pack 里抹掉）」。Ocean 的原话：「AI 提『这块整块过时了』的提案，走审阅队列，
+-- 由你一键点掉：这个我拍板，做。」
+-- ⭐ **推翻的只是「AI 不能提」，不是「AI 能写」** —— 那条不对称的代价还在人手里，
+-- 变的是「谁来发现」。所以这张表和 `proposals` 是同一个形状：**它只排队，从不生效**。
+--
+-- 为什么另开一张表而不是塞进 `proposals`：`proposals` 的每一行**会变成一个新块**，
+-- 而这里一行**一个块都不新建** —— 它说的是库里已有的两块之间的关系。
+-- 塞在一起的话，`approveBatch` 那条路会照着 content 建块，而这里根本没有 content。
+--
+-- 为什么记 block id 而不是 `#N`：`#N` 是**那一份 pack 里**的编号，AI 就是照它说话的，
+-- 但存下来必须落到实体上 —— 块删了这一行要跟着走（ON DELETE CASCADE），
+-- 而 seq 认不出「那一块已经不在了」。⚠️ 界面上仍然说 `#N`，读的时候再翻回去。
+--
+-- ⚠️ 两句引文是**过了闸之后**存下来的（`api_engine.rs::quote_passes` —— 和 E3 那一遍
+-- 同一个 `locate`，⛔ 不是另抄一份）。存着是因为审阅面要摆出来给人看：
+-- 「它凭哪一句说旧的过时了、又凭哪一句说新的取代了它」。
+CREATE TABLE IF NOT EXISTS supersede_proposals (
+  id             TEXT PRIMARY KEY,
+  thread_id      TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+  stale_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,  -- 旧的那一块
+  by_block_id    TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,  -- 取代它的那一块
+  client         TEXT NOT NULL DEFAULT '',  -- 谁提的，卡片上要显出来
+  why            TEXT NOT NULL DEFAULT '',  -- 一句话：为什么说它被整条取代了
+  quote_stale    TEXT NOT NULL,             -- 旧块里能证明它过时的那一句，⚠️ 逐字
+  quote_new      TEXT NOT NULL,             -- 新块里取代它的那一句，⚠️ 逐字
+  retyped        INTEGER NOT NULL DEFAULT 0, -- 两句里至少一句是「只差标点的重打」
+  created_at     INTEGER NOT NULL,
+  expires_at     INTEGER NOT NULL           -- 和提案批次同一个 7 天
+);
+
+CREATE INDEX IF NOT EXISTS idx_supersede_proposals_thread
+  ON supersede_proposals(thread_id, created_at ASC);
+
+-- v27 (WORKPLAN §2.V1, Ocean 2026-08-25) —— 上次读到哪儿，按项目分开记，存 30 天。
+--
+-- 他的原话：「切换到别的项目再回来，停留在刚刚浏览过的位置，而不是刷新。」
+--
+-- ⛔ **记的是块，不是像素。** 同一批（V2）刚把块改成默认展开，每一块的高度全变了 ——
+-- 存下来的 `scrollTop` 会指到完全不相干的地方去。所以这里存的是**离开时视口最顶上那一块的
+-- id**，回来时滚到它；块删了就找不到，找不到就落回底部，不需要外键去兜。
+--
+-- ⛔ **新开一张表，不往 `blocks` 上加列** —— 那是这个库最贵的一张表，而这一行的寿命
+-- （30 天，随时可丢）和块本身完全不是一回事。和 v25 建 `supersede_proposals` 同一条路：
+-- 只有 `CREATE TABLE IF NOT EXISTS`，没有 UPDATE、没有回填、⛔ 没有 rebuild 分支
+-- （2026-05-29 抹库就是重建表那条分支干的）。
+-- 往回怎么走：`DROP TABLE read_positions` 一句退回 v26，⛔ 不丢任何 v26 就有的数据。
+--
+-- `last_block_at` 是**离开那一刻这个项目最新一块的时间**。回来时要是有更新的块进来了，
+-- ⭐ 就不回原位，落到底部 —— 「有新的」正是他打开这个项目的原因，回原位等于把新东西藏起来。
+CREATE TABLE IF NOT EXISTS read_positions (
+  thread_id     TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
+  block_id      TEXT NOT NULL,     -- 离开时视口最顶上那一块；⚠️ 故意不设外键，见上
+  last_block_at INTEGER NOT NULL,  -- 离开那一刻最新一块的 created_at
+  updated_at    INTEGER NOT NULL   -- 30 天的起算点
+);

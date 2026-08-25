@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
-import type { AnnotationAuthor } from '@/lib/blocks/annotationAuthor';
+import { type AnnotationAuthor, nextAnnotationAuthor } from '@/lib/blocks/annotationAuthor';
+import { relocateQuote } from '@/lib/blocks/quoteRelocate';
 import { joinSegments } from '@/lib/blocks/segments';
 import { getDb, tutorialSourceLabels } from './client';
 
@@ -50,6 +51,11 @@ export interface Block {
    *  corrects — the aim v13 never had. Null = nobody said which sentence, which renders
    *  exactly as v13 did. Matched by substring at render time, never by offset. */
   correctedQuote: string | null;
+  /** v26（§2.S8）：一句话「这块整体是什么」（50–100 字）。null = 还没有人写过。
+   *  ⭐ 它只做**搜索命中的说明** —— ⛔ 不进 pack 正文（那会让它冒充第五种权威），
+   *  ⛔ 也不长成「先看目录再决定读哪块」那种第二层路由（§2.5 第 2 条实测：帮不上忙，
+   *  有时候直接把准确率弄坏）。 */
+  gist: string | null;
   /** v24（R2 §1a）：这一块**压缩之前**的正文。null 有两种意思，⚠️ 两种都不是「有原文」：
    *  从来没压过，或者压过但用户把「备份原文」关了（那一次不可逆）。
    *  分辨看 `compressedAt` —— 它非空而这个是 null，就是第二种。 */
@@ -80,6 +86,8 @@ export interface CreateBlockArgs {
   recheckAfter?: number | null;
   /** v21: same story — only approveBatch carries one, out of the proposal. */
   correctedQuote?: string | null;
+  /** v26 (§2.S8): same story again — the one-line gist an AI wrote, carried through approval. */
+  gist?: string | null;
 }
 
 interface Row {
@@ -101,6 +109,7 @@ interface Row {
   retrieved_at: number | null;
   recheck_after: number | null;
   corrected_quote: string | null;
+  gist: string | null;
   original_content: string | null;
   compressed_at: number | null;
 }
@@ -124,12 +133,13 @@ const fromRow = (r: Row): Block => ({
   retrievedAt: r.retrieved_at ?? null,
   recheckAfter: r.recheck_after ?? null,
   correctedQuote: r.corrected_quote ?? null,
+  gist: r.gist ?? null,
   originalContent: r.original_content ?? null,
   compressedAt: r.compressed_at ?? null,
 });
 
 const SELECT_COLS =
-  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, original_content, compressed_at';
+  'id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, original_content, compressed_at, gist';
 
 export const getBlockById = async (id: string): Promise<Block | null> => {
   const db = await getDb();
@@ -397,6 +407,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
     retrievedAt: args.retrievedAt ?? null,
     recheckAfter: args.recheckAfter ?? null,
     correctedQuote: args.correctedQuote ?? null,
+    gist: args.gist ?? null,
     // v24：新块从来没被压过。⛔ 这两列只有压缩写回和一键还原碰得到。
     originalContent: null,
     compressedAt: null,
@@ -405,9 +416,9 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
   // writers, so a single statement holding the write lock cannot lose the race against
   // the MCP subprocess inserting into the same thread at the same moment.
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after, corrected_quote)
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, source_url, retrieved_at, recheck_after, corrected_quote, gist)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14, $15)`,
+             (SELECT COALESCE(MAX(seq), 0) + 1 FROM blocks WHERE thread_id = $2), $11, $12, $13, $14, $15, $16)`,
     [
       b.id,
       b.threadId,
@@ -424,6 +435,7 @@ export const createBlock = async (args: CreateBlockArgs): Promise<Block> => {
       b.retrievedAt,
       b.recheckAfter,
       b.correctedQuote,
+      b.gist,
     ],
   );
   const assigned = await db.select<{ seq: number | null }[]>(
@@ -459,7 +471,7 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
     );
     base.set(threadId, rows[0]?.next ?? 0);
   }
-  const COLS = 18;
+  const COLS = 19;
   const tuples = blocks
     .map((_, i) => {
       const o = i * COLS;
@@ -488,10 +500,11 @@ export const insertBlocks = async (blocks: Block[]): Promise<void> => {
       b.retrievedAt,
       b.recheckAfter,
       b.correctedQuote,
+      b.gist,
     ];
   });
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote) VALUES ${tuples}`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist) VALUES ${tuples}`,
     params,
   );
 };
@@ -527,15 +540,32 @@ export const updateBlockContent = async (id: string, content: string): Promise<v
 // the user adds to an AI-written block keep its 💭 Personal authority — the one case the
 // source-only proxy gets wrong, and the reason Ocean chose the recorded column over it.
 // It also retires the proxy for that row permanently, pre-v14 or not.
+// ⭐ 2026-08-25 (Ocean, V3 验收): the author is COMPUTED, not hardcoded. This used to write
+// `annotation_by = 'user'` unconditionally, which quietly handed an AI's sentence the user's
+// own authority (💭 Personal in the pack, and W7's block-title slot) the moment the user
+// fixed a typo in it. Editing an AI note now lands on 'ai-edited' —「仍然是 AI 批注」—
+// while a note on a block that had none is the user's, as before.
+// ⛔ There is no parameter for the caller to override this with: 「不能人为新增」 means the
+// interface must have no path that writes 'ai'.
 export const updateBlockAnnotation = async (
   id: string,
   annotation: string | null,
-): Promise<void> => {
+): Promise<AnnotationAuthor> => {
   const db = await getDb();
-  await db.execute(
-    "UPDATE blocks SET annotation = $1, annotation_by = 'user' WHERE id = $2",
-    [annotation, id],
+  const rows = await db.select<{ annotation_by: string | null; source: string | null }[]>(
+    'SELECT annotation_by, source FROM blocks WHERE id = $1',
+    [id],
   );
+  const by = nextAnnotationAuthor(
+    (rows[0]?.annotation_by as AnnotationAuthor | null) ?? null,
+    rows[0]?.source ?? null,
+  );
+  await db.execute('UPDATE blocks SET annotation = $1, annotation_by = $2 WHERE id = $3', [
+    annotation,
+    by,
+    id,
+  ]);
+  return by;
 };
 
 export const togglePin = async (id: string): Promise<boolean> => {
@@ -564,8 +594,8 @@ export const deleteBlock = async (id: string): Promise<void> => {
 export const restoreBlock = async (block: Block): Promise<void> => {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+    `INSERT INTO blocks (id, thread_id, kind, content, annotation, annotation_by, ref_thread_id, ref_block_id, source, pinned, seq, created_at, stale_at, ref_kind, source_url, retrieved_at, recheck_after, corrected_quote, gist)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
     [
       block.id,
       block.threadId,
@@ -591,6 +621,8 @@ export const restoreBlock = async (block: Block): Promise<void> => {
       block.retrievedAt,
       block.recheckAfter,
       block.correctedQuote,
+      // v26：一句话说明也要原样回来 —— 撤销一次删除，还回来的必须是当时那一行。
+      block.gist,
     ],
   );
 };
@@ -635,16 +667,86 @@ export interface CompressionWrite {
   content: string;
 }
 
-/** 把压缩稿写回这几块。返回真的改了的块数。
+/** S3（2026-08-24）—— 一条更正的引文，被这一次压缩打断了。
+ *
+ *  ⚠️ 它是**给用户看的**，所以两个号码都是 `seq`（屏幕上的 `#N`），⛔ 不是 id。 */
+export interface QuoteCasualty {
+  /** 带着引文的那一块（更正方）。 */
+  correctionSeq: number | null;
+  /** 被压的那一块（被更正方）。 */
+  targetSeq: number | null;
+}
+
+/** S3 的收尾：压缩稿落库**之前**，把指向这几块的更正引文逐条重定位。
+ *
+ *  ⚠️ **必须读「这一次压缩前」的正文**，⛔ 不能读 `original_content` ——
+ *  后者按 `COALESCE` 存的是**第一次**压缩前的原文，压第二次的时候两者不是一回事。
+ *  这也是它长在 `applyCompression` 肚子里、而不是另开一个函数的理由：顺序错了就悄悄错。
+ *
+ *  ⚠️ **不按项目筛** —— `ref_block_id` 可以跨项目指，别的项目里的更正一样会被打断。 */
+const relocateCorrectedQuotes = async (
+  db: Awaited<ReturnType<typeof getDb>>,
+  writes: readonly CompressionWrite[],
+): Promise<QuoteCasualty[]> => {
+  if (writes.length === 0) return [];
+  const ids = writes.map((w) => w.id);
+  const holes = ids.map((_, i) => `$${i + 1}`).join(', ');
+
+  const targets = await db.select<{ id: string; seq: number | null; content: string }[]>(
+    `SELECT id, seq, content FROM blocks WHERE id IN (${holes})`,
+    ids,
+  );
+  const before = new Map(targets.map((t) => [t.id, t]));
+
+  const corrections = await db.select<
+    { id: string; seq: number | null; corrected_quote: string; ref_block_id: string }[]
+  >(
+    `SELECT id, seq, corrected_quote, ref_block_id FROM blocks
+      WHERE ref_kind = 'corrects' AND corrected_quote IS NOT NULL AND corrected_quote <> ''
+        AND ref_block_id IN (${holes})`,
+    ids,
+  );
+  if (corrections.length === 0) return [];
+
+  const after = new Map(writes.map((w) => [w.id, w.content]));
+  const lost: QuoteCasualty[] = [];
+  for (const c of corrections) {
+    const target = before.get(c.ref_block_id);
+    const next = after.get(c.ref_block_id);
+    if (!target || next === undefined) continue;
+    // 内容一个字没变的块走不到 `applyCompression` 的 UPDATE（`content <> $2`），
+    // 这里也别动它的引文。
+    if (target.content === next) continue;
+
+    const fate = relocateQuote(target.content, next, c.corrected_quote);
+    if (fate.kind === 'rewritten') {
+      await db.execute('UPDATE blocks SET corrected_quote = $1 WHERE id = $2', [fate.quote, c.id]);
+    } else if (fate.kind === 'lost') {
+      // ⛔ 退回「只报块号」：引文清掉，**关系留着** —— pack 和界面仍然说得出
+      // 「#N 里有一处被更正了」，只是不划是哪一句。⛔ 不许什么都不做（那就是 08-24 那次
+      // 的形状：屏幕上什么都不划，也不报错）。
+      await db.execute('UPDATE blocks SET corrected_quote = NULL WHERE id = $1', [c.id]);
+      lost.push({ correctionSeq: c.seq, targetSeq: target.seq });
+    }
+  }
+  return lost;
+};
+
+/** 把压缩稿写回这几块。
  *
  *  `keepOriginal = false` = 用户在设置里关掉了备份：⚠️ **这一次压缩不可逆**，
- *  `original_content` 留空，`compressed_at` 照常写（记号还要印，只是还不回去了）。 */
+ *  `original_content` 留空，`compressed_at` 照常写（记号还要印，只是还不回去了）。
+ *
+ *  返回 `{ changed, quotesLost }`：改了几块，以及**哪几条更正的引文被这次压缩打断了**
+ *  （S3 —— 调用方必须把它说到屏幕上）。 */
 export const applyCompression = async (
   writes: readonly CompressionWrite[],
   keepOriginal: boolean,
   now: number,
-): Promise<number> => {
+): Promise<{ changed: number; quotesLost: QuoteCasualty[] }> => {
   const db = await getDb();
+  // ⚠️ 先重定位，再改正文 —— 反过来的话，拿去比对的「压缩前的正文」已经被覆盖了。
+  const quotesLost = await relocateCorrectedQuotes(db, writes);
   let changed = 0;
   for (const w of writes) {
     // ⚠️ `content <> $2` 那一句就是护栏 3：一个字都没短的块不该被标成压过。
@@ -663,7 +765,7 @@ export const applyCompression = async (
     );
     changed += res.rowsAffected;
   }
-  return changed;
+  return { changed, quotesLost };
 };
 
 /** 一键还原：把这一块换回压缩前的原文。

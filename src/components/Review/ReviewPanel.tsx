@@ -443,9 +443,45 @@ function BatchCard({
                       </span>
                     )}
                   </span>
-                  <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-relaxed text-ink">
-                    {item.content}
-                  </span>
+                  {/* ⭐ S6（2026-08-24，Ocean 选乙）—— **引文和更正正文并排摆。**
+                      他指的那一条（真库 seq 25 → seq 21）：引文划的是「NEU co-op、UCSD co-op
+                      与 GT MS-HCI 暑期窗口都不是……；不要把任何学校称为真正保底。」四个主张，
+                      而这条更正实际只更正 GT MS-HCI 那一段。他的原话：「但是 NEU co-op、
+                      UCSD co-op 并不是被更正内容」——**他是对的**，而在这一屏上他**看不到引文**，
+                      所以判不了。批准之后那四个主张会被一起划掉，其中三个没人更正过。
+
+                      ⛔ **不做机器判「这句里有几个主张」** —— 判不了，而且判错的方向是把对的挡掉。
+                      摆出来，让人一眼看出跨度对不对，判断权留在人手里。
+
+                      ⚠️ 引文能摆出来，是因为它进得了库就一定对得上目标块
+                      （`api_engine.rs::gate_proposals` 逐字闸）。⛔ 那道闸的输入一个字符都不许动。 */}
+                  {item.refKind === 'corrects' && item.correctedQuote ? (
+                    <span className="mt-1 grid grid-cols-2 gap-2 rounded border border-line/70 bg-paper/60 p-1.5">
+                      <span className="block min-w-0">
+                        <span className="block text-[10px] uppercase tracking-wide text-muted">
+                          {t('会在旧块里划出这一段')}
+                        </span>
+                        <span className="mt-0.5 block whitespace-pre-wrap break-words border-l-2 border-[var(--notice-warm-edge)] pl-1.5 text-[11px] leading-snug text-ink-2">
+                          {item.correctedQuote}
+                        </span>
+                      </span>
+                      <span className="block min-w-0">
+                        <span className="block text-[10px] uppercase tracking-wide text-muted">
+                          {t('这条更正说的是')}
+                        </span>
+                        <span className="mt-0.5 block whitespace-pre-wrap break-words text-[11px] leading-snug text-ink">
+                          {item.content}
+                        </span>
+                      </span>
+                      <span className="col-span-2 text-[10px] leading-snug text-muted">
+                        {t('两边对着看：左边划出的那一段，是不是正好就是右边更正的那一点？划宽了，没被更正的话也会跟着标上。')}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-relaxed text-ink">
+                      {item.content}
+                    </span>
+                  )}
                   {item.annotation && (
                     <span className="mt-0.5 block whitespace-pre-wrap break-words text-[11px] italic leading-snug text-muted">
                       {item.annotation}

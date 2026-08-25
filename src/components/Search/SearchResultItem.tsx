@@ -72,6 +72,15 @@ export default function SearchResultItem({ hit, selected, onSelect, onActivate }
           </div>
         ))}
       </div>
+      {/* ⭐ S8（2026-08-24）：**这一块整体是什么。**
+          片段说的是「字在哪儿对上的」，这一行说的是「它们是什么的一部分」——
+          一个 2,000 字的长块，只看片段是认不出来的。
+          ⚠️ 没有人写过就整行不出现，⛔ 不占位、不写「（暂无）」。 */}
+      {hit.gist?.trim() && (
+        <div className="mt-1 truncate font-ui text-[11px] leading-snug text-muted/90">
+          {hit.gist}
+        </div>
+      )}
       <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted">
         {hit.field === 'annotation' && (
           <span className="flex-none rounded-sm border border-line px-1 text-accent">{t('批注')}</span>

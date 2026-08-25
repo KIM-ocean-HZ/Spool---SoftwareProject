@@ -182,3 +182,20 @@ article[data-block-id].block-active {
   animation: heart-beat 900ms ease-out;
   transform-origin: center;
 }
+
+/* V2 ③ bug (Ocean 2026-08-25):「右侧本身有一个默认滑轨，刚好遮住了 block 的刻度，
+   导致无法使用。」The feed's native scrollbar sits at exactly the same right edge as the
+   scale rail — with "always show scrollbars" on it covers the ticks outright, and with
+   overlay scrollbars it covers them the moment you scroll, which is precisely when you
+   would reach for the rail.
+   ⇒ The feed hides its native scrollbar and THE RAIL IS THE SCROLLBAR. It reports position
+   like one, drags like one, and additionally answers「一共几块、我在第几块」, so the two
+   were redundant before they were overlapping. ⚠️ Only the feed opts in — every other
+   scroll area in the app keeps its normal scrollbar. */
+.no-native-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge */
+}
+.no-native-scrollbar::-webkit-scrollbar {
+  display: none;                  /* WebKit — the one that matters here */
+}

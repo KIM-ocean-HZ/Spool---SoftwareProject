@@ -205,3 +205,30 @@ describe('tokenizeContent · inline markdown', () => {
     expect(inner?.corrected).toBe(true);
   });
 });
+
+describe('合并留下的来源记号', () => {
+  // ⭐ 2026-08-25（Ocean:「来源的文字特别大,和正文混在一起,太突兀」）—— `[from …] ` 以前
+  // 就是普通正文,15px、和上下文一样黑。现在 `[from ` 和 `] ` 当记号藏掉,中间那几个字
+  // 拿 'source' 这个标记画成一枚小灰标签。
+  it('hides the brackets and marks the source name', () => {
+    const content = '第一段\n\n[from chatgpt] 第二段';
+    const runs = tokenizeContent(content);
+    // 记号末尾那个空格留着,所以纯文本读起来还是「chatgpt 第二段」。
+    expect(runs.map((r) => r.text).join('')).toBe('第一段\n\nchatgpt 第二段');
+    expect(runs.find((r) => r.mark === 'source')?.text).toBe('chatgpt');
+  });
+
+  it('keeps every surviving run on its original offset', () => {
+    // ⚠️ 藏掉的字符不许改变别人的下标 —— 划词、==重点==、更正全按它定位。
+    const content = '[from claude] 第二段';
+    const runs = tokenizeContent(content);
+    for (const r of runs) expect(content.slice(r.start, r.end)).toBe(r.text);
+  });
+
+  it('only reads the marker at the start of a line', () => {
+    const content = '他说 [from chatgpt] 是这么讲的';
+    const runs = tokenizeContent(content);
+    expect(runs.some((r) => r.mark === 'source')).toBe(false);
+    expect(runs.map((r) => r.text).join('')).toBe(content);
+  });
+});

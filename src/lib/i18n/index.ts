@@ -195,6 +195,10 @@ const EN: Record<string, string> = {
   '标为重点（包裹 ==选区==）': 'Highlight (wrap ==selection==)',
   '引用项目': 'Referenced project',
   '原项目已删除': 'Original project was deleted',
+  // ⭐ S4（2026-08-24）：关系行读得懂 —— `cites` 也给动词，被引的块在别的项目就显项目名。
+  '引用了': 'cites',
+  '在〈{title}〉': 'in “{title}”',
+  '在别的项目里': 'in another project',
   '引用的块已删除': 'Cited block no longer exists',
 
   // DESIGN_CONTEXT_HYGIENE §3.1 — supersession. The wording carries the whole promise:
@@ -206,7 +210,8 @@ const EN: Record<string, string> = {
     'Marked as no longer holding · out of context since {when} (still in your library, still searchable)',
   '它更正了哪一条？': 'Which one does this correct?',
   '取消这条更正关系': 'Undo this correction link',
-  '取代了': 'replaces',
+  // ⭐ S1（2026-08-24）：屏幕上这件事只许有一个名字 —— E3 的按钮、这条引用行的动词，全是「整条取代」。
+  '整条取代了': 'replaces in full',
   '更正了其中一处：': 'corrects one point in:',
   '其中一处已被更正：': 'one point in this was corrected:',
   '点一下跳到那一块': 'Click to jump to that block',
@@ -215,8 +220,10 @@ const EN: Record<string, string> = {
   // carries its client label instead.
   '更正': 'Correction',
   '你写的': 'yours',
-  '解除': 'Unlink',
-  '解除这条更正关系（那一块本身留着）': 'Unlink this correction (the block itself stays)',
+  // ⭐ S5（2026-08-24）：更正卡指回它划的那一句。
+  '划的是：': 'Marks: ',
+  '取消更正': 'Cancel correction',
+  '取消这条更正（那一块本身留着）': 'Cancel this correction (the block itself stays)',
   '更正选中的这一句': 'Correct the selected sentence',
   // The floating prompt, beside 「标为重点?」 — Ocean 2026-08-19:「点击工具栏摩擦太大了」.
   '更正这里?': 'Correct this?',
@@ -420,6 +427,17 @@ const EN: Record<string, string> = {
   '已填满 {n} 颗心': '{n} hearts filled',
   '现在够打一个包了 —— 按 ⌘⇧P 打包，粘给任何 AI 试试。':
     'Enough to pack now — press ⌘⇧P and paste it to any AI.',
+  // V2 (WORKPLAN §2.V2) — the reading gestures: the one-time first-run line and the scale
+  // rail's readout.
+  '块是整条展开的。按 ↓ / ↑ 可以一块一块地看,右边那列刻度是你在第几块。':
+    'Blocks open in full. Press ↓ / ↑ to step through them one at a time; the ticks on the right show where you are.',
+  '第 {n} / {total} 块': 'Block {n} of {total}',
+  // 刻度条的悬浮预览：那一块连一个字都没有的时候（只有附件、或者刚建出来）。
+  '（这一块没有文字）': '(no text in this block)',
+  // V3 二轮 (Ocean 2026-08-25 验收) — the block editing panel.
+  '正在编辑这一块 · Esc 放弃': 'Editing this block · Esc to discard',
+  'AI 批注 · 你改过': 'AI note · you edited it',
+  '改这条 AI 批注（不会变成你写的）': "Edit this AI note (it stays the AI's, not yours)",
   // 旧账 §5-3: dates found inside a block's own text (DateNotices).
   '去看这一块': 'Go to this block',
   '先收起 —— 两个月前、一个月前、一周前各提醒一次':
@@ -717,6 +735,9 @@ const EN: Record<string, string> = {
   '{action}中 · 还排着 {n} 个': '{action} running · {n} waiting',
   '点一下停下来（已经写进去的块会留着）':
     'Click to stop. Blocks already written stay — Spool only ever appends.',
+  // 2026-08-25 —— 周回顾那一屏自己的停止键（它不挂右边栏,LiveRun 够不着）。
+  '点一下停下来（停了不能续跑，再点就是从头再来）':
+    'Click to stop. A stopped review cannot resume — the next click starts it over.',
   '这条脉络已经排上了，等它跑完': 'This project is already in the queue — let it finish',
   // §1.3 — how a finished run reports itself.
   '{action}：AI 归档了 {n} 块': '{action}: the AI filed {n} block(s)',
@@ -762,6 +783,11 @@ const EN: Record<string, string> = {
   // v14 (§9.3 拍板甲): approving this item also marks one point in an existing block as
   // corrected. The old block keeps its text and stays in every pack — but the user is
   // agreeing to something beyond "store this", so the screen has to say so.
+  // ⭐ S6（2026-08-24，Ocean 选乙）：审阅面上引文和更正正文并排摆。
+  '会在旧块里划出这一段': 'Will mark this span in the older block',
+  '这条更正说的是': 'What this correction says',
+  '两边对着看：左边划出的那一段，是不是正好就是右边更正的那一点？划宽了，没被更正的话也会跟着标上。':
+    'Read the two side by side: is the span on the left exactly the point being corrected on the right? Mark too wide, and sentences nobody corrected get flagged too.',
   '更正已有的一块': 'corrects an existing block',
   '都存进去（{n} 块）': 'Store all {n} blocks',
   '存这 {n} 块': 'Store these {n} blocks',
@@ -1203,15 +1229,21 @@ const EN: Record<string, string> = {
   '再查一遍': 'Check again',
   '（引文的标点被重打过）': '(the quote’s punctuation was retyped)',
   '旧的 #{n} 里：': 'In the older #{n}:',
-  // ⭐⭐ 2026-08-23（Ocean 第 9 条）：三个动作改用他自己的话 ——「新的 block 把旧的取代了 /
-  // 合并了 / 什么都没动」。⛔ 别改回「只退旧的」那种说法：「退」在这个界面上没被解释过。
-  '新的取代旧的': 'The newer one replaces the older',
-  '什么都不动': 'Change nothing',
+  // ⭐⭐ 2026-08-23（Ocean 第 9 条）：三个动作改用他自己的话。⛔ 别改回「只退旧的」那种说法：
+  // 「退」在这个界面上没被解释过。
+  // ⭐ S1（2026-08-24，Ocean 拍板）：「新的取代旧的」→「整条取代」（和 E3 检测那句说明、
+  // 引用行的动词统一成同一个词），「什么都不动」→「不动」（他的话：字太多）。
+  // ⚠️ 这两个中文串是**键**，改键等于改调用点 —— `Compress/StaleReview.tsx` 必须同一次改完。
+  // ⭐ S2（2026-08-24）：AI 提的「整条取代」并进这张卡，卡上要说清是谁提的。
+  '{who} 提的': 'proposed by {who}',
+  '聊天里提的': 'proposed in a chat',
+  '整条取代': 'Replace in full',
+  '不动': 'Leave alone',
   '两块都留着，只在 #{n} 上记一句「它更正了 #{m}」。打包的时候两块还是都在，不会因此变短。':
     'Both blocks stay. #{n} simply gets a note saying it corrects #{m}. Packs still carry both, so nothing gets shorter.',
   '以后打包只带 #{n}，#{m} 不再放进去（它没被删，还在项目里，也搜得到）。':
     'From now on packs carry #{n} only; #{m} is left out (it is not deleted \u2014 it stays in the project and is still searchable).',
-  '以后打包只带 #{n}，#{m} 不再放进去（它没被删，还在项目里，也搜得到）。⚠️ #{m} 很短：拿掉它之后打包出来反而会多几个字 —— 顶上去的那句「这一块已经被取代」比它本身还长。':
+  '以后打包只带 #{n}，#{m} 不再放进去（它没被删，还在项目里，也搜得到）。⚠️ #{m} 很短：拿掉它之后打包出来反而会多几个字 —— 顶上去的那句「这一块已经被整条取代」比它本身还长。':
     'From now on packs carry #{n} only; #{m} is left out (it is not deleted \u2014 it stays in the project and is still searchable). \u26a0\ufe0f #{m} is short: leaving it out actually makes the pack a little longer, because the \u201creplaced\u201d line that stands in for it is longer than the block itself.',
   '这两块保持原样，库里一个字都不改，这一条从单子上划掉。':
     'Both blocks stay as they are, nothing in your library changes, and this line is struck off.',
@@ -1251,6 +1283,14 @@ const EN: Record<string, string> = {
     '{n} block(s) replaced with the compressed version. Each keeps its pre-compression original: the block\u2019s toolbar can open it, and switch back to it.',
   '{n} 块换成了压缩稿。⚠️ 你关掉了「备份压缩前的原文」，原来的字没有了。':
     '{n} block(s) replaced with the compressed version. \u26a0\ufe0f You turned off \u201ckeep the pre-compression original\u201d, so the original words are gone.',
+  // S7①（2026-08-24）：压缩稿把 Spool 自己印的骨架行抄进了块正文 —— 真库里发生过两次。
+  '压缩稿里有 {n} 行是 Spool 自己印的说明，不是你的字 —— 没有写进库。':
+    '{n} line(s) in the compressed version were Spool\u2019s own printed notes rather than your words \u2014 they were not written to your library.',
+  // ⭐ S3（2026-08-24）：⛔ 这两句是「不许无声」那条的全部落点。
+  '#{c} 更正的是 #{b} 里的一句话 —— #{b} 压完之后那句话找不回来了。更正还留着，只是不再划出是哪一句。':
+    '#{c} corrects one sentence inside #{b} \u2014 after compressing #{b}, that sentence can no longer be found. The correction stays; it just no longer marks which sentence.',
+  '有 {n} 条更正指的那句话，压完之后找不回来了。更正都还留着，只是不再划出是哪一句。':
+    '{n} correction(s) point at a sentence that can no longer be found after compression. They all stay; they just no longer mark which sentence.',
   '已还原成压缩前的原文': 'Restored to the pre-compression original',
   '这一块压缩时没有留原文，还原不了。': 'No original was kept when this block was compressed, so it cannot be restored.',
   '这一块被压过': 'This block has been compressed',

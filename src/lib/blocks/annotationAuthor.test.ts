@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { annotationIsAi, isUserWritten } from './annotationAuthor';
+import {
+  annotationEdited,
+  annotationIsAi,
+  isUserWritten,
+  nextAnnotationAuthor,
+} from './annotationAuthor';
 
 // DESIGN_CONTEXT_HYGIENE §9.3 (拍板乙). The rendering side is pinned by the golden fixture;
 // what these cover is the resolution rule itself, because it is the one place where "who
@@ -59,5 +64,36 @@ describe('isUserWritten', () => {
     expect(isUserWritten(block('Claude · MCP', 'ai wrote this', 'ai'))).toBe(false);
     // Pre-v14 row with no recorded author: the MCP source label decides, as everywhere else.
     expect(isUserWritten(block('Claude · MCP', 'ai wrote this'))).toBe(false);
+  });
+});
+
+// ⭐ 2026-08-25 (Ocean, V3 验收) — the third state.
+describe('ai-edited annotations', () => {
+  it('keeps AI authority after the user edits an AI note', () => {
+    // 「仍然是 AI 批注」: the pack must not promote it to 💭 Personal.
+    expect(annotationIsAi('ai-edited', null)).toBe(true);
+    expect(annotationEdited('ai-edited')).toBe(true);
+  });
+
+  it('tells a clean AI note apart from an edited one', () => {
+    expect(annotationEdited('ai')).toBe(false);
+    expect(annotationEdited('user')).toBe(false);
+    expect(annotationEdited(null)).toBe(false);
+  });
+
+  it('sends an edited AI note to ai-edited and everything else to user', () => {
+    expect(nextAnnotationAuthor('ai', null)).toBe('ai-edited');
+    expect(nextAnnotationAuthor('ai-edited', null)).toBe('ai-edited');
+    expect(nextAnnotationAuthor('user', null)).toBe('user');
+    // ⛔「不能人为新增」: a note typed onto a block with no note is the user's, always.
+    expect(nextAnnotationAuthor(null, null)).toBe('user');
+    // A pre-v14 row with no recorded author still resolves through the block's source.
+    expect(nextAnnotationAuthor(null, 'Claude · MCP')).toBe('ai-edited');
+  });
+
+  it('does not let an edited AI note count as the user having written something', () => {
+    expect(
+      isUserWritten({ source: 'Claude · MCP', annotation: '改过的', annotationBy: 'ai-edited' }),
+    ).toBe(false);
   });
 });

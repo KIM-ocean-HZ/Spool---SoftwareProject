@@ -61,6 +61,24 @@ export const parseSegments = (content: string): Segment[] => {
 export const hasSegmentAnnotations = (content: string): boolean =>
   content.includes(SEGMENT_NOTE_PREFIX);
 
+// ⭐ 2026-08-25（Ocean:「两个不同来源的 block 合并之后,来源的文字特别大,和正文混在一起,
+// 太突兀」）—— 合并时贴在非幸存段前面的来源记号（`computeMergedFields`，形如 `[from chatgpt] `）。
+//
+// ⚠️⚠️ **存的字节一个都不动。** pack 里那一份还带着它 —— 收件 AI 就是靠它分辨这一段是谁说的；
+// 而且划词、`==重点`、更正全都按 `content` 的字符下标定位，改写它等于把所有下标挪位。
+// 这里只做**画的时候**的事：把它摘出来,当一枚小标签画,而不是当正文（15px、和上下文一样黑）。
+export const SEGMENT_SOURCE_RE = /^\[from ([^\]\n]+)\] /;
+
+/** 把一段的来源记号摘下来。`offset` 是记号本身占的字符数 —— 调用方要把它加到偏移上，
+ *  否则划词会落到前面几个字上。 */
+export const splitSegmentSource = (
+  text: string,
+): { source: string | null; body: string; offset: number } => {
+  const m = SEGMENT_SOURCE_RE.exec(text);
+  if (!m) return { source: null, body: text, offset: 0 };
+  return { source: m[1]!, body: text.slice(m[0].length), offset: m[0].length };
+};
+
 // Join an array of segments back into a merged-content string. Inverse of
 // parseSegments. Used by computeMergedFields.
 /** ⚠️ Takes only the two fields it writes. `start` is an output of PARSING (where each

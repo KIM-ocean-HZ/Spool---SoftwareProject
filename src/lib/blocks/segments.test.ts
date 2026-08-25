@@ -5,6 +5,7 @@ import {
   parseSegments,
   SEGMENT_NOTE_PREFIX,
   SEGMENT_SEPARATOR,
+  splitSegmentSource,
 } from './segments';
 
 describe('parseSegments', () => {
@@ -99,5 +100,31 @@ describe('SEGMENT_SEPARATOR', () => {
   // strings (e.g. the collect-mode Send path may build its own content).
   it('is a blank line', () => {
     expect(SEGMENT_SEPARATOR).toBe('\n\n');
+  });
+});
+
+describe('splitSegmentSource', () => {
+  // 合并两个来源不同的 block 时,非幸存段前面会贴上 `[from <来源>] `（computeMergedFields）。
+  // ⚠️ 存进库的字节不动 —— 这个函数只在**画**的时候把它摘出来。
+  it('lifts the marker off and says how many characters it took', () => {
+    expect(splitSegmentSource('[from chatgpt] 他说要先交表')).toEqual({
+      source: 'chatgpt',
+      body: '他说要先交表',
+      offset: '[from chatgpt] '.length,
+    });
+  });
+
+  it('leaves an ordinary segment untouched', () => {
+    expect(splitSegmentSource('他说要先交表')).toEqual({
+      source: null,
+      body: '他说要先交表',
+      offset: 0,
+    });
+  });
+
+  it('only counts the marker at the very start of the segment', () => {
+    // ⚠️ 偏移一错,这一段里划的词就会落到前面几个字上 —— 屏幕上看不出来。
+    const mid = '他说 [from chatgpt] 是这么讲的';
+    expect(splitSegmentSource(mid)).toEqual({ source: null, body: mid, offset: 0 });
   });
 });

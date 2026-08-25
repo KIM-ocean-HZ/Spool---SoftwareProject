@@ -139,7 +139,11 @@ export default function App() {
       // 拍板点 5: only a launch that created the database arms the one-time closing
       // line, so an existing library never sees it (DESIGN_FIRST_RUN §4).
       if (getFirstRunThreadId()) {
-        await useSettingsStore.getState().update({ firstCaptureHintPending: true });
+        // V2 ④ rides the same first-run gate: the reading-gesture line is onboarding, and
+        // onboarding that reaches an existing library is noise (§4 拍板点 5's rule).
+        await useSettingsStore
+          .getState()
+          .update({ firstCaptureHintPending: true, blockNavHintPending: true });
       }
     })();
   }, [loadSettings, loadWorkspaces, loadThreads]);
