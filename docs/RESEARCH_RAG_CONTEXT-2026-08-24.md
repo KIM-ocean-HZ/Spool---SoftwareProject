@@ -377,4 +377,4 @@ AI 提一条「我认为这块整块过时了」的**提案**，落在审阅面�
 | `source_text` 的权威语义 | `src/lib/db/proposals.ts:56–69`、`passageSource()`、`approveBatch` 那一段 |
 | 嵌入被否的原文 | `DESIGN_CONTEXT_HYGIENE.md` §5；前提反转见记忆 `mcp-first-pivot` |
 | 渐进披露 / Contextual Retrieval / 四种记忆策略 | `DESIGN_CONTEXT_HYGIENE.md` §2.1–§2.6（2026-08-06 那一轮调研，来源全表在该稿 §7） |
-| dmg 体积 10,390,759 字节 | `HANDOFF-NEXT-2026-08-24.md` §1 |
+| dmg 体积 10,390,759 字节 | `archive/HANDOFF-NEXT-2026-08-24.md` §1 |
