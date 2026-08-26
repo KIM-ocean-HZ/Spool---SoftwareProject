@@ -3,12 +3,15 @@ import type Database from '@tauri-apps/plugin-sql';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { __setTestDb } from './client';
 import {
+  deleteRun,
+  lastWeeklyAttemptAt,
   listRunsForAction,
   listRunsForThread,
   markReviewed,
   recordRun,
   spendSince,
   weeklyReviewDue,
+  weeklyReviewNextAt,
   type NewEngineRun,
 } from './engineRuns';
 import schemaSql from './schema.sql?raw';
@@ -138,5 +141,73 @@ describe('weeklyReviewDue', () => {
       outcome: 'failed',
     });
     expect(await weeklyReviewDue(NOW, 7 * DAY)).toBe(true);
+  });
+});
+
+describe('weeklyReviewNextAt', () => {
+  it('answers from the same row weeklyReviewDue reads', async () => {
+    // ⭐ 界面上「还有 N 天」和自动那条「该跑了没有」必须出自同一处,否则那是一种
+    // 用户自己发现不了的谎。
+    expect(await weeklyReviewNextAt(7 * DAY)).toBeNull();
+
+    await recordRun(run({ action: 'weekly_review', threadId: null, finishedAt: NOW }));
+    expect(await weeklyReviewNextAt(7 * DAY)).toBe(NOW + 7 * DAY);
+    expect(await weeklyReviewDue(NOW + 7 * DAY, 7 * DAY)).toBe(true);
+  });
+
+  it('a failed review does not move the next date', async () => {
+    await recordRun({
+      ...run({ action: 'weekly_review', threadId: null, finishedAt: NOW }),
+      outcome: 'failed',
+    });
+    expect(await weeklyReviewNextAt(7 * DAY)).toBeNull();
+  });
+});
+
+describe('deleteRun', () => {
+  it('deletes a run that did not succeed', async () => {
+    const bad = await recordRun({
+      ...run({ action: 'weekly_review', threadId: null, finishedAt: NOW }),
+      outcome: 'failed',
+    });
+    await deleteRun(bad.id);
+    expect(await listRunsForAction('weekly_review')).toHaveLength(0);
+  });
+
+  it('⛔ refuses to delete one that succeeded — the guard is in the SQL, not the UI', async () => {
+    const good = await recordRun(
+      run({ action: 'weekly_review', threadId: null, finishedAt: NOW }),
+    );
+    await deleteRun(good.id);
+    const left = await listRunsForAction('weekly_review');
+    expect(left.map((r) => r.id)).toEqual([good.id]);
+  });
+
+  it('a cancelled run can go too', async () => {
+    const stopped = await recordRun({
+      ...run({ action: 'weekly_review', threadId: null, finishedAt: NOW }),
+      outcome: 'cancelled',
+    });
+    await deleteRun(stopped.id);
+    expect(await listRunsForAction('weekly_review')).toHaveLength(0);
+  });
+});
+
+describe('lastWeeklyAttemptAt', () => {
+  it('⛔ counts the failures too — it is the brake, not the record', async () => {
+    // 病根: weeklyReviewDue 只认跑成的,所以一次失败之后它一直是 true,而自动那条
+    // 每十分钟看一次。08-26 起那条路可以走 API,而 API 按字数计费。
+    expect(await lastWeeklyAttemptAt()).toBeNull();
+    await recordRun({
+      ...run({ action: 'weekly_review', threadId: null, finishedAt: NOW }),
+      outcome: 'failed',
+    });
+    expect(await lastWeeklyAttemptAt()).toBe(NOW);
+    expect(await weeklyReviewDue(NOW + MINUTE, 7 * DAY)).toBe(true);
+  });
+
+  it('ignores other actions', async () => {
+    await recordRun(run({ action: 'distill', finishedAt: NOW }));
+    expect(await lastWeeklyAttemptAt()).toBeNull();
   });
 });

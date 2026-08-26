@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { spendSince } from '@/lib/db/engineRuns';
+import { CODEX_NO_MODELS, ENGINE_MODELS, modelKeyFor } from '@/lib/engine/models';
 import { useT } from '@/lib/i18n';
 import { ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -14,43 +15,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 // and what the week has cost, on one line, folding open only when there is a choice to make.
 //
 // §9.1 puts this in the 附属 layer, so it stays one line high unless the user opens it.
-
-/**
- * §9.13.6-bis — **the model picker, restored** (2026-08-10, with the third engine, exactly as
- * Ocean scheduled it on 2026-08-07 晚: 「模型先删掉，但是记录，后续还是要更新回去，和
- * Gemini CLI 放一起做」).
- *
- * It was removed because it offered `opus` / `sonnet` / `haiku` and `opus` was measured broken
- * on this machine (404 `claude-opus-4-1-20250805`, §9.13.5) — a choice that fails at the API is
- * worse than no choice. It comes back as **one table keyed by engine**, which is the shape the
- * third engine forced: a claude-only picker had no place to put gemini's names.
- *
- * ⚠️ **`opus` is still out.** The measurement that removed it has not been re-run, and putting
- * a known-404 name back would restore the original bug, not the original feature. It returns
- * the day a `claude` update makes it resolve — this list is the only edit that takes.
- *
- * ⚠️ **codex has no entry, and that is also a measurement** (§9.10 / CLAUDE_MODELS): its models
- * come from a server-fetched catalog it does not validate locally, so any name offered here
- * would fail at the API rather than at the click. An engine with no entry shows no picker.
- *
- * ⚠️ The names must stay in step with engine.rs's `CLAUDE_MODELS` / `GEMINI_MODELS`, which is
- * where a run's model is actually validated — anything not in those lists is dropped before it
- * reaches a flag, so a name added only here would silently do nothing.
- */
-const ENGINE_MODELS: Record<EngineKind, readonly string[]> = {
-  claude: ['sonnet', 'haiku'],
-  codex: [],
-  // Full ids, not aliases: gemini's free quota is metered per model (DESIGN_AI_ENGINE §7.8.4),
-  // so this picker is the control that decides whether today's runs still work. Every name
-  // was called once for real on 2026-08-10 — the CLI's own catalogue lists 42, of which
-  // several 404 or 429 before a token is spent.
-  gemini: [
-    'gemini-3-flash-preview',
-    'gemini-3.5-flash-lite',
-    'gemini-flash-latest',
-    'gemini-flash-lite-latest',
-  ],
-};
 
 /**
  * §9.13 — Ocean: 「Claude code 模型为什么没有 effort。加进去」.
@@ -127,9 +91,8 @@ export default function EngineBar() {
   const showModels = status?.selected === 'claude';
   const selected = status?.selected ?? null;
   const models = selected ? ENGINE_MODELS[selected] : [];
-  const model = selected === 'gemini' ? modelGemini : modelClaude;
-  const setModel = (v: string): Promise<void> =>
-    update(selected === 'gemini' ? { aiModelGemini: v || null } : { aiModelClaude: v || null });
+  const model = modelKeyFor(selected) === 'aiModelGemini' ? modelGemini : modelClaude;
+  const setModel = (v: string): Promise<void> => update({ [modelKeyFor(selected)]: v || null });
 
   return (
     <div className="rounded-md border border-line px-0.5 py-0.5">
@@ -204,6 +167,12 @@ export default function EngineBar() {
                 ))}
               </select>
             </label>
+          )}
+
+          {/* ⭐ 2026-08-26 (Ocean 拍的乙): codex 有引擎、没模型单子，于是这里以前什么都不画 ——
+              而「一个选择器都不出」在用户那边读到的是「坏了」。说一句为什么。 */}
+          {selected === 'codex' && (
+            <p className="text-[12px] leading-relaxed text-muted">{t(CODEX_NO_MODELS)}</p>
           )}
 
           {/* §7.8.4 — a per-model daily allowance is not a footnote on this engine, it is the

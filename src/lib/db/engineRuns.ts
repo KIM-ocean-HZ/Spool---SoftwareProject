@@ -201,6 +201,55 @@ export const weeklyReviewDue = async (now: number, periodMs: number): Promise<bo
   return last === null || last <= now - periodMs;
 };
 
+/** §3.4 的另一半 —— 「下次自动回顾还有多久」。
+ *
+ *  ⭐ 和 `weeklyReviewDue` 读的是同一行、同一个判据，只是它回答的是「还差多少」而不是
+ *  「到了没有」。⚠️ 两个问题必须由一处回答：界面上写着「还有 3 天」而自动那条今晚就跑，
+ *  是用户没法自己发现的一种谎。
+ *
+ *  返回下一次该跑的时刻（毫秒）；`null` = 从来没成功跑过，也就是现在就该跑。 */
+export const weeklyReviewNextAt = async (periodMs: number): Promise<number | null> => {
+  const db = await getDb();
+  const rows = await db.select<{ at: number | null }[]>(
+    `SELECT MAX(finished_at) AS at FROM engine_runs
+      WHERE action = 'weekly_review' AND outcome = 'ok'`,
+  );
+  const last = rows[0]?.at ?? null;
+  return last === null ? null : last + periodMs;
+};
+
+/** 最近**一次尝试**跑周回顾是什么时候，不管跑成没跑成。
+ *
+ *  ⛔⛔ 这一条是给失败循环踩刹车用的，别的地方别拿它当「上次回顾」——「上次回顾」是
+ *  `weeklyReviewNextAt` 读的那一行（只认跑成的）。
+ *
+ *  病根：`weeklyReviewDue` 只认 `outcome='ok'`，所以一次失败之后它**一直**是 true，
+ *  而自动那条路每十分钟看一次。CLI 那边这只是白转；⚠️ 但 08-26 起自动那条可以走 API，
+ *  而 API 是**按字数计费**的 —— 一个 key 填错、或者端点半死不活地超时，就会变成
+ *  每十分钟烧一次钱，而用户什么都看不见。 */
+export const lastWeeklyAttemptAt = async (): Promise<number | null> => {
+  const db = await getDb();
+  const rows = await db.select<{ at: number | null }[]>(
+    "SELECT MAX(finished_at) AS at FROM engine_runs WHERE action = 'weekly_review'",
+  );
+  return rows[0]?.at ?? null;
+};
+
+/** 删掉一条运行记录。
+ *
+ *  ⚠️ **只给没跑成的那几条用**（Ocean 2026-08-26：「失败的可以删除记录，另外跑成功的」）。
+ *  这里推翻了原来那条「失败也要留档」的纪律 —— 那条纪律的理由是「那一周我按了但它没跑成」
+ *  本身也是记录的一部分，而他用下来的结论是：一周里失败重试好几次，留档把那一格塞满，
+ *  掩盖的正是真正跑成的那一条。
+ *
+ *  ⛔ 跑成的那些不给删：`spendSince` 的合计要靠它们才不说谎，而且成功的那段正文正是
+ *  这一整个功能的产物。调用方（`ReviewBoard`）只在 `outcome !== 'ok'` 时给按钮，
+ *  这里的 `AND outcome <> 'ok'` 是同一条规矩写在**数据库这一侧**，不靠界面自觉。 */
+export const deleteRun = async (id: string): Promise<void> => {
+  const db = await getDb();
+  await db.execute("DELETE FROM engine_runs WHERE id = $1 AND outcome <> 'ok'", [id]);
+};
+
 /**
  * What Spool's own runs have cost over a window — the honest half of Ocean's #5.
  *

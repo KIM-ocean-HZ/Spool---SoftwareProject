@@ -36,6 +36,7 @@ type PersistableKey =
   | 'sidebarCollapsed'
   | 'railCollapsed'
   | 'aiAutoMaintain'
+  | 'autoReviewRoute'
   | 'packInstructions'
   | 'closeToTrayHintSeen'
   | 'theme'
@@ -155,6 +156,19 @@ interface SettingsState {
   // default is off and the switch sits in the rail where the runs appear, not buried in
   // settings. Flipping this default is a one-line change if he wants it the other way.
   aiAutoMaintain: boolean;
+  /** `W2`（Ocean 2026-08-26：「每周自动回顾无法选模型」）—— 自动那一次**走哪条路**。
+   *
+   *  ⭐ 这是一个**新设置**，⛔ 不是把手动那两个按钮的选择挪过来。理由是自动这条路从来就
+   *  只认 CLI：`useAutoMaintain` 的闸是 `canShowEngineActions({cliAvailable,…})`，
+   *  所以 08-25 刚接上的 API / DeepSeek 那条路，自动回顾永远用不上。
+   *
+   *  ⚠️ **模型不在这里。** 走 CLI 就用 CLI 那条路自己的模型设置（`aiModelClaude` /
+   *  `aiModelGemini`，和手动点的那一下同一个），走 API 就用 `apiModel`。⛔ 别为「自动」
+   *  再发明第三份模型设置 —— 那会造出「我在界面上选了 haiku，自动跑的却是别的」这种
+   *  用户自己发现不了的分叉。
+   *
+   *  默认 `'cli'`：它是今天的行为，而另一条会按字数花钱。 */
+  autoReviewRoute: 'cli' | 'api';
   // DESIGN_CONTEXT_HYGIENE §1.1 — whether a clipboard pack carries the four-category
   // reading instructions. Ocean 2026-08-06: 「pack 降级成最简便操作,让纯网页端 ai 用户使用」,
   // so this shipped defaulting OFF.
@@ -301,6 +315,7 @@ const KEYS: PersistableKey[] = [
   'sidebarCollapsed',
   'railCollapsed',
   'aiAutoMaintain',
+  'autoReviewRoute',
   'packInstructions',
   'closeToTrayHintSeen',
   'theme',
@@ -356,6 +371,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   sidebarCollapsed: false,
   railCollapsed: true,
   aiAutoMaintain: false,
+  // 今天的行为就是 CLI，而另一条按字数花钱 —— 升级不该改变账单的形状。
+  autoReviewRoute: 'cli',
   packInstructions: true,
   // Windows only (2026-08-18, Ocean #1): whether the 「关掉窗口 ≠ 退出」 card has been shown.
   // Written once, by the card's own button — see components/CloseToTrayHint.
@@ -413,6 +430,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       // schedule the picker cannot even display.
       if (next.breakWorkMinutes !== undefined) {
         next.breakWorkMinutes = workMinutesOrDefault(next.breakWorkMinutes);
+      }
+      // Same reason again: this one decides whether an automatic run spends a subscription
+      // or an API balance, so an unrecognised word must not fall through to either.
+      if (next.autoReviewRoute !== undefined && next.autoReviewRoute !== 'api') {
+        next.autoReviewRoute = 'cli';
       }
       // One-time cleanup for users upgrading across the MCP-first pivot.
       if (!legacyScrubDone) {

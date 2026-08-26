@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canShowEngineActions, engineActionsDisabled, type EngineGateInput } from './gate';
+import {
+  canShowEngineActions,
+  effectiveAutoRoute,
+  engineActionsDisabled,
+  type EngineGateInput,
+} from './gate';
 
 // DESIGN_AI_ENGINE §4: the render-condition matrix (detection × two switches × opt-out).
 // This is the whole of "zero AI in the product itself" as the user experiences it — if
@@ -58,5 +63,23 @@ describe('engine action gate', () => {
   // other project's menu, or the serial queue could never be filled.
   it('leaves another thread selectable while one is running', () => {
     expect(engineActionsDisabled({ ...all, busyOnThisThread: false })).toBe(false);
+  });
+});
+
+describe('effectiveAutoRoute (W2)', () => {
+  it('takes the road that was asked for when it is walkable', () => {
+    expect(effectiveAutoRoute('cli', true, true)).toBe('cli');
+    expect(effectiveAutoRoute('api', true, true)).toBe('api');
+  });
+
+  it('⭐ falls back rather than silently doing nothing', () => {
+    // 打开了「每周自动回顾一次」却一次都不跑,是用户发现不了的那种坏。
+    expect(effectiveAutoRoute('cli', false, true)).toBe('api');
+    expect(effectiveAutoRoute('api', true, false)).toBe('cli');
+  });
+
+  it('两条都走不通就一条都不跑', () => {
+    expect(effectiveAutoRoute('cli', false, false)).toBeNull();
+    expect(effectiveAutoRoute('api', false, false)).toBeNull();
   });
 });

@@ -221,6 +221,25 @@ const EN: Record<string, string> = {
     'Run it on the endpoint and model you configured (billed per token)',
   '周回顾跑完了，就在下面': 'The weekly review is done — it is right below',
   '周回顾没跑成': 'The weekly review did not run',
+  // W 批（2026-08-26）：选得了模型、读得出「一周」。
+  // ⚠️ 「这一周」在英文里是格子上的一个标签，不是句子 —— 'This week' 而不是 'this week'。
+  '自动那次用': 'Automatic run uses',
+  '自动那次走 {engine}。': 'The automatic run uses {engine}.',
+  'CLI': 'CLI',
+  '下次自动回顾：还有 {n} 天。': 'Next automatic review: {n} days away.',
+  '还没成功回顾过，下一次检查时就会跑。': 'No review has succeeded yet — the next check will run one.',
+  '该跑了——下一次检查时就跑（每十分钟看一次）。':
+    'Due now — the next check will run it (Spool looks every ten minutes).',
+  // ⚠️ codex 没有模型单子是**测量结论**，不是漏了（engine.rs CLAUDE_MODELS 那段）。
+  // Ocean 2026-08-26 选的是「继续不给选，但界面上说清楚」。
+  'codex 的模型名由它自己的服务端说了算，本地校验不了，所以 Spool 不给单子——用它账号里的默认模型跑。':
+    "codex's model names come from its own server and cannot be checked locally, so Spool offers no list — it runs on whatever your codex account defaults to.",
+  '这一周': 'This week',
+  '这一周没有跑成的回顾。': 'No review ran successfully this week.',
+  '另有 {n} 次没跑成': '{n} more did not run',
+  '删掉': 'Delete',
+  '把这条没跑成的记录删掉': 'Delete this failed record',
+  '删不掉': 'Could not delete it',
   // Q4（§2.Q4）：「摘要」页签。⚠️ 那两句说明是这一页的一部分，⛔ 不是装饰 ——
   // 不说清分工的话，用户第一反应是「这不就是批注吗」。
   // ⚠️ 页签叫「**块**摘要」，⛔ 不是光「摘要」—— Ocean 说的是「摘要」，但那两个字在

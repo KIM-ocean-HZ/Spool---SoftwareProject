@@ -257,7 +257,17 @@ export const useEngineStore = create<EngineState>((set, get) => {
     // uninstalled engine falls back (§7.4) — so this is what ran, not what was asked for.
     // Typed as a plain string, not EngineKind: it is stored verbatim, and the third engine
     // (DESIGN_AI_ENGINE §7.7) will arrive here before this side has a name for it.
-    let ranOn: string = useSettingsStore.getState().aiEngine ?? 'claude';
+    // ⚠️ The PROBE's answer, not the setting — and that difference is a bug found on
+    // 2026-08-26 in Ocean's own library: three failed 周回顾 rows are labelled `codex`
+    // while the stream inside them is unmistakably claude's. `run_action` resolves the
+    // engine again by calling `detect()`, and a preference naming an uninstalled engine
+    // FALLS BACK; on the success path `answer.engine` reports what really ran, but on the
+    // failure path nothing overwrote this line, so the list showed the preference instead.
+    // That is exactly the reading that produced 「周回顾为什么没有 codex」 — several of
+    // those runs were never codex at all. `status.selected` comes from the same `detect()`,
+    // so it is the same answer the run will reach.
+    let ranOn: string =
+      get().status?.selected ?? useSettingsStore.getState().aiEngine ?? 'claude';
     let usage: RunUsage = {
       model: null,
       costUsd: null,

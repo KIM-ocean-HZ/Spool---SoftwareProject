@@ -1,14 +1,27 @@
-import { CalendarRange, Loader2 } from 'lucide-react';
+import { CalendarRange, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import Toggle from '@/components/ui/Toggle';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
-import { listRunsForAction, recordRun, type EngineRun } from '@/lib/db/engineRuns';
-import { loadApiKey, weeklyReviewViaApi } from '@/lib/ai/compress';
+import {
+  deleteRun,
+  listRunsForAction,
+  weeklyReviewNextAt,
+  type EngineRun,
+} from '@/lib/db/engineRuns';
+import { runWeeklyReviewViaApi } from '@/lib/ai/weeklyReview';
 import { toast } from '@/stores/toastStore';
-import { canShowEngineActions } from '@/lib/engine/gate';
+import { canShowEngineActions, effectiveAutoRoute } from '@/lib/engine/gate';
+import { CODEX_NO_MODELS, ENGINE_MODELS, modelKeyFor } from '@/lib/engine/models';
 import { dateLocale, useT } from '@/lib/i18n';
+import {
+  groupByWeek,
+  startOfWeek,
+  endOfWeek,
+  WEEKLY_REVIEW_PERIOD_MS,
+} from '@/lib/weeks';
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useThreadsStore } from '@/stores/threadsStore';
 import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 
 // 周回顾 — its own pinned view, beside 项目管理.
@@ -36,6 +49,13 @@ import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 // 周回顾 is the action worth building on ("他会告诉用户每个项目做了什么，还有什么没做，可以和
 // 截止日期放在一起，作为日程进度的回报") — pairing it with deadlines is NOT built here, and is
 // written up in DESIGN_WORKBENCH §11 rather than guessed at.
+//
+// ⭐⭐ 2026-08-26 (`W 批`) — Ocean, having used it: 「每周自动回顾无法选模型，还有周回顾为什么
+// 没有 codex？」 and 「周回顾每周的新进展应该组合在一起，以周为单位呈现，现在周回顾是线性的」.
+// The first was FOUR faults stacked, and the one that mattered is structural: the model picker
+// lives in the right rail, and **a pinned view does not carry a right rail** (App.tsx:
+// `pinnedView ? null : …`). Standing on this screen there was nowhere to pick a model at all —
+// the same root as 08-25's 「周回顾没法暂停」, and it lands in the same place: this bar.
 
 /** §5 — spend, never remaining quota; same rule and same reason as RunCard's. */
 const money = (usd: number | null): string | null =>
@@ -55,9 +75,13 @@ export default function ReviewBoard() {
   const mcpWriteEnabled = useSettingsStore((s) => s.mcpWriteEnabled);
   const actionsEnabled = useSettingsStore((s) => s.aiEngineActionsEnabled);
   const autoMaintain = useSettingsStore((s) => s.aiAutoMaintain);
+  const autoRoute = useSettingsStore((s) => s.autoReviewRoute);
+  const modelClaude = useSettingsStore((s) => s.aiModelClaude);
+  const modelGemini = useSettingsStore((s) => s.aiModelGemini);
   const update = useSettingsStore((s) => s.update);
 
   const [reviews, setReviews] = useState<EngineRun[] | null>(null);
+  const [nextAt, setNextAt] = useState<number | null>(null);
 
   // ⭐⭐ 2026-08-25（Ocean）——「CLI 只支持 codex 和 claude，这两个模型太贵了
   // （gemini 的能力有限，且额度少），加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
@@ -72,7 +96,6 @@ export default function ReviewBoard() {
   const apiTimeoutSecs = useSettingsStore((s) => s.apiTimeoutSecs);
   const [apiRunning, setApiRunning] = useState(false);
 
-
   useEffect(() => {
     if (engineStatus === null) void probe();
   }, [engineStatus, probe]);
@@ -84,60 +107,30 @@ export default function ReviewBoard() {
         console.warn('[review] loading reviews failed', e);
         setReviews([]);
       });
+    void weeklyReviewNextAt(WEEKLY_REVIEW_PERIOD_MS)
+      .then(setNextAt)
+      .catch((e) => console.warn('[review] next-due query failed', e));
   }, []);
 
   // Re-read when a run lands. `runs` is the store's feed, which engineStore refreshes at the
   // end of every run — so this follows a review finishing without polling for it.
   useEffect(load, [load, runs]);
 
-  /** 用 API 跑一次周回顾。
-   *
-   *  ⚠️ 材料**不在这儿拼** —— Rust 那边自己开库拼（digest 当历史 + 本周新加的块当新动作，
-   *  ⭐ 范围是 Ocean 拍的：「不是整个 pack」）。前端只负责端点、key、模型和记账。
-   *
-   *  ⚠️ 记进 `engine_runs` 走的是和 CLI 那条**同一张表**，所以跑完之后这一页的列表
-   *  自己就有了，⛔ 不需要第二套显示。 */
+  /** 用 API 跑一次周回顾。⚠️ 记账那一段住在 `lib/ai/weeklyReview` —— 自动那条路
+   *  （`useAutoMaintain`）走的是同一段，⛔ 两边不许各记各的。 */
   const runViaApi = useCallback(async (): Promise<void> => {
     if (apiRunning) return;
     setApiRunning(true);
-    const startedAt = Date.now();
     try {
-      const key = await loadApiKey();
-      const out = await weeklyReviewViaApi({
-        baseUrl: apiBaseUrl,
-        apiKey: key,
-        model: apiModel,
-        reasoning: apiReasoning,
-        timeoutSecs: apiTimeoutSecs,
-      });
-      await recordRun({
-        action: 'weekly_review',
-        // 周回顾读的是整个库，不属于任何一个项目 —— 和 CLI 那条一样。
-        threadId: null,
-        // ⚠️ 记「实际跑的是哪个模型」而不是一句「api」：按次付费的时候，
-        // 「我以为在用 Flash」和「实际在用 Pro」差好几倍，而端点会回报真名。
-        engine: out.model ?? apiModel,
-        outcome: out.ok ? 'ok' : 'failed',
-        resultText: out.text.trim() || null,
-        detail: out.ok ? null : (out.message ?? null),
-        blocksWritten: 0,
-        proposalsQueued: 0,
-        usage: {
-          model: out.model ?? apiModel,
-          costUsd: null,
-          inputTokens: out.inputTokens || null,
-          outputTokens: out.outputTokens || null,
-        },
-        startedAt,
-        finishedAt: Date.now(),
+      const ok = await runWeeklyReviewViaApi({
+        apiBaseUrl,
+        apiModel,
+        apiReasoning,
+        apiTimeoutSecs,
       });
       // ⚠️「有回话」，⛔ 不是「写好了」—— 2026-08-11 那条纪律：Spool 判断不了一段散文
       // 是回顾还是道歉，所以不许替它宣称。
-      toast.notice(
-        out.ok
-          ? t('周回顾跑完了，就在下面')
-          : t('周回顾没跑成'),
-      );
+      toast.notice(ok ? t('周回顾跑完了，就在下面') : t('周回顾没跑成'));
     } catch (e) {
       toast.error(t('周回顾没跑成'), e instanceof Error ? e.message : String(e));
     } finally {
@@ -145,6 +138,22 @@ export default function ReviewBoard() {
       load();
     }
   }, [apiRunning, apiBaseUrl, apiModel, apiReasoning, apiTimeoutSecs, load, t]);
+
+  /** ⚠️ 只删没跑成的（`deleteRun` 那一侧也写着同一条），Ocean 2026-08-26:
+   *  「失败的可以删除记录，另外跑成功的」。 */
+  const remove = useCallback(
+    async (id: string): Promise<void> => {
+      try {
+        await deleteRun(id);
+        await useEngineStore.getState().loadRuns(useThreadsStore.getState().activeId);
+      } catch (e) {
+        toast.error(t('删不掉'), e instanceof Error ? e.message : String(e));
+      } finally {
+        load();
+      }
+    },
+    [load, t],
+  );
 
   const engineReady = canShowEngineActions({
     cliAvailable: engineStatus?.available === true,
@@ -155,9 +164,21 @@ export default function ReviewBoard() {
   const running = current?.action === 'weekly_review';
   /** 装着的那个 CLI 叫什么。⚠️ 两条路并排摆着的时候，光写「回顾这一周」两遍
    *  用户分不出哪个是哪个 —— 按钮上必须说出跑的是谁。 */
-  const cliName = engineStatus?.selected
-    ? (ENGINE_LABEL[engineStatus.selected] ?? engineStatus.selected)
-    : null;
+  const selected = engineStatus?.selected ?? null;
+  const cliName = selected ? (ENGINE_LABEL[selected] ?? selected) : null;
+  // `W1` — the picker itself, on this bar rather than in a rail this screen does not have.
+  // ⚠️ Same table and same settings key as the rail's (`lib/engine/models`), so picking here
+  // and picking there are the same act; a second copy would be a second answer.
+  const models = selected ? ENGINE_MODELS[selected] : [];
+  const model = modelKeyFor(selected) === 'aiModelGemini' ? modelGemini : modelClaude;
+
+  // W2 — what the automatic run will ACTUALLY do, same helper the tick uses.
+  const autoRun = effectiveAutoRoute(autoRoute, engineReady, apiOn);
+  const daysLeft =
+    nextAt === null ? 0 : Math.max(0, Math.ceil((nextAt - Date.now()) / 86_400_000));
+
+  const weeks = groupByWeek(reviews ?? [], (r) => r.finishedAt);
+  const thisWeek = startOfWeek(Date.now());
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -176,78 +197,155 @@ export default function ReviewBoard() {
           ⛔ 不再只认 CLI。以前只认 `engineReady`，于是一个没装 CLI、但填了 API key 的用户
           在这一屏上看不到任何可以点的东西。 */}
       {(engineReady || apiOn) && (
-        <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-6 py-2">
-          {engineReady && (
-          <button
-            type="button"
-            disabled={current !== null || apiRunning}
-            onClick={() => enqueue('', '', 'weekly_review', timeoutSecs)}
-            title={t('回顾最近一周——读一遍所有项目')}
-            className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
-          >
-            {running ? (
-              <Loader2 size={12} className="flex-none animate-spin" />
-            ) : (
-              <CalendarRange size={12} className="flex-none" />
+        <div className="flex-none border-b border-line px-6 py-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {engineReady && (
+              <button
+                type="button"
+                disabled={current !== null || apiRunning}
+                onClick={() => enqueue('', '', 'weekly_review', timeoutSecs)}
+                title={t('回顾最近一周——读一遍所有项目')}
+                className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
+              >
+                {running ? (
+                  <Loader2 size={12} className="flex-none animate-spin" />
+                ) : (
+                  <CalendarRange size={12} className="flex-none" />
+                )}
+                {running
+                  ? t('正在回顾…')
+                  : cliName
+                    ? t('回顾这一周（用 {engine}）', { engine: cliName })
+                    : t('回顾这一周')}
+              </button>
             )}
-            {running
-              ? t('正在回顾…')
-              : cliName
-                ? t('回顾这一周（用 {engine}）', { engine: cliName })
-                : t('回顾这一周')}
-          </button>
-          )}
 
-          {/* ⭐⭐ Ocean 2026-08-25：「加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
-              ⚠️ 模型是**设置里那个「模型」框**（`apiModel`），⛔ 这里不再做第二个选择器 ——
-              按钮上把它的名字说出来，用户点之前就知道这一下花的是谁的钱。 */}
-          {apiOn && (
-            <button
-              type="button"
-              disabled={apiRunning || current !== null}
-              onClick={() => void runViaApi()}
-              title={t('用你自己填的端点和模型跑一次（按字数计费）')}
-              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
-            >
-              {apiRunning ? (
-                <Loader2 size={12} className="flex-none animate-spin" />
-              ) : (
-                <CalendarRange size={12} className="flex-none" />
+            {/* ⭐⭐ `W1` (Ocean 2026-08-26：「每周自动回顾无法选模型」) —— 选择器在这儿，
+                因为他站的就是这一屏，而这一屏没有右边栏。⛔ 别拿「跳去别处选」搪塞。
+                「默认」= 一个 `--model` 都不发，也就是用他自己 CLI 账号里配好的那个。 */}
+            {engineReady && models.length > 0 && (
+              <label className="flex items-center gap-1.5">
+                <span className="text-xs text-muted">{t('用哪个模型')}</span>
+                <select
+                  value={model ?? ''}
+                  disabled={current !== null}
+                  onChange={(e) =>
+                    void update({ [modelKeyFor(selected)]: e.target.value || null })
+                  }
+                  className="rounded border border-line bg-paper px-1.5 py-0.5 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
+                >
+                  <option value="">{t('默认')}</option>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {/* ⭐⭐ Ocean 2026-08-25：「加入 deepseek 的周总结，总结的 model 可以让用户自行选择」。
+                ⚠️ 模型是**设置里那个「模型」框**（`apiModel`），⛔ 这里不再做第二个选择器 ——
+                按钮上把它的名字说出来，用户点之前就知道这一下花的是谁的钱。 */}
+            {apiOn && (
+              <button
+                type="button"
+                disabled={apiRunning || current !== null}
+                onClick={() => void runViaApi()}
+                title={t('用你自己填的端点和模型跑一次（按字数计费）')}
+                className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-ink-2 transition-colors enabled:hover:bg-paper-2 enabled:hover:text-accent disabled:text-muted disabled:opacity-50"
+              >
+                {apiRunning ? (
+                  <Loader2 size={12} className="flex-none animate-spin" />
+                ) : (
+                  <CalendarRange size={12} className="flex-none" />
+                )}
+                {apiRunning
+                  ? t('正在回顾…')
+                  : t('回顾这一周（用 {engine}）', { engine: apiModel })}
+              </button>
+            )}
+
+            {/* ⭐ 2026-08-25（Ocean:「周回顾没法暂停」）—— 停下的按钮以前**只长在右边栏的
+                LiveRun 卡片上**，而钉住的视图（项目管理 / 周回顾）根本不挂右边栏（App.tsx:
+                `pinnedView ? null : …`）。所以从这一屏点「回顾这一周」的人，看着它转，
+                没有任何地方能停。⛔ 别用「跳回项目再停」搪塞：他就在这一屏。
+                ⚠️ 停下不是暂停 —— 停了不能续跑，再点一次是从头跑（已经写进去的留着）。 */}
+            {running && (
+              <button
+                type="button"
+                onClick={() => void cancel()}
+                title={t('点一下停下来（停了不能续跑，再点就是从头再来）')}
+                className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
+              >
+                {t('停下')}
+              </button>
+            )}
+
+            {/* §4.3's master switch, moved here from 项目管理 (2026-08-11). It used to govern
+                two things and now governs one: with per-project 压缩 retired, a weekly review is
+                the only thing automation still runs — so it belongs beside the action, not beside
+                the projects it no longer touches.
+
+                ⚠️ Still default OFF, and that stays a deliberate reading of a request that pulled
+                two ways: Ocean asked for automation AND for 「必须节约token」/「让用户放心」 in one
+                breath, and this switch spends real money without asking again. */}
+            <label className="flex cursor-pointer items-center gap-2">
+              <Toggle checked={autoMaintain} onChange={(v) => void update({ aiAutoMaintain: v })} />
+              <span className="text-xs text-ink-2">{t('每周自动回顾一次')}</span>
+            </label>
+
+            {/* ⭐ `W2` —— 自动那一次**走哪条路**。⚠️ 它今天只认 CLI，所以 08-25 刚接上的
+                API 那条路自动回顾永远用不上；这是那件事的开关。
+                ⚠️ 模型跟着路走：CLI 用上面那个选择器，API 用设置里那个「模型」框。 */}
+            {autoMaintain && engineReady && apiOn && (
+              <label className="flex items-center gap-1.5">
+                <span className="text-xs text-muted">{t('自动那次用')}</span>
+                <select
+                  value={autoRoute}
+                  onChange={(e) =>
+                    void update({ autoReviewRoute: e.target.value === 'api' ? 'api' : 'cli' })
+                  }
+                  className="rounded border border-line bg-paper px-1.5 py-0.5 text-xs text-ink outline-none focus:border-accent"
+                >
+                  <option value="cli">{cliName ?? t('CLI')}</option>
+                  <option value="api">{apiModel}</option>
+                </select>
+              </label>
+            )}
+          </div>
+
+          {/* ⭐ 第二行：两句只在需要时才出现的话。⛔ 它们不是装饰 —— 各自堵着一个
+              「用户读到的是坏了」的洞。 */}
+          {(autoMaintain || selected === 'codex') && (
+            <div className="mt-1.5 space-y-1 px-1.5">
+              {/* ⭐⭐ 分组按自然周切，而自动回顾判的是「距上次成功满 7 天」（lib/weeks 那段
+                  写着为什么两把尺子）。代价是「这一周」那一格可能空着、而自动那条还没到点，
+                  ⇒ 这句话就是那个代价的补丁：⛔ 别让用户从一个空格子里去猜。 */}
+              {autoMaintain && (
+                <p className="text-[11px] text-muted">
+                  {/* ⭐ 走哪条路要写出来,⛔ 不能只在两条都在时才说 —— 偏好可能指着一条
+                      今天走不通的路(选了 CLI 然后卸了它),那时 `effectiveAutoRoute` 会
+                      退到另一条,而另一条是**按字数花钱**的。退让可以,悄悄退让不行。 */}
+                  {/* ⚠️ `autoRun` 在这根条子里不可能是 null —— 这根条子的闸本身就是
+                      「至少有一条路」，和 `effectiveAutoRoute` 读的是同一对布尔。 */}
+                  {t('自动那次走 {engine}。', {
+                    engine: autoRun === 'api' ? apiModel : (cliName ?? t('CLI')),
+                  })}{' '}
+                  {nextAt === null
+                    ? t('还没成功回顾过，下一次检查时就会跑。')
+                    : daysLeft <= 0
+                      ? t('该跑了——下一次检查时就跑（每十分钟看一次）。')
+                      : t('下次自动回顾：还有 {n} 天。', { n: daysLeft })}
+                </p>
               )}
-              {apiRunning
-                ? t('正在回顾…')
-                : t('回顾这一周（用 {engine}）', { engine: apiModel })}
-            </button>
+              {/* ⭐ 2026-08-26 (Ocean 拍的乙)：codex 有引擎、没模型单子，于是上面什么都不画 ——
+                  而「一个选择器都不出」在用户那边读到的就是「坏了」。说一句为什么。 */}
+              {selected === 'codex' && (
+                <p className="text-[11px] leading-relaxed text-muted">{t(CODEX_NO_MODELS)}</p>
+              )}
+            </div>
           )}
-
-          {/* ⭐ 2026-08-25（Ocean:「周回顾没法暂停」）—— 停下的按钮以前**只长在右边栏的
-              LiveRun 卡片上**，而钉住的视图（项目管理 / 周回顾）根本不挂右边栏（App.tsx:
-              `pinnedView ? null : …`）。所以从这一屏点「回顾这一周」的人，看着它转，
-              没有任何地方能停。⛔ 别用「跳回项目再停」搪塞：他就在这一屏。
-              ⚠️ 停下不是暂停 —— 停了不能续跑，再点一次是从头跑（已经写进去的留着）。 */}
-          {running && (
-            <button
-              type="button"
-              onClick={() => void cancel()}
-              title={t('点一下停下来（停了不能续跑，再点就是从头再来）')}
-              className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2 transition-colors hover:border-accent hover:text-accent"
-            >
-              {t('停下')}
-            </button>
-          )}
-
-          {/* §4.3's master switch, moved here from 项目管理 (2026-08-11). It used to govern
-              two things and now governs one: with per-project 压缩 retired, a weekly review is
-              the only thing automation still runs — so it belongs beside the action, not beside
-              the projects it no longer touches.
-
-              ⚠️ Still default OFF, and that stays a deliberate reading of a request that pulled
-              two ways: Ocean asked for automation AND for 「必须节约token」/「让用户放心」 in one
-              breath, and this switch spends real money without asking again. */}
-          <label className="flex cursor-pointer items-center gap-2">
-            <Toggle checked={autoMaintain} onChange={(v) => void update({ aiAutoMaintain: v })} />
-            <span className="text-xs text-ink-2">{t('每周自动回顾一次')}</span>
-          </label>
         </div>
       )}
 
@@ -263,21 +361,92 @@ export default function ReviewBoard() {
               : t('装了 Claude Code 或 Codex，并打开「允许 AI 写入」之后，这里才有东西。')}
           </p>
         ) : (
-          <ul className="space-y-4">
-            {reviews.map((r) => (
-              <Review key={r.id} run={r} />
+          <div className="space-y-6">
+            {weeks.map((w) => (
+              <WeekSection
+                key={w.start}
+                start={w.start}
+                items={w.items}
+                current={w.start === thisWeek}
+                onDelete={remove}
+              />
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+/**
+ * 一周一格 —— `W4`（Ocean:「周回顾每周的新进展应该组合在一起，以周为单位呈现」）。
+ *
+ * ⚠️ **一周里会有好几条**：自动跑一次 + 手动点几次 + 失败重试，全落在同一张表里。
+ * ⛔ 所以这是「一周一格」，不是「一周一条」。
+ *
+ * ⚠️ 没跑成的那几条**折起来**（Ocean 2026-08-26 那一问，他答的是「可以删除记录」——
+ * 删的按钮在下面，而折叠是同一件事的另一半：他库里 8 次有 5 次没跑成，摊开会把真正
+ * 跑成的那一条埋掉）。
+ */
+function WeekSection({
+  start,
+  items,
+  current,
+  onDelete,
+}: {
+  start: number;
+  items: EngineRun[];
+  current: boolean;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const t = useT();
+  const ok = items.filter((r) => r.outcome === 'ok');
+  const bad = items.filter((r) => r.outcome !== 'ok');
+  const fmt = (ts: number): string =>
+    new Date(ts).toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric' });
+
+  return (
+    <section>
+      <h3 className="flex items-baseline gap-2 border-b border-line pb-1 text-xs text-muted">
+        <span className="font-mono text-ink-2">
+          {fmt(start)} – {fmt(endOfWeek(start))}
+        </span>
+        {current && <span className="text-accent">{t('这一周')}</span>}
+      </h3>
+
+      {ok.length > 0 ? (
+        <ul className="mt-3 space-y-4">
+          {ok.map((r) => (
+            <Review key={r.id} run={r} />
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-xs italic text-muted">{t('这一周没有跑成的回顾。')}</p>
+      )}
+
+      {bad.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-muted transition-colors hover:text-ink-2">
+            {t('另有 {n} 次没跑成', { n: bad.length })}
+          </summary>
+          <ul className="mt-2 space-y-4">
+            {bad.map((r) => (
+              <Review key={r.id} run={r} onDelete={onDelete} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 /** One past review, read rather than answered — so it has no buttons and never collapses on
- *  being dealt with. A failed run still gets an entry: 「那一周我按了但它没跑成」 is itself part
- *  of the record, and hiding it would make the gaps unexplainable. */
-function Review({ run }: { run: EngineRun }) {
+ *  being dealt with.
+ *
+ *  ⚠️ 2026-08-26: a failed run now gets a 删掉 button (Ocean: 「失败的可以删除记录，另外跑
+ *  成功的」). ⛔ 只有它有 —— 跑成的那些是这个功能的产物，而且 `spendSince` 的合计要靠它们
+ *  才不说谎。原来那条「失败也要留档」的纪律是我们自己定的，他用下来推翻了它。 */
+function Review({ run, onDelete }: { run: EngineRun; onDelete?: (id: string) => Promise<void> }) {
   const t = useT();
   const when = new Date(run.finishedAt).toLocaleString(dateLocale(), {
     month: 'short',
@@ -294,8 +463,19 @@ function Review({ run }: { run: EngineRun }) {
       <div className="flex flex-wrap items-baseline gap-x-2 text-[10px] text-muted">
         <span className="font-mono text-ink-2">{when}</span>
         <span>· {engineName}</span>
-        {run.usage.model && <span>· {run.usage.model}</span>}
+        {run.usage.model && run.usage.model !== run.engine && <span>· {run.usage.model}</span>}
         <span>· {cost ?? t('花费未知')}</span>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={() => void onDelete(run.id)}
+            title={t('把这条没跑成的记录删掉')}
+            className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-paper-2 hover:text-ink-2"
+          >
+            <Trash2 size={10} className="flex-none" />
+            {t('删掉')}
+          </button>
+        )}
       </div>
       {text ? (
         // §10.1 — a review is the longest Markdown any AI writes into Spool (「## 截止日期」,
