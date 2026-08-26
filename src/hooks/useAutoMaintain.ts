@@ -6,6 +6,7 @@ import { canShowEngineActions, effectiveAutoRoute } from '@/lib/engine/gate';
 import { useEngineStore } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+import { useBalanceStore } from '@/stores/balanceStore';
 
 // DESIGN_WORKBENCH §4.3 / §11.2 — automatic maintenance.
 //
@@ -117,6 +118,8 @@ export function useAutoMaintain(): void {
           // Same argument the queue passes when a CLI run lands, so 周回顾's list (which
           // watches `runs`) re-reads without polling.
           await useEngineStore.getState().loadRuns(useThreadsStore.getState().activeId);
+          // 「跑完顺带刷一次」（X 批）—— 这次出网已经发生了。
+          void useBalanceStore.getState().refresh();
         } else {
           enqueue('', '', 'weekly_review', g.timeoutSecs);
         }

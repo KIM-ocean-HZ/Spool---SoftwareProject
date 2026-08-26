@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useBalanceStore } from '@/stores/balanceStore';
 import { listen } from '@tauri-apps/api/event';
 import {
   cancelCompress,
@@ -425,6 +426,10 @@ const runCompress = async (
         };
 
   const first = put(await compressPack(req));
+  // ⭐ X 批「跑完顺带刷一次」（Ocean 2026-08-26:「用户需要反复查看余额」）。
+  // ⚠️ 放在**第一次回来之后**,⛔ 不是放在整件事结束之后 —— 这里可能还要自动重跑一次,
+  // 而钱在第一次就已经花掉了。这次出网已经发生,所以它不新增一条出网路径。
+  void useBalanceStore.getState().refresh();
   if (!first.ok || !worthRetrying(source, first.text, level))
     return { outcome: first, retry: null, shield: report() };
   const second = put(await compressPack(req));

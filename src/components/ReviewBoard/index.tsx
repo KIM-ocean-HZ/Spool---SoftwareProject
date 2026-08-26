@@ -1,5 +1,6 @@
 import { CalendarRange, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import ApiBalance from '@/components/ApiBalance';
 import Toggle from '@/components/ui/Toggle';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import {
@@ -22,6 +23,7 @@ import {
 import { ACTION_LABEL, ENGINE_LABEL, useEngineStore, type EngineKind } from '@/stores/engineStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
+import { useBalanceStore } from '@/stores/balanceStore';
 import { CENTRE_HEADER_HEIGHT } from '@/lib/layout';
 
 // 周回顾 — its own pinned view, beside 项目管理.
@@ -136,6 +138,9 @@ export default function ReviewBoard() {
     } finally {
       setApiRunning(false);
       load();
+      // ⭐ X 批「跑完顺带刷一次」—— ⚠️ 这一刻正是余额刚变过的那一刻，而这次出网已经
+      // 发生了，⛔ 所以它不新增一条「app 自己往外连」的路径。
+      void useBalanceStore.getState().refresh();
     }
   }, [apiRunning, apiBaseUrl, apiModel, apiReasoning, apiTimeoutSecs, load, t]);
 
@@ -265,6 +270,10 @@ export default function ReviewBoard() {
                   : t('回顾这一周（用 {engine}）', { engine: apiModel })}
               </button>
             )}
+
+            {/* ⭐ 余额贴着按它就要花钱的那个按钮。⛔ 不自动查 —— 点一下,或者一次运行
+                刚跑完顺带刷。 */}
+            {apiOn && <ApiBalance />}
 
             {/* ⭐ 2026-08-25（Ocean:「周回顾没法暂停」）—— 停下的按钮以前**只长在右边栏的
                 LiveRun 卡片上**，而钉住的视图（项目管理 / 周回顾）根本不挂右边栏（App.tsx:

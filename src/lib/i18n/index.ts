@@ -240,6 +240,15 @@ const EN: Record<string, string> = {
   '删掉': 'Delete',
   '把这条没跑成的记录删掉': 'Delete this failed record',
   '删不掉': 'Could not delete it',
+  // X 批（2026-08-26）：API 余额。⚠️「这家不报余额」和「查不到余额」是**两句不同的话**,
+  // ⛔ 两者都不许显示成 0 —— 用户会按着一个假余额去安排事情。
+  '这家不报余额': 'This provider reports no balance',
+  '查不到余额': 'Could not read the balance',
+  '查一下余额': 'Check balance',
+  '去问一下端点还剩多少（查余额本身不花钱）':
+    'Ask the endpoint how much is left (the balance query itself costs nothing)',
+  '这是端点自己报的余额，{time} 查的。':
+    'The balance the endpoint reported, checked at {time}.',
   // Q4（§2.Q4）：「摘要」页签。⚠️ 那两句说明是这一页的一部分，⛔ 不是装饰 ——
   // 不说清分工的话，用户第一反应是「这不就是批注吗」。
   // ⚠️ 页签叫「**块**摘要」，⛔ 不是光「摘要」—— Ocean 说的是「摘要」，但那两个字在

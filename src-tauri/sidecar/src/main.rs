@@ -69,6 +69,13 @@ struct Request {
     #[serde(default)]
     thinking_disabled: bool,
     timeout_secs: u64,
+    /// 这一次要它做什么。空 / `"chat"` = 压一段文字（这个进程原本唯一会做的事）；
+    /// `"balance"` = 去问一句余额。
+    ///
+    /// ⚠️ `#[serde(default)]` 同上 —— 少了它，老的调用方（不发这个字段）会被判成
+    /// 「请求不是合法 JSON」，而那是一条非零退出、界面上只剩一个数字的路。
+    #[serde(default)]
+    kind: String,
 }
 
 /// 吐到 stdout 的信封。`ok` 是判别字段，两种形态的字段不重叠。
@@ -82,6 +89,20 @@ enum Envelope {
         model: String,
         /// 墙上时间，毫秒。界面要拿它跟「一次实时 web 运行」对照（§6.2）。
         ms: u128,
+    },
+    /// 余额。⚠️ 字段名和上面两种**一个都不重叠**，`untagged` 才分得开。
+    ///
+    /// ⚠️ 数字原样是**字符串**，⛔ 不在这里折算成 f64：厂商回的是
+    /// `"25.50"` 这样的十进制串，而钱经过一次二进制浮点就可能变成 25.499999。
+    /// 界面要的是把它印出来，不是拿它算术。
+    Balance {
+        ok: bool,
+        /// 币种，例如 `CNY` / `USD`。
+        currency: String,
+        /// 还能用的总额（含赠送额度）。
+        total: String,
+        /// 厂商自己说的「这个账号现在还能不能调用」。
+        usable: bool,
     },
     Err {
         ok: bool,
@@ -165,6 +186,9 @@ fn run(req: Request) -> Envelope {
     if req.api_key.trim().is_empty() {
         return err("bad_config", "No API key was given.", None);
     }
+    if req.kind == "balance" {
+        return balance(base, &req);
+    }
     let url = format!("{base}/chat/completions");
 
     // ⚠️ system 在前、user 在后，而这个顺序是**钱**，不是风格问题。
@@ -224,6 +248,94 @@ fn run(req: Request) -> Envelope {
         Envelope::Err { status: Some(400), .. } => call(&agent, &url, &req, &body, false, base),
         other => other,
     }
+}
+
+/// 问一句「还剩多少钱」。
+///
+/// ⚠️⚠️ **「余额」在 OpenAI 兼容协议里没有标准。** `/chat/completions` 是协议的一部分,
+/// 每一家都认;余额不是——DeepSeek 有 `GET /user/balance`,别家各写各的,大多数干脆没有。
+///
+/// 所以这里**只问这一个地址**,问不到就老实说问不到:
+///
+///   * 404 / 405 → `kind: "unsupported"`。⛔ 这不是错误,是「这家不报」。界面必须把这两件
+///     事分开说 —— 把「不知道」显示成一个数字(尤其是 0),会让用户按着一个假余额去安排事情。
+///   * 401 / 403 → `auth`,和别处一样。key 不对就是 key 不对,和支不支持无关。
+///
+/// ⚠️ 不计费。查余额是一次 GET,厂商不按它收钱 —— 这也是为什么它敢在「跑完顺带刷一次」
+/// 那个位置上被自动调用,而 `/chat/completions` 不敢。
+fn balance(base: &str, req: &Request) -> Envelope {
+    let url = format!("{base}/user/balance");
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        // ⚠️ 比正文那条短得多,而且**不用**外面传进来的 timeout:一次 GET 要是十秒还没回话,
+        // 那不是「模型在想」,是这条路不通。让用户对着转圈等十分钟毫无意义。
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_idle_connections(0)
+        .http_status_as_error(false)
+        .build()
+        .into();
+
+    let resp = agent
+        .get(&url)
+        .header("Authorization", &format!("Bearer {}", req.api_key))
+        .header("Accept", "application/json")
+        .call();
+
+    let mut resp = match resp {
+        Ok(r) => r,
+        Err(ureq::Error::Timeout(_)) => {
+            return err("timeout", "The endpoint did not answer the balance query in time.", None)
+        }
+        // ⚠️ `e` 里不含 key（key 在 header 里，不在 URL 里）。
+        Err(e) => return err("network", format!("Could not reach {base} — {e}"), None),
+    };
+
+    let status = resp.status().as_u16();
+    let text = resp.body_mut().read_to_string().unwrap_or_default();
+    if status == 404 || status == 405 {
+        return err(
+            "unsupported",
+            format!("{base} does not answer /user/balance — this provider does not report a balance."),
+            Some(status),
+        );
+    }
+    if status == 401 || status == 403 {
+        return err("auth", format!("The endpoint refused the key ({status})."), Some(status));
+    }
+    if status >= 400 {
+        return err("http", clip_body(&text), Some(status));
+    }
+
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return err("bad_response", clip_body(&text), Some(status));
+    };
+    // DeepSeek 的形状：{"is_available":true,"balance_infos":[{"currency":"CNY",
+    // "total_balance":"25.50",…}]}。⚠️ 一个账号可以有好几种币，取第一条 —— 界面上要的是
+    // 「还能不能用」和「大概还剩多少」，⛔ 不是一份财务报表。
+    let first = v.get("balance_infos").and_then(|a| a.as_array()).and_then(|a| a.first());
+    let Some(info) = first else {
+        // 200 但不是这个形状 —— 这家的余额长别的样子，和「不报」是同一种结局。
+        return err(
+            "unsupported",
+            format!("{base} answered, but not in a shape Spool can read: {}", clip_body(&text)),
+            Some(status),
+        );
+    };
+    let pick = |k: &str| info.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    Envelope::Balance {
+        ok: true,
+        currency: pick("currency"),
+        total: pick("total_balance"),
+        usable: v.get("is_available").and_then(|b| b.as_bool()).unwrap_or(true),
+    }
+}
+
+/// ⚠️ 响应体可能是一整页 HTML（403 那次就是）。截短,而且这里**永远不会**出现 key。
+fn clip_body(s: &str) -> String {
+    let s = s.trim();
+    if s.chars().count() <= 300 {
+        return s.to_string();
+    }
+    format!("{}…", s.chars().take(300).collect::<String>())
 }
 
 /// 发一次请求，把流读完。

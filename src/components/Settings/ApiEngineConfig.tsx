@@ -1,5 +1,6 @@
 import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import ApiBalance from '@/components/ApiBalance';
 import Toggle from '@/components/ui/Toggle';
 import { apiKeyPresent, loadApiKey, saveApiKey, sidecarPresent } from '@/lib/ai/compress';
 import { useT } from '@/lib/i18n';
@@ -100,6 +101,10 @@ export default function ApiEngineConfig() {
             <span className="mt-1 block text-[11px] leading-relaxed text-muted/80">
               {t('key 存在你这台电脑的系统钥匙串里，和别的密码放在一起。它不会进设置文件，也不会跟着导出的库走。')}
             </span>
+            {/* ⭐ X 批（Ocean 2026-08-26:「用户需要反复查看余额」）—— 余额在 key 底下,
+                因为它回答的正是「这个 key 还能不能用」。⛔ 不自动查:一个开着就自己
+                往外连的设置页,会推翻「只在你要它出去的时候才出去」那句话。 */}
+            <ApiBalance className="mt-1.5" />
           </label>
 
           <label className="block">

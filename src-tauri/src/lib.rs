@@ -380,6 +380,7 @@ pub fn run() {
             api_engine::compress_duplicate_probe,
             api_engine::stale_scan_via_api,
             api_engine::weekly_review_via_api,
+            api_engine::api_balance,
             api_engine::api_key_save,
             api_engine::api_key_load,
             api_engine::api_key_present,

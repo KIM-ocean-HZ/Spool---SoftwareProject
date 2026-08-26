@@ -725,6 +725,43 @@ pub(crate) fn compress_for_test(
 mod tests {
     use super::*;
 
+    // ---- 余额（X 批，2026-08-26）----
+
+    #[test]
+    fn a_balance_envelope_keeps_the_amount_as_a_string() {
+        // ⛔ 不许在任何一层折算成浮点：`"25.50"` 过一次 f64 就可能变成 25.499999。
+        let b = parse_balance(r#"{"ok":true,"currency":"CNY","total":"25.50","usable":true}"#);
+        assert!(b.ok);
+        assert_eq!(b.total, "25.50");
+        assert_eq!(b.currency, "CNY");
+        assert!(b.usable);
+    }
+
+    #[test]
+    fn an_endpoint_that_does_not_report_a_balance_is_not_an_error() {
+        // ⭐ 「这家不报余额」和「查失败了」必须分得开 —— 界面上是两句不同的话，
+        // ⛔ 而两者都不许显示成 0。
+        let b = parse_balance(
+            r#"{"ok":false,"kind":"unsupported","message":"no /user/balance","status":404}"#,
+        );
+        assert!(!b.ok);
+        assert_eq!(b.kind.as_deref(), Some("unsupported"));
+    }
+
+    #[test]
+    fn a_refused_key_is_reported_as_auth_not_as_a_missing_feature() {
+        let b = parse_balance(r#"{"ok":false,"kind":"auth","message":"401","status":401}"#);
+        assert_eq!(b.kind.as_deref(), Some("auth"));
+    }
+
+    #[test]
+    fn garbage_from_the_balance_query_is_a_visible_failure() {
+        let b = parse_balance("<html>gateway error</html>");
+        assert!(!b.ok);
+        assert_eq!(b.kind.as_deref(), Some("bad_response"));
+        assert!(b.total.is_empty());
+    }
+
     #[test]
     fn a_failure_envelope_keeps_the_kind_so_the_ui_can_say_which_one() {
         let o = parse_envelope(r#"{"ok":false,"kind":"quota","message":"out of balance","status":402}"#);
@@ -1191,6 +1228,147 @@ pub async fn stale_scan_via_api(
         (Vec::new(), Vec::new())
     };
     Ok(StaleScan { outcome, proposals, dropped })
+}
+
+// ---------------------------------------------------------------------------------------
+// 余额 —— 2026-08-26，Ocean：「能不能拿到用户的 api 剩余额度，目前使用 api 摩擦还是比较大，
+// 用户需要反复查看余额，但是尽可能保住不出网叙事。」
+//
+// ⭐ **「不出网叙事」没被推翻，因为它走的还是同一个子进程、同一个用户自己填的端点。**
+// 那句话现在的形状是「只有 spool-ai 会出去，而且只在你要它出去的时候」——查一次余额
+// 是用户点的，或者一次已经出过网的运行刚结束时顺带的，⛔ 没有定时轮询。
+// ⛔ 哪天有人想给它加个定时器，那才是真的推翻，要先问 Ocean。
+//
+// ⚠️ **它只对认得的那几家有效**，见 sidecar 里 `balance()` 的注释：余额不是 OpenAI 兼容
+// 协议的一部分。问不到的时候界面要说「这家不报余额」，⛔ 不许显示 0。
+
+/// 余额查询的结果。⚠️ 和 `CompressOutcome` 分开一个类型，是因为它**没有** token、没有
+/// 花了多久、没有模型名 —— 挤进那个结构里只会多出六个永远是 0 的字段。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceOutcome {
+    pub ok: bool,
+    /// 币种（`CNY` / `USD` …）。失败时为空。
+    pub currency: String,
+    /// ⚠️ **原样的十进制字符串**，⛔ 不是数字：钱经过一次二进制浮点就可能变成 25.499999。
+    /// 界面只把它印出来。
+    pub total: String,
+    /// 厂商说的「这个账号现在还能不能调用」。
+    pub usable: bool,
+    /// `unsupported` = 这家不报余额。⛔ 界面要把它和「查失败了」分开说。
+    pub kind: Option<String>,
+    pub message: Option<String>,
+    pub status: Option<u16>,
+}
+
+impl BalanceOutcome {
+    fn failed(kind: &str, message: String, status: Option<u16>) -> Self {
+        Self {
+            ok: false,
+            currency: String::new(),
+            total: String::new(),
+            usable: false,
+            kind: Some(kind.to_string()),
+            message: Some(message),
+            status,
+        }
+    }
+}
+
+fn parse_balance(stdout: &str) -> BalanceOutcome {
+    let line = stdout.trim();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return BalanceOutcome::failed(
+            "bad_response",
+            format!("The sidecar's answer was not JSON: {}", clip(line)),
+            None,
+        );
+    };
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        return BalanceOutcome::failed(
+            v.get("kind").and_then(|s| s.as_str()).unwrap_or("http"),
+            v.get("message").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+            v.get("status").and_then(|n| n.as_u64()).map(|n| n as u16),
+        );
+    }
+    let pick = |k: &str| v.get(k).and_then(|s| s.as_str()).unwrap_or("").to_string();
+    BalanceOutcome {
+        ok: true,
+        currency: pick("currency"),
+        total: pick("total"),
+        usable: v.get("usable").and_then(|b| b.as_bool()).unwrap_or(true),
+        kind: None,
+        message: None,
+        status: None,
+    }
+}
+
+/// 问一句余额。
+///
+/// ⛔⛔ **不占 `RUNNING` 那个闸。** 那个闸是给「一次只跑一个模型调用」用的，而这一条
+/// 既不花钱也不吃额度（一次 GET），⚠️ 更要紧的是：「跑完顺带刷一次」这个用法**必然**
+/// 发生在一次运行刚结束的那一刻。让它去抢那个闸，就是让它在最该刷新的时候刷不了。
+///
+/// ⚠️ 超时不从设置里读：一次 GET 二十秒还没回话，那不是「模型在想」，是这条路不通
+/// （sidecar 那边写死 20 秒，这里给它一点余量收尾）。
+#[tauri::command]
+pub async fn api_balance(
+    base_url: String,
+    api_key: String,
+) -> Result<BalanceOutcome, String> {
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let bin = match sidecar_path() {
+            Ok(p) => p,
+            Err(e) => return BalanceOutcome::failed("no_sidecar", e, None),
+        };
+        let request = serde_json::json!({
+            "kind": "balance",
+            "base_url": base_url,
+            "api_key": api_key,
+            // ⚠️ 这三个是请求结构里的必填字段，查余额那条路一个都不读 —— 但少一个，
+            // 子进程会把整个请求判成「不是合法 JSON」并非零退出。
+            "model": "",
+            "system": "",
+            "user": "",
+            "timeout_secs": 25u64,
+        });
+        let payload = match serde_json::to_vec(&request) {
+            Ok(v) => v,
+            Err(e) => return BalanceOutcome::failed("internal", e.to_string(), None),
+        };
+        // ⛔ 不走 `spawn_sidecar_with`：那条会把子进程的句柄挂进 `CHILD`，而 `CHILD`
+        // 是「停下」按钮瞄准的地方 —— 一次查余额挂上去，就会把用户正在跑的那次压缩
+        // 从取消按钮底下顶掉。这条路自己起、自己收。
+        match run_balance_child(&bin, payload) {
+            Ok(stdout) => parse_balance(&stdout),
+            Err(e) => BalanceOutcome::failed("internal", e, None),
+        }
+    })
+    .await;
+    Ok(match out {
+        Ok(o) => o,
+        Err(e) => BalanceOutcome::failed("internal", e.to_string(), None),
+    })
+}
+
+/// 起一次子进程、喂 stdin、等它退出。⚠️ 二十五秒是硬上限：子进程自己 20 秒就会写一个
+/// timeout 信封出来，这里只是兜住「它连信封都没写出来」的情况。
+fn run_balance_child(bin: &std::path::Path, payload: Vec<u8>) -> Result<String, String> {
+    use std::io::Write;
+    let mut child = Command::new(bin)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "no stdin on the sidecar".to_string())?
+        .write_all(&payload)
+        .map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 // ---------------------------------------------------------------------------------------
