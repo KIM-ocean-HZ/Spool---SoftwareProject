@@ -850,3 +850,90 @@ attribution-grep-false-positive）；⚠️「别往 blocks 表加列」的例�
 ⛔ 别扩大；⛔ 换装必须带 APPLE_SIGNING_IDENTITY，否则 TCC 授权当场作废
 （记忆 isolated-verify-workflow §6-bis）。
 ```
+
+---
+
+## 16. 🆕 08-26 这一窗：`W 批` 四条做完了（`3e6b8a5`，⛔ 未验、未推、**未换装**）
+
+> **这一窗的顺序**：先做了 §14.5 那三条自查（结论和文档有出入，见 16.1），
+> 顺手从库里结掉了七条验收里的两条（16.2），拿到 Ocean 三个拍板（16.3），
+> 然后一口气做完 `W1`–`W4` 加两条顺带修的（16.4）。
+
+### 16.1 §14.5 那三条自查 —— 两条和文档写的不一样
+
+| # | 文档说 | 代码里实际是 |
+|---|---|---|
+| 1 | 「是『距上次满 7 天』还是『本周内跑过』？」 | **距上一次成功满 7 天**（`engineRuns.ts` `MAX(finished_at) WHERE outcome='ok'`）。⭐ 它是一根**滚动**的线，⛔ **划不出固定的周格子** —— 两把尺子对不上是必然的，不是没对齐 |
+| 2 | `weekly_review` 的 `thread_id` 都是 NULL | ✅ 对。真库 8 条（3 ok / 3 failed / 2 cancelled），一条都没挂项目 |
+| 3 | 引擎条上有几个按钮 | CLI 按钮（闸 `engineReady`）+ API 按钮（闸 `apiOn`）+「停下」+ 自动开关；整根条子闸 `engineReady \|\| apiOn`。**没有模型选择器** |
+
+⛔ **§14.2 ① 那一条是错的。** `showModels = status?.selected === 'claude'` 只管**思考力度**
+那一行（而它本来就 `EFFORT_PICKER_ENABLED = false`）；模型选择器的真闸是
+`models.length > 0`，所以 **gemini 一直是有选择器的**。codex 没有，是因为
+`ENGINE_MODELS.codex = []` —— 那才是唯一的原因。
+
+### 16.2 七条验收里，两条从库里就结掉了
+
+⭐ **他 08-26 01:20:48 已经用 DeepSeek 跑成过一次周回顾**（`engine` 栏记着
+`deepseek-v4-flash`，44753 进 / 11313 出，99 秒）。那条只有新二进制跑得出来，
+⇒ 换装成功、`weekly_review_via_api` 那条路通了，两件同时确认。
+
+- **第 6 条（不许拿历史编本周）✅ 过了**：那份回顾结尾是「其余项目基本这周没动，
+  像 Georgia Tech MS CSE 还停在一条置顶锚点上」。
+- **第 5 条**：代码这侧确认闸已经是「随便哪条准备好了」，两个按钮各带引擎名。
+
+⚠️ **第 7 条（NDJSON）验不了旧数据**：库里那条整条事件流是 `hr1KNB…`（08-25 21:32），
+跑在**老二进制**上，它不会自己变短。要重新让 claude 失败一次才看得到。
+
+⭐ **另外挖到一条**：`hr1KNB…` 那条列表上写着 `codex`，但 `detail` 里那条流是 **claude** 的
+（工具名一看就是 Claude Code）。病根在 `engineStore.ts:260` —— 跑失败时记进库的引擎名是
+**设置里选的那个**，不是真跑起来的那个（`run_action` 会重新 `detect()`，偏好指着没装的引擎
+会回退）。⇒ **「周回顾为什么没有 codex」有几次其实压根没在跑 codex。** 已修。
+
+### 16.3 Ocean 08-26 拍的三件
+
+| 问的 | 他答的 |
+|---|---|
+| codex 的模型怎么选 | **乙** —— 继续不给选，但界面上说清楚为什么 |
+| 按周分组后失败的摆哪儿 | ⭐ **两个选项都没选**：「失败的可以删除记录，另外跑成功的」⇒ 折起来**并且**给删除按钮 |
+| 切周的尺子 | **甲** —— 界面按自然周，自动那条（滚动 7 天）不动，界面自己把话说明白 |
+
+⭐ 他同时提了一件新的：**API 剩余额度**（「摩擦还是比较大，用户需要反复查看余额，
+但是尽可能保住不出网叙事」）—— 已写成 `X 批` 进 `WORKPLAN`，⛔ **没排进顺序**。
+
+### 16.4 逐条去处（提交 `3e6b8a5`）
+
+| 序 | 在哪 | 做了什么 |
+|---|---|---|
+| `W1` | `lib/engine/models.ts`（新）· `ReviewBoard` · `EngineBar` | `ENGINE_MODELS` 搬出来给两处共用，选择器进了周回顾那根引擎条。⚠️ `modelKeyFor` 把「哪个引擎写哪个 key」收成一处 |
+| `W2` | `settingsStore` · `useAutoMaintain` · `lib/engine/gate.ts` | 新设置 `autoReviewRoute`（默认 `cli`）。⭐ **模型没开第三份设置** —— 走 CLI 用 CLI 那份，走 API 用 `apiModel` |
+| `W3` | `models.ts` `CODEX_NO_MODELS` | 两处界面各说一句为什么 codex 没单子 |
+| `W4` | `lib/weeks.ts`（新）· `ReviewBoard` | 自然周分组；没跑成的折起来 + 可删（`deleteRun`，⛔ 闸在 SQL 那侧：`AND outcome <> 'ok'`） |
+
+**两条顺带修的**：
+
+1. `engineStore.ts` —— 失败时记的引擎名改读**探针的答案**（`status.selected`，和
+   `run_action` 里那次 `detect()` 同源），⛔ 不再读设置。
+2. `useAutoMaintain` —— **失败刹车**（`RETRY_MS = 1h`）。⚠️ 病根：`weeklyReviewDue`
+   只认跑成的，所以一次失败之后它**一直**是 true，而这个循环每十分钟看一次。
+   CLI 那边只是白转；**API 那边是每十分钟烧一次钱**，而用户什么都看不见。
+
+⭐ **`engineStore.ts:283-287` 那行『其余一律用 aiModelClaude』最后没改** —— 因为
+Ocean 选了乙，codex 仍然没有模型，那行发出去的值仍然会被 Rust 按名单丢掉。
+⚠️ **codex 哪天有了单子，这行必须跟着改**，`models.ts` 的 `modelKeyFor` 上写着这条。
+
+### 16.5 ⛔ 验它之前必须做的一件
+
+**要重新打包换装**（`3e6b8a5` 还只在源码里）。⛔ 带 `APPLE_SIGNING_IDENTITY`，
+否则 TCC 授权当场作废（记忆 `isolated-verify-workflow` §6-bis）。
+
+### 16.6 验收单（换装之后，一条一分钟）
+
+1. 周回顾那一屏，CLI 按钮旁边多了个**模型选择器**（选 claude 时是 sonnet / haiku）。
+2. 设置里把引擎切成 codex → 选择器不出，但下面多一句话说为什么。
+3. 打开「每周自动回顾一次」→ 旁边出现「自动那次用 …」，下面一行写着走谁、还有几天。
+4. 列表按周分成一格一格，本周那格标着「这一周」。
+5. 没跑成的那几条折在「另有 N 次没跑成」里，点开每条右边有「删掉」，删完不再出现。
+6. ⛔ **跑成功的那三条没有删除按钮**（SQL 那侧也拦着）。
+7. 让 claude 失败一次 → 列表里那条的引擎名应该是 **Claude Code**，⛔ 不是他设置里的 codex。
+
