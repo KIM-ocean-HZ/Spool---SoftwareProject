@@ -8,7 +8,8 @@ import SearchResultItem from './SearchResultItem';
 import { useT } from '@/lib/i18n';
 
 // Global search overlay (PLAN_EN.md §9.10 / Phase 7). An in-window modal — clicking
-// a result navigates the main window — opened by ⌘/Ctrl+Shift+F or the sidebar icon.
+// a result navigates the main window. 三个入口：窗口里的 ⌘F（2026-08-27，划了词就带着那个
+// 词进来）、系统级的 ⌘⇧F（窗口没在前面时用的那个，设置里可改）、侧边栏那个放大镜。
 export default function SearchOverlay() {
   const t = useT();
   const open = useSearchStore((s) => s.open);
@@ -24,8 +25,13 @@ export default function SearchOverlay() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  // ⭐ 2026-08-27：`select()` 不只是选中 —— ⌘F 是划了词之后按的，搜索框里已经有那个词了，
+  // 不全选的话下一个字会**接在它后面**，用户得先删一遍。选中之后，接着打字就是换一个词，
+  // 直接按 ↵ 就是查划中的这个。
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (!open) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, [open]);
 
   // A fresh result set resets the selection to the top.

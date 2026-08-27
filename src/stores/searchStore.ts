@@ -20,8 +20,9 @@ interface SearchState {
   // v2.9 §9.10 / §19.17: in-block navigation state. Set when a search result is
   // activated. While set, the find bar (mounted at the top of the destination
   // thread's LogView) is visible and BlockItem force-expands its target +
-  // wraps every hit position in <mark>. Cleared by ✕, Esc, click-outside the
-  // block + bar, or user-initiated scroll-away.
+  // wraps every hit position in <mark>.
+  // ⭐ 2026-08-27 起**只有** ✕ 和 Esc 关得掉它（Ocean:「不能长期显示，点击外面就会消失」）——
+  // 原来点外面、或者滚开一段就会自动清掉，那两条已经删了，见 BlockItem 里的说明。
   activeNavigationBlockId: string | null;
   activeHits: HitOffset[];
   activeHitIndex: number;
@@ -38,7 +39,9 @@ interface SearchState {
   navResults: SearchHit[];
   navQuery: string;
 
-  openSearch: () => void;
+  // `seed` 预填搜索词（⌘F 划词查找 —— 见 lib/search/selection.ts）。不传就是原来那样，
+  // 开一个空的。
+  openSearch: (seed?: string) => void;
   closeSearch: () => void;
   setQuery: (q: string) => void;
   runSearch: () => Promise<void>;
@@ -100,7 +103,9 @@ export const useSearchStore = create<SearchState>((set, get) => {
   navResults: [],
   navQuery: '',
 
-  openSearch: () => set({ open: true }),
+  // ⚠️ 没有 seed 的时候**不碰** query：closeSearch 已经把它清空了，这里再写一次空串会把
+  // 「⌘F 之前先划了词」那一路也一起抹掉（两者在同一批 set 里）。
+  openSearch: (seed) => set(seed ? { open: true, query: seed } : { open: true }),
 
   // Clear the query/results on close so the next open starts fresh.
   closeSearch: () => set({ open: false, query: '', results: [], error: null, loading: false }),

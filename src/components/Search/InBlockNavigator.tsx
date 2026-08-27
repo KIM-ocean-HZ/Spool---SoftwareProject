@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, List, Search as SearchIcon, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
-import type { SearchHit } from '@/lib/search/query';
+import { hitLine, type SearchHit } from '@/lib/search/query';
 import { useT } from '@/lib/i18n';
 
 // v2.9 §9.10 / §13.2 / §19.17: in-block search find bar. Mounted at the top of
@@ -17,8 +17,9 @@ import { useT } from '@/lib/i18n';
 // across ALL workspaces — so the user can jump to any match, in any thread, from
 // here. Picking one navigates to that thread/block (`onPickResult`).
 //
-// `data-search-nav-bar` lets BlockItem's click-outside dismissal exclude the
-// bar's own controls — the buttons live OUTSIDE articleRef (above the feed).
+// `data-search-nav-bar` 是这一栏的记号。2026-08-27 之后它只剩一个用处：useSearch 的 Esc
+// 处理要认出「焦点在查找框里」，好让 Esc 从这里也能关掉查找（原来还有一个 BlockItem 的
+// click-outside 关闭要靠它排除自己，那条路已经删了 —— 见 BlockItem 里那段说明）。
 
 interface Props {
   query: string;
@@ -34,11 +35,6 @@ interface Props {
   onPickResult: (blockId: string) => void;
   onDismiss: () => void;
 }
-
-const hitLine = (hit: SearchHit): string => {
-  const line = hit.snippet.find((l) => l.isHit) ?? hit.snippet[0];
-  return (line?.text ?? '').trim();
-};
 
 export default function InBlockNavigator({
   query,
@@ -93,7 +89,13 @@ export default function InBlockNavigator({
       data-search-nav-bar
       role="toolbar"
       aria-label={t('块内查找')}
-      className="relative flex flex-none items-center gap-2 border-b border-line-strong bg-paper-2/80 px-4 py-2 backdrop-blur-sm"
+      // ⚠️⚠️ `z-20` —— 2026-08-27 Ocean:「点击调出所有项目的查找词，背景透明的，和其他文字
+      // 重叠，导致看不清」。⛔ 那张列表**没有**透明（它就是 bg-paper），是它画在正文底下：
+      // `backdrop-blur-sm` 让这一栏自己成了一个层叠上下文，里面的 z-20 出不去；而下面那个
+      // 装滚动区的盒子是 `relative` 且在 DOM 里排在后面，于是**正文压在列表上面**——透出来
+      // 的是正文的字，看着就像列表背景是透明的。这里给整条栏一个 z 值，才轮得到它在上面。
+      // ⛔ 别超过 30：LogView 的编辑面板（block editor host）是 z-30，它得盖住这一栏。
+      className="relative z-20 flex flex-none items-center gap-2 border-b border-line-strong bg-paper-2/80 px-4 py-2 backdrop-blur-sm"
     >
       <SearchIcon size={14} className="flex-none text-accent" />
       <input

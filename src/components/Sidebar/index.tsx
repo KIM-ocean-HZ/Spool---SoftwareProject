@@ -240,7 +240,9 @@ export default function Sidebar({ onCollapse }: Props) {
             </button>
           )}
           <button
-            onClick={openSearch}
+            // ⚠️ 包一层：openSearch 现在收一个「预填的搜索词」（⌘F 划词那一路），直接把它当
+            // onClick 传过去的话，React 会把 MouseEvent 塞进去当搜索词。
+            onClick={() => openSearch()}
             className="rounded p-1 text-muted hover:bg-paper-2 hover:text-ink"
             title={t('搜索全部内容 (⌘⇧F)')}
           >

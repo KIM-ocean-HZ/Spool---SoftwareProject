@@ -10,6 +10,8 @@ const DEBOUNCE_MS = 130;
 // Wires the search overlay (PLAN_EN.md §9.10 / Phase 7): the system-global
 // ⌘/Ctrl+Shift+F shortcut, relayed from Rust as a `search-trigger` event, opens
 // it; query edits are debounced into the FTS query.
+// ⚠️ 窗口里的 ⌘F 是**另一条路**，在 App.tsx 的 keydown 里 —— 它不经过 Rust，也不该经过：
+// 系统级的 ⌘F 会把这个键从每一个别的软件手里抢走。
 export function useSearch(): void {
   const open = useSearchStore((s) => s.open);
   const query = useSearchStore((s) => s.query);
@@ -61,7 +63,16 @@ export function useSearch(): void {
     if (!hit) return;
     const current = useSearchStore.getState();
     if (current.activeNavigationBlockId === highlightBlockId) return;
-    current.startNavigation(highlightBlockId, hit.hitOffsets, current.query.trim());
+    // ⚠️⚠️ `|| navQuery` —— 2026-08-27 实机验收时抓到的：这条路是**按 ↵ 跳转**走的，而
+    // SearchOverlay.navigate() 先 closeSearch 再让这个 effect 收尾，`query` 那时已经被清空了。
+    // 结果是查找条挂出来了、命中也高亮了，但**查找框是空的**，计数那一格也是空的（点结果那条
+    // 路没事：SearchResultItem 在 close 之前就读了 query）。`navQuery` 是同一句话的副本，
+    // 专门为「面板关掉之后还要用」留着，正是这里要的。
+    current.startNavigation(
+      highlightBlockId,
+      hit.hitOffsets,
+      current.query.trim() || current.navQuery,
+    );
   }, [highlightBlockId]);
 
   // v2.9 §14.1: Cmd/Ctrl+G next, +Shift prev, F3 mirrors; Esc clears nav.

@@ -490,6 +490,10 @@ const EN: Record<string, string> = {
   '块是整条展开的。按 ↓ / ↑ 可以一块一块地看,右边那列刻度是你在第几块。':
     'Blocks open in full. Press ↓ / ↑ to step through them one at a time; the ticks on the right show where you are.',
   '第 {n} / {total} 块': 'Block {n} of {total}',
+  // 刻度上的查找命中 (2026-08-27)。两个词分开，是因为它们回答的是两个问题：对上的是这一块的
+  // 正文，还是这个人自己写的那句批注。
+  '查找命中': 'match',
+  '批注命中': 'note match',
   // 刻度条的悬浮预览：那一块连一个字都没有的时候（只有附件、或者刚建出来）。
   '（这一块没有文字）': '(no text in this block)',
   // V3 二轮 (Ocean 2026-08-25 验收) — the block editing panel.
@@ -656,6 +660,13 @@ const EN: Record<string, string> = {
     'Colours, title face and background. Takes effect immediately; nothing you saved is touched.',
   '经典': 'Classic',
   '情人节': "Valentine's",
+  // 正文字号三档 (2026-08-27)。三个档位是一把尺子上的刻度，英文也保持一个词。
+  '正文字号': 'Block text size',
+  '只改块里的正文和批注，侧边栏和菜单不变。切换立即生效。':
+    'Changes the text and notes inside blocks only — sidebar and menus stay as they are. Takes effect immediately.',
+  '小': 'Small',
+  '中': 'Medium',
+  '大': 'Large',
   // 休息提醒 (2026-08-19 second pass) — the lock, the sidebar clock and the Settings section.
   // ⚠️ 「歇一会儿」 and not 「休息提醒」 on the lock itself: it speaks to the person, it does not
   // name a feature. The feature is named only in Settings, where a name is what you look for.
@@ -994,6 +1005,8 @@ const EN: Record<string, string> = {
   '清除捕捉快捷键': 'Clear the capture shortcut',
   '搜索快捷键': 'Search shortcut',
   '打开全文搜索': 'Open full-text search',
+  '在别的软件里也能按，直接叫出 Spool 的搜索。窗口在最前面时，按 ⌘F 就行。':
+    'Works from any other app — it brings Spool up and opens search. When the Spool window is already in front, ⌘F does it.',
   '按下新的组合键，或按 Esc 取消': 'Press a new combination, or Esc to cancel',
   '✓ 已授权': '✓ Granted',
   '✗ 未授权': '✗ Denied',

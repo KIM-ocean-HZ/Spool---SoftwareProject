@@ -1,8 +1,10 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { plainText } from '@/lib/blocks/contentRuns';
 import { indexAtOffset, scrollBlockIntoView } from '@/lib/blocks/viewportAnchor';
+import { hitLine, type SearchHit } from '@/lib/search/query';
 import { useActiveBlockStore } from '@/stores/activeBlockStore';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { useSearchStore } from '@/stores/searchStore';
 import { useT } from '@/lib/i18n';
 
 // V2 ③ (WORKPLAN §2.V2) — the permanent way in, chosen by Ocean 2026-08-25 out of four
@@ -19,6 +21,14 @@ import { useT } from '@/lib/i18n';
 // An absolutely positioned child of a scroll container is placed against the scrolled
 // CONTENT, so an inside-mounted rail scrolls away with the feed — the first version did
 // exactly that and Ocean's report was 「根本调不出来,只有划到最顶部才能看到」.
+
+// ⭐ 2026-08-27（Ocean:「复用右侧的刻度栏，在查找时，找到的同一项目内的相同信息可以在右侧的
+// block 预览中显示出来，点击 block 可以跳转」）—— 查找开着的时候，这一列刻度同时是命中图：
+// 这个项目里对上的每一块，那根横线亮成 accent 色并且加长；悬浮上去，预览卡显示的是**对上的
+// 那一行**（不是批注/正文开头）；点下去直接跳过去并接上块内查找的高亮。
+// ⚠️ 只画**挂载着的**块（刻度本来就只认 DOM 里的 `data-block-id`）：更早的块要先点「查看更早
+// 的」才滚得到，给一根跳不过去的刻度是骗人。跨项目那一份仍然在查找条的「全部」列表里。
+// ⛔ 仍然不是浮窗，也没有新控件 —— 复用的就是这一列，安静的那条红线没动。
 
 // The lens (Ocean 2026-08-25: 「当前块刻度最长间隔最大,然后依次递减」). A gaussian falloff
 // over distance-in-blocks from the one you are reading. SIGMA is how many blocks either side
@@ -71,6 +81,19 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
   const railRef = useRef<HTMLDivElement>(null);
 
   const blocks = useBlocksStore((s) => s.byThread[threadId]);
+
+  // 查找开着的时候（= 块内查找条正显示），这个项目里对上的块。⚠️ 用 `navResults`：它在全局
+  // 搜索面板关掉之后仍然留着，正是查找条上下翻用的那一份。
+  const navActive = useSearchStore((st) => st.activeNavigationBlockId !== null);
+  const navResults = useSearchStore((st) => st.navResults);
+  const matches = useMemo(() => {
+    const map = new Map<string, SearchHit>();
+    if (!navActive) return map;
+    for (const hit of navResults) {
+      if (hit.threadId === threadId) map.set(hit.blockId, hit);
+    }
+    return map;
+  }, [navActive, navResults, threadId]);
 
   // ⭐ Measure ONCE per layout change, not per scroll frame. The first version called
   // getBoundingClientRect on every mounted block on every frame — up to 200 forced layouts
@@ -191,6 +214,24 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
     [slices, padTop],
   );
 
+  /** 点一根刻度。命中的那一根走查找的跳转（接上块内高亮 + ▲▼ 的位置），别的照旧。
+   *  ⛔ 拖动时不走这里 —— 拖过一片命中会把查找位置连着改十几次。 */
+  const pick = useCallback(
+    (idx: number) => {
+      const id = entriesRef.current[idx]?.id;
+      if (id && matches.has(id)) {
+        setCurrent(idx);
+        useActiveBlockStore.getState().setActive(id);
+        // ⚠️ 这里**不**自己滚：jumpToResult 会把这一块设成查找目标，BlockFeed 跟着把它滚到
+        // 视野中间。两边都滚的话，会先跳到顶上再弹到中间。
+        useSearchStore.getState().jumpToResult(id);
+        return;
+      }
+      goTo(idx, true);
+    },
+    [matches, goTo],
+  );
+
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent): void => {
@@ -212,17 +253,24 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
   // ⭐ 2026-08-25（Ocean）:「用户悬浮在每一个刻度上可以预览 block 的信息块(少放点内容,
   // 有批注用批注,没批注用正文前几句话)」. 批注优先是他定的,也是对的 —— 批注是这个人自己
   // 写下的「这一块是干什么的」,比正文开头更像一个标题（W7 在正文那边也是这么排的）。
-  const preview = ((): { at: number; text: string } | null => {
+  const preview = ((): { at: number; text: string; hit: SearchHit | null } | null => {
     if (hovered === null || dragging) return null;
     const entry = entries[hovered];
     if (!entry) return null;
     const block = blocks?.find((b) => b.id === entry.id);
+    // ⭐ 对上了的那一块，预览的是**对上的那一行**：此刻这个人问的是「哪一块里有这个词」，
+    // 批注回答的是另一个问题（这一块整体是干什么的），在这时候反而不是他要的那句。
+    const hit = matches.get(entry.id) ?? null;
     const note = block?.annotation?.trim();
-    const body = note && note.length > 0 ? note : plainText(block?.content ?? '');
+    const body = hit
+      ? hitLine(hit)
+      : note && note.length > 0
+        ? note
+        : plainText(block?.content ?? '');
     const text = body.replace(/\s+/g, ' ').trim().slice(0, PREVIEW_CHARS);
     // 那一根的中线,刻度条自己的坐标系里。
     const at = padTop + slices.slice(0, hovered).reduce((a, b) => a + b, 0) + (slices[hovered] ?? 0) / 2;
-    return { at, text };
+    return { at, text, hit };
   })();
 
   return (
@@ -234,7 +282,7 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
         e.preventDefault();
         setDragging(true);
         const idx = indexAtPointer(e.clientY);
-        if (idx >= 0) goTo(idx, true);
+        if (idx >= 0) pick(idx);
       }}
       // ⚠️ 16px and not a pixel more. An earlier version wrapped this in a 28px hover zone so
       // the rail would brighten as the cursor approached — but that zone sits ON TOP of the
@@ -248,6 +296,10 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
       {entries.map((e, i) => {
         const w = lensWeight(Math.abs(i - current));
         const isCurrent = i === current;
+        // 命中的那一根：⭐ 有一个**下限长度**。透镜会把远处的刻度收到 34%，命中却恰恰常常在
+        // 远处 —— 按原来的长度画出来，「这个项目还有五处」就淹在那一列灰线里看不出来了。
+        const isMatch = matches.has(e.id);
+        const width = isMatch ? Math.max(34 + 66 * w, 72) : 34 + 66 * w;
         return (
           <div
             key={e.id}
@@ -261,13 +313,17 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
               // ⭐ 「刻度最长…依次递减」 —— and length tapers with the same weight.
               // ⚠️ `transition` names its properties: `transition-all` also animated colour
               // and background on 200 nodes at once, which is half of why this felt heavy.
-              style={{ width: `${34 + 66 * w}%`, transitionProperty: 'width, opacity' }}
+              style={{ width: `${width}%`, transitionProperty: 'width, opacity' }}
               className={`h-px duration-150 ease-out ${
                 isCurrent
                   ? 'bg-accent opacity-100'
-                  : i === hovered
-                    ? 'bg-ink opacity-60'
-                    : 'bg-ink opacity-[0.10] group-hover:opacity-45'
+                  : isMatch
+                    ? // 命中但不是当前那一块：同一个 accent，淡一档 —— 当前那根仍然是最长
+                      // 最实的一根，两者分得开。
+                      `bg-accent ${i === hovered ? 'opacity-90' : 'opacity-60'}`
+                    : i === hovered
+                      ? 'bg-ink opacity-60'
+                      : 'bg-ink opacity-[0.10] group-hover:opacity-45'
               }`}
             />
           </div>
@@ -287,8 +343,13 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
           }}
           className="pointer-events-none absolute right-5 z-20 w-56 -translate-y-1/2 rounded-md border border-line bg-paper px-2.5 py-2 shadow-[var(--shadow-toast)]"
         >
-          <div className="mb-1 font-ui text-[10px] text-muted">
-            {t('第 {n} / {total} 块', { n: (hovered ?? 0) + 1, total: entries.length })}
+          <div className="mb-1 flex items-center gap-1.5 font-ui text-[10px] text-muted">
+            <span>{t('第 {n} / {total} 块', { n: (hovered ?? 0) + 1, total: entries.length })}</span>
+            {preview.hit && (
+              <span className="flex-none rounded-sm border border-line px-1 text-accent">
+                {preview.hit.field === 'annotation' ? t('批注命中') : t('查找命中')}
+              </span>
+            )}
           </div>
           <div className="line-clamp-4 whitespace-pre-wrap break-words font-ui text-[12px] leading-[1.5] text-ink-2">
             {preview.text || t('（这一块没有文字）')}

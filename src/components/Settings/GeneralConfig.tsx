@@ -3,6 +3,7 @@ import Toggle from '@/components/ui/Toggle';
 import { WORK_MINUTE_OPTIONS, type WorkMinutes } from '@/lib/breakReminder';
 import { loadDemoProject } from '@/lib/db/client';
 import { THEMES, type Theme } from '@/lib/theme';
+import { BLOCK_FONT_SIZES, type BlockFontSize } from '@/lib/blockFont';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useThreadsStore } from '@/stores/threadsStore';
 import { useT } from '@/lib/i18n';
@@ -15,6 +16,14 @@ import { useT } from '@/lib/i18n';
 const THEME_LABEL: Record<Theme, string> = {
   classic: '经典',
   valentine: '情人节',
+};
+
+// 正文字号三档 (2026-08-27)。⚠️ 一个字的标签就够了 —— 它们并排放着，本来就是一把尺子的
+// 三个刻度，写成「小号字体 / 中号字体」只会让这一行比它管的事还长。
+const BLOCK_FONT_LABEL: Record<BlockFontSize, string> = {
+  small: '小',
+  medium: '中',
+  large: '大',
 };
 
 // General settings (PLAN_EN.md §9.12): language, launch at login, attachment
@@ -32,6 +41,7 @@ export default function GeneralConfig() {
   const autoExtractAttachments = useSettingsStore((s) => s.autoExtractAttachments);
   const language = useSettingsStore((s) => s.language);
   const theme = useSettingsStore((s) => s.theme);
+  const blockFontSize = useSettingsStore((s) => s.blockFontSize);
   const breakReminderEnabled = useSettingsStore((s) => s.breakReminderEnabled);
   const breakWorkMinutes = useSettingsStore((s) => s.breakWorkMinutes);
   const update = useSettingsStore((s) => s.update);
@@ -94,6 +104,37 @@ export default function GeneralConfig() {
               }`}
             >
               {t(THEME_LABEL[name])}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-line" />
+
+      {/* 正文字号 (2026-08-27, Ocean:「给 block 的字体做一个大中小三个档位可选，其他文本渲染不做」)。
+          紧跟着外观，因为它也是「只改看起来怎么样」的那一类，而且同样立即生效。
+          ⚠️ 说明里那句「只有块里的字」是写给用户的承诺，也是写给以后改这块代码的人的：
+          侧边栏、刻度、菜单都不跟着变 —— 要全窗放大，那是另一件事（webview 缩放）。 */}
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <div className="min-w-0">
+          <div className="text-sm text-ink">{t('正文字号')}</div>
+          <div className="mt-0.5 text-xs text-muted">
+            {t('只改块里的正文和批注，侧边栏和菜单不变。切换立即生效。')}
+          </div>
+        </div>
+        <div className="flex flex-none items-center gap-1">
+          {BLOCK_FONT_SIZES.map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => void update({ blockFontSize: size })}
+              className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                blockFontSize === size
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-line bg-paper text-muted hover:border-line-strong hover:text-ink'
+              }`}
+            >
+              {t(BLOCK_FONT_LABEL[size])}
             </button>
           ))}
         </div>

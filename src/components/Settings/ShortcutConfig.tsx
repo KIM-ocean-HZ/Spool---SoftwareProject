@@ -206,7 +206,15 @@ export default function ShortcutConfig() {
         captureShortcut,
       )}
       <div className="border-t border-line" />
-      {row('search', t('搜索快捷键'), t('打开全文搜索'), searchShortcut)}
+      {/* ⚠️ 这一行管的是**系统级**那个键（窗口没在前面时也能按）。窗口在前面的时候，查找
+          是 ⌘F，和别的软件一样，它写死在窗口里、不占系统热键 —— 所以这行说明要把两件事
+          都说清楚，不然用户会以为查找只有一个又长又怪的组合键。 */}
+      {row(
+        'search',
+        t('搜索快捷键'),
+        t('在别的软件里也能按，直接叫出 Spool 的搜索。窗口在最前面时，按 ⌘F 就行。'),
+        searchShortcut,
+      )}
       {recording && !error && (
         <p className="mt-2 text-xs italic text-muted">{t('按下新的组合键，或按 Esc 取消')}</p>
       )}

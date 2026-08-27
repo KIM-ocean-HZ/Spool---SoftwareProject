@@ -53,6 +53,13 @@ export interface SearchHit {
   gist: string | null;
 }
 
+/** 一条命中里「对上的那一行」的文字。⭐ 2026-08-27 从 InBlockNavigator 搬到这里，因为右侧
+ *  刻度的悬浮预览也要用同一行 —— 两处各写一遍的话，两处会慢慢长得不一样。 */
+export const hitLine = (hit: SearchHit): string => {
+  const line = hit.snippet.find((l) => l.isHit) ?? hit.snippet[0];
+  return (line?.text ?? '').trim();
+};
+
 interface Row {
   block_id: string;
   thread_id: string;

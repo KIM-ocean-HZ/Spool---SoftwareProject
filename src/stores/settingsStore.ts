@@ -12,6 +12,7 @@ import {
 import { DEFAULT_LEVEL, type CompressLevel } from '@/lib/ai/compress';
 import { DEFAULT_RAIL_WIDTH } from '@/lib/layout';
 import { DEFAULT_THEME, themeOrDefault, type Theme } from '@/lib/theme';
+import { DEFAULT_BLOCK_FONT, blockFontOrDefault, type BlockFontSize } from '@/lib/blockFont';
 
 // Keys persisted to settings.json via tauri-plugin-store. `captureShortcut` /
 // `searchShortcut` are accelerator strings (lib/capture/shortcut.ts).
@@ -40,6 +41,7 @@ type PersistableKey =
   | 'packInstructions'
   | 'closeToTrayHintSeen'
   | 'theme'
+  | 'blockFontSize'
   | 'breakReminderEnabled'
   | 'breakWorkMinutes'
   // 形态 C（WORKPLAN-2026-08-20 §6.2）：Spool 自己出去调 API。
@@ -195,6 +197,8 @@ interface SettingsState {
    *  ⚠️ NOT read by the `spool --mcp` subprocess, unlike `resolvedLanguage`: nothing an MCP
    *  client sees has a colour. */
   theme: Theme;
+  /** 块的字号档位（2026-08-27）。⛔ 只管块自己那几行字，不是全窗缩放 —— 见 lib/blockFont.ts。 */
+  blockFontSize: BlockFontSize;
   /** 休息提醒 (2026-08-19 second pass, Ocean: 「设置里面可以关闭休息提醒,做成两个 appearance 都
    *  有的功能」). Default ON in BOTH themes — the earlier 「只在情人节版」 ruling covered the whole
    *  feature and he reversed that half of it by name. Gwen is untouched and stays 情人节-only.
@@ -319,6 +323,7 @@ const KEYS: PersistableKey[] = [
   'packInstructions',
   'closeToTrayHintSeen',
   'theme',
+  'blockFontSize',
   'breakReminderEnabled',
   'breakWorkMinutes',
   'apiEngineEnabled',
@@ -378,6 +383,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // Written once, by the card's own button — see components/CloseToTrayHint.
   closeToTrayHintSeen: false,
   theme: DEFAULT_THEME,
+  blockFontSize: DEFAULT_BLOCK_FONT,
   breakReminderEnabled: true,
   breakWorkMinutes: DEFAULT_WORK_MINUTES,
   // ⚠️ §6.2 设计约束 5：**默认关闭**，而且是和 MCP 分开的第二个独立开关。
@@ -426,6 +432,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       // onto <html> where no stylesheet matches it — a half-painted window rather than either
       // theme. Everything else here is a boolean, a number or a string the UI re-validates.
       if (next.theme !== undefined) next.theme = themeOrDefault(next.theme);
+      // 同理：认不出来的档位会被写到 <html> 上，那儿没有哪条规则接得住，字号就没了。
+      if (next.blockFontSize !== undefined) {
+        next.blockFontSize = blockFontOrDefault(next.blockFontSize);
+      }
       // Same reason, same shape: a number that is not one of the three offered would run a
       // schedule the picker cannot even display.
       if (next.breakWorkMinutes !== undefined) {

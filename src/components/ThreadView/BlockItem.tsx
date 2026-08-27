@@ -79,11 +79,6 @@ const findScrollContainer = (el: HTMLElement | null): HTMLElement | null => {
   return null;
 };
 
-// v2.9 §9.10 / §19.17: how far the user must scroll away from the destination
-// block before in-block navigation auto-dismisses. Long enough that an
-// incidental wheel nudge doesn't drop the highlights mid-read.
-const NAV_SCROLL_DISMISS_PX = 200;
-
 // §6.2-bis's rule about selectors, applied to a memo input: a fresh [] here would make the
 // span memo below recompute on every render of every uncorrected block — which is all of them.
 const EMPTY_CORRECTIONS: Correction[] = [];
@@ -278,7 +273,7 @@ function TextBlockItem({
   // v2.9 §9.10 / §19.17: in-block search navigation. When this block is the
   // active target, force-expand the truncation and wrap each hit position in
   // <mark>. The find bar itself is mounted in LogView (above the feed), not
-  // here. Clears on ✕/Esc/click-outside/wheel-away.
+  // here. Clears on ✕ / Esc ONLY —— 见下面被删掉的那两个 effect 的说明。
   const isNavTarget = useSearchStore((s) => s.activeNavigationBlockId === block.id);
   const navHits = useSearchStore((s) => s.activeHits);
   const navHitIndex = useSearchStore((s) => s.activeHitIndex);
@@ -438,54 +433,16 @@ function TextBlockItem({
     }
   }, [isNavTarget, navHitIndex, flashTick]);
 
-  // User-initiated scroll-away dismissal. Listens to `wheel` and `touchmove`
-  // (not `scroll`) so programmatic `scrollIntoView` from BlockFeed's landing
-  // logic — which itself can move >200px to center a distant block — does NOT
-  // fire dismissal mid-landing. The first version of this effect anchored on
-  // raw scrollTop and then watched `scroll`, which killed nav before the user
-  // ever saw the highlights.
+  // ⛔⛔ 这里原来有两个「自动关掉查找」的 effect，2026-08-27 一起删掉了。
   //
-  // Threshold is checked against the block's bounding rect relative to the
-  // scroll container, so "scrolled away" is independent of how far raw
-  // scrollTop has moved.
-  useEffect(() => {
-    if (!isNavTarget) return;
-    const article = articleRef.current;
-    const scrollContainer = findScrollContainer(article);
-    if (!scrollContainer || !article) return;
-    const onUserScroll = () => {
-      const blockRect = article.getBoundingClientRect();
-      const containerRect = scrollContainer.getBoundingClientRect();
-      const offTop = containerRect.top - blockRect.bottom;
-      const offBottom = blockRect.top - containerRect.bottom;
-      if (Math.max(offTop, offBottom) > NAV_SCROLL_DISMISS_PX) {
-        useSearchStore.getState().clearNavigation();
-      }
-    };
-    scrollContainer.addEventListener('wheel', onUserScroll, { passive: true });
-    scrollContainer.addEventListener('touchmove', onUserScroll, { passive: true });
-    return () => {
-      scrollContainer.removeEventListener('wheel', onUserScroll);
-      scrollContainer.removeEventListener('touchmove', onUserScroll);
-    };
-  }, [isNavTarget]);
-
-  // Click outside both the destination block and the find bar clears
-  // navigation. The bar mounts above the feed (in LogView), outside this
-  // article, so we exempt it with a data-search-nav-bar selector check.
-  useEffect(() => {
-    if (!isNavTarget) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      const article = articleRef.current;
-      if (!article) return;
-      const target = e.target as HTMLElement;
-      if (article.contains(target)) return;
-      if (target.closest('[data-search-nav-bar]')) return;
-      useSearchStore.getState().clearNavigation();
-    };
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [isNavTarget]);
+  // Ocean 的报告：「查找固定的导航有 bug，不能长期显示，点击外面就会消失」。两个都是元凶：
+  //   1. click-outside —— 在正文里点一下（想把光标放到某个词上、想划一段、想点另一块看看
+  //      是不是它），查找条就没了。而**点外面正是查找的用法**：找到了就要去看、去改。
+  //   2. 滚开两百像素就关（wheel / touchmove）—— 上下翻着看别的命中，翻着翻着它自己关了。
+  // 两条都是「替用户决定他找完了」。⌘F 那一栏在别的软件里从来不这样：开着就是开着，
+  // 直到人按 ✕ 或 Esc。现在也是——那两条路仍然在（InBlockNavigator 的 ✕、useSearch 的 Esc）。
+  //
+  // ⚠️ 想加回任何一条之前先问一句：用户下一步要做的事，是不是正好会触发它。
 
   // Auto-collapse on outside-click: once a block is expanded, a mousedown anywhere
   // outside its article snaps it back to truncated view. Skipped while editing —
@@ -928,7 +885,7 @@ function TextBlockItem({
       title={readOnly ? undefined : t('双击编辑批注')}
       ref={noteViewRef}
       onMouseUp={readOnly ? undefined : onSurfaceMouseUp}
-      className="mb-1.5 font-ui text-[15px] font-medium leading-[1.55] text-ink"
+      className="mb-1.5 font-ui text-[length:var(--block-text)] font-medium leading-[1.55] text-ink"
     >
       {/* 标签走**行内**，不另起一行也不占一列：批注常常是一整句话，用 flex 分成两栏的话
           第二行会缩进到标签右边，读起来像引文。行内的话文字自然绕回左边缘。 */}
@@ -1153,8 +1110,8 @@ function TextBlockItem({
               // ⚠️ AI 批注也算（08-25）：Ocean 要的是「和用户批注一样」，⛔ 一样就包括
               // 正文让位这一半 —— 只把标签挪上去、正文还占着 15px 的话，两句会打架。
               annotationAsTitle
-                ? 'border-l-2 border-line pl-2 text-[13px] text-ink-2'
-                : 'text-[15px] text-ink'
+                ? 'border-l-2 border-line pl-2 text-[length:var(--block-text-2)] text-ink-2'
+                : 'text-[length:var(--block-text)] text-ink'
             } ${showCollapsed ? 'feed-fade' : ''}`}
           >
             {/* Step 2 §9.3 / §13.4: content renders through the run tokenizer
@@ -1395,7 +1352,7 @@ function TextBlockItem({
               </button>
             )}
           </div>
-          <div className="whitespace-pre-wrap break-words font-ui text-[13px] leading-[1.65] text-ink-2">
+          <div className="whitespace-pre-wrap break-words font-ui text-[length:var(--block-text-2)] leading-[1.65] text-ink-2">
             <MarkdownContent content={block.originalContent!} />
           </div>
         </div>
@@ -1462,7 +1419,7 @@ function TextBlockItem({
                 }}
                 // `flex-1` + `min-h-0`: the content field takes whatever the note leaves,
                 // so the panel is full at any window size without a hardcoded height.
-                className="min-h-0 flex-1 resize-none rounded-md border border-line-strong bg-paper px-3.5 py-3 font-ui text-[15px] leading-[1.65] text-ink outline-none focus:border-accent"
+                className="min-h-0 flex-1 resize-none rounded-md border border-line-strong bg-paper px-3.5 py-3 font-ui text-[length:var(--block-text)] leading-[1.65] text-ink outline-none focus:border-accent"
                 spellCheck={false}
               />
 
@@ -1495,7 +1452,7 @@ function TextBlockItem({
                   placeholder={
                     hasNote && noteIsAi ? t('改这条 AI 批注（不会变成你写的）') : t('批注（可选）')
                   }
-                  className="w-full resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 font-ui text-[13px] italic leading-[1.55] text-ink-2 placeholder:text-muted/60 outline-none focus:border-line-strong"
+                  className="w-full resize-none rounded border border-line bg-paper-2/30 px-2.5 py-2 font-ui text-[length:var(--block-text-2)] italic leading-[1.55] text-ink-2 placeholder:text-muted/60 outline-none focus:border-line-strong"
                   spellCheck={false}
                 />
               </div>

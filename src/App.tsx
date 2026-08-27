@@ -32,8 +32,10 @@ import { useAutoMaintain } from '@/hooks/useAutoMaintain';
 import { useBreakReminder } from '@/hooks/useBreakReminder';
 import { useCapture } from '@/hooks/useCapture';
 import { useAppliedTheme } from '@/hooks/useTheme';
+import { useAppliedBlockFont } from '@/hooks/useBlockFont';
 import { useOverlayDbHost } from '@/hooks/useOverlayDbHost';
 import { useSearch } from '@/hooks/useSearch';
+import { selectedSearchText } from '@/lib/search/selection';
 import { useTrayMenu } from '@/hooks/useTrayMenu';
 import { useUndo } from '@/hooks/useUndo';
 import { useBlocksStore } from '@/stores/blocksStore';
@@ -41,6 +43,7 @@ import { useBreakStore } from '@/stores/breakStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useEngineStore } from '@/stores/engineStore';
 import { useProposalsStore } from '@/stores/proposalsStore';
+import { useSearchStore } from '@/stores/searchStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { selectAllThreadsFlat, selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 import { useWorkspacesStore } from '@/stores/workspacesStore';
@@ -113,6 +116,8 @@ export default function App() {
   // 情人节限定版 (2026-08-19) — writes the theme onto <html>; the capture overlay does the same
   // from its own root, off the same settings.json.
   useAppliedTheme();
+  // 块的字号档位（2026-08-27）。同上：只写 <html> 上的一个属性，读它的只有 BlockItem。
+  useAppliedBlockFont();
   // 休息提醒 (2026-08-19 second pass) — both appearances now; the hook's gate is the SETTING, and
   // it checks that itself: switched off, it registers no listeners and no interval. Mounted HERE
   // and not in the overlay on purpose — see the hook's header. What it produces goes into
@@ -194,6 +199,17 @@ export default function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         openSettings();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === 'f') {
+        // 查找 = ⌘F（2026-08-27, Ocean:「对齐其他软件」）。
+        //
+        // ⚠️⚠️ 这一条**只在窗口里**，⛔ 没有注册成系统级热键，而且不要改成系统级的：系统级的
+        // ⌘F 会把这个键从**每一个**别的软件手里抢走（Spool 不许挤掉别的工具）。窗口没在前面
+        // 时用的那个仍然是 ⌘⇧F（设置里可改，Rust 注册的那个）—— 别的软件的 ⌘F 也正是
+        //「窗口在前面才算」的，所以这才是真正的对齐。
+        //
+        // ⭐ 划了词再按，查的就是划中的那个词。
+        e.preventDefault();
+        useSearchStore.getState().openSearch(selectedSearchText());
       }
     };
     window.addEventListener('keydown', handler);
