@@ -3,12 +3,14 @@ import { useEffect, useRef } from 'react';
 import {
   BREAK_MS,
   initialBreakState,
+  keepDay,
   msForMinutes,
   tickBreakState,
   TICK_MS,
   type BreakState,
 } from '@/lib/breakReminder';
 import { SHOW_BREAK_OVERLAY_COMMAND } from '@/lib/capture/overlayProtocol';
+import { loadFocusDay, restoreBreakState, saveFocusDay } from '@/lib/db/focusDay';
 import { useBreakStore } from '@/stores/breakStore';
 import { useCaptureStore } from '@/stores/captureStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -62,12 +64,32 @@ export const useBreakReminder = (): void => {
   // right resolution: a dropped tick under-counts by 30 seconds, and under-counting is the
   // direction this whole feature errs in on purpose.
   const inFlightRef = useRef(false);
+  /** 上一次写盘写的是什么 —— 只在数字真的变了的时候才写（每 30 秒一次 tick，⛔ 不该每次都写文件）。 */
+  const savedRef = useRef<string>('');
+
+  // ⭐ 2026-08-27 第二轮：开机把「今天已经专注了多久」读回来。
+  // ⚠️ 只读三个数（今天是哪天 / 今天多久 / 上一次真的在工作是什么时候），⛔ 不读「这一坐」——
+  // 重启之后这一坐是新的。跨午夜算不算新的一天，由 shouldRollDay 拿 `lastActiveAt` 判。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const day = await loadFocusDay();
+      if (cancelled || day === null) return;
+      stateRef.current = { ...stateRef.current, ...restoreBreakState(day) };
+      savedRef.current = JSON.stringify(day);
+      // 先把读回来的数亮出来，⛔ 别等第一次 tick（那要 30 秒）。
+      useBreakStore.getState().publish(stateRef.current.activeMs, stateRef.current.totalMs);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
       // Switched off mid-sitting: drop the streak and lift the lock if it is up, so switching
       // back on later starts a fresh interval rather than resuming a stale one.
-      stateRef.current = initialBreakState();
+      stateRef.current = keepDay(stateRef.current);
       inFlightRef.current = false;
       useBreakStore.getState().unlock();
       return;
@@ -88,7 +110,9 @@ export const useBreakReminder = (): void => {
           // lock, which also means the sidebar's clock starts counting from the moment they
           // come back.
           if (store.lockUntil !== null) {
-            stateRef.current = initialBreakState();
+            // ⚠️ 只清**这一坐**。⛔ 今天的总时间不许被一次休息抹掉 —— 那正是 Ocean 要的
+            // 「倒计时结束之后，总专注时间还看得见、还在往上加」。
+            stateRef.current = keepDay(stateRef.current);
             return;
           }
 
@@ -114,6 +138,20 @@ export const useBreakReminder = (): void => {
           });
           stateRef.current = state;
           store.publish(state.activeMs, state.totalMs);
+
+          // 写盘。⚠️ 只有 `dayKey` 齐了才写；⛔ 没变就不写（避免每 30 秒动一次文件）。
+          if (state.dayKey !== null && state.lastActiveAt !== null) {
+            const day = {
+              dayKey: state.dayKey,
+              totalMs: state.totalMs,
+              lastActiveAt: state.lastActiveAt,
+            };
+            const fingerprint = JSON.stringify(day);
+            if (fingerprint !== savedRef.current) {
+              savedRef.current = fingerprint;
+              void saveFocusDay(day);
+            }
+          }
 
           // ⚠️⚠️ **Due splits in two, and which half runs depends on where the user is.**
           //

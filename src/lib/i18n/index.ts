@@ -488,7 +488,7 @@ const EN: Record<string, string> = {
   '块是整条展开的。按 ↓ / ↑ 可以一块一块地看,右边那列刻度是你在第几块。':
     'Blocks open in full. Press ↓ / ↑ to step through them one at a time; the ticks on the right show where you are.',
   '松开，把文件加进这个项目': 'Drop to add the file to this project',
-  '已专注 {n} 分钟': 'focused {n} min',
+  '今天已专注 {n} 分钟': 'focused {n} min today',
   // ⑧ 手动排版三档（2026-08-27）
   '标题': 'Heading',
   '正文': 'Body',

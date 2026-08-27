@@ -7,8 +7,10 @@ import {
   MAX_TICK_CREDIT_MS,
   TICK_MS,
   WORK_MINUTE_OPTIONS,
+  dayKeyOf,
   initialBreakState,
   isWorking,
+  shouldRollDay,
   msForMinutes,
   tickBreakState,
   workMinutesOrDefault,
@@ -157,9 +159,15 @@ describe('tickBreakState', () => {
       workMs: HOUR,
       ...away(),
     });
-    // ⚠️ 2026-08-27：这一坐清零了，但 `totalMs` **留着** —— 那些分钟是真的工作过的
-    // （Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」）。
-    expect(r.state).toEqual({ ...initialBreakState(), totalMs: half.state.totalMs });
+    // ⚠️ 2026-08-27：这一坐清零了，但今天那三个数**留着** —— 那些分钟是真的工作过的
+    // （Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」），而「今天」翻不翻篇
+    // 由下一次开工时的 shouldRollDay 决定。
+    expect(r.state).toEqual({
+      ...initialBreakState(),
+      totalMs: half.state.totalMs,
+      dayKey: half.state.dayKey,
+      lastActiveAt: half.state.lastActiveAt,
+    });
     expect(r.state.activeMs).toBe(0);
     expect(r.state.totalMs).toBeGreaterThan(0);
     expect(r.due).toBe(false);
@@ -185,6 +193,93 @@ describe('tickBreakState', () => {
   it('总时间和这一坐记的是同一批毫秒 —— 没休息过的时候两个数一样', () => {
     const r = run(initialBreakState(), 40, busy);
     expect(r.state.totalMs).toBe(r.state.activeMs);
+  });
+
+  // ⭐⭐ 2026-08-27 第二轮（Ocean:「可以做成今天，按天算，但是注意 24:00 时，如果用户还在
+  // 工作，就需要继续计算专注时间，一直到用户睡觉再断」）。
+  // 断点是**人停下来**，⛔ 不是钟走过 0 点 —— 这一组把两边都钉住。
+  describe('按天算，但午夜不切', () => {
+    /** 本地时间当天 23:40，好让 +40 分钟正好跨过午夜。 */
+    const nearMidnight = (): number => {
+      const d = new Date(T0);
+      d.setHours(23, 40, 0, 0);
+      return d.getTime();
+    };
+
+    it('人没停下来，跨过午夜也不翻篇 —— 熬夜那两小时仍然记在昨天', () => {
+      const start = nearMidnight();
+      // 从 23:40 一直干到 00:20，中间一次都没断（每 30 秒一个 tick）。
+      const r = run(initialBreakState(), 80, busy, start);
+      expect(r.state.dayKey).toBe(dayKeyOf(start));
+      // 跨过午夜了，但 dayKey 还是**开始那一天**。
+      expect(dayKeyOf(r.lastNow)).not.toBe(dayKeyOf(start));
+      expect(r.state.totalMs).toBeGreaterThanOrEqual(39 * 60 * 1000);
+    });
+
+    it('睡了一觉再回来（隔了超过 N 分钟 + 日期变了）才翻篇', () => {
+      const start = nearMidnight();
+      const first = run(initialBreakState(), 40, busy, start);
+      const worked = first.state.totalMs;
+      expect(worked).toBeGreaterThan(0);
+
+      // 睡觉：八小时之后再开工。
+      const nextMorning = first.lastNow + 8 * 60 * 60 * 1000;
+      const second = run(first.state, 4, busy, nextMorning);
+      expect(second.state.dayKey).toBe(dayKeyOf(nextMorning));
+      // 昨天那些分钟没有被算进今天。
+      expect(second.state.totalMs).toBeLessThan(worked);
+    });
+
+    it('同一天里歇了半小时，回来接着加，⛔ 不清零', () => {
+      const first = run(initialBreakState(), 40, busy);
+      const worked = first.state.totalMs;
+      // 半小时不在（超过 N，这一坐会断），但还是同一天。
+      const later = first.lastNow + 30 * 60 * 1000;
+      const second = run(first.state, 4, busy, later);
+      expect(second.state.dayKey).toBe(first.state.dayKey);
+      expect(second.state.totalMs).toBeGreaterThan(worked);
+    });
+
+    it('关掉 Spool 五分钟再打开，不算断，也不翻篇（重启走的就是这条）', () => {
+      const start = nearMidnight();
+      const first = run(initialBreakState(), 40, busy, start);
+      // 模拟重启：这一坐没了（lastTickAt=null），但落盘那三个数读了回来。
+      const restored = {
+        ...initialBreakState(),
+        totalMs: first.state.totalMs,
+        dayKey: first.state.dayKey,
+        lastActiveAt: first.state.lastActiveAt,
+      };
+      const back = run(restored, 4, busy, first.lastNow + 5 * 60 * 1000);
+      expect(back.state.dayKey).toBe(first.state.dayKey);
+      expect(back.state.totalMs).toBeGreaterThanOrEqual(first.state.totalMs);
+    });
+
+    it('⛔ 合盖睡觉：中间一个 tick 都没跑过，第二天照样翻篇', () => {
+      const start = nearMidnight();
+      const first = run(initialBreakState(), 40, busy, start);
+      const worked = first.state.totalMs;
+      // ⚠️ 关键：**不跑任何中间 tick**（机器睡着了），直接第二天早上继续。
+      // 所以 `lastTickAt` 还停在昨晚 —— 第一版就是在这儿把昨天的时间接着往今天加的。
+      const nextMorning = first.lastNow + 9 * 60 * 60 * 1000;
+      const back = run(first.state, 4, busy, nextMorning);
+      expect(back.state.dayKey).toBe(dayKeyOf(nextMorning));
+      expect(back.state.totalMs).toBeLessThan(worked);
+    });
+
+    it('shouldRollDay 自己的四种情况', () => {
+      const day = dayKeyOf(T0);
+      const base = { ...initialBreakState(), dayKey: day, totalMs: 1000 };
+      // 从来没记过 → 不翻
+      expect(shouldRollDay(initialBreakState(), T0)).toBe(false);
+      // 断过 + 换天 → 翻
+      const nextDay = T0 + 26 * 60 * 60 * 1000;
+      expect(shouldRollDay({ ...base, lastActiveAt: T0 }, nextDay)).toBe(true);
+      // 没断 + 换天 → ⛔ 不翻（这就是午夜那一条）
+      expect(shouldRollDay({ ...base, lastActiveAt: nextDay - 60_000 }, nextDay)).toBe(false);
+      // 断过 + 同一天 → 不翻
+      expect(shouldRollDay({ ...base, lastActiveAt: T0 }, T0 + 30 * 60 * 1000)).toBe(false);
+    });
   });
 
   it('cannot be handed an hour by a laptop waking up', () => {

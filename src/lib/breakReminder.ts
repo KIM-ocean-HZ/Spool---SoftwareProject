@@ -120,25 +120,76 @@ export const TICK_MS = 30 * 1000;
  *  stale `lastInputAt` is then caught by the grace check on the following tick. */
 export const MAX_TICK_CREDIT_MS = TICK_MS * 2;
 
+/** 一天的名字，本地时区的 `YYYY-MM-DD`。
+ *
+ *  ⚠️ 本地时区，⛔ 不是 UTC：这个数是说给一个坐在这台电脑前的人听的，他的「今天」就是
+ *  他抬头看墙上钟的那个今天。 */
+export const dayKeyOf = (ts: number): string => {
+  const d = new Date(ts);
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+
 export interface BreakState {
   /** Active milliseconds accumulated in the current sitting. */
   activeMs: number;
   /** ⭐ 2026-08-27（Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」）——
-   *  **这次开机以来的总专注时间**。和 `activeMs` 记的是同一批毫秒，区别只有一条：
-   *  休息把 `activeMs` 清零，⛔ 但清不掉它。
-   *
-   *  ⚠️ 它和 `activeMs` 一样**不落盘**，那条理由一个字没变（见 stores/breakStore.ts 顶上）：
-   *  重启之后还端出「你已经工作了 47 分钟」是在替用户撒谎。所以界面上写的是「已专注」，
-   *  ⛔ 不是「今天已专注」—— 下午三点重开一次 Spool，「今天」那个说法当场就是假的。
-   *  要真的跨重启按天累计，那是另一件事（要落盘，得 Ocean 点头）。
+   *  **今天**的总专注时间。和 `activeMs` 记的是同一批毫秒，区别有两条：
+   *  休息把 `activeMs` 清零、⛔ 清不掉它；它跨重启活着（落盘，见 lib/db/focusDay.ts）。
    *
    *  ⚠️ 离开超过 N 分钟、这一坐作废的时候它也**留着**：那些分钟是真的工作过的。 */
   totalMs: number;
-  /** When the last tick was credited (or the streak reset). Null before the first tick. */
+  /** `totalMs` 算的是哪一天。null = 还没开过工。 */
+  dayKey: string | null;
+  /** ⭐⭐ 上一次**真的记上时间**是什么时候（跨重启落盘）。翻篇规则全靠它，见下面 rollover。 */
+  lastActiveAt: number | null;
+  /** When the last tick was credited (or the streak reset). Null before the first tick.
+   *  ⚠️ 这一条**不落盘**：重启之后不该凭它把中间那段空白记成工作时间。 */
   lastTickAt: number | null;
 }
 
-export const initialBreakState = (): BreakState => ({ activeMs: 0, totalMs: 0, lastTickAt: null });
+export const initialBreakState = (): BreakState => ({
+  activeMs: 0,
+  totalMs: 0,
+  dayKey: null,
+  lastActiveAt: null,
+  lastTickAt: null,
+});
+
+/**
+ * 什么时候把「今天」翻篇。
+ *
+ * ⚠️⚠️ **不是午夜到了就翻。** Ocean 2026-08-27 的原话：「注意 24:00 时，如果用户还在工作，
+ * 就需要继续计算专注时间，一直到用户睡觉再断」。所以断点是**人停下来**，不是钟走过 0 点：
+ * 熬夜写到凌晨两点，那两个小时仍然记在「昨天」那一栏里，因为那是同一坐。
+ *
+ * ⇒ 翻篇要同时满足两条：
+ *   1. 这一坐**真的断过**（离上一次记上时间超过 N 分钟 —— 和判定「人还在不在」用的是同一个
+ *      窗口，⛔ 不另发明一个数）；
+ *   2. 而且**日期确实变了**。
+ *
+ * 只满足 2（跨了午夜但人没停）→ 不翻，继续加。这正是他要的那条。
+ * 只满足 1（歇了半小时，还是同一天）→ 不翻，接着加。
+ *
+ * ⚠️ 重启也走这条路：重启后 `lastTickAt` 是 null（这一坐重新开始），但 `lastActiveAt` 是
+ * 从盘上读回来的，所以「关掉 Spool 五分钟再打开」不算断，「睡一觉再打开」算。
+ */
+/** 把「这一坐」清零，但**今天那三个数一个不动**。休息、关掉提醒都走它。
+ *  ⛔ 别用 `initialBreakState()` 代替它 —— 那会连今天一起抹掉。 */
+export const keepDay = (state: BreakState): BreakState => ({
+  ...initialBreakState(),
+  totalMs: state.totalMs,
+  dayKey: state.dayKey,
+  lastActiveAt: state.lastActiveAt,
+});
+
+export const shouldRollDay = (state: BreakState, now: number): boolean => {
+  if (state.dayKey === null) return false; // 从来没记过，没什么可翻的
+  const gap = state.lastActiveAt === null ? Infinity : now - state.lastActiveAt;
+  const brokeOff = gap > PRESENCE_WINDOW_MS;
+  return brokeOff && state.dayKey !== dayKeyOf(now);
+};
 
 export interface TickInput {
   now: number;
@@ -200,16 +251,47 @@ export const tickBreakState = (state: BreakState, input: TickInput): TickResult 
   if (!working) {
     if (state.lastTickAt === null) return { state, due: false };
     if (now - state.lastTickAt > PRESENCE_WINDOW_MS) {
-      // ⚠️ `totalMs` 带过来：这一坐没了，但已经工作过的那些分钟是真的。
-      return { state: { ...initialBreakState(), totalMs: state.totalMs }, due: false };
+      // ⚠️ 只有**这一坐**没了。`totalMs` / `dayKey` / `lastActiveAt` 全部带过来：
+      // 已经工作过的那些分钟是真的，而「今天」翻不翻篇由 shouldRollDay 在下一次开工时决定。
+      return {
+        state: {
+          ...initialBreakState(),
+          totalMs: state.totalMs,
+          dayKey: state.dayKey,
+          lastActiveAt: state.lastActiveAt,
+        },
+        due: false,
+      };
     }
     return { state, due: false };
   }
 
+  // ⭐ 每一个「在工作」的 tick 都问一次要不要翻篇。
+  //
+  // ⚠️⚠️ 第一版写的是「只在这一坐刚开始（`lastTickAt === null`）时问」，**那漏了合盖睡觉
+  // 这条最常见的路**：晚上 11 点合盖、早上 9 点开盖，中间一个 tick 都没跑过，`lastTickAt`
+  // 还停在昨晚 —— 于是早上第一个 tick 走的是「这一坐还在继续」那条，今天的时间接着昨天加。
+  // ⇒ 改成每个 tick 都问。⛔ 这不会在人正干活时清零：shouldRollDay 要求离上一次**真的记上
+  // 时间**超过 N 分钟，而干活时每 30 秒就记一次。
+  const rolled = shouldRollDay(state, now);
+  const dayKey = rolled || state.dayKey === null ? dayKeyOf(now) : state.dayKey;
+  const carriedTotal = rolled ? 0 : state.totalMs;
+
   // Working. First tick of a sitting only starts the clock — there is no earlier moment to
   // measure from, and crediting a full tick here would bill time before the user arrived.
   if (state.lastTickAt === null) {
-    return { state: { activeMs: state.activeMs, totalMs: state.totalMs, lastTickAt: now }, due: false };
+    return {
+      state: {
+        activeMs: state.activeMs,
+        totalMs: carriedTotal,
+        dayKey,
+        // ⚠️ 这一 tick 一毫秒都没记上（没有更早的时刻可量），所以 `lastActiveAt` 不动 ——
+        // 它说的是「上一次真的记上时间」，⛔ 不是「上一次跑过 tick」。
+        lastActiveAt: state.lastActiveAt,
+        lastTickAt: now,
+      },
+      due: false,
+    };
   }
 
   // ⚠️ A gap this long means the machine slept or the tab was throttled. The elapsed time is
@@ -217,15 +299,15 @@ export const tickBreakState = (state: BreakState, input: TickInput): TickResult 
   const credit = Math.min(Math.max(now - state.lastTickAt, 0), MAX_TICK_CREDIT_MS);
   const activeMs = state.activeMs + credit;
   // ⭐ 同一批毫秒，两个累加器 —— ⛔ 别只加一个，两个数会当场开始互相说不一样的话。
-  const totalMs = state.totalMs + credit;
+  const totalMs = carriedTotal + credit;
 
   if (activeMs >= input.workMs) {
     // Reset as we fire. The dialog is the end of this sitting whether or not the user actually
     // rests — an un-reset streak would re-fire on the very next tick, thirty seconds later.
     // ⚠️ 只清 `activeMs`。`totalMs` 是 Ocean 要的那个「一直往上加」的数。
-    return { state: { activeMs: 0, totalMs, lastTickAt: now }, due: true };
+    return { state: { activeMs: 0, totalMs, dayKey, lastActiveAt: now, lastTickAt: now }, due: true };
   }
-  return { state: { activeMs, totalMs, lastTickAt: now }, due: false };
+  return { state: { activeMs, totalMs, dayKey, lastActiveAt: now, lastTickAt: now }, due: false };
 };
 
 /** `m:ss` for the lock's countdown.

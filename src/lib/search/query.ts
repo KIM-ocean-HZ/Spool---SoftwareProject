@@ -71,6 +71,38 @@ export const hitLine = (hit: SearchHit): string => {
   return (line?.text ?? '').trim();
 };
 
+/** 预览里那一小段字：**从命中词往前一点点开始**，并且带回命中词在这段字里的位置。
+ *
+ *  ⭐ 2026-08-27 第二轮（Ocean:「预览的文字需要从搜索命中的那句话开始，必须能看到命中词」）。
+ *  ⚠️ 为什么不能直接用 `hitLine()`：那一句是**整行**，而且 `.trim()` 过 —— 命中词可能落在
+ *  第 80 个字上，预览卡只放得下前 60 个字，于是卡片上一个高亮都看不见；trim 还会让偏移量
+ *  整体错位，画不出 `<mark>`。这里改成从命中往前留几个字开始切，并把偏移量跟着挪。 */
+export interface HitLead {
+  text: string;
+  /** 命中词在 `text` 里的位置。null = 这一条没有逐字命中（FTS 对上了但没有子串）。 */
+  match: { start: number; end: number } | null;
+}
+
+/** 命中词前面留几个字，好让它不贴着卡片左边。 */
+const LEAD_CHARS = 6;
+
+export const hitLead = (hit: SearchHit, max: number): HitLead => {
+  const line = hit.snippet.find((l) => l.isHit);
+  if (!line?.match) {
+    // 没有逐字命中：退回第一行**有字的**（⛔ 不是 snippet[0]，那可能是空行）。
+    const fallback = hit.snippet.find((l) => l.text.trim().length > 0)?.text ?? '';
+    return { text: fallback.trim().slice(0, max), match: null };
+  }
+  const from = Math.max(0, line.match.start - LEAD_CHARS);
+  const lead = from > 0 ? '…' : '';
+  const text = lead + line.text.slice(from, from + max);
+  // 前面掐掉了 `from` 个字，又补了 `lead` 那一个 → 偏移量差这么多。
+  const shift = from - lead.length;
+  const start = line.match.start - shift;
+  const end = Math.min(text.length, line.match.end - shift);
+  return { text, match: start >= 0 && end > start ? { start, end } : null };
+};
+
 interface Row {
   block_id: string;
   thread_id: string;

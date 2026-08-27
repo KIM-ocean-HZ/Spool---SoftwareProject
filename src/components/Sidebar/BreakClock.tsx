@@ -63,11 +63,13 @@ const TICKS = Array.from({ length: 12 }, (_, i) => {
 export default function BreakClock() {
   const t = useT();
   const activeMs = useBreakStore((s) => s.activeMs);
-  // ⭐ 2026-08-27（Ocean:「专注时间要一直累积」）——**上面那行字换成总数了**。
+  // ⭐ 2026-08-27（Ocean:「专注时间要一直累积」→ 第二轮:「可以做成今天，按天算」）——
+  // 上面那行字是**今天**的总数。
   // 表盘（弧和指针）画的仍然是**这一坐**：它是倒计时，走到头就该回到零。
-  // 上面那行字画的是**总数**：休息清不掉它，所以倒计时结束之后它还在，还在往上加。
-  // ⚠️ 写「已专注」⛔ 不写「今天已专注」：这个数是本次开机以来的，不落盘
-  // （breakStore 顶上那段说了为什么），下午三点重开一次 Spool，「今天」当场就是假的。
+  // 上面那行字画的是今天的总数：休息清不掉它，重启也清不掉（落盘，见 lib/db/focusDay.ts）。
+  // ⚠️ 「今天」这两个字现在是真的：翻篇的判据是**人停下来过**而不是钟走过 0 点，
+  // 所以熬夜到凌晨两点仍然记在昨天那一栏（Ocean:「24:00 时如果用户还在工作，就继续计算，
+  // 一直到用户睡觉再断」）。规则在 lib/breakReminder.ts 的 shouldRollDay。
   const totalMs = useBreakStore((s) => s.totalMs);
   const workMinutes = useSettingsStore((s) => s.breakWorkMinutes);
 
@@ -78,7 +80,7 @@ export default function BreakClock() {
   const workedMin = Math.floor(totalMs / 60_000);
   const leftMin = Math.max(0, Math.ceil((workMs - activeMs) / 60_000));
 
-  const label = t('已专注 {n} 分钟', { n: workedMin });
+  const label = t('今天已专注 {n} 分钟', { n: workedMin });
   const [handX, handY] = pointAt(fraction, R_HAND);
 
   return (

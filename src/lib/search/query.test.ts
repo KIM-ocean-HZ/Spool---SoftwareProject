@@ -6,7 +6,7 @@ import { __setTestDb } from '@/lib/db/client';
 import schemaSql from '@/lib/db/schema.sql?raw';
 import { createThread } from '@/lib/db/threads';
 import { createWorkspace } from '@/lib/db/workspaces';
-import { buildHitOffsets, buildSnippet, search } from './query';
+import { buildHitOffsets, buildSnippet, hitLead, search, type SearchHit } from './query';
 
 // node:sqlite is a Node builtin that Vite's transform pipeline won't resolve as a
 // static import — load it via createRequire so the specifier stays opaque to Vite.
@@ -175,6 +175,46 @@ describe('FTS index stays in sync after edits (§19.5)', () => {
 // PLAN_EN.md §9.10 v2.9 / §18 rule 10: hitOffsets must carry every match across
 // both fields so BlockItem can wrap each occurrence in <mark> and the
 // InBlockNavigator can step through them.
+describe('hitLead —— 预览卡里那一小段字', () => {
+  const hitOf = (content: string, query: string): SearchHit => {
+    const { field, snippet } = buildSnippet(content, null, query);
+    return {
+      blockId: 'b',
+      threadId: 't',
+      threadTitle: '',
+      workspaceId: 'w',
+      workspaceTitle: '',
+      createdAt: 0,
+      field,
+      snippet,
+      gist: null,
+      hitOffsets: [],
+    };
+  };
+
+  it('命中词在很后面时，从命中词前一点开始切 —— ⛔ 不是从行首', () => {
+    const long = '前面这一段废话很长'.repeat(6) + '这里才是关键词后面还有字';
+    const lead = hitLead(hitOf(long, '关键词'), 30);
+    expect(lead.match).not.toBeNull();
+    // 卡片上真的看得见命中词
+    expect(lead.text.slice(lead.match!.start, lead.match!.end)).toBe('关键词');
+    expect(lead.text.length).toBeLessThanOrEqual(31); // 30 + 那个省略号
+  });
+
+  it('命中就在行首时不加省略号，偏移量也不挪', () => {
+    const lead = hitLead(hitOf('关键词开头的一行', '关键词'), 30);
+    expect(lead.text.startsWith('关键词')).toBe(true);
+    expect(lead.match).toEqual({ start: 0, end: 3 });
+  });
+
+  it('逐字对不上时退回第一行有字的，⛔ 不是空行', () => {
+    const hit = hitOf('\n\n有字的第一行\n第二行', '对不上的词');
+    const lead = hitLead(hit, 30);
+    expect(lead.text).toBe('有字的第一行');
+    expect(lead.match).toBeNull();
+  });
+});
+
 describe('buildHitOffsets', () => {
   it('returns a single offset for one match', () => {
     const offsets = buildHitOffsets('the keyword here', null, 'keyword');
