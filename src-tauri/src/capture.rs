@@ -47,7 +47,9 @@ static FRONTMOST_CACHE: Mutex<Option<FrontmostCache>> = Mutex::new(None);
 // hard wall-clock cap so even an unkillable osascript can't block beyond the budget.
 // Caller (JS) also has its own 800ms race, but defense in depth keeps the §16 hot-path
 // SLO ("<200ms keypress → toast") realistic even when this returns slowly.
-#[tauri::command]
+// ⚠️ `(async)`：下面那个 `recv_timeout` **最长等 2200ms**。放在主线程上就是 2.2 秒的
+// 冻窗口 —— 和 `probe_browser_automation` 上面那段说的是同一件事，那条早就加了，这条漏了。
+#[tauri::command(async)]
 pub fn get_foreground_app() -> Option<ForegroundApp> {
     #[cfg(target_os = "macos")]
     {
@@ -846,7 +848,8 @@ fn run_browser_probe(app: &str) -> Result<(), String> {
 // LogView (Phase 6). Returns `file` when the path doesn't exist — the caller will
 // still persist it (paths can legitimately point to artifacts the user just moved)
 // and openTarget will report the missing-target message at click time.
-#[tauri::command]
+// ⚠️ `(async)`：`fs::metadata` 落在断开的网络卷 / 睡着的外置盘上会卡住，**没有上限**。
+#[tauri::command(async)]
 pub fn path_is_dir(path: String) -> bool {
     std::path::Path::new(&path).is_dir()
 }
@@ -966,6 +969,10 @@ pub struct OverlayCapturePayload {
     // "next ⌘C goes to Spool instead of the browser" bug on macOS where show() of a
     // background app's window steals app-level activation even with focus:false.
     pub prev_source_app: Option<String>,
+    /// ⭐ 长按 ⌥ 那一路（2026-08-27）：浮窗里给人直接写，正文空着、来源留空。
+    /// ⚠️ `#[serde(default)]` —— 捕捉那一路不传它。
+    #[serde(default)]
+    pub note_mode: bool,
 }
 
 // macOS app names are short, human-readable strings (e.g. "Google Chrome", "Visual

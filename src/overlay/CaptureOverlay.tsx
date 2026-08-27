@@ -165,6 +165,21 @@ export default function CaptureOverlay() {
   const [pinned, setPinned] = useState(false);
   const [annotationDraft, setAnnotationDraft] = useState('');
   const annotationRef = useRef<HTMLTextAreaElement>(null);
+  // ⭐⭐ 长按 ⌥ 那一路（2026-08-27，Ocean）：正文是空的，人直接在这儿写。
+  // ⚠️ 和捕捉那一路最大的不同：**这时候库里还没有这一块**（`blockId` 是空串）。
+  // 所以这条路上的每一处「写库」都要先问一句 isNote —— 往一个不存在的 id 上写批注，
+  // SQLite 不会报错，它只是一行都不更新。
+  const [bodyDraft, setBodyDraft] = useState('');
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  /** 长按那一路还没存下去的那一条。⚠️⚠️ 和 `pendingNoteRef` 同一个理由，而且更要紧：
+   *  「卡片没了」有好几条路（Esc、×、点外面、自己超时），每一条都得能把人写的字带走。
+   *  ⛔ 别指望在每一条路上各写一遍 —— 那正是批注当初丢字的原因（见 pendingNoteRef 上面）。 */
+  const pendingBodyRef = useRef<{
+    threadId: string;
+    body: string;
+    note: string;
+    pinned: boolean;
+  } | null>(null);
   // Latest pending note, mirrored to a ref so a dismiss path can flush it. A toast note
   // only committed on the textarea's onBlur — but clicking outside (the documented
   // "点击外部保存"), Esc, and × all unmount the textarea via setContent(null), and React
@@ -178,9 +193,29 @@ export default function CaptureOverlay() {
   // even after the toast unmounts. No-op unless the user actually typed a note. Clears the
   // ref first so the multiple dismiss paths can't double-write.
   const flushPendingNote = useCallback((): void => {
+    // ⭐ 长按 ⌥ 那一路：这时候才建块。⚠️ 放在最前面，因为下面那一支要 `return`。
+    const b = pendingBodyRef.current;
+    pendingBodyRef.current = null;
+    if (b && b.body.trim().length > 0) {
+      const note = b.note.trim();
+      void createBlock({
+        threadId: b.threadId,
+        kind: 'text',
+        content: b.body.trim(),
+        // ⛔ 来源留空 = pack 里的 💭 Personal，这是 Ocean 定的。
+        source: null,
+        annotation: note.length > 0 ? note : null,
+        pinned: b.pinned,
+      })
+        .then((block) => emitAction({ kind: 'note-created', block, threadId: b.threadId }))
+        .catch((e) => console.error('[overlay] note save failed', e));
+    }
     const p = pendingNoteRef.current;
     pendingNoteRef.current = null;
     if (!p) return;
+    // ⛔ 长按 ⌥ 那一路：块还没建出来，⛔ 不许往空 id 上写批注（写了也是静默的无效更新）。
+    // 那条路的批注跟着正文一起由 finishNote 里的 createBlock 存下去。
+    if (!p.blockId) return;
     const trimmed = p.draft.trim();
     const next: string | null = trimmed.length > 0 ? trimmed : null;
     void updateBlockAnnotation(p.blockId, next)
@@ -286,7 +321,9 @@ export default function CaptureOverlay() {
         setExpanded(true);
         setPinned(false);
         setAnnotationDraft('');
+        setBodyDraft('');
         pendingNoteRef.current = null;
+        pendingBodyRef.current = null;
         void refresh();
       });
       if (cancelled) dispose();
@@ -410,7 +447,10 @@ export default function CaptureOverlay() {
   useEffect(() => {
     if (!content) return;
     if (hover || pickerOpen) return;
-    if (content.kind === 'toast' && annotationDraft.length > 0) return;
+    // ⚠️⚠️ 2026-08-27（长按 ⌥ 那一路，实机验收当场抓到的）：这里原来**只看批注框**。
+    // 而长按那一路人写的是**正文框**，于是「写着写着卡片自己没了、字也没了」——
+    // 那正是这一窗 ④ 在修的那种毛病，⛔ 不许在新功能里再造一个。
+    if (content.kind === 'toast' && (annotationDraft.length > 0 || bodyDraft.length > 0)) return;
     const ms =
       content.kind === 'notice'
         ? NOTICE_AUTO_DISMISS_MS
@@ -423,7 +463,7 @@ export default function CaptureOverlay() {
       leaveCard();
     }, ms);
     return () => clearTimeout(t);
-  }, [content, hover, pickerOpen, annotationDraft, leaveCard]);
+  }, [content, hover, pickerOpen, annotationDraft, bodyDraft, leaveCard]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -462,7 +502,9 @@ export default function CaptureOverlay() {
       // composition — it must not dismiss the toast mid-note.
       if (isImeComposing(e)) return;
       if (e.key === 'Escape') {
+        // Esc = 放弃。⛔ 长按那一路写了一半的正文也一起放弃（卡片上就是这么写的）。
         pendingNoteRef.current = null;
+        pendingBodyRef.current = null;
         leaveCard();
       }
     };
@@ -500,9 +542,12 @@ export default function CaptureOverlay() {
   // Keyed on content too: a rapid re-capture re-runs this even though `expanded`
   // never flipped back to false in between.
   useEffect(() => {
-    if (expanded && annotationRef.current) {
-      annotationRef.current.focus();
-    }
+    if (!expanded) return;
+    // ⭐ 长按 ⌥ 那一路：焦点先给**正文**框 —— Ocean 要的是「弹出来就能直接写」。
+    // 捕捉那一路照旧先给批注框（正文是刚复制的东西，不用改）。
+    const target =
+      content?.kind === 'toast' && content.data.noteMode ? bodyRef.current : annotationRef.current;
+    target?.focus();
   }, [expanded, content]);
 
   if (!content) return null;
@@ -688,13 +733,35 @@ export default function CaptureOverlay() {
   // Note-first exits. Finish (Enter / 完成): commit the draft and dismiss — the user
   // is done with this capture, focus goes back to their app (Rust side of hide).
   // Cancel (Esc): discard the draft and dismiss.
+  /** ⭐ 这张卡是「长按 ⌥ 直接写」还是「双击 ⌥ 捕捉」。 */
+  const isNote = toast.noteMode === true;
+
+  /** 长按那一路的保存：**这时候才建块**。
+   *
+   *  ⚠️ 正文和批注一次写进去，来源留空（= pack 里的 💭 Personal，Ocean 要的那一类）。
+   *  ⚠️ 正文空着就什么都不存 —— 弹出来又改主意按了 Esc，⛔ 不该在库里留一条空记录。
+   *  ⚠️ 只写了批注没写正文也不存：一条没有正文的批注，pack 里挂不到任何东西上。 */
+  const saveNote = (): void => {
+    pendingNoteRef.current = null;
+    // ⚠️ 走 flushPendingNote 那一条**同一个**出口，⛔ 不在这里再写一遍 createBlock：
+    // 两处各写一遍，就会有一天只改了一处。正文空着的时候它自己什么都不做。
+    flushPendingNote();
+    leaveCard();
+  };
+
   const finishNote = (): void => {
+    if (isNote) {
+      saveNote();
+      return;
+    }
     flushPendingNote();
     leaveCard();
   };
   const cancelNote = (): void => {
     pendingNoteRef.current = null;
+    pendingBodyRef.current = null;
     setAnnotationDraft('');
+    setBodyDraft('');
     leaveCard();
   };
 
@@ -746,9 +813,53 @@ export default function CaptureOverlay() {
         className="cursor-grab px-3.5 pb-2 pt-2.5 pr-14 active:cursor-grabbing"
         onMouseDown={startToastDrag}
       >
-        <div className="line-clamp-2 whitespace-pre-wrap break-words font-ui text-[14px] leading-snug text-ink">
-          {toast.fullContent}
-        </div>
+        {/* ⭐⭐ 长按 ⌥ 那一路：这一格从「刚复制的那段字」换成**一个空的输入框**。
+            ⚠️ 位置一模一样 —— Ocean 要的是「同一个浮窗」，⛔ 不是第二种卡片。
+            ⚠️ `onMouseDown` 要 stopPropagation：外面那一层按下去是「拖动这张卡」，
+            不拦住的话在框里点一下就变成拖窗口，光标进不去。 */}
+        {isNote ? (
+          <textarea
+            ref={bodyRef}
+            value={bodyDraft}
+            onChange={(e) => {
+              setBodyDraft(e.target.value);
+              // ⚠️ 每一下按键都镜像进 ref —— 「卡片没了」的那几条路读的是它。
+              pendingBodyRef.current = {
+                threadId: toast.threadId,
+                body: e.target.value,
+                note: annotationDraft,
+                pinned,
+              };
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (isImeComposing(e.nativeEvent)) {
+                e.stopPropagation();
+                return;
+              }
+              // ⚠️ 正文这一格 **Enter 是换行**，⌘↵ 才是保存 —— 它是「写一条」用的，
+              // 换行是常事；批注那一格才是 Enter 保存（那儿一句话就够）。
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                finishNote();
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelNote();
+              }
+            }}
+            placeholder={tr('写点什么…（⌘↵ 保存，Esc 放弃）')}
+            rows={3}
+            spellCheck={false}
+            className="w-full resize-none rounded-md border border-line bg-paper px-2 py-1.5 font-ui text-[14px] leading-snug text-ink outline-none placeholder:text-muted/70 focus:border-line-strong"
+          />
+        ) : (
+          <div className="line-clamp-2 whitespace-pre-wrap break-words font-ui text-[14px] leading-snug text-ink">
+            {toast.fullContent}
+          </div>
+        )}
         <div
           className="mt-1 truncate font-mono text-[10px] text-muted"
           title={`${toast.workspaceTitle} / ${toast.threadTitle}${toast.source ? ` · ${toast.source}` : ''}`}
@@ -779,6 +890,10 @@ export default function CaptureOverlay() {
                 threadId: toast.threadId,
                 draft: e.target.value,
               };
+              // ⭐ 长按那一路：批注跟着正文一起存，所以也要跟着更新那一份。
+              if (isNote && pendingBodyRef.current) {
+                pendingBodyRef.current = { ...pendingBodyRef.current, note: e.target.value };
+              }
             }}
             onKeyDown={(e) => {
               if (isImeComposing(e.nativeEvent)) {
@@ -835,6 +950,10 @@ export default function CaptureOverlay() {
           the box taller, and the placeholder disappears the moment the user starts typing —
           which is exactly when they might reach for ⌘Z. The key belongs on the button that
           already does the same thing. */}
+      {/* ⚠️ 长按 ⌥ 那一路**不画这条底栏**：「撤销刚才的捕捉」和「改投到其它项目」说的都是
+          一个还不存在的块。存完之后它就是一条普通的块，在主窗里照样撤销得了（⌘Z 走的是
+          同一套 undoStore）。 */}
+      {!isNote && (
       <div className="flex items-center gap-1 border-t border-line bg-paper-2/30 px-2 py-1">
         <button
           onClick={() => void onUndo()}
@@ -888,6 +1007,7 @@ export default function CaptureOverlay() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

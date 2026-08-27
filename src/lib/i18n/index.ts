@@ -436,8 +436,6 @@ const EN: Record<string, string> = {
   '这个项目没有标记重点。要看完整记录吗？': 'No marked highlights in this project. Browse the full record?',
   '看完整记录': 'View full record',
   '重点': 'Highlights',
-  '松开以新建第一个块': 'Release to create the first block',
-  '松开以新建一个块': 'Release to create a block',
   '⌘C 复制后双击': 'Copy with ⌘C, then double-tap',
   '复制之后按': 'Copy, then press',
   '捕捉第一条信息': 'to capture your first piece',
@@ -489,7 +487,24 @@ const EN: Record<string, string> = {
   // rail's readout.
   '块是整条展开的。按 ↓ / ↑ 可以一块一块地看,右边那列刻度是你在第几块。':
     'Blocks open in full. Press ↓ / ↑ to step through them one at a time; the ticks on the right show where you are.',
+  '松开，把文件加进这个项目': 'Drop to add the file to this project',
+  '已专注 {n} 分钟': 'focused {n} min',
+  // ⑧ 手动排版三档（2026-08-27）
+  '标题': 'Heading',
+  '正文': 'Body',
+  '斜体': 'Italic',
+  '这一行当标题（比正文大一点）': 'Make this line a heading (a little larger than body)',
+  '这一行当正文（去掉标题和斜体）': 'Make this line body text (drops heading and italic)',
+  '斜体（划中的那一段，没划就是整行）': 'Italic (the selection, or the whole line)',
+  // ③ 长按 ⌥ 直接写笔记（2026-08-27）
+  '写点什么…（⌘↵ 保存，Esc 放弃）': 'Write something… (⌘↵ to save, Esc to discard)',
   '第 {n} / {total} 块': 'Block {n} of {total}',
+  // 查找条上的三个数（2026-08-27）。⚠️ 「处」= occurrence，「块」= block —— 英文也要
+  // 分得开，⛔ 别都译成 match。
+  '这一块里没有': 'not in this block',
+  '这一块 第 {i} / {n} 处': 'in this block {i} of {n}',
+  '本项目 {hits} 处 · {blocks} 块': 'this project {hits} in {blocks} blocks',
+  '全部 {hits} 处 · {blocks} 块': 'everywhere {hits} in {blocks} blocks',
   // 刻度上的查找命中 (2026-08-27)。两个词分开，是因为它们回答的是两个问题：对上的是这一块的
   // 正文，还是这个人自己写的那句批注。
   '查找命中': 'match',
@@ -680,7 +695,6 @@ const EN: Record<string, string> = {
     '\u2014 British Journal of Sports Medicine, 2026; a real-world study of nearly 20,000 adults',
   '结束休息，继续工作': 'End the break, back to work',
   '倒计时走完，它会自己解开': 'It unlocks itself when the countdown runs out',
-  '已连续专注 {n} 分钟': 'Focused for {n} min',
   // 休息提醒的浮窗 (Ocean 2026-08-22) — it floats over whatever app the user is in, so it
   // says the number rather than 「时间到了」: a card that interrupts has to be worth the
   // interruption in its first line.

@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronUp, List, Search as SearchIcon, X } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { hitLine, type SearchHit } from '@/lib/search/query';
+import { countMatches } from '@/stores/searchStore';
 import { useT } from '@/lib/i18n';
 
 // v2.9 §9.10 / §13.2 / §19.17: in-block search find bar. Mounted at the top of
@@ -29,6 +30,9 @@ interface Props {
   // for the jump-to-any-match list.
   results: SearchHit[];
   currentBlockId: string | null;
+  /** 数「本项目」那两个数要知道现在是哪个项目。⚠️ ⛔ 不能从 `currentBlockId` 反推 —— 查找
+   *  可以停在别的项目的块上，那时候「本项目」说的仍然是屏幕上这个。 */
+  threadId: string;
   onQueryChange: (next: string) => void;
   onPrev: () => void;
   onNext: () => void;
@@ -42,6 +46,7 @@ export default function InBlockNavigator({
   total,
   results,
   currentBlockId,
+  threadId,
   onQueryChange,
   onPrev,
   onNext,
@@ -53,6 +58,7 @@ export default function InBlockNavigator({
   const rootRef = useRef<HTMLDivElement>(null);
   const [listOpen, setListOpen] = useState(false);
   const empty = total === 0;
+  const counts = useMemo(() => countMatches(results, threadId), [results, threadId]);
 
   // Auto-focus the input on mount so the user can immediately refine the
   // search. preventScroll keeps focus from yanking the viewport.
@@ -108,12 +114,24 @@ export default function InBlockNavigator({
         spellCheck={false}
         className="w-[220px] flex-none rounded border border-line bg-paper px-2 py-1 font-mono text-[12px] text-ink outline-none transition-colors placeholder:text-muted focus:border-accent"
       />
-      <span
-        className="font-mono text-[11px] text-muted"
-        aria-live="polite"
-      >
-        {!query.trim() ? '' : empty ? t('无匹配') : `${index + 1} / ${total}`}
+      {/* ⭐ 2026-08-27（Ocean:「搜索的计数有歧义」）——**三个数，各自说清自己在数什么**。
+          原来只有两个：`1 / N`（这一块里的第几处）和 `≡ 6`（全部工作区里几个块），
+          谁也答不上「这个项目里一共多少处」。⚠️ 处 ≠ 块，所以两个都写出来。 */}
+      <span className="whitespace-nowrap font-ui text-[11px] text-muted" aria-live="polite">
+        {!query.trim()
+          ? ''
+          : empty
+            ? t('这一块里没有')
+            : t('这一块 第 {i} / {n} 处', { i: index + 1, n: total })}
       </span>
+      {query.trim() && counts.allHits > 0 && (
+        <span className="whitespace-nowrap font-ui text-[11px] text-ink-2">
+          {t('本项目 {hits} 处 · {blocks} 块', {
+            hits: counts.threadHits,
+            blocks: counts.threadBlocks,
+          })}
+        </span>
+      )}
 
       {/* All matching blocks across every workspace — jump to any of them. */}
       <button
@@ -122,12 +140,15 @@ export default function InBlockNavigator({
         disabled={results.length === 0}
         title={t('所有包含该文字的块（全部工作区）')}
         aria-label={t('所有匹配的块')}
-        className={`flex h-6 flex-none items-center gap-1 rounded px-1.5 font-mono text-[11px] transition-colors disabled:opacity-40 ${
+        className={`flex h-6 flex-none items-center gap-1 whitespace-nowrap rounded px-1.5 font-ui text-[11px] transition-colors disabled:opacity-40 ${
           listOpen ? 'bg-paper text-accent' : 'text-muted hover:bg-paper hover:text-accent'
         }`}
       >
         <List size={13} />
-        {results.length}
+        {t('全部 {hits} 处 · {blocks} 块', {
+          hits: counts.allHits,
+          blocks: counts.allBlocks,
+        })}
       </button>
 
       <div className="flex-1" />

@@ -26,6 +26,9 @@ interface WebviewPoint {
 
 const DEV = import.meta.env.DEV;
 
+/** 多久没有收到 `over` 就认定「拖拽已经不在这儿了」。见下面 feedWatchdog 那段。 */
+const DRAG_IDLE_MS = 900;
+
 // Per PLAN_EN.md §9.6 / Phase 6, as revised by DESIGN_PROJECT_FILES (v15): dropping files
 // anywhere in the timeline adds them to THIS PROJECT's files. There is no longer a
 // distinction between dropping on a block and dropping in empty space — a file does not
@@ -55,6 +58,34 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
     // Skips a highlight repaint while a previous cursor query is still in flight —
     // a natural rate-limit to IPC speed so rapid `over` events can't pile up.
     let highlightBusy = false;
+
+    // ⛔⛔ 2026-08-27（Ocean:「底下那个虚线框，没有拖拽的时候也冒出来」）——**看门狗**。
+    //
+    // 病根：`overThread` 只在 `leave` 和 `drop` 上复位，而**这两个事件都不保证会来**。
+    // 拖拽在窗口外面松手、拖到别的 Space、拖回访达自己那儿取消，系统只是不再往这个
+    // webview 发 `over` 了 —— 没有 `leave`。于是那个「松开…」的框就一直挂在那儿，
+    // 而这时候根本没有人在拖任何东西。
+    //
+    // ⚠️ 修法不是「再补几个复位点」（那是把同一个赌下三次）：改成**只要还在拖，就一直
+    // 有人喂它**。macOS 在拖拽停在窗口里不动时仍然会周期性地发 `draggingUpdated`
+    // （`wantsPeriodicDraggingUpdates` 默认就是 YES），所以「一段时间没有 over」这件事
+    // 只可能意味着拖拽已经不在这儿了。
+    // ⚠️ 900ms：比周期性更新的间隔（约 200ms）宽出好几倍，⛔ 又短到不会让那个框在屏幕上
+    // 赖着不走。
+    let idle: ReturnType<typeof setTimeout> | null = null;
+    const clearIdle = (): void => {
+      if (idle !== null) {
+        clearTimeout(idle);
+        idle = null;
+      }
+    };
+    const feedWatchdog = (): void => {
+      clearIdle();
+      idle = setTimeout(() => {
+        idle = null;
+        useDropStore.getState().setOverThread(false);
+      }, DRAG_IDLE_MS);
+    };
 
     const containsPoint = (x: number, y: number): boolean => {
       const root = rootRef.current;
@@ -123,10 +154,13 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
       const dispose = await getCurrentWebview().onDragDropEvent((event) => {
         const p = event.payload;
         if (p.type === 'enter' || p.type === 'over') {
+          feedWatchdog();
           void paintHighlight();
         } else if (p.type === 'leave') {
+          clearIdle();
           useDropStore.getState().setOverThread(false);
         } else if (p.type === 'drop') {
+          clearIdle();
           useDropStore.getState().setOverThread(false);
           void handleDrop(p.paths);
         }
@@ -137,6 +171,7 @@ export function useThreadDropTarget({ rootRef, threadId }: UseThreadDropTargetAr
 
     return () => {
       disposed = true;
+      clearIdle();
       useDropStore.getState().setOverThread(false);
       if (unlisten) unlisten();
     };

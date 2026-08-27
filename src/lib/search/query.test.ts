@@ -45,6 +45,34 @@ describe('buildSnippet', () => {
     expect(snippet[1]!.isHit).toBe(false);
   });
 
+  // ⛔ 2026-08-27（Ocean:「搜索结果先是空白，按上下键才看得到文本」）。块正文是 markdown，
+  // 段落之间隔一个空行 —— 命中落在第二段开头时，上一行就是那个空行，画出来是一条空白。
+  it('跳过空行去找上下文，⛔ 不把空行当成一行上下文', () => {
+    const text = '第一段的最后一句。\n\n这一段里有关键词。\n\n第三段开头。';
+    const { snippet } = buildSnippet(text, null, '关键词');
+    expect(snippet.map((l) => l.text)).toEqual([
+      '第一段的最后一句。',
+      '这一段里有关键词。',
+      '第三段开头。',
+    ]);
+    // 一条都不许是空白 —— 这就是那个 bug 的判据。
+    expect(snippet.every((l) => l.text.trim().length > 0)).toBe(true);
+  });
+
+  it('隔太远的段落就不当上下文了（最多越过两行空白）', () => {
+    const text = '很远的一段。\n\n\n\n\n命中在这里。';
+    const { snippet } = buildSnippet(text, null, '命中');
+    expect(snippet).toHaveLength(1);
+    expect(snippet[0]!.isHit).toBe(true);
+  });
+
+  it('逐字对不上时，前几行也要跳过空行', () => {
+    // 空行开头 + 找不到逐字命中 ⇒ 原来 snippet[0] 就是那个空行。
+    const { snippet } = buildSnippet('\n\n有字的第一行\n第二行', null, '对不上的词');
+    expect(snippet.length).toBeGreaterThan(0);
+    expect(snippet[0]!.text).toBe('有字的第一行');
+  });
+
   it('falls back to the annotation when the content has no match', () => {
     const { field, snippet } = buildSnippet('some captured text', '我的批注里有关键词', '关键词');
     expect(field).toBe('annotation');

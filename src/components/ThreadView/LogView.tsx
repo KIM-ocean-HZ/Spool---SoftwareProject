@@ -129,6 +129,27 @@ export default function LogView({ threadId }: Props) {
     };
   }, []);
 
+  // ⑦（2026-08-27，Ocean:「发完一条自动定位到最底下刚输入的位置」）—— 刚发出去、还没滚过去
+  // 的那一块。
+  //
+  // ⚠️⚠️ **和上面那三条落点规则不打架，因为它根本不走那条路。** 落点规则（教程置顶 / 记住的
+  // 位置 / 底部）由 `scrolledThread` 管着，一个项目只跑一次，而且在用户按下 Enter 之前早就
+  // 跑完了。这一条是**用户刚做的动作**，Ocean 的规矩是它压过记忆位置 —— 所以它单独走，
+  // ⛔ 不要改 resolveLanding，那会让「记住浏览位置」在下一次开这个项目时也跟着变。
+  //
+  // ⚠️ 为什么要等一个 effect 而不是发完就滚：`append` 返回的时候，那一块才刚进 store，
+  // React 还没把它画出来 —— 这时候 `querySelector` 找不到它，滚了个寂寞。
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!pendingScroll) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!(threadBlocks ?? []).some((b) => b.id === pendingScroll)) return;
+    if (!el.querySelector(`[data-block-id="${CSS.escape(pendingScroll)}"]`)) return;
+    scrollBlockIntoView(el, pendingScroll, 'smooth');
+    setPendingScroll(null);
+  }, [pendingScroll, threadBlocks]);
+
   // v2.9 §9.10 / §19.17: the in-block find bar lives at the top of this thread
   // whenever a search result has landed on one of its blocks. Mounting it here
   // (above the scrollable feed) keeps it visible and at a readable size as the
@@ -166,6 +187,7 @@ export default function LogView({ threadId }: Props) {
           total={navHits.length}
           results={navResults}
           currentBlockId={navBlockId}
+          threadId={threadId}
           onPickResult={(blockId) => useSearchStore.getState().jumpToResult(blockId)}
           onQueryChange={(next) => {
             // Live in-block re-search: recompute hit positions on the
@@ -205,7 +227,7 @@ export default function LogView({ threadId }: Props) {
           scroll container, not a child — see the wrapper's comment. */}
         <ScaleRail scrollRef={scrollRef} revision={blockCount} threadId={threadId} />
       </div>
-      <Composer threadId={threadId} />
+      <Composer threadId={threadId} onSubmitted={setPendingScroll} />
     </div>
   );
 }

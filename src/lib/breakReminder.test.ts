@@ -157,8 +157,34 @@ describe('tickBreakState', () => {
       workMs: HOUR,
       ...away(),
     });
-    expect(r.state).toEqual(initialBreakState());
+    // ⚠️ 2026-08-27：这一坐清零了，但 `totalMs` **留着** —— 那些分钟是真的工作过的
+    // （Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」）。
+    expect(r.state).toEqual({ ...initialBreakState(), totalMs: half.state.totalMs });
+    expect(r.state.activeMs).toBe(0);
+    expect(r.state.totalMs).toBeGreaterThan(0);
     expect(r.due).toBe(false);
+  });
+
+  // ⭐ 2026-08-27（Ocean:「专注时间要一直累积 —— 倒计时结束之后，总专注时间还看得见、
+  // 还在往上加」）。甲档：本次开机以来的累计，⛔ 不落盘。
+  it('休息把这一坐清零，但总专注时间接着往上加', () => {
+    const first = run(initialBreakState(), HOUR / TICK_MS + 1, busy);
+    expect(first.fired).toBe(1);
+    // 倒计时到点：这一坐归零……
+    expect(first.state.activeMs).toBe(0);
+    // ……而总数就是刚工作过的那一个小时。
+    expect(first.state.totalMs).toBeGreaterThanOrEqual(HOUR);
+
+    // 休息完接着工作十分钟：这一坐从零开始数，总数在上面接着加。
+    const second = run(first.state, 20, busy, first.lastNow + TICK_MS);
+    expect(second.state.activeMs).toBeGreaterThan(0);
+    expect(second.state.activeMs).toBeLessThan(HOUR);
+    expect(second.state.totalMs).toBeGreaterThan(first.state.totalMs);
+  });
+
+  it('总时间和这一坐记的是同一批毫秒 —— 没休息过的时候两个数一样', () => {
+    const r = run(initialBreakState(), 40, busy);
+    expect(r.state.totalMs).toBe(r.state.activeMs);
   });
 
   it('cannot be handed an hour by a laptop waking up', () => {
@@ -209,7 +235,9 @@ describe('the rewritten criterion, against its own acceptance list', () => {
     // That is correct behaviour, not a gap — Spool must not bill time it has no evidence for.
     const r = run(initialBreakState(), HOUR / TICK_MS + 1, () => busyElsewhere(T0)());
     expect(r.fired).toBe(0);
-    expect(r.state).toEqual(initialBreakState());
+    // 这一坐没了（activeMs 归零、lastTickAt 清空）。⚠️ `totalMs` 不归零，理由同上。
+    expect(r.state.activeMs).toBe(0);
+    expect(r.state.lastTickAt).toBeNull();
   });
 
   it('② an hour of an untouched machine with Spool in front does not fire', () => {

@@ -58,7 +58,8 @@ fn resolve_within(root: &Path, relative: &str) -> Result<PathBuf, String> {
 /// ⚠️ It never writes into a directory that already exists. An export is a snapshot the
 /// user hands to an AI; silently merging today's export into last week's would produce a
 /// folder whose INDEX.md describes some of the files in it and not the others.
-#[tauri::command]
+// ⚠️ `(async)`：往磁盘写一整个文件夹，⛔ 不占主线程（见 api_engine.rs 里 api_key_save 那段）。
+#[tauri::command(async)]
 pub fn write_pack_folder(
     parent: String,
     folder_name: String,

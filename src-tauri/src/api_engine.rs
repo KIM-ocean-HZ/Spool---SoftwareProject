@@ -484,7 +484,8 @@ fn probe_from(v: &serde_json::Value) -> DuplicateProbe {
 }
 
 /// 这个项目里有多少重复。⚠️ 算不出来就返回 Err —— 界面于是**不显示这一行**，⛔ 不编一个数。
-#[tauri::command]
+// ⚠️ `(async)`：开库 + 一趟近重复扫描（`busy_timeout` 自己就有 2 秒），⛔ 不能占主线程。
+#[tauri::command(async)]
 pub fn compress_duplicate_probe(thread_id: String) -> Result<DuplicateProbe, String> {
     let dir = crate::mcp::app_data_dir().ok_or_else(|| "no app data dir".to_string())?;
     let conn = crate::mcp::open_db(&dir)?;
@@ -584,7 +585,14 @@ fn migrate_key_into_keychain(app: &tauri::AppHandle) {
     }
 }
 
-#[tauri::command]
+// ⚠️⚠️ `(async)`（2026-08-27，查「键盘假死三十秒」查到这儿）：这三条**都要读钥匙串**
+// （`SecItemCopyMatching`），而钥匙串是会长时间阻塞的 —— 同一个二进制重新签过之后系统要重新
+// 验一次签，实测 **60–75 秒**；屏幕锁着的时候那个授权框弹不出来，于是**无限期**卡住
+// （两个数都在记忆 `isolated-verify-workflow` §35 里，是这个仓库自己量过的）。
+// 不带 `(async)` 的命令是在 IPC 回调里就地跑的，而 macOS 上那个回调派发在主线程 ⇒
+// 卡多久，整个窗口就冻多久，键盘一个字也进不去，而别的 app 一切正常。
+// ⛔ 别把这三条改回同步。理由和 `ai_engine_status` / `probe_browser_automation` 是同一条。
+#[tauri::command(async)]
 pub fn api_key_save(app: tauri::AppHandle, key: String) -> Result<(), String> {
     let key = key.trim();
     #[cfg(target_os = "macos")]
@@ -642,7 +650,7 @@ pub(crate) fn read_api_key() -> String {
     std::fs::read_to_string(dir.join("api-key")).unwrap_or_default().trim().to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
@@ -663,7 +671,7 @@ pub fn api_key_load(app: tauri::AppHandle) -> Result<String, String> {
 /// ⚠️ macOS 上这一条**会读一次钥匙串**（`SecItemCopyMatching`）。同一个签名身份下
 /// 不弹窗；⛔ 换了签名身份（比如从公证版换成 dev build）系统会当成另一个程序来问，
 /// 那一次会弹一个「允许访问钥匙串」的框 —— 那是对的，不是 bug。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn api_key_present(app: tauri::AppHandle) -> bool {
     #[cfg(target_os = "macos")]
     {

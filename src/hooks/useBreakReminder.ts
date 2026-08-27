@@ -113,7 +113,7 @@ export const useBreakReminder = (): void => {
             lastCaptureAt: useCaptureStore.getState().lastCaptureAt,
           });
           stateRef.current = state;
-          store.publish(state.activeMs);
+          store.publish(state.activeMs, state.totalMs);
 
           // ⚠️⚠️ **Due splits in two, and which half runs depends on where the user is.**
           //

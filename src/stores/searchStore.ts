@@ -58,6 +58,43 @@ interface SearchState {
   jumpToResult: (blockId: string) => void;
 }
 
+/** 查找条上那几个数（2026-08-27，Ocean:「搜索的计数有歧义」）。
+ *
+ *  ⚠️ 原来条上只有两个数，而且**两个数在数不同的东西**：`1 / N` 数的是「这一块里的第几处」，
+ *  `≡ 6` 数的是「全部工作区里有几个**块**命中」。于是「这个项目里一共有多少处」——
+ *  最常想知道的那一个 —— 一个数都答不上来。
+ *
+ *  ⚠️ 处 ≠ 块：一块里可以有五处。两个都要，因为它们回答的是两个问题
+ *  （「还要按多少次下一个」和「要翻多少块」）。
+ *
+ *  ⚠️ 纯函数，⛔ 不进 store 的状态：它是 `navResults` 的算术，存一份就要跟着它更新，
+ *  而那正是两个数开始互相说不一样的话的方式。 */
+export interface MatchCounts {
+  /** 这个项目里的处数 / 块数。 */
+  threadHits: number;
+  threadBlocks: number;
+  /** 全部工作区。 */
+  allHits: number;
+  allBlocks: number;
+}
+
+export const countMatches = (results: SearchHit[], threadId: string | null): MatchCounts => {
+  let threadHits = 0;
+  let threadBlocks = 0;
+  let allHits = 0;
+  for (const hit of results) {
+    // ⚠️ `hitOffsets` 是**两个字段合起来**的每一处（正文的在前，批注的在后）——
+    // 「处」在查找条上下翻的时候就是按它走的，所以数它才和 ▲▼ 对得上。
+    const n = hit.hitOffsets.length;
+    allHits += n;
+    if (threadId !== null && hit.threadId === threadId) {
+      threadHits += n;
+      threadBlocks += 1;
+    }
+  }
+  return { threadHits, threadBlocks, allHits, allBlocks: results.length };
+};
+
 export const useSearchStore = create<SearchState>((set, get) => {
   // Land in-block navigation on `hit` at `hitIndex`, selecting its thread if it differs and
   // flashing it into view — the same orchestration as a search-result click (select +

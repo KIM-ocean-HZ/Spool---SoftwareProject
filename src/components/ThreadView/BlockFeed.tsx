@@ -435,7 +435,8 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
       <div className="flex h-full items-center justify-center px-6 py-12">
         {overEmpty ? (
           <p className="rounded-md border-2 border-dashed border-accent bg-accent/5 px-8 py-10 text-center text-sm font-ui text-accent">
-            {t('松开以新建第一个块')}
+            {/* 同上：空项目里松手一样是「加文件」，⛔ 不是「新建第一个块」。 */}
+            {t('松开，把文件加进这个项目')}
           </p>
         ) : (
           <div className="text-center">
@@ -563,12 +564,15 @@ export default function BlockFeed({ threadId, scrollRef }: Props) {
             </Fragment>
           );
         })}
-        {/* Explicit drop zone: when a Finder drag is over empty timeline space (not
-            over a block), this names the outcome — a new block — instead of leaving
-            the user guessing. */}
+        {/* 拖文件进来时落在哪儿。⚠️⚠️ 2026-08-27 改了这句话，因为**它说的不是真的**：
+            写着「新建一个块」，而 v15（DESIGN_PROJECT_FILES）之后从访达拖进来的文件
+            是加进**这个项目的文件清单**的，一个块都不会新建（useThreadDropTarget 顶上
+            那段说明写着旧行为「已经没有了」，这句文案是那次改动漏下的）。
+            ⇒ 现在它说的就是松手之后真会发生的事。Ocean 2026-08-27 选的就是这一条
+            （「改成说实话」）。 */}
         {overEmpty && (
           <div className="flex items-center justify-center rounded-md border-2 border-dashed border-accent bg-accent/5 px-3.5 py-5 font-ui text-[12px] text-accent">
-            {t('松开以新建一个块')}
+            {t('松开，把文件加进这个项目')}
           </div>
         )}
       </div>

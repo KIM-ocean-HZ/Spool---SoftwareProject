@@ -541,6 +541,7 @@ pub fn run() {
 
             fit_main_window_to_work_area(app.handle());
 
+
             #[cfg(desktop)]
             {
                 use tauri::tray::TrayIconBuilder;

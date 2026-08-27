@@ -67,7 +67,8 @@ fn clear_export_target(dest: &Path, data_dir: &Path) -> Result<(), String> {
 /// Write the whole library out to `dest` as a single self-contained file.
 ///
 /// Returns the exported file's size in bytes.
-#[tauri::command]
+// ⚠️ `(async)`：这四条都是磁盘活儿（整库拷贝、逐个 stat），大库上是秒级的。⛔ 不占主线程。
+#[tauri::command(async)]
 pub fn export_library(app: tauri::AppHandle, dest: String) -> Result<u64, String> {
     let dir = data_dir(&app)?;
     let source = dir.join("spool.db");
@@ -93,7 +94,7 @@ pub fn export_library(app: tauri::AppHandle, dest: String) -> Result<u64, String
 
 /// Copy the file the user picked into the data dir so the frontend can open it as a second
 /// database and migrate it. Returns nothing: the frontend opens it by its fixed name.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stage_import_db(app: tauri::AppHandle, source: String) -> Result<(), String> {
     let dir = data_dir(&app)?;
     let src = PathBuf::from(&source);
@@ -120,7 +121,7 @@ pub fn stage_import_db(app: tauri::AppHandle, source: String) -> Result<(), Stri
 }
 
 /// Delete the staged copy once the merge is done — or once it has failed.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn discard_import_staging(app: tauri::AppHandle) -> Result<(), String> {
     let dir = data_dir(&app)?;
     let staged = dir.join(STAGING);
@@ -136,7 +137,7 @@ pub fn discard_import_staging(app: tauri::AppHandle) -> Result<(), String> {
 /// One call for the whole list rather than one per file: after an import from another
 /// machine the answer is usually "all of them", and that is a number the user is told
 /// once (DESIGN_LIBRARY_TRANSFER §3.4), not a per-row state anything reads later.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn count_missing_targets(paths: Vec<String>) -> usize {
     paths.iter().filter(|p| !Path::new(p).exists()).count()
 }

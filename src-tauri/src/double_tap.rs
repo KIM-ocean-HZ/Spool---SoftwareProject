@@ -72,6 +72,7 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Runtime};
 
 // =============================================================================
@@ -162,6 +163,32 @@ static COPY_GATE_ACTIVE: AtomicBool = AtomicBool::new(false);
 // the only ⌥ gesture.
 const DOUBLE_TAP_WINDOW_MS: u64 = 250;
 
+// ⭐⭐ 长按 ⌥ = 直接写一条笔记（2026-08-27，Ocean:「长按 ⌥ 弹同一个浮窗，但正文是空的、
+// 给人直接写，来源留空，存进当前捕捉项目」）。
+//
+// ⚠️⚠️ **两条手势必须互斥。** Ocean 的话是「先等够长按阈值再决定是哪一种，⛔ 不许两条都
+// 触发」。这里做的是同一件事，但**没有让双击等 450ms**：
+//   - 双击照旧在第二下按下的那一刻就触发（⛔ 不能退步 —— §16 写着「按键到浮窗 <200ms」，
+//     让每一次捕捉先卡 450ms 是拿主功能去换新功能）；
+//   - 长按是一个**可以被取消的定时器**：这一下按下之后 450ms 内只要发生了任何别的事
+//     （松开、又按一次、双击触发了、按了别的键、点了鼠标），它就作废。
+// ⇒ 两条永远只有一条会响，而双击一毫秒都没有变慢。
+//
+// ⚠️ `OPT_GEN` 是这个「作废」机制本身：每一件相关的事都把它 +1，定时器醒来发现号变了
+// 就自己退场。⛔ 别改成一个 bool —— 快速连按会让 bool 停在错的那一档上。
+const LONG_PRESS_MS: u64 = 450;
+
+/// 每一次「⌥ 的状态变了」都会把它 +1。长按定时器拿着按下那一刻的号，醒来对不上就作废。
+static OPT_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// ⌥ 现在按着没有。⚠️ 松开那一刻置 false —— 定时器醒来第一件事就是问它。
+static OPT_HELD: AtomicBool = AtomicBool::new(false);
+
+/// 作废掉正在等的那个长按（如果有）。松开、双击触发、按别的键、点鼠标都调它。
+fn cancel_long_press() {
+    OPT_GEN.fetch_add(1, Ordering::SeqCst);
+}
+
 const NANOS_PER_MS: u64 = 1_000_000;
 
 // CGEventGetTimestamp value (nanoseconds) of the last observed clean ⌥ press. Atomic
@@ -190,6 +217,8 @@ static NOTIFIED_DISABLED: AtomicBool = AtomicBool::new(false);
 // so app-event emission goes through boxed closures installed once by install().
 struct Emitters {
     capture_trigger: Box<dyn Fn() + Send + Sync>,
+    /// 长按 ⌥ —— 弹一个空的浮窗让人直接写（2026-08-27）。
+    note_trigger: Box<dyn Fn() + Send + Sync>,
     capture_disabled: Box<dyn Fn(&'static str) + Send + Sync>,
     overlay_dismiss: Box<dyn Fn() + Send + Sync>,
 }
@@ -297,10 +326,14 @@ fn request_accessibility_with_prompt() -> bool {
 pub fn install<R: Runtime>(app: AppHandle<R>) {
     // Emitters for the extern "C" callback and its timer threads. install() runs once.
     let a1 = app.clone();
+    let a3 = app.clone();
     let a2 = app;
     let _ = EMITTERS.set(Emitters {
         capture_trigger: Box::new(move || {
             let _ = a1.emit("capture-trigger", ());
+        }),
+        note_trigger: Box::new(move || {
+            let _ = a3.emit("note-trigger", ());
         }),
         capture_disabled: Box::new(move |reason| {
             let _ = a2.emit("capture-disabled", reason);
@@ -369,6 +402,10 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             true
         }
         ET_LEFT_MOUSE_DOWN => {
+            // ⌥ 按着的时候点鼠标 = ⌥ 拖拽（复制文件、画选区…），⛔ 不是长按笔记。
+            if OPT_HELD.load(Ordering::Relaxed) {
+                cancel_long_press();
+            }
             // §9.13: dismiss the capture toast when the user clicks anywhere outside
             // it (resuming work). Disarmed = the watch returns false, so this is a
             // cheap no-op for every normal click when no toast is up.
@@ -380,6 +417,11 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             true
         }
         ET_KEY_DOWN => {
+            // ⚠️⚠️ ⌥ 按着的时候按了别的键 = 一个组合键（⌥E 打 é、⌥⌫ 删一个词……），
+            // ⛔ 不是长按笔记。少了这一条，任何一个按住 ⌥ 超过半秒的组合键都会弹出浮窗。
+            if OPT_HELD.load(Ordering::Relaxed) {
+                cancel_long_press();
+            }
             // Copy-gate bookkeeping: remember when a ⌘C/⌘X chord was last pressed.
             // Repeats (key held) refresh the stamp harmlessly.
             let event = ManuallyDrop::new(unsafe { CGEvent::from_ptr(event_ptr as *mut _) });
@@ -403,6 +445,11 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
                 // 打开后,不算一次双击。同理,待删的那个 release 也一并作废(反正也不会删了)。
                 LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
                 SWALLOW_NEXT_OPT_RELEASE.store(false, Ordering::Relaxed);
+                // ⚠️ 长按也跟着停 —— Ocean 的红线：这条路要跟「暂停捕捉手势」那个总开关
+                // 一起停（记忆 double-tap-exclusivity）。按在暂停前、还在等的那个定时器
+                // 也一并作废。
+                OPT_HELD.store(false, Ordering::Relaxed);
+                cancel_long_press();
                 return true;
             }
             // Any clean event passing through means the tap is healthy again —
@@ -423,6 +470,10 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             if !is_press {
                 // Release edge. Does NOT update LAST_OPT_PRESS_NS (only presses
                 // count for double-tap pairing).
+                // ⚠️ 松开 = 这一下不是长按了。⛔ 必须在下面那两个 return 之前做，
+                // 不然被删掉的那个 release（双击的第二下）会把它漏掉。
+                OPT_HELD.store(false, Ordering::Relaxed);
+                cancel_long_press();
                 // Suppression: this is the release of a deleted 2nd press — delete
                 // it too, so the outside world's press/release pairing stays
                 // consistent (it saw exactly one full tap).
@@ -446,6 +497,32 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
             {
                 return true;
             }
+
+            // ⭐ 一次干净的 ⌥ 按下 —— 起一个长按定时器。它随时会被上面那几处作废掉。
+            OPT_HELD.store(true, Ordering::SeqCst);
+            let generation = OPT_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(LONG_PRESS_MS));
+                // 号变了 = 这段时间里发生过别的事（松开 / 又按一次 / 双击触发 / 别的键 /
+                // 点鼠标 / 暂停开关）。⇒ 这一下不是长按。
+                if OPT_GEN.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                if !OPT_HELD.load(Ordering::SeqCst) {
+                    return;
+                }
+                // ⚠️ 再问一次总开关：按下去的时候还开着，这 450ms 里可能被关掉了。
+                if crate::capture::capture_disabled() {
+                    return;
+                }
+                // ⛔ 这一下用掉了：别让它再跟下一次按下配成一个双击。
+                LAST_OPT_PRESS_NS.store(0, Ordering::Relaxed);
+                OPT_GEN.fetch_add(1, Ordering::SeqCst);
+                eprintln!("[double-tap] LONG-PRESS ⌥ ({LONG_PRESS_MS}ms) — 直接写笔记");
+                if let Some(e) = EMITTERS.get() {
+                    (e.note_trigger)();
+                }
+            });
 
             let now = unsafe { CGEventGetTimestamp(event_ptr as *const c_void) };
             let prev = LAST_OPT_PRESS_NS.swap(now, Ordering::Relaxed);
@@ -473,6 +550,9 @@ fn on_event(etype: u32, event_ptr: *mut c_void) -> bool {
                         eprintln!(
                             "[double-tap] TRIGGER gap={gap}ms (⌘C {copy_gap_ms}ms ago)"
                         );
+                        // ⛔ 这一下已经是双击了 —— 把还在等的那个长按作废，
+                        // 「不许两条都触发」就是靠这一行。
+                        cancel_long_press();
                         (emitters.capture_trigger)();
                         // Suppression: Spool consumed this double-tap — delete the
                         // 2nd press (and, via the flag, its release) so Claude

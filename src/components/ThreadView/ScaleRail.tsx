@@ -49,6 +49,26 @@ const MAX_SLICE_PX = 26;
  *  「哦是那一块」用的,不是拿来读的;真要读,点一下就到了。 */
 const PREVIEW_CHARS = 150;
 
+// ⭐⭐ 2026-08-27 第二轮（Ocean:「常驻的小 block 预览：以当前 block 为基准，把同一项目里命中
+// 的块以小 block 形式排出来，只排当前上下各 5 个命中，尺寸以当前所在的 block 为中心向外递减」）。
+//
+// ⚠️⚠️ **宽度是红线，所以它做成了「鼠标靠过去才展开」**（Ocean 2026-08-27 在三个方案里选的
+// 这一条）。刻度本身仍然是 16px —— 上面那句「一个控件只许占它实际占的宽度」一个字没改。
+// 小 block 预览必然更宽，而这一列右边就是正文的右边缘：常驻一条宽的，等于把正文右边缘的
+// 划词和点击永久吃掉。⇒ 只在鼠标进到刻度上的时候展开，鼠标一走就收回去。
+// ⛔ 仍然不是浮窗：它是刻度自己的子节点，跟着刻度走。
+const PREVIEW_EACH_SIDE = 5;
+
+/** 小 block 预览这一列有多宽。⚠️ 只在展开的那一刻占着。 */
+const PREVIEW_COL_W = 196;
+
+/** 离中心每远一格缩多少。⭐「尺寸以当前所在的 block 为中心向外递减」就是这两行。 */
+const PREVIEW_STEP = 0.085;
+const PREVIEW_MIN_SCALE = 0.62;
+
+/** 每一张小 block 里带几个字。⚠️ 比悬浮卡少 —— 它更小，而且一次要排十一张。 */
+const MINI_CHARS = 60;
+
 /** 预览卡竖着大概占多高的一半 —— 它按刻度的中线居中,所以要拿这个把上下两头夹住,
  *  不然停在最上面那根上时,卡片一半会飘到项目标题栏上去。 */
 const PREVIEW_HALF_PX = 52;
@@ -76,6 +96,8 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
   const [railH, setRailH] = useState(0);
   /** 鼠标停在第几根上。null = 没停在任何一根上。 */
   const [hovered, setHovered] = useState<number | null>(null);
+  /** 鼠标有没有进到这一栏里 —— 小 block 预览靠它展开。 */
+  const [railHovered, setRailHovered] = useState(false);
   const entriesRef = useRef<Entry[]>([]);
   entriesRef.current = entries;
   const railRef = useRef<HTMLDivElement>(null);
@@ -247,6 +269,39 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
     };
   }, [dragging, indexAtPointer, goTo]);
 
+  // ⭐ 小 block 预览要排哪几张：以**当前那一块**为基准，同一项目里命中的块，上下各取 5 个。
+  //
+  // ⚠️ 「上下各 5 个命中」数的是**命中**，⛔ 不是块：中间隔着二十块没命中的，也还是相邻的
+  // 两个命中。这正是这一列存在的理由 —— 把散在长项目各处的命中收到一屏里。
+  // ⚠️ 当前那一块**自己命中了**就当中心；没命中就取它在命中序列里应当插入的位置，
+  // 于是上面几个是「往回找」、下面几个是「往下找」，方向仍然对得上。
+  const miniList = useMemo(() => {
+    if (matches.size === 0) return [] as { idx: number; hit: SearchHit; distance: number }[];
+    const hitIdxs: number[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      if (matches.has(entries[i]!.id)) hitIdxs.push(i);
+    }
+    if (hitIdxs.length === 0) return [];
+    // 当前块在命中序列里的位置（命中了就是它自己，没命中就是它该插进去的地方）。
+    let centre = hitIdxs.findIndex((i) => i >= current);
+    if (centre < 0) centre = hitIdxs.length - 1;
+    const from = Math.max(0, centre - PREVIEW_EACH_SIDE);
+    const to = Math.min(hitIdxs.length, centre + PREVIEW_EACH_SIDE + 1);
+    return hitIdxs.slice(from, to).map((idx) => {
+      const rank = hitIdxs.indexOf(idx);
+      return {
+        idx,
+        hit: matches.get(entries[idx]!.id)!,
+        // 离中心几格 —— 尺寸就是按它递减的。
+        distance: Math.abs(rank - centre),
+      };
+    });
+  }, [matches, entries, current]);
+
+  /** 小 block 预览这会儿该不该出来。⚠️ 三个条件缺一不可：鼠标在这一栏里、查找开着、
+   *  而且**这个项目里真的有命中** —— 没命中还滑出来一条空的，比不滑更让人困惑。 */
+  const miniOpen = railHovered && !dragging && miniList.length > 0;
+
   // A single block is not a scale — one tick tells the reader nothing they cannot already see.
   if (entries.length < 2) return null;
 
@@ -254,6 +309,8 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
   // 有批注用批注,没批注用正文前几句话)」. 批注优先是他定的,也是对的 —— 批注是这个人自己
   // 写下的「这一块是干什么的」,比正文开头更像一个标题（W7 在正文那边也是这么排的）。
   const preview = ((): { at: number; text: string; hit: SearchHit | null } | null => {
+    // ⚠️ 小 block 那一列展开的时候就不画这张单卡了 —— 两个一起出会互相盖。
+    if (miniOpen) return null;
     if (hovered === null || dragging) return null;
     const entry = entries[hovered];
     if (!entry) return null;
@@ -277,7 +334,11 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
     <div
       ref={railRef}
       data-scale-rail
-      onMouseLeave={() => setHovered(null)}
+      onMouseEnter={() => setRailHovered(true)}
+      onMouseLeave={() => {
+        setHovered(null);
+        setRailHovered(false);
+      }}
       onMouseDown={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -314,7 +375,10 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
               // ⚠️ `transition` names its properties: `transition-all` also animated colour
               // and background on 200 nodes at once, which is half of why this felt heavy.
               style={{ width: `${width}%`, transitionProperty: 'width, opacity' }}
-              className={`h-px duration-150 ease-out ${
+              // ⭐ 2026-08-27（Ocean:「当前那一根要在刻度上标出来」）——当前那一根**加粗到 2px**。
+              // ⚠️ 光靠颜色分不出来了：命中也是 accent 色（那是这一批刚加的），所以在长度和
+              // 颜色之外还得有第三样东西说「你在这儿」。
+              className={`duration-150 ease-out ${isCurrent ? 'h-[2px]' : 'h-px'} ${
                 isCurrent
                   ? 'bg-accent opacity-100'
                   : isMatch
@@ -329,6 +393,50 @@ export default function ScaleRail({ scrollRef, revision, threadId }: Props) {
           </div>
         );
       })}
+
+      {/* ⭐⭐ 小 block 预览列（2026-08-27 第二轮）。鼠标进这一栏才展开，出去就没。
+          ⚠️ `right-5` = 贴着刻度往左排，⛔ 不越到刻度右边去（那儿是窗口边缘）。
+          ⚠️ `onMouseDown` 要 `stopPropagation`：外面那一层的 mousedown 是「按住刻度拖动」，
+          不拦住的话点一张小 block 会同时启动一次拖动，跳到指针底下那一根去。 */}
+      {miniOpen && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{ width: PREVIEW_COL_W }}
+          className="absolute right-5 top-1/2 z-20 flex max-h-full -translate-y-1/2 flex-col justify-center gap-1 overflow-hidden"
+        >
+          {miniList.map(({ idx, hit, distance }) => {
+            // ⭐「尺寸以当前所在的 block 为中心向外递减」。
+            const scale = Math.max(PREVIEW_MIN_SCALE, 1 - distance * PREVIEW_STEP);
+            const isHere = idx === current;
+            const text = hitLine(hit).replace(/\s+/g, ' ').trim().slice(0, MINI_CHARS);
+            return (
+              <button
+                key={entries[idx]!.id}
+                type="button"
+                onClick={() => {
+                  useActiveBlockStore.getState().setActive(entries[idx]!.id);
+                  // ⚠️ 和点刻度同一条路：让 jumpToResult 去滚，⛔ 这里不自己滚。
+                  useSearchStore.getState().jumpToResult(entries[idx]!.id);
+                }}
+                onMouseEnter={() => setHovered(idx)}
+                style={{
+                  width: `${scale * 100}%`,
+                  fontSize: `${11 * scale}px`,
+                  marginLeft: 'auto',
+                }}
+                className={`block truncate rounded border px-1.5 py-1 text-left font-ui leading-[1.45] transition-colors ${
+                  isHere
+                    ? 'border-accent bg-accent-soft text-accent'
+                    : 'border-line bg-paper text-ink-2 hover:border-accent hover:text-accent'
+                }`}
+                title={text}
+              >
+                {text || t('（这一块没有文字）')}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 预览卡。⛔ `pointer-events-none` —— 它飘在正文上面,不许吃掉任何一次点击或划词。
           ⚠️ 画在刻度条里面（刻度条是 absolute,自己就是定位基准）,所以位置只跟刻度有关,

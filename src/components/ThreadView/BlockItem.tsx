@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { flushSync } from 'react-dom';
 import { annotationEdited, annotationIsAi } from '@/lib/blocks/annotationAuthor';
 import { ContentRuns } from '@/lib/blocks/contentRuns';
+import { applyBlockFormat, formatAt, type BlockFormat } from '@/lib/blocks/format';
 import { MarkdownContent } from '@/lib/blocks/MarkdownContent';
 import { isHighlightable, rangeIsHighlighted, toggleHighlightRange } from '@/lib/blocks/highlight';
 import { locateQuote } from '@/lib/blocks/quoteFold';
@@ -723,6 +724,33 @@ function TextBlockItem({
     });
   };
 
+  // ⑧（2026-08-27）—— 手动排版三档。作用在**正文那个 textarea** 上：它的
+  // `selectionStart/End` 就是 `contentDraft` 里的原始下标，⛔ 不需要任何映射
+  // （和 runHighlight 的编辑态那一路同一个理由）。
+  //
+  // ⚠️ 改完把选区**还回去**，不然浏览器把光标扔到末尾，用户刚划中的那句话就找不着了。
+  // ⚠️ 走 `contentDraft`，⛔ 不直接写库：和面板里所有别的修改一样，按「完成」才落库，
+  // Esc 一起放弃。
+  const currentFormat = editorOpen
+    ? formatAt(
+        contentDraft,
+        contentRef.current?.selectionStart ?? 0,
+        contentRef.current?.selectionEnd ?? 0,
+      )
+    : 'body';
+
+  const applyFormat = (f: BlockFormat): void => {
+    const ta = contentRef.current;
+    if (!ta) return;
+    const r = applyBlockFormat(contentDraft, ta.selectionStart, ta.selectionEnd, f);
+    if (r.text === contentDraft) return;
+    setContentDraft(r.text);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(r.selectionStart, r.selectionEnd);
+    }, 0);
+  };
+
   // Unified toggle used by BOTH the floating prompt and the toolbar button. Wraps a range
   // in `==…==`; UN-wraps it when the range already sits inside a highlight.
   //
@@ -1134,7 +1162,12 @@ function TextBlockItem({
                 content={block.content}
                 hits={isNavTarget ? hitsForField(navHits, 'content') : undefined}
                 activeHitIndex={navHitIndex}
-                withSpine
+                /* ⛔⛔ 2026-08-27（Ocean:「去掉第一行自动加粗」）——**`withSpine` 拿掉了。**
+                   在这之前，正文第一段会被渲染器自动加重（contentRuns 的 spine）。那是替
+                   用户做的决定：他没写过任何记号，字却粗了，而且想让它不粗做不到。
+                   现在轻重由他自己点：编辑面板顶上的「标题 / 正文 / 斜体」（lib/blocks/format.ts）。
+                   ⚠️ `MarkdownContent` 的 `withSpine` 形参还在（周回顾那边的调用点和几组
+                   测试还引着它），但**产品里已经没有人传它了**。 */
                 corrected={correctedSpans}
                 withOffsets
                 onCorrectedClick={
@@ -1384,6 +1417,35 @@ function TextBlockItem({
                     ==重点== had to come along or it would have quietly stopped being
                     reachable while editing — the one mode where you are most likely to want
                     it. Same handler as the toolbar's button. */}
+                {/* ⭐ 2026-08-27（Ocean:「换成手动排版三档：标题 / 正文 / 斜体」）——
+                    ⚠️ 作用在**正文框**光标所在的那一行（划了词就只作用在那一段）。
+                    ⛔ 不新开数据库字段：三档写的是正文里的 markdown 记号本身
+                    （`#` / 什么都没有 / `*…*`），见 lib/blocks/format.ts。
+                    ⚠️ `onMouseDown` 先 `preventDefault()`：不然点按钮会把正文框的
+                    焦点和选区一起带走，改完不知道该改哪一行。 */}
+                {(['heading', 'body', 'italic'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormat(f)}
+                    className={`rounded border px-2 py-1 text-[11px] transition-colors ${
+                      currentFormat === f
+                        ? 'border-accent bg-accent-soft text-accent'
+                        : 'border-line text-muted hover:border-accent hover:text-accent'
+                    }`}
+                    title={
+                      f === 'heading'
+                        ? t('这一行当标题（比正文大一点）')
+                        : f === 'body'
+                          ? t('这一行当正文（去掉标题和斜体）')
+                          : t('斜体（划中的那一段，没划就是整行）')
+                    }
+                  >
+                    {f === 'heading' ? t('标题') : f === 'body' ? t('正文') : t('斜体')}
+                  </button>
+                ))}
+                <div className="h-4 w-px flex-none bg-line" />
                 <button
                   type="button"
                   disabled={selectionRaw === null}

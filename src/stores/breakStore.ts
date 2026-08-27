@@ -16,22 +16,29 @@ import { create } from 'zustand';
 interface BreakStoreState {
   /** Active ms in the current sitting, republished on every tick of the reducer. */
   activeMs: number;
+  /** ⭐ 2026-08-27（Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」）——
+   *  **本次开机以来**的总专注时间。休息清 `activeMs`，⛔ 清不掉这个。
+   *  ⚠️ 一样不落盘（理由见上面那段），所以侧边栏写的是「已专注」而**不是**「今天已专注」。 */
+  totalMs: number;
   /** When the break lock lifts by itself. Null = not locked. ⚠️ A DEADLINE rather than a
    *  remaining-ms counter: the lock's own display ticks once a second, and a counter would
    *  drift against the wall clock every time the timer was throttled. */
   lockUntil: number | null;
-  publish: (activeMs: number) => void;
+  publish: (activeMs: number, totalMs: number) => void;
   lock: (until: number) => void;
   unlock: () => void;
 }
 
 export const useBreakStore = create<BreakStoreState>((set) => ({
   activeMs: 0,
+  totalMs: 0,
   lockUntil: null,
-  publish: (activeMs) => set({ activeMs }),
+  publish: (activeMs, totalMs) => set({ activeMs, totalMs }),
   // The streak is already zeroed by the reducer on the tick that fired, so the sidebar clock
   // reads 0 for the length of the break — which is true, and is what makes the count-up start
   // from the moment the user comes back rather than from the moment they were interrupted.
+  // ⚠️ 这两条只把**这一坐**归零。⛔ `totalMs` 不动 —— 那正是 Ocean 要的「还在往上加」
+  // 的那个数，休息一次就抹掉它等于这件事没做。
   lock: (until) => set({ lockUntil: until, activeMs: 0 }),
   unlock: () => set({ lockUntil: null, activeMs: 0 }),
 }));

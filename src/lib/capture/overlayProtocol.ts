@@ -119,6 +119,14 @@ export interface CaptureOverlayPayload {
   // re-activate that app after show() so the user's keyboard focus returns there —
   // fixes the "next ⌘C goes to Spool instead of the browser" bug on macOS.
   prevSourceApp: string | null;
+  /** ⭐ 长按 ⌥ 那一路（2026-08-27，Ocean:「长按 ⌥ 弹同一个浮窗，但正文是空的、给人直接写」）。
+   *
+   *  ⚠️ 这一路和捕捉最大的不同：**块还没存**。捕捉是「先落库再弹窗」（剪贴板里的东西
+   *  丢不得），而这一条的正文还在人脑子里 —— 先存一个空块，等他按 Esc 就成了库里一条谁也
+   *  不想要的空记录。⇒ `blockId` 在这一路是空串，写完了才由浮窗自己 `createBlock`。
+   *
+   *  ⚠️ 来源留空 = pack 里的 💭 Personal（权重最高的那一类），这是 Ocean 要的。 */
+  noteMode?: boolean;
 }
 
 export interface OverlaySourceUpdate {
@@ -179,6 +187,9 @@ export type OverlayAction =
       threadId: string;
       annotation: string | null;
     }
+  // ⭐ 长按 ⌥ 写完了一条笔记。⚠️ 库已经由浮窗写好了（`createBlock` 走 DB 桥），
+  // 这一条只是让主窗把它并进自己的 store —— 和 'redirect' 里的 newBlock 同一个道理。
+  | { kind: 'note-created'; block: Block; threadId: string }
   // 休息提醒 (2026-08-22): the user clicked the break card. Main brings its window up and
   // puts the lock on — in that order, so the five minutes start where the user can see them.
   | { kind: 'break-open' }

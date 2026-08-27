@@ -63,16 +63,22 @@ const TICKS = Array.from({ length: 12 }, (_, i) => {
 export default function BreakClock() {
   const t = useT();
   const activeMs = useBreakStore((s) => s.activeMs);
+  // ⭐ 2026-08-27（Ocean:「专注时间要一直累积」）——**上面那行字换成总数了**。
+  // 表盘（弧和指针）画的仍然是**这一坐**：它是倒计时，走到头就该回到零。
+  // 上面那行字画的是**总数**：休息清不掉它，所以倒计时结束之后它还在，还在往上加。
+  // ⚠️ 写「已专注」⛔ 不写「今天已专注」：这个数是本次开机以来的，不落盘
+  // （breakStore 顶上那段说了为什么），下午三点重开一次 Spool，「今天」当场就是假的。
+  const totalMs = useBreakStore((s) => s.totalMs);
   const workMinutes = useSettingsStore((s) => s.breakWorkMinutes);
 
   const workMs = msForMinutes(workMinutes);
   const fraction = Math.min(Math.max(activeMs / workMs, 0), 1);
-  // Floor going up, ceil coming down — so 「已连续专注 N」 never claims a minute that has not
+  // Floor going up, ceil coming down — so 「已专注 N」 never claims a minute that has not
   // finished, and 「还有 N 分钟」 never promises one that has already gone.
-  const workedMin = Math.floor(activeMs / 60_000);
+  const workedMin = Math.floor(totalMs / 60_000);
   const leftMin = Math.max(0, Math.ceil((workMs - activeMs) / 60_000));
 
-  const label = t('已连续专注 {n} 分钟', { n: workedMin });
+  const label = t('已专注 {n} 分钟', { n: workedMin });
   const [handX, handY] = pointAt(fraction, R_HAND);
 
   return (

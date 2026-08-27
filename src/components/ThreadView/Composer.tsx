@@ -3,10 +3,14 @@ import type { KeyboardEvent } from 'react';
 import { isImeComposing } from '@/lib/utils/ime';
 import { useT } from '@/lib/i18n';
 import { useBlocksStore } from '@/stores/blocksStore';
+import { selectDraft, useDraftStore } from '@/stores/draftStore';
 import { selectThreadById, useThreadsStore } from '@/stores/threadsStore';
 
 interface Props {
   threadId: string;
+  /** ⑦（2026-08-27，Ocean:「发完一条自动定位到最底下刚输入的位置」）——刚存下的那一块。
+   *  ⚠️ 滚动交给 LogView 做：滚动容器是它的，⛔ 别在这里塞一个全局的「滚到哪儿」状态。 */
+  onSubmitted?: (blockId: string) => void;
 }
 
 // Match a trailing `@query` token at the end of the draft (Phase 10). The leading
@@ -17,9 +21,12 @@ const MENTION_RE = /(?:^|\s)@([^\s@]*)$/;
 
 const MENTION_LIMIT = 8;
 
-export default function Composer({ threadId }: Props) {
+export default function Composer({ threadId, onSubmitted }: Props) {
   const t = useT();
-  const [value, setValue] = useState('');
+  // ⚠️⚠️ 草稿存在 store 里，**不是** useState —— LogView 是 `key={thread.id}` 挂的，
+  // 查找跳到别的项目会把这个组件整个卸载重建，本地 state 跟着没。见 stores/draftStore.ts。
+  const value = useDraftStore(selectDraft(threadId));
+  const setValue = (next: string): void => useDraftStore.getState().setDraft(threadId, next);
   const [activeIdx, setActiveIdx] = useState(0);
 
   const append = useBlocksStore((s) => s.append);
@@ -58,8 +65,9 @@ export default function Composer({ threadId }: Props) {
   const submit = async (): Promise<void> => {
     const content = value.trim();
     if (!content) return;
-    setValue('');
-    await append({ threadId, kind: 'text', content });
+    useDraftStore.getState().clearDraft(threadId);
+    const block = await append({ threadId, kind: 'text', content });
+    onSubmitted?.(block.id);
   };
 
   const pickMention = async (i: number): Promise<void> => {
@@ -69,7 +77,8 @@ export default function Composer({ threadId }: Props) {
     // append a ref block. Snapshot the title into content so the assemble fallback
     // still has something if the referenced thread is later deleted.
     setValue(value.slice(0, mention.start) + value.slice(mention.end));
-    await append({ threadId, kind: 'ref', content: c.title, refThreadId: c.t.id });
+    const block = await append({ threadId, kind: 'ref', content: c.title, refThreadId: c.t.id });
+    onSubmitted?.(block.id);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {

@@ -17,6 +17,10 @@ const SEARCH_LIMIT = 60;
 const LINE_CAP = 120;
 const WINDOW_PAD_BEFORE = 48;
 
+/** 找上下文时最多越过几行空白。markdown 段落之间通常只隔一行，两行足够，
+ *  再远就是另一段的事了。 */
+const SKIP_BLANK_LINES = 2;
+
 export type SearchField = 'content' | 'annotation';
 
 export interface SearchSnippetLine {
@@ -54,9 +58,16 @@ export interface SearchHit {
 }
 
 /** 一条命中里「对上的那一行」的文字。⭐ 2026-08-27 从 InBlockNavigator 搬到这里，因为右侧
- *  刻度的悬浮预览也要用同一行 —— 两处各写一遍的话，两处会慢慢长得不一样。 */
+ *  刻度的悬浮预览也要用同一行 —— 两处各写一遍的话，两处会慢慢长得不一样。
+ *
+ *  ⚠️ 2026-08-27 晚：兜底那一步要**跳过空行**。命中行找不到的时候（FTS 对上了但没有逐字
+ *  的子串），原来直接拿 `snippet[0]`，而块正文常常是「段落 + 空行 + 段落」，`snippet[0]`
+ *  正好是那个空行 ⇒ 「所有匹配」那张单子上就出现一条**什么字都没有**的结果。 */
 export const hitLine = (hit: SearchHit): string => {
-  const line = hit.snippet.find((l) => l.isHit) ?? hit.snippet[0];
+  const line =
+    hit.snippet.find((l) => l.isHit) ??
+    hit.snippet.find((l) => l.text.trim().length > 0) ??
+    hit.snippet[0];
   return (line?.text ?? '').trim();
 };
 
@@ -125,8 +136,9 @@ export const buildSnippet = (
 
   // Keyword not present as a literal substring (rare — e.g. a Unicode case-folding
   // edge the JS search can't reproduce): degrade to the first lines of the block.
+  // ⚠️ 前三行**里非空的那三行**，⛔ 不是「前三行」—— 见下面 neighbour() 那段。
   if (hitIndex < 0) {
-    return { field, snippet: lines.slice(0, 3).map(contextLine) };
+    return { field, snippet: lines.filter((l) => l.trim().length > 0).slice(0, 3).map(contextLine) };
   }
 
   // Map the flat hit offset onto its line. The query has no newline (the search
@@ -142,10 +154,30 @@ export const buildSnippet = (
     lineStart += len + 1; // +1 for the consumed '\n'
   }
 
+  // 上下各一行「有字的」邻居。
+  //
+  // ⚠️⚠️ 2026-08-27（Ocean:「搜索结果先是空白，按上下键才看得到文本」）：原来这里是
+  // `lines[hitLine - 1]` 和 `lines[hitLine + 1]`，**照搬相邻那一行，空行也照搬**。
+  // 而块正文是 markdown：段落之间就是靠空行分开的，所以命中落在第二段开头时，
+  // 上一行必然是空的 ⇒ 结果卡片第一行画出来是一条**空白**（`renderLine` 把空串画成
+  // `' '`，占一行高），要往下看第二行才看得到字。拿真库量过：一个常见词的 60 条命中里
+  // **22 条**第一行是空的。
+  // ⇒ 越过空行，找最近的那一行有字的。⛔ 不是「删掉空行」那么简单 —— 删了就没有上下文了。
+  const neighbour = (from: number, step: -1 | 1): SearchSnippetLine | null => {
+    // 最多越过 SKIP_BLANK_LINES 行空白：再远就不是这一句的上下文了，是另一段。
+    for (let i = from + step, hops = 0; i >= 0 && i < lines.length && hops <= SKIP_BLANK_LINES; i += step, hops++) {
+      const text = lines[i]!;
+      if (text.trim().length > 0) return contextLine(text);
+    }
+    return null;
+  };
+
   const snippet: SearchSnippetLine[] = [];
-  if (hitLine > 0) snippet.push(contextLine(lines[hitLine - 1]!));
+  const above = neighbour(hitLine, -1);
+  if (above) snippet.push(above);
   snippet.push(windowHitLine(lines[hitLine]!, hitIndex - lineStart, query.length));
-  if (hitLine < lines.length - 1) snippet.push(contextLine(lines[hitLine + 1]!));
+  const below = neighbour(hitLine, 1);
+  if (below) snippet.push(below);
   return { field, snippet };
 };
 

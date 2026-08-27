@@ -123,11 +123,22 @@ export const MAX_TICK_CREDIT_MS = TICK_MS * 2;
 export interface BreakState {
   /** Active milliseconds accumulated in the current sitting. */
   activeMs: number;
+  /** ⭐ 2026-08-27（Ocean:「倒计时结束之后，总专注时间还看得见、还在往上加」）——
+   *  **这次开机以来的总专注时间**。和 `activeMs` 记的是同一批毫秒，区别只有一条：
+   *  休息把 `activeMs` 清零，⛔ 但清不掉它。
+   *
+   *  ⚠️ 它和 `activeMs` 一样**不落盘**，那条理由一个字没变（见 stores/breakStore.ts 顶上）：
+   *  重启之后还端出「你已经工作了 47 分钟」是在替用户撒谎。所以界面上写的是「已专注」，
+   *  ⛔ 不是「今天已专注」—— 下午三点重开一次 Spool，「今天」那个说法当场就是假的。
+   *  要真的跨重启按天累计，那是另一件事（要落盘，得 Ocean 点头）。
+   *
+   *  ⚠️ 离开超过 N 分钟、这一坐作废的时候它也**留着**：那些分钟是真的工作过的。 */
+  totalMs: number;
   /** When the last tick was credited (or the streak reset). Null before the first tick. */
   lastTickAt: number | null;
 }
 
-export const initialBreakState = (): BreakState => ({ activeMs: 0, lastTickAt: null });
+export const initialBreakState = (): BreakState => ({ activeMs: 0, totalMs: 0, lastTickAt: null });
 
 export interface TickInput {
   now: number;
@@ -189,7 +200,8 @@ export const tickBreakState = (state: BreakState, input: TickInput): TickResult 
   if (!working) {
     if (state.lastTickAt === null) return { state, due: false };
     if (now - state.lastTickAt > PRESENCE_WINDOW_MS) {
-      return { state: initialBreakState(), due: false };
+      // ⚠️ `totalMs` 带过来：这一坐没了，但已经工作过的那些分钟是真的。
+      return { state: { ...initialBreakState(), totalMs: state.totalMs }, due: false };
     }
     return { state, due: false };
   }
@@ -197,20 +209,23 @@ export const tickBreakState = (state: BreakState, input: TickInput): TickResult 
   // Working. First tick of a sitting only starts the clock — there is no earlier moment to
   // measure from, and crediting a full tick here would bill time before the user arrived.
   if (state.lastTickAt === null) {
-    return { state: { activeMs: state.activeMs, lastTickAt: now }, due: false };
+    return { state: { activeMs: state.activeMs, totalMs: state.totalMs, lastTickAt: now }, due: false };
   }
 
   // ⚠️ A gap this long means the machine slept or the tab was throttled. The elapsed time is
   // real but it was not spent working, so it is capped rather than trusted (MAX_TICK_CREDIT_MS).
   const credit = Math.min(Math.max(now - state.lastTickAt, 0), MAX_TICK_CREDIT_MS);
   const activeMs = state.activeMs + credit;
+  // ⭐ 同一批毫秒，两个累加器 —— ⛔ 别只加一个，两个数会当场开始互相说不一样的话。
+  const totalMs = state.totalMs + credit;
 
   if (activeMs >= input.workMs) {
     // Reset as we fire. The dialog is the end of this sitting whether or not the user actually
     // rests — an un-reset streak would re-fire on the very next tick, thirty seconds later.
-    return { state: { activeMs: 0, lastTickAt: now }, due: true };
+    // ⚠️ 只清 `activeMs`。`totalMs` 是 Ocean 要的那个「一直往上加」的数。
+    return { state: { activeMs: 0, totalMs, lastTickAt: now }, due: true };
   }
-  return { state: { activeMs, lastTickAt: now }, due: false };
+  return { state: { activeMs, totalMs, lastTickAt: now }, due: false };
 };
 
 /** `m:ss` for the lock's countdown.

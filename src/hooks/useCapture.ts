@@ -19,6 +19,7 @@ import {
   type OverlayNotice,
 } from '@/lib/capture/overlayProtocol';
 import { updateBlockSource } from '@/lib/db/blocks';
+import { getCaptureTargetThread } from '@/lib/db/threads';
 import { useBlocksStore } from '@/stores/blocksStore';
 import { useBreakStore } from '@/stores/breakStore';
 import { buildPreview, useCaptureStore } from '@/stores/captureStore';
@@ -91,6 +92,29 @@ const applyOverlayAction = (action: OverlayAction): void => {
   // of the 「quiet」 rule; a card that comes back is one people learn to close unread.
   if (action.kind === 'break-skip') {
     useBreakStore.getState().unlock();
+    return;
+  }
+  // ⭐ 长按 ⌥ 写完的那一条（2026-08-27）。库已经由浮窗写好了（走 DB 桥的 createBlock），
+  // 这里只做主窗这边的三件事：并进 store、能撤销、在项目里闪一下。
+  // ⚠️ 和捕捉那条路的顺序**反过来**：那边是先落库再弹窗，这边是先弹窗、写完了才落库
+  // （理由见 overlayProtocol 的 `noteMode`）。
+  if (action.kind === 'note-created') {
+    useBlocksStore.setState((s) => ({
+      byThread: {
+        ...s.byThread,
+        [action.threadId]: [...(s.byThread[action.threadId] ?? []), action.block],
+      },
+    }));
+    useUndoStore.getState().pushUndo(
+      buildCaptureUndo({
+        blockId: action.block.id,
+        threadId: action.threadId,
+        content: action.block.content,
+      }),
+    );
+    useCaptureStore.getState().setFlash(action.threadId, action.block.id);
+    useCaptureStore.getState().noteCapture(action.block.id);
+    void useThreadsStore.getState().patch(action.threadId, {});
     return;
   }
   if (action.kind === 'undo') {
@@ -330,6 +354,66 @@ export function useCapture(): void {
       }
     })();
 
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  // ⭐⭐ 长按 ⌥ —— 直接写一条笔记（2026-08-27，Ocean）。
+  //
+  // ⚠️ 这一路**不读剪贴板、不落库**：它只是把浮窗弹出来，正文空着等人写。真正的写入在
+  // 浮窗那边（`note-created`）。⛔ 别在这里先存一个空块——按 Esc 就成了库里一条空记录。
+  // ⚠️ `getCaptureTargetThread()` 和捕捉走的是同一个「当前捕捉项目」，⛔ 不是「屏幕上开着
+  // 的那个项目」：长按多半发生在别的 app 里，那时候屏幕上开着什么都不相干。
+  // 红线：主窗永不跳前（记忆 capture-note-first）—— 这里一次 `raise_main_window` 都没有。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      const dispose = await listen('note-trigger', async () => {
+        if (DEV) console.info('[capture] note-trigger (长按 ⌥)');
+        if (inFlightRef.current) return;
+        inFlightRef.current = true;
+        try {
+          const target = await getCaptureTargetThread();
+          if (!target) {
+            showNoticeInOverlay({ kind: 'no-target' });
+            return;
+          }
+          const ws = useWorkspacesStore
+            .getState()
+            .workspaces.find((w) => w.id === target.workspaceId);
+          const frontmost = await Promise.race([
+            readForegroundApp(),
+            sleep(FRONTMOST_HOT_PATH_MS).then(() => null),
+          ]);
+          const payload: CaptureOverlayPayload = {
+            // ⚠️ 空串 = 还没有这一块。浮窗写完了才 createBlock。
+            blockId: '',
+            threadId: target.id,
+            workspaceId: target.workspaceId,
+            workspaceTitle: ws?.title.trim() || t('收件箱'),
+            threadTitle: target.title.trim() || t('未命名'),
+            preview: '',
+            fullContent: '',
+            // ⛔ 来源留空 —— 这是用户自己写的，pack 里就该落在 💭 Personal。
+            source: null,
+            prevSourceApp: frontmost?.app ?? null,
+            noteMode: true,
+          };
+          await invoke(SHOW_OVERLAY_COMMAND, { payload });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error('[capture] note-trigger failed', e);
+          showNoticeInOverlay({ kind: 'error', msg: t('捕捉失败：{msg}', { msg }) });
+        } finally {
+          inFlightRef.current = false;
+        }
+      });
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    })();
     return () => {
       cancelled = true;
       if (unlisten) unlisten();
